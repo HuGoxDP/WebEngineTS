@@ -1,9 +1,11 @@
+import { EngineSettings } from "./EngineSettings";
+
 export class Time {
     // Час між кадрами (змінюється залежно від FPS)
     static deltaTime: number = 0;
 
-    // Фіксований час для фізики (константа, наприклад 0.02s)
-    static fixedDeltaTime: number = 1 / 50;
+    // Використовуємо константу з налаштувань
+    static fixedDeltaTime: number = EngineSettings.Time.FIXED_TIMESTEP;
 
     static time: number = 0;
     static frameCount: number = 0;

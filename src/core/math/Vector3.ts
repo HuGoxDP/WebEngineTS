@@ -1,4 +1,6 @@
-﻿/**
+﻿import { EngineSettings } from "../EngineSettings";
+
+/**
  * Vector3.ts
  * Математичний клас для роботи з 3D векторами.
  */
@@ -12,8 +14,6 @@ export class Vector3 {
         this.z = z;
     }
 
-    // STATIC INSTANCES
-
     static get zero(): Vector3 { return new Vector3(0, 0, 0); }
     static get one(): Vector3 { return new Vector3(1, 1, 1); }
     static get up(): Vector3 { return new Vector3(0, 1, 0); }
@@ -23,44 +23,6 @@ export class Vector3 {
     static get forward(): Vector3 { return new Vector3(0, 0, 1); }
     static get back(): Vector3 { return new Vector3(0, 0, -1); }
 
-    //SERIALIZATION
-    /**
-     * Конвертує вектор у простий об'єкт для збереження в JSON.
-     */
-    toJSON(): { x: number, y: number, z: number } {
-        return { x: this.x, y: this.y, z: this.z };
-    }
-
-    /**
-     * Створює новий вектор із JSON об'єкта.
-     */
-    static fromJSON(json: { x: number, y: number, z: number }): Vector3 {
-        return new Vector3(json.x, json.y, json.z);
-    }
-
-    /**
-     * Записує дані в масив (корисно для буферів WebGL).
-     * @param array Масив, у який записуємо (опціонально).
-     * @param offset Зміщення в масиві.
-     */
-    toArray(array: number[] = [], offset: number = 0): number[] {
-        array[offset] = this.x;
-        array[offset + 1] = this.y;
-        array[offset + 2] = this.z;
-        return array;
-    }
-
-    /**
-     * Завантажує дані з масиву.
-     */
-    fromArray(array: number[], offset: number = 0): this {
-        this.x = array[offset];
-        this.y = array[offset + 1];
-        this.z = array[offset + 2];
-        return this;
-    }
-
-    //SETTERS
     set(x: number = 0, y: number = 0, z: number = 0): this {
         this.x = x;
         this.y = y;
@@ -100,7 +62,6 @@ export class Vector3 {
         return new Vector3(this.x, this.y, this.z);
     }
 
-    // ARITHMETIC METHODS
 
     add(v: Vector3): this {
         this.x += v.x;
@@ -143,14 +104,13 @@ export class Vector3 {
         return this;
     }
 
-    equals(v: Vector3, epsilon = 0.00001): boolean {
+    equals(v: Vector3, epsilon = EngineSettings.Math.EPSILON): boolean {
         return (
             Math.abs(this.x - v.x) < epsilon &&
             Math.abs(this.y - v.y) < epsilon &&
             Math.abs(this.z - v.z) < epsilon
         );
     }
-    // VECTOR MATH
 
     /**
      * Довжина вектора (Magnitude).
@@ -203,7 +163,6 @@ export class Vector3 {
         return Math.sqrt(this.distanceToSquared(v));
     }
 
-    // STATIC UTILITIES
 
     /**
      * Лінійна інтерполяція між двома векторами.

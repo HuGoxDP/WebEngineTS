@@ -22,25 +22,6 @@ export class Quaternion {
         this.w = w;
     }
 
-    //SERIALIZATION
-    toJSON(): { x: number, y: number, z: number, w: number } {
-        return { x: this.x, y: this.y, z: this.z, w: this.w };
-    }
-
-    static fromJSON(json: { x: number, y: number, z: number, w: number }): Quaternion {
-        return new Quaternion(json.x, json.y, json.z, json.w);
-    }
-
-    toArray(array: number[] = [], offset: number = 0): number[] {
-        array[offset] = this.x;
-        array[offset + 1] = this.y;
-        array[offset + 2] = this.z;
-        array[offset + 3] = this.w;
-        return array;
-    }
-
-    // STATIC HELPERS
-
     /**
      * Повертає "нульове" обертання (0, 0, 0, 1).
      */
@@ -74,10 +55,7 @@ export class Quaternion {
         // Рахуємо косинус кута (скалярний добуток)
         let cosHalfTheta = w * qbw + x * qbx + y * qby + z * qbz;
 
-        // === ВИПРАВЛЕНА ЛОГІКА _invertSign ===
-        // Якщо кут негативний (cos < 0), це означає, що кватерніони "дивляться"
-        // в протилежні сторони сфери (довгий шлях).
-        // Ми інвертуємо другий кватерніон, щоб піти коротким шляхом.
+        // Якщо кватерніони "далекі" - інвертуємо один, щоб взяти коротший шлях
         if (cosHalfTheta < 0) {
             qbw = -qbw;
             qbx = -qbx;
@@ -85,7 +63,6 @@ export class Quaternion {
             qbz = -qbz;
             cosHalfTheta = -cosHalfTheta;
         }
-        // ======================================
 
         if (cosHalfTheta >= 1.0) {
             return qa.clone();
@@ -119,7 +96,6 @@ export class Quaternion {
         );
     }
 
-    //SETTERS
 
     set(x: number, y: number, z: number, w: number): this {
         this.x = x; this.y = y; this.z = z; this.w = w;
@@ -157,7 +133,6 @@ export class Quaternion {
         return this;
     }
 
-    //MATH OPERATIONS
 
     /**
      * Множення кватерніонів (Комбінування обертань).
@@ -208,7 +183,6 @@ export class Quaternion {
         return this.normalize();
     }
 
-    //CONVERSION
     /**
      * Повертає кути Ейлера (в градусах).
      * Потрібно для відображення в Інспекторі.

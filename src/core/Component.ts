@@ -1,208 +1,77 @@
-import 'reflect-metadata';
-import { v4 as uuidv4 } from 'uuid';
-import type { Entity } from './Entity';
-import type { Transform } from './components/Transform';
+import { EngineObject } from "./EngineObject";
+import type { GameObject } from "./GameObject";
+import type { Transform } from "./Transform";
 
 /**
- * Інтерфейс для даних, що зберігаються.
+ * Базовий клас для всього, що може бути прикріплено до GameObjects.
+ * Відповідає за зв'язок з контейнером (GameObject) та доступ до сусідніх компонентів.
+ * * Ієрархія: EngineObject -> Component
  */
-export interface SerializedComponent {
-    uuid: string;
-    type: string;
-    enabled: boolean;
-    data: Record<string, any>;
-}
-
-/**
- * Abstract Base Component.
- * Реалізує Unity-подібний API та автоматичну серіалізацію.
- */
-export abstract class Component {
-    // Унікальний ID
-    public uuid: string;
-
-    // Посилання на власника (readonly)
-    public readonly entity: Entity;
-
-    // Внутрішні списки для декораторів
-    public static _serializableFields: string[];
-
-    private _enabled: boolean = true;
-    private _isStarted: boolean = false;
-    private _isAwake: boolean = false;
-
-    // Для корутин
-    private _coroutines: Set<Generator> = new Set();
-
-    constructor(entity: Entity) {
-        this.entity = entity;
-        this.uuid = uuidv4();
-    }
-
-    // 🔹 SHORTCUTS
+export abstract class Component extends EngineObject {
+    /**
+     * Посилання на GameObject, до якого прикріплений цей компонент.
+     * Readonly: компонент не може "перестрибнути" на інший об'єкт після створення.
+     */
+    public readonly gameObject: GameObject;
 
     /**
-     * Доступ до Transform без this.entity.transform.
-     * Використовуємо 'any' або 'Transform' (через type import), щоб уникнути помилок імпорту.
+     * Конструктор компонента.
+     * @param gameObject Об'єкт-контейнер, до якого буде додано компонент.
      */
-    get transform(): Transform {
-        return this.entity.transform;
-    }
-
-    /** Доступ до Entity як до gameObject */
-    get gameObject(): Entity {
-        return this.entity;
-    }
-
-    /** Тег об'єкта */
-    get tag(): string {
-        return this.entity.tag;
+    constructor(gameObject: GameObject) {
+        super(gameObject.name);
+        this.gameObject = gameObject;
     }
 
     /**
-     * Знаходить компонент на цьому ж об'єкті.
+     * Скорочений доступ до Transform, прикріпленого до того ж GameObject.
+     * Це найчастіше використовуваний компонент, тому він винесений окремо.
      */
-    getComponent<T extends Component>(type: new (...args: any[]) => T): T | undefined {
-        return this.entity.getComponent(type);
+    public get transform(): Transform {
+        return this.gameObject.transform;
     }
 
     /**
-     * Намагається знайти компонент, якщо немає - додає його.
+     * Тег ігрового об'єкта.
      */
-    getOrAddComponent<T extends Component>(type: new (...args: any[]) => T): T {
-        let comp = this.getComponent(type);
-        if (!comp) {
-            comp = this.entity.addComponent(type);
-        }
-        return comp as T;
+    public get tag(): string {
+        return this.gameObject.tag;
     }
 
-    // 🔹 LIFECYCLE & STATE
-
-    get enabled(): boolean { return this._enabled; }
-    set enabled(value: boolean) {
-        if (this._enabled === value) return;
-        this._enabled = value;
-        if (value) {
-            this.onEnable();
-        } else {
-            this.onDisable();
-        }
+    public set tag(value: string) {
+        this.gameObject.tag = value;
     }
-
-    public awake(): void {
-        // Тепер змінна використовується для запобігання повторного awake
-        if (this._isAwake) return;
-        this._isAwake = true;
-    }
-
-    public start(): void {
-        if (this._isStarted) return;
-        this._isStarted = true;
-    }
-    public update(_deltaTime: number): void {
-        this._processCoroutines();
-    }
-    public lateUpdate(_deltaTime: number): void {}
-
-    public fixedUpdate(_fixedDeltaTime: number): void {}
-
-    public onEnable(): void {}
-
-    public onDisable(): void {}
-
-    public onDestroy(): void {
-        this.stopAllCoroutines();
-    }
-
-    /** @internal */
-    public _ensureStart(): void {
-        if (!this._isStarted && this.enabled) {
-            this.start();
-            this._isStarted = true;
-        }
-    }
-
-    // 🔹 AUTOMATIC SERIALIZATION
 
     /**
-     * Автоматично збирає всі поля, позначені @serializable
+     * Отримує компонент вказаного типу, якщо він прикріплений до цього GameObject.
+     * @param type Клас компонента (наприклад, MeshRenderer).
+     * @returns Екземпляр компонента або null.
      */
-    public toJSON(): SerializedComponent {
-        const data: Record<string, any> = {};
-
-        // Отримуємо список полів з конструктора (декоратор туди писав)
-        const fields = (this.constructor as any)._serializableFields || [];
-
-        for (const key of fields) {
-            const value = (this as any)[key];
-
-            // Якщо в об'єкта є свій toJSON (як у Vector3), викликаємо його
-            if (value && typeof value.toJSON === 'function') {
-                data[key] = value.toJSON();
-            } else {
-                data[key] = value;
-            }
-        }
-
-        return {
-            uuid: this.uuid,
-            type: this.constructor.name,
-            enabled: this.enabled,
-            data: data
-        };
+    public getComponent<T extends Component>(type: new (...args: any[]) => T): T | null {
+        return this.gameObject.getComponent(type);
     }
-    public deserialize(data: any): void {
-        const fields = (this.constructor as any)._serializableFields || [];
-
-        for (const key of fields) {
-            if (data[key] === undefined) continue;
-
-            const currentValue = (this as any)[key];
-            const newValue = data[key];
-
-            // Розумна десеріалізація для Vector3/Quaternion
-            if (currentValue && typeof currentValue.copy === 'function') {
-                currentValue.copy(newValue);
-            } else {
-                (this as any)[key] = newValue;
-            }
-        }
-    }
-
-    // 🔹 COROUTINES (Спрощена версія)
 
     /**
-     * Запускає генератор як корутину.
-     * @example this.startCoroutine(this.waitAndPrint());
+     * Перевіряє, чи має GameObject вказаний тег.
      */
-    public startCoroutine(generator: Generator): void {
-        this._coroutines.add(generator);
+    public compareTag(tag: string): boolean {
+        return this.gameObject.compareTag(tag);
     }
-
-    public stopAllCoroutines(): void {
-        this._coroutines.clear();
-    }
-
-    private _processCoroutines() {
-        for (const routine of this._coroutines) {
-            const result = routine.next();
-            if (result.done) {
-                this._coroutines.delete(routine);
-            }
-        }
-    }
-
-    // 🔹 MESSAGING
 
     /**
-     * Викликає метод methodName на всіх компонентах цього Entity.
+     * Викликається, коли сам GameObject або цей компонент знищується.
+     * Перевизначаємо метод з EngineObject.
      */
-    public sendMessage(methodName: string, ...args: any[]): void {
-        this.entity.components.forEach((comp: any) => {
-            if (typeof comp[methodName] === 'function') {
-                comp[methodName](...args);
-            }
-        });
+    protected override onDestroy(): void {
+        // Тут може бути логіка від'єднання від подій GameObject, якщо така система буде.
+        // Важливо: Реальне видалення зі списку компонентів GameObject має робити сам GameObject.
     }
+
+    /**
+     * Метод для логування, щоб бачити, на якому об'єкті висить компонент.
+     */
+    public override toString(): string {
+        return `${this.constructor.name} (on ${this.gameObject.name})`;
+    }
+
 }
