@@ -3,17 +3,19 @@
 /**
  * Vector3.ts
  * Математичний клас для роботи з 3D векторами.
+ * Реалізує Zero-Allocation pattern через параметр 'out'.
  */
 export class Vector3 {
     public x: number;
     public y: number;
     public z: number;
+
     constructor(x: number = 0, y: number = 0, z: number = 0) {
         this.x = x;
         this.y = y;
         this.z = z;
     }
-
+    
     static get zero(): Vector3 { return new Vector3(0, 0, 0); }
     static get one(): Vector3 { return new Vector3(1, 1, 1); }
     static get up(): Vector3 { return new Vector3(0, 1, 0); }
@@ -22,6 +24,115 @@ export class Vector3 {
     static get right(): Vector3 { return new Vector3(1, 0, 0); }
     static get forward(): Vector3 { return new Vector3(0, 0, 1); }
     static get back(): Vector3 { return new Vector3(0, 0, -1); }
+
+    /**
+     * Додає два вектори.
+     * @param out (Опціонально) Вектор, у який буде записано результат. Якщо не задано, створюється новий.
+     */
+    static add(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
+        const result = out || new Vector3();
+        result.x = a.x + b.x;
+        result.y = a.y + b.y;
+        result.z = a.z + b.z;
+        return result;
+    }
+
+    /**
+     * Віднімає вектори (a - b).
+     * @param out (Опціонально) Вектор для запису результату.
+     */
+    static subtract(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
+        const result = out || new Vector3();
+        result.x = a.x - b.x;
+        result.y = a.y - b.y;
+        result.z = a.z - b.z;
+        return result;
+    }
+
+    /**
+     * Покомпонентне множення векторів (Scale).
+     */
+    static multiply(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
+        const result = out || new Vector3();
+        result.x = a.x * b.x;
+        result.y = a.y * b.y;
+        result.z = a.z * b.z;
+        return result;
+    }
+
+    /**
+     * Множення вектора на число.
+     */
+    static multiplyScalar(v: Vector3, scalar: number, out?: Vector3): Vector3 {
+        const result = out || new Vector3();
+        result.x = v.x * scalar;
+        result.y = v.y * scalar;
+        result.z = v.z * scalar;
+        return result;
+    }
+
+    /**
+     * Ділення вектора на число.
+     */
+    static divideScalar(v: Vector3, scalar: number, out?: Vector3): Vector3 {
+        const result = out || new Vector3();
+        if (scalar !== 0) {
+            const invScalar = 1 / scalar;
+            result.x = v.x * invScalar;
+            result.y = v.y * invScalar;
+            result.z = v.z * invScalar;
+        } else {
+            console.warn("Vector3: Division by zero");
+            result.set(0, 0, 0);
+        }
+        return result;
+    }
+
+    /**
+     * Лінійна інтерполяція між двома векторами.
+     */
+    static lerp(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
+        const result = out || new Vector3();
+        t = Math.max(0, Math.min(1, t)); // Clamp t between 0 and 1
+        result.x = a.x + (b.x - a.x) * t;
+        result.y = a.y + (b.y - a.y) * t;
+        result.z = a.z + (b.z - a.z) * t;
+        return result;
+    }
+
+    /**
+     * Векторний добуток (Cross Product).
+     */
+    static cross(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
+        const result = out || new Vector3();
+        const ax = a.x, ay = a.y, az = a.z;
+        const bx = b.x, by = b.y, bz = b.z;
+
+        result.x = ay * bz - az * by;
+        result.y = az * bx - ax * bz;
+        result.z = ax * by - ay * bx;
+        return result;
+    }
+
+    /**
+     * Відстань між векторами.
+     */
+    static distance(a: Vector3, b: Vector3): number {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const dz = a.z - b.z;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * Квадрат відстані (швидше, без кореня).
+     */
+    static distanceSquared(a: Vector3, b: Vector3): number {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const dz = a.z - b.z;
+        return dx * dx + dy * dy + dz * dz;
+    }
 
     set(x: number = 0, y: number = 0, z: number = 0): this {
         this.x = x;
@@ -45,9 +156,6 @@ export class Vector3 {
         return this;
     }
 
-    /**
-     * Копіює значення з іншого вектора в поточний.
-     */
     copy(v: Vector3): this {
         this.x = v.x;
         this.y = v.y;
@@ -55,13 +163,9 @@ export class Vector3 {
         return this;
     }
 
-    /**
-     * Створює глибоку копію поточного вектора.
-     */
-   clone(): Vector3 {
+    clone(): Vector3 {
         return new Vector3(this.x, this.y, this.z);
     }
-
 
     add(v: Vector3): this {
         this.x += v.x;
@@ -112,25 +216,14 @@ export class Vector3 {
         );
     }
 
-    /**
-     * Довжина вектора (Magnitude).
-     * Використовує квадратний корінь (повільна операція).
-     */
     magnitude(): number {
         return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
     }
 
-    /**
-     * Квадрат довжини.
-     * Набагато швидше за magnitude(). Використовуй для порівняння відстаней.
-     */
     sqrMagnitude(): number {
         return this.x * this.x + this.y * this.y + this.z * this.z;
     }
 
-    /**
-     * Нормалізує вектор (робить довжину рівною 1).
-     */
     normalize(): this {
         return this.divideScalar(this.magnitude());
     }
@@ -149,69 +242,12 @@ export class Vector3 {
         return this;
     }
 
-    distanceToSquared(v: Vector3): number {
-        const dx = this.x - v.x;
-        const dy = this.y - v.y;
-        const dz = this.z - v.z;
-        return dx * dx + dy * dy + dz * dz;
-    }
-
-    /**
-     * Відстань до іншого вектора.
-     */
     distanceTo(v: Vector3): number {
-        return Math.sqrt(this.distanceToSquared(v));
+        return Vector3.distance(this, v);
     }
 
-
-    /**
-     * Лінійна інтерполяція між двома векторами.
-     * Повертає НОВИЙ вектор.
-     */
-    static lerp(a: Vector3, b: Vector3, t: number): Vector3 {
-        t = Math.max(0, Math.min(1, t));
-        return new Vector3(
-            a.x + (b.x - a.x) * t,
-            a.y + (b.y - a.y) * t,
-            a.z + (b.z - a.z) * t
-        );
-    }
-
-    /**
-     * Створює новий вектор суми (щоб не змінювати оригінали)
-     */
-    static add(a: Vector3, b: Vector3): Vector3 {
-        return new Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
-    }
-    /**
-     * Створює новий вектор віднімання (щоб не змінювати оригінали)
-     */
-    static subtract(a: Vector3, b: Vector3): Vector3 {
-        return new Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
-    }
-    /**
-     * Створює новий вектор множення (щоб не змінювати оригінали)
-     */
-    static multiply(a: Vector3, b: Vector3): Vector3 {
-        return new Vector3(a.x * b.x, a.y * b.y, a.z * b.z);
-    }
-    /**
-     * Створює новий вектор скалярного множення (щоб не змінювати оригінали)
-     */
-    static multiplyScalar(v: Vector3, scalar: number): Vector3 {
-        return new Vector3(v.x * scalar, v.y * scalar, v.z * scalar);
-    }
-    /**
-     * Створює новий вектор скалярного ділення (щоб не змінювати оригінали)
-     */
-    static divideScalar(v: Vector3, scalar: number): Vector3 {
-        if (scalar !== 0) {
-            const invScalar = 1 / scalar;
-            return new Vector3(v.x * invScalar, v.y * invScalar, v.z * invScalar);
-        } else {
-            console.warn("Vector3: Division by zero");
-            return Vector3.zero;
-        }
+    distanceToSquared(v: Vector3): number {
+        return Vector3.distanceSquared(this, v);
     }
 
     toString(): string {

@@ -3,6 +3,12 @@ import { Component } from "./Component";
 import { Vector3 } from "./math/Vector3";
 import { Quaternion } from "./math/Quaternion";
 import type { GameObject } from "./GameObject";
+import { SceneManager } from "./SceneManager";
+
+// Кешовані змінні для уникнення аллокацій (Garbage Collection optimization)
+const _tempThreeVec3 = new THREE.Vector3();
+const _tempThreeQuat = new THREE.Quaternion();
+const _tempThreeEuler = new THREE.Euler();
 
 /**
  * Основний компонент, який визначає позицію, поворот та масштаб об'єкта.
@@ -13,17 +19,13 @@ export class Transform extends Component {
 
     /**
      * Внутрішній об'єкт Three.js.
-     * Це "серце" трансформації. Всі зміни трансформу делегуються сюди.
      * @internal
      */
     public readonly object3D: THREE.Object3D;
 
     constructor(gameObject: GameObject) {
         super(gameObject);
-        // Створюємо "порожній" Object3D (або Group) для репрезентації цього об'єкта в Three.js
         this.object3D = new THREE.Group();
-
-        // Зв'язуємо Three.js об'єкт з нашим GameObject (корисно для Raycasting)
         this.object3D.userData = { gameObject: gameObject };
     }
 
@@ -39,87 +41,75 @@ export class Transform extends Component {
     }
 
     public set parent(value: Transform | null) {
+        if (this.parent === value) return;
+
+        const oldParent = this.parent;
+
         if (value) {
-            // Three.js .attach() автоматично перераховує локальні координати,
-            // щоб зберегти об'єкт на тому ж місці у світі. Це аналог SetParent(t, true) в Unity.
             value.object3D.attach(this.object3D);
         } else {
-            // Якщо null — відкріпляємо від батька (кидаємо в корінь сцени)
-            //TODO Примітка: В реальному рушії тут треба атачити до Scene root.
-            //TODO  Поки що просто remove, але в ідеалі: SceneManager.currentScene.add(this.object3D);
-            this.object3D.removeFromParent();
-            // Тимчасовий фікс для чистого Three.js: якщо немає сцени, об'єкт зникне.
-            // TODO Припускаємо, що SceneManager обробить це пізніше.
+            SceneManager.activeScene.threeScene.add(this.object3D);
         }
+
+
+        SceneManager.activeScene.onGameObjectParentChanged(this.gameObject, oldParent, value);
     }
 
     /**
      * Кількість дочірніх об'єктів.
      */
     public get childCount(): number {
-        return this.object3D.children.length;
+        let count = 0;
+        for (const child of this.object3D.children) {
+            if (child.userData.gameObject) count++;
+        }
+        return count;
     }
 
     /**
      * Отримати дочірній елемент за індексом.
      */
     public getChild(index: number): Transform {
-        const childObj = this.object3D.children[index];
-        if (childObj && childObj.userData.gameObject) {
-            return (childObj.userData.gameObject as GameObject).transform;
+        let current = 0;
+        for (const child of this.object3D.children) {
+            if (child.userData.gameObject) {
+                if (current === index) {
+                    return (child.userData.gameObject as GameObject).transform;
+                }
+                current++;
+            }
         }
-        throw new Error(`Child at index ${index} is not a valid Game Object`);
+        throw new Error(`Child at index ${index} not found or is not a GameObject`);
     }
 
     /**
-     * Пошук дочірнього об'єкта за іменем (глибокий пошук не реалізовано, як і в Unity transform.Find).
+     * Отримує світову позицію і записує її в переданий вектор.
+     * ZERO-ALLOCATION метод.
      */
-    public find(name: string): Transform | null {
-        const found = this.object3D.getObjectByName(name);
-        if (found && found.userData.gameObject) {
-            return (found.userData.gameObject as GameObject).transform;
-        }
-        return null;
+    public getPosition(out: Vector3): Vector3 {
+        this.object3D.getWorldPosition(_tempThreeVec3);
+        return out.set(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
     }
 
-    /**
-     * Глобальна позиція (World Space).
-     */
     public get position(): Vector3 {
-        // Ми повинні отримати світову позицію. Three.js зберігає локальну.
-        // Треба обчислити світову.
-        const worldPos = new THREE.Vector3();
-        this.object3D.getWorldPosition(worldPos);
-        return new Vector3(worldPos.x, worldPos.y, worldPos.z);
+        return this.getPosition(new Vector3());
     }
 
     public set position(value: Vector3) {
-        // Найскладніша частина: встановити світову позицію, змінивши локальну.
-        // Якщо немає батька — все просто.
-        if (!this.parent) {
-            this.object3D.position.set(value.x, value.y, value.z);
+        _tempThreeVec3.set(value.x, value.y, value.z);
+
+        if (!this.object3D.parent) {
+            this.object3D.position.copy(_tempThreeVec3);
         } else {
-            // Якщо є батько, конвертуємо World -> Local
-            // local = parentWorldInverse * world
-            const parentWorld = new THREE.Vector3();
-            this.object3D.parent!.getWorldPosition(parentWorld); // ! - бо перевірили parent
-
-            // Ця математика може бути складною вручну, довіримося Three.js утилітам, якщо можливо,
-            // або зробимо це "брудним" способом: від'єднати, перемістити, приєднати.
-            // Але це повільно. Правильний шлях через матриці:
-
-            // Створюємо вектор у світових координатах
-            const targetWorld = new THREE.Vector3(value.x, value.y, value.z);
-            // Конвертуємо у локальний простір батька
-            this.object3D.parent!.worldToLocal(targetWorld);
-            // Записуємо
-            this.object3D.position.copy(targetWorld);
+            this.object3D.parent.worldToLocal(_tempThreeVec3);
+            this.object3D.position.copy(_tempThreeVec3);
         }
     }
 
-    /**
-     * Локальна позиція (Local Space).
-     */
+    public getLocalPosition(out: Vector3): Vector3 {
+        return out.set(this.object3D.position.x, this.object3D.position.y, this.object3D.position.z);
+    }
+
     public get localPosition(): Vector3 {
         return new Vector3(this.object3D.position.x, this.object3D.position.y, this.object3D.position.z);
     }
@@ -128,36 +118,29 @@ export class Transform extends Component {
         this.object3D.position.set(value.x, value.y, value.z);
     }
 
-    /**
-     * Глобальний поворот (Quaternion).
-     */
+    public getRotation(out: Quaternion): Quaternion {
+        this.object3D.getWorldQuaternion(_tempThreeQuat);
+        return out.set(_tempThreeQuat.x, _tempThreeQuat.y, _tempThreeQuat.z, _tempThreeQuat.w);
+    }
+
     public get rotation(): Quaternion {
-        const worldQuat = new THREE.Quaternion();
-        this.object3D.getWorldQuaternion(worldQuat);
-        return new Quaternion(worldQuat.x, worldQuat.y, worldQuat.z, worldQuat.w);
+        return this.getRotation(new Quaternion());
     }
 
     public set rotation(value: Quaternion) {
-        if (!this.parent) {
-            this.object3D.quaternion.set(value.x, value.y, value.z, value.w);
+        _tempThreeQuat.set(value.x, value.y, value.z, value.w);
+
+        if (!this.object3D.parent) {
+            this.object3D.quaternion.copy(_tempThreeQuat);
         } else {
-            // Аналогічно позиції, треба обернути SetWorldQuaternion
-            // Three.js не має прямого сеттера world quaternion, треба через матриці або трюки.
-            // Найпростіший спосіб:
-            const q = new THREE.Quaternion(value.x, value.y, value.z, value.w);
-            // q * inverse(parentWorldQ)
-            const parentQ = new THREE.Quaternion();
-            this.object3D.parent!.getWorldQuaternion(parentQ);
-            // local = parent_inverse * world
-            parentQ.invert();
-            parentQ.multiply(q);
-            this.object3D.quaternion.copy(parentQ);
+            const parentQuat = new THREE.Quaternion();
+            this.object3D.parent.getWorldQuaternion(parentQuat);
+            parentQuat.invert();
+            parentQuat.multiply(_tempThreeQuat);
+            this.object3D.quaternion.copy(parentQuat);
         }
     }
 
-    /**
-     * Локальний поворот (Quaternion).
-     */
     public get localRotation(): Quaternion {
         return new Quaternion(
             this.object3D.quaternion.x,
@@ -171,24 +154,6 @@ export class Transform extends Component {
         this.object3D.quaternion.set(value.x, value.y, value.z, value.w);
     }
 
-    /**
-     * Кути Ейлера (в градусах), аналог inspector rotation.
-     * Працює з локальним поворотом.
-     */
-    public get eulerAngles(): Vector3 {
-        // Three.js використовує радіани, Unity - градуси.
-        const euler = new THREE.Euler().setFromQuaternion(this.object3D.quaternion, 'YXZ'); // Unity order default usually ZXY or YXZ? Unity is ZXY internally but UI handles it. Standard Three is XYZ.
-        // Use default order
-        const rad2deg = 180 / Math.PI;
-        return new Vector3(euler.x * rad2deg, euler.y * rad2deg, euler.z * rad2deg);
-    }
-
-    public set eulerAngles(value: Vector3) {
-        const deg2rad = Math.PI / 180;
-        const euler = new THREE.Euler(value.x * deg2rad, value.y * deg2rad, value.z * deg2rad, 'YXZ');
-        this.object3D.quaternion.setFromEuler(euler);
-    }
-
     public get localScale(): Vector3 {
         return new Vector3(this.object3D.scale.x, this.object3D.scale.y, this.object3D.scale.z);
     }
@@ -197,62 +162,51 @@ export class Transform extends Component {
         this.object3D.scale.set(value.x, value.y, value.z);
     }
 
-    /**
-     * Наближений глобальний масштаб (LossyScale).
-     * Read-only, тому що scale не завжди можна коректно розрахувати через skewed matrices.
-     */
     public get lossyScale(): Vector3 {
-        const worldScale = new THREE.Vector3();
-        this.object3D.getWorldScale(worldScale);
-        return new Vector3(worldScale.x, worldScale.y, worldScale.z);
+        this.object3D.getWorldScale(_tempThreeVec3);
+        return new Vector3(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
     }
 
-    public get forward(): Vector3 {
-        const v = new THREE.Vector3(0, 0, 1);
-        // Unity forward is +Z? No, Unity +Z is Forward. Three.js +Z is out of screen (Back).
-        // Standard Three.js: +Z is towards viewer (Back), -Z is Forward.
-        // Standard Unity: +Z is Forward.
-        // ADAPTER FIX: Якщо ми хочемо Unity-style coordinate system, треба враховувати це.
-        // Але зазвичай в Three.js проектах Forward це (0,0,1) або (0,0,-1).
-        // Unity: Forward = (0, 0, 1). ThreeJS Default Camera looks down -Z.
-        // Приймемо конвенцію Unity для API: Forward повертає те, куди "дивиться" вісь Z об'єкта.
-        v.applyQuaternion(this.object3D.quaternion);
-        return new Vector3(v.x, v.y, v.z);
+    public get eulerAngles(): Vector3 {
+        _tempThreeEuler.setFromQuaternion(this.object3D.quaternion, 'YXZ');
+        const rad2deg = 180 / Math.PI;
+        return new Vector3(_tempThreeEuler.x * rad2deg, _tempThreeEuler.y * rad2deg, _tempThreeEuler.z * rad2deg);
     }
 
-    public get right(): Vector3 {
-        const v = new THREE.Vector3(1, 0, 0);
-        v.applyQuaternion(this.object3D.quaternion);
-        return new Vector3(v.x, v.y, v.z);
+    public set eulerAngles(value: Vector3) {
+        const deg2rad = Math.PI / 180;
+        _tempThreeEuler.set(value.x * deg2rad, value.y * deg2rad, value.z * deg2rad, 'YXZ');
+        this.object3D.quaternion.setFromEuler(_tempThreeEuler);
     }
 
-    public get up(): Vector3 {
-        const v = new THREE.Vector3(0, 1, 0);
-        v.applyQuaternion(this.object3D.quaternion);
-        return new Vector3(v.x, v.y, v.z);
+    public getForward(out: Vector3): Vector3 {
+        _tempThreeVec3.set(0, 0, 1).applyQuaternion(this.object3D.quaternion);
+        return out.set(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
     }
 
-    /**
-     * Переміщує об'єкт.
-     * @param translation Вектор зміщення.
-     * @param space Простір (World або Self). Поки що реалізуємо як World/Local змішування.
-     */
+    public get forward(): Vector3 { return this.getForward(new Vector3()); }
+
+    public getRight(out: Vector3): Vector3 {
+        _tempThreeVec3.set(1, 0, 0).applyQuaternion(this.object3D.quaternion);
+        return out.set(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
+    }
+
+    public get right(): Vector3 { return this.getRight(new Vector3()); }
+
+    public getUp(out: Vector3): Vector3 {
+        _tempThreeVec3.set(0, 1, 0).applyQuaternion(this.object3D.quaternion);
+        return out.set(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
+    }
+
+    public get up(): Vector3 { return this.getUp(new Vector3()); }
+
     public translate(translation: Vector3): void {
-        // Проста реалізація: translate in local space
         this.object3D.translateX(translation.x);
         this.object3D.translateY(translation.y);
         this.object3D.translateZ(translation.z);
     }
 
-    /**
-     * Повертає об'єкт, щоб він дивився на ціль.
-     * @param target Позиція цілі (World Space).
-     */
     public lookAt(target: Vector3): void {
-        // Three.js lookAt працює у World Space, але змінює Local Rotation
-        // Важливо: Three.js lookAt очікує, що об'єкт "дивиться" -Z, а Unity +Z.
-        // Тут можливий конфлікт осей. Зазвичай доводиться додавати батька-контейнер або крутити меш.
-        // Використаємо стандартний three.js метод поки що.
         this.object3D.lookAt(target.x, target.y, target.z);
     }
 }
