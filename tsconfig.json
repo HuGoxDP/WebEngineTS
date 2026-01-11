@@ -4,7 +4,7 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -22,12 +22,9 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
 
-    /* Decorators */
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "strictPropertyInitialization": false, // Щоб не сварився, що поля не ініціалізовані в конструкторі
-    "noUnusedParameters": false, // Щоб не сварився на deltaTime, який ми не використовуємо
-    "types": ["reflect-metadata"]
-  },
-  "include": ["src"]
-}
+    "baseUrl": "./",
+    "paths": {
+      "@engine": ["src/engine/index.ts"]
+    }
+    }
+  }

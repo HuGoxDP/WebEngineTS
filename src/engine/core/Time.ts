@@ -1,4 +1,4 @@
-import { EngineSettings } from "./EngineSettings";
+import { EngineSettings } from "./EngineSettings.ts";
 
 export class Time {
     // Час між кадрами (змінюється залежно від FPS)

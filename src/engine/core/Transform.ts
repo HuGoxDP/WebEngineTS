@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { Component } from "./Component";
-import { Vector3 } from "./math/Vector3";
-import { Quaternion } from "./math/Quaternion";
-import type { GameObject } from "./GameObject";
-import { SceneManager } from "./SceneManager";
+import { Component } from "./Component.ts";
+import { Vector3 } from "./math/Vector3.ts";
+import { Quaternion } from "./math/Quaternion.ts";
+import type { GameObject } from "./GameObject.ts";
+import { SceneManager } from "./SceneManager.ts";
 
 // Кешовані змінні для уникнення аллокацій (Garbage Collection optimization)
 const _tempThreeVec3 = new THREE.Vector3();
@@ -46,11 +46,11 @@ export class Transform extends Component {
         const oldParent = this.parent;
 
         if (value) {
-            value.object3D.attach(this.object3D);
+
+            value.object3D.add(this.object3D);
         } else {
             SceneManager.activeScene.threeScene.add(this.object3D);
         }
-
 
         SceneManager.activeScene.onGameObjectParentChanged(this.gameObject, oldParent, value);
     }
@@ -208,5 +208,16 @@ export class Transform extends Component {
 
     public lookAt(target: Vector3): void {
         this.object3D.lookAt(target.x, target.y, target.z);
+    }
+
+    /**
+     * Обертає об'єкт навколо осі на вказаний кут (у градусах).
+     * @param axis Вісь обертання (наприклад, Vector3.up).
+     * @param angle Кут у градусах.
+     * @param space Простір (Local або World). Поки що реалізуємо Local.
+     */
+    public rotate(axis: Vector3, angle: number): void {
+        _tempThreeVec3.set(axis.x, axis.y, axis.z);
+        this.object3D.rotateOnAxis(_tempThreeVec3, angle * (Math.PI / 180));
     }
 }

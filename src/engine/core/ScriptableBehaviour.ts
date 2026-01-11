@@ -1,5 +1,5 @@
-import { Behaviour } from "./Behaviour";
-import type { GameObject } from "./GameObject";
+import { Behaviour } from "./Behaviour.ts";
+import type { GameObject } from "./GameObject.ts";
 
 /**
  * Базовий клас для всіх скриптів користувача.
@@ -91,7 +91,6 @@ export class ScriptableBehaviour extends Behaviour {
     public _systemUpdate(): void {
         if (!this.isActiveAndEnabled) return;
 
-        // Lazy initialization: Start викликається безпосередньо перед першим Update
         if (!this._started) {
             this.start();
             this._started = true;

@@ -1,5 +1,5 @@
-import { Component } from "./Component";
-import type { GameObject } from "./GameObject";
+import { Component } from "./Component.ts";
+import type { GameObject } from "./GameObject.ts";
 
 /**
  * Behaviour — це компонент, який може бути увімкнений або вимкнений.

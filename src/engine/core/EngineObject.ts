@@ -62,7 +62,7 @@ export class EngineObject {
      * Створює копію об'єкта.
      * TODO: Реалізувати через систему серіалізації.
      */
-    public static instantiate<T extends EngineObject>(original: T): T {
+    public static instantiate<T extends EngineObject>(_original: T): T {
         throw new Error("Instantiate logic requires Serialization system to be fully implemented.");
     }
 

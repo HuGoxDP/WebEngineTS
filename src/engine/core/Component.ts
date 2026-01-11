@@ -1,6 +1,6 @@
-import { EngineObject } from "./EngineObject";
-import type { GameObject } from "./GameObject";
-import type { Transform } from "./Transform";
+import { EngineObject } from "./EngineObject.ts";
+import type { GameObject } from "./GameObject.ts";
+import type { Transform } from "./Transform.ts";
 
 /**
  * Базовий клас для всього, що може бути прикріплено до GameObjects.

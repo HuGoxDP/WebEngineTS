@@ -1,10 +1,10 @@
-import { EngineObject } from "./EngineObject";
-import { SceneManager } from "./SceneManager";
-import { Transform } from "./Transform";
-import { Component } from "./Component";
-import { ScriptableBehaviour } from "./ScriptableBehaviour";
-import { Behaviour } from "./Behaviour";
-import { EngineSettings } from "./EngineSettings";
+import { EngineObject } from "./EngineObject.ts";
+import { SceneManager } from "./SceneManager.ts";
+import { Transform } from "./Transform.ts";
+import { Component } from "./Component.ts";
+import { ScriptableBehaviour } from "./ScriptableBehaviour.ts";
+import { Behaviour } from "./Behaviour.ts";
+import { EngineSettings } from "./EngineSettings.ts";
 
 /**
  * GameObject — це основна сутність сцени.

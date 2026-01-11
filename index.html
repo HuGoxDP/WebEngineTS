@@ -1,58 +1,33 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uk">
 <head>
   <meta charset="UTF-8" />
-  <title>3D Learning Platform</title>
-  <style>
-    body { margin: 0; overflow: hidden; font-family: sans-serif; background: #1a1a2e; color: white; }
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>University 3D Labs</title>
 
-    /* Экран меню */
-    #menu-screen {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      z-index: 10; background: #1a1a2e;
-    }
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
-    .scenario-grid { display: flex; gap: 20px; }
-
-    .card {
-      background: #16213e; border: 1px solid #0f3460;
-      padding: 20px; border-radius: 10px; cursor: pointer;
-      width: 200px; text-align: center; transition: 0.3s;
-    }
-    .card:hover { background: #0f3460; transform: translateY(-5px); }
-    .card h3 { margin-top: 0; color: #e94560; }
-
-    /* Экран приложения (скрыт по умолчанию) */
-    #app-screen { display: none; width: 100%; height: 100%; }
-    canvas { width: 100%; height: 100%; display: block; }
-
-    /* Кнопка "Назад" в 3D режиме */
-    #back-btn {
-      position: absolute; top: 20px; left: 20px;
-      padding: 10px 20px; background: #e94560; color: white;
-      border: none; border-radius: 5px; cursor: pointer;
-    }
-  </style>
+  <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 
 <div id="menu-screen">
-  <h1>Выберите лабораторную работу</h1>
-  <div class="scenario-grid">
-    <div class="card" id="scenario-solar">
-      <h3>☀️ Солнечная система</h3>
-      <p>Изучение орбит планет</p>
+  <header>
+    <div class="logo">
+      <span>🎓</span> University 3D Labs
     </div>
-    <div class="card" id="scenario-engine">
-      <h3>⚙️ Двигатель V8</h3>
-      <p>Разборка и сборка двигателя</p>
-    </div>
+  </header>
+
+  <div style="padding-top: 40px;">
+    <h1>Доступні Лабораторні Роботи</h1>
+    <div class="scenario-grid"></div>
   </div>
 </div>
 
 <div id="app-screen">
-  <button id="back-btn">⬅ Меню</button>
+  <button id="back-btn">
+    <span>←</span> Назад в меню
+  </button>
   <canvas id="webgl-canvas"></canvas>
 </div>
 

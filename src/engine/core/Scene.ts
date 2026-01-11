@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { GameObject } from "./GameObject";
-import { EngineObject } from "./EngineObject";
-import { Transform } from "./Transform";
+import { GameObject } from "./GameObject.ts";
+import { EngineObject } from "./EngineObject.ts";
+import { Transform } from "./Transform.ts";
 
 /**
  * Scene.ts

@@ -1,4 +1,4 @@
-﻿import { EngineSettings } from "../EngineSettings";
+﻿import { EngineSettings } from "../EngineSettings.ts";
 
 /**
  * Vector3.ts

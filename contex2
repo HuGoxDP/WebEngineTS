@@ -1,0 +1,166 @@
+Привіт. Я розробляю освітній 3D-двигун для браузера, архітектура якого натхненна Unity.
+
+Головна ідея проекту:
+
+Unity-like Architecture: Я використовую патерн ECS (Entity-Component-System), адаптований під об'єктну модель (як в Unity).
+
+Є GameObject, який є контейнером.
+
+Є Component та ScriptableBehaviour (аналог MonoBehaviour), де є методи Awake, Start, Update, FixedUpdate.
+
+Є Transform з ієрархією (Parent-Child), який синхронізує THREE.Object3D.
+
+Є Scene та SceneManager для керування станом.
+
+Platform Architecture: Двигун працює як "чорна скринька" (бібліотека).
+
+Код двигуна лежить в src/engine.
+
+Сценарії (лабораторні роботи) лежать в src/scenarios.
+
+Сценарії не мають доступу до нутрощів (наприклад, WebGLRenderer), вони спілкуються з двигуном тільки через Public API (alias @engine).
+
+Каталог і Lazy Loading:
+
+Є UI-каталог (стиль Mozaik Education: картки, прев'ю), який показує список доступних робіт.
+
+Код сценарію завантажується тільки при натисканні кнопки "Play" (через динамічний імпорт в manifest.ts).
+
+Поточний Стек
+Мова: TypeScript (Strict mode).
+
+Рендер: Three.js.
+
+Збірка: Vite (використовуємо import.meta.glob для авто-пошуку сценаріїв).
+
+Структура Проекту
+Ось структура та опис файлів вашого 3D-двигуна, згруповані за логічними модулями. Ця структура нагадує архітектуру Unity, адаптовану для вебу.
+
+### 1. Core (Ядро Двигуна)
+
+Ці файли відповідають за фундаментальну роботу двигуна: цикл гри, час, налаштування та базові об'єкти.
+
+* **`Application.ts`**: Головний клас додатка. Ініціалізує `THREE.WebGLRenderer`, керує головним циклом гри (`loop`), обробляє `Time`, викликає `Update`/`FixedUpdate` для сцени та виконує рендеринг.
+* **`EngineObject.ts`**: Базовий клас для всіх об'єктів двигуна. Надає унікальний `uuid`, ім'я та механізм знищення (`destroy`). Аналог `UnityEngine.Object`.
+* **`SceneManager.ts`**: Статичний клас для керування сценами. Зберігає посилання на активну сцену (`activeScene`) та відповідає за завантаження нових сцен (`loadScene`).
+* **`Scene.ts`**: Обгортка над `THREE.Scene`. Зберігає список кореневих `GameObject`, керує їх оновленням та зв'язком з Three.js.
+* **`Time.ts`**: Клас для керування часом. Надає доступ до `deltaTime`, `time`, `frameCount` та керує масштабом часу (`timeScale`).
+* **`EngineSettings.ts`**: Глобальний файл конфігурації. Містить константи для фізики (`GRAVITY`), часу (`FIXED_TIMESTEP`), шарів та математики.
+
+### 2. Entities & Components (Сутності та Компоненти)
+
+Реалізація патерну ECS (Entity-Component-System) в об'єктному стилі.
+
+* **`GameObject.ts`**: Основна сутність сцени. Контейнер для компонентів. Відповідає за життєвий цикл компонентів, їх активацію/деактивацію та ієрархічне оновлення дочірніх об'єктів.
+* **`Component.ts`**: Базовий клас для всіх компонентів. Має посилання на свій `GameObject` та `Transform`.
+* **`Transform.ts`**: Ключовий компонент. Відповідає за позицію, обертання та масштаб. Керує ієрархією (батько-дитина) та синхронізує її з `THREE.Object3D`.
+* **`Behaviour.ts`**: Компонент, який можна вмикати/вимикати (`enabled`). Базовий клас для скриптів.
+* **`ScriptableBehaviour.ts`**: Аналог `MonoBehaviour` в Unity. Додає методи життєвого циклу: `Awake`, `Start`, `Update`, `FixedUpdate`, `LateUpdate`.
+
+### 3. Math (Математика)
+
+Власні обгортки для математичних операцій, щоб уніфікувати API.
+
+* **`Vector3.ts`**: Клас для роботи з 3D векторами.
+* **`Quaternion.ts`**: Клас для роботи з обертанням (кватерніонами), щоб уникнути Gimbal Lock.
+
+### 4. Scenarios System (Система Сценаріїв)
+
+Модуль для створення навчального контенту (лабораторних робіт).
+
+* **`Scenario.ts`**: Абстрактний базовий клас для створення сценаріїв. Надає методи `init()` (для створення об'єктів) та `load()`.
+* **`ScenarioTypes.ts`**: TypeScript інтерфейси та enum-и для опису маніфестів сценаріїв (категорії, описи).
+* **`manifest.ts`**: Приклад конфігураційного файлу для конкретного сценарію ("Сонячна Система"). Визначає метадані та точку входу.
+
+### 5. Entry Point & UI (Точка входу)
+
+Файли, що зв'язують веб-сторінку з двигуном.
+
+* **`main.ts`**: Точка входу скрипта. Ініціалізує `Application`, `ScenarioRepository`, генерує UI каталогу (картки сценаріїв) та обробляє запуск обраного сценарію.
+* **`index.html`**: Головна HTML сторінка. Містить верстку меню, CSS стилі (вбудовані в `<style>`) та елемент `<canvas>` для рендеру.
+* **`tsconfig.json`**: Налаштування компілятора TypeScript для коректної збірки проекту (підтримка DOM, ESNext, Vite).
+
+Ця структура чітко розділяє логіку двигуна ("під капотом") та контент (сценарії), що дозволяє легко масштабувати проект.
+Ключові Файли (Останні версії)
+1. src/engine/core/scenario/ScenarioRepository.ts (Авто-пошук)
+
+TypeScript
+
+import { IScenarioManifest } from "./ScenarioTypes";
+import { Scenario } from "./Scenario";
+
+export class ScenarioRepository {
+    // Знаходить усі файли manifest.ts
+    private _manifestsGlob = import.meta.glob('../../../../scenarios/**/manifest.ts', { eager: true });
+    private _manifests: IScenarioManifest[] = [];
+
+    constructor() { this._discoverScenarios(); }
+
+    private _discoverScenarios() {
+        for (const path in this._manifestsGlob) {
+            const module = this._manifestsGlob[path] as { default: IScenarioManifest };
+            const manifest = module.default;
+            if (manifest && manifest.main) {
+                this._manifests.push(manifest);
+            }
+        }
+    }
+    public getAllManifests() { return this._manifests; }
+
+    public async loadScenarioCode(id: string): Promise<new () => Scenario> {
+        const manifest = this._manifests.find(m => m.id === id);
+        if (!manifest) throw new Error(`Scenario not found: ${id}`);
+        // Викликає функцію завантаження з маніфесту
+        const module = await manifest.main();
+        return module.default;
+    }
+}
+2. src/scenarios/SolarSystem/manifest.ts (Конфіг сценарію)
+
+TypeScript
+
+import { IScenarioManifest, ScenarioCategory } from "@engine";
+import previewImg from "./assets/solar_preview.jpg"; // Імпорт картинки
+
+const manifest: IScenarioManifest = {
+    id: "solar-system-2026",
+    name: "Сонячна Система",
+    description: "Інтерактивна модель.",
+    category: ScenarioCategory.Astronomy,
+    previewImage: previewImg, // Vite підставить шлях
+    version: "1.0.0",
+    // Lazy Load: Код вантажиться тільки тут
+    main: () => import("./SolarSystemScenario.ts")
+};
+export default manifest;
+3. vite.config.ts (Аліаси)
+
+TypeScript
+
+import { defineConfig } from 'vite';
+import path from 'path';
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@engine': path.resolve(__dirname, './src/engine/index.ts')
+    }
+  }
+});
+4. src/engine/core/Transform.ts (Уривок логіки) Працює як в Unity: при зміні parent зберігає світову позицію (attach).
+
+TypeScript
+
+    public set parent(value: Transform | null) {
+        if (this.parent === value) return;
+        const oldParent = this.parent;
+        if (value) {
+            value.object3D.attach(this.object3D);
+        } else {
+            SceneManager.activeScene.threeScene.add(this.object3D);
+        }
+        // Оновлює списки Update в сцені
+        SceneManager.activeScene.onGameObjectParentChanged(this.gameObject, oldParent, value);
+    }
+5. src/main.ts (UI Каталогу) Реалізовано світлий дизайн (Mozaik style) з картками, які беруть дані з репозиторію. При кліку ховається div#menu-screen, показується canvas, і запускається SceneManager.
+
+Завдання: Ми продовжуємо розробку. Наступні кроки можуть стосуватися додавання фізики, покращення рендеру (світло, тіні) або створення нових компонентів (наприклад, MeshRenderer), щоб повністю сховати Three.js.
