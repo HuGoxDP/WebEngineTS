@@ -59,6 +59,13 @@ export class EngineObject {
     }
 
     /**
+     * Знищує об'єкт (інстанс-метод для зручності).
+     */
+    public destroy(): void {
+        EngineObject.destroy(this);
+    }
+
+    /**
      * Створює копію об'єкта.
      * TODO: Реалізувати через систему серіалізації.
      */
