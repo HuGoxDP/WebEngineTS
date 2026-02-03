@@ -13,13 +13,12 @@ export abstract class Component extends EngineObject {
      * Readonly: компонент не може "перестрибнути" на інший об'єкт після створення.
      */
     public readonly gameObject: GameObject;
-
     /**
      * Конструктор компонента.
      * @param gameObject Об'єкт-контейнер, до якого буде додано компонент.
      */
     constructor(gameObject: GameObject) {
-        super(gameObject.name);
+        super();
         this.gameObject = gameObject;
     }
 
@@ -59,19 +58,9 @@ export abstract class Component extends EngineObject {
     }
 
     /**
-     * Викликається, коли сам GameObject або цей компонент знищується.
-     * Перевизначаємо метод з EngineObject.
+     * @internal Викликається системою при знищенні.
      */
     protected override onDestroy(): void {
-        // Тут може бути логіка від'єднання від подій GameObject, якщо така система буде.
-        // Важливо: Реальне видалення зі списку компонентів GameObject має робити сам GameObject.
+        // Логіка очищення в нащадках
     }
-
-    /**
-     * Метод для логування, щоб бачити, на якому об'єкті висить компонент.
-     */
-    public override toString(): string {
-        return `${this.constructor.name} (on ${this.gameObject.name})`;
-    }
-
 }

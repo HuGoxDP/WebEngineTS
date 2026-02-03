@@ -1,148 +1,193 @@
 import * as THREE from "three";
-import { Component } from "./Component.ts";
-import { Vector3 } from "./math/Vector3.ts";
-import { Quaternion } from "./math/Quaternion.ts";
-import type { GameObject } from "./GameObject.ts";
-import { SceneManager } from "./SceneManager.ts";
+import { Component } from "./Component";
+import { Vector3 } from "./math/Vector3";
+import { Quaternion } from "./math/Quaternion";
+import type { GameObject } from "./GameObject";
+import { SceneManager } from "./SceneManager";
 
-// Кешовані змінні для уникнення аллокацій (Garbage Collection optimization)
+// Кешовані змінні для уникнення алокацій (Garbage Collection optimization)
 const _tempThreeVec3 = new THREE.Vector3();
 const _tempThreeQuat = new THREE.Quaternion();
-const _tempThreeEuler = new THREE.Euler();
 
 /**
  * Основний компонент, який визначає позицію, поворот та масштаб об'єкта.
- * Також відповідає за ієрархію сцени (parent-child).
- * Є обгорткою над THREE.Object3D.
  */
 export class Transform extends Component {
 
-    /**
-     * Внутрішній об'єкт Three.js.
-     * @internal
+    /** * Внутрішній об'єкт Three.js.
+     * @internal Використовується тільки для рендеру та розрахунку світових матриць.
      */
     public readonly object3D: THREE.Object3D;
 
+    private _localPosition: Vector3 = Vector3.zero;
+    private _localRotation: Quaternion = Quaternion.identity;
+    private _localScale: Vector3 = Vector3.one;
+
+    // --- Hierarchy Data ---
+    private _parent: Transform | null = null;
+
+    /** @internal Доступно для GameObject при знищенні */
+    public _children: Transform[] = [];
+
     constructor(gameObject: GameObject) {
         super(gameObject);
+
+        // Створюємо групу в Three.js
         this.object3D = new THREE.Group();
+        this.object3D.matrixAutoUpdate = true; // Дозволяємо Three.js рахувати матриці
+
+        // Прив'язка для Raycasting (зворотній зв'язок від Three.js до нашого рушія)
         this.object3D.userData = { gameObject: gameObject };
     }
 
-    /**
-     * Батьківський Transform.
-     * При зміні батька зберігається світова позиція, поворот і масштаб (World Space Stays).
-     */
+    // ==========================================
+    // I. HIERARCHY
+    // ==========================================
+
     public get parent(): Transform | null {
-        if (this.object3D.parent && this.object3D.parent.userData.gameObject) {
-            return (this.object3D.parent.userData.gameObject as GameObject).transform;
-        }
-        return null;
+        return this._parent;
     }
 
-    public set parent(value: Transform | null) {
-        if (this.parent === value) return;
+    public set parent(newParent: Transform | null) {
+        if (this._parent === newParent) return;
 
-        const oldParent = this.parent;
+        const wasRoot = (this._parent === null);
+        const willBeRoot = (newParent === null);
 
-        if (value) {
-
-            value.object3D.add(this.object3D);
-        } else {
-            SceneManager.activeScene.threeScene.add(this.object3D);
-        }
-
-        SceneManager.activeScene.onGameObjectParentChanged(this.gameObject, oldParent, value);
-    }
-
-    /**
-     * Кількість дочірніх об'єктів.
-     */
-    public get childCount(): number {
-        let count = 0;
-        for (const child of this.object3D.children) {
-            if (child.userData.gameObject) count++;
-        }
-        return count;
-    }
-
-    /**
-     * Отримати дочірній елемент за індексом.
-     */
-    public getChild(index: number): Transform {
-        let current = 0;
-        for (const child of this.object3D.children) {
-            if (child.userData.gameObject) {
-                if (current === index) {
-                    return (child.userData.gameObject as GameObject).transform;
-                }
-                current++;
+        if (this._parent) {
+            const index = this._parent._children.indexOf(this);
+            if (index !== -1) {
+                this._parent._children.splice(index, 1);
             }
         }
-        throw new Error(`Child at index ${index} not found or is not a GameObject`);
-    }
 
-    /**
-     * Отримує світову позицію і записує її в переданий вектор.
-     * ZERO-ALLOCATION метод.
-     */
-    public getPosition(out: Vector3): Vector3 {
-        this.object3D.getWorldPosition(_tempThreeVec3);
-        return out.set(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
-    }
+        this._parent = newParent;
 
-    public get position(): Vector3 {
-        return this.getPosition(new Vector3());
-    }
-
-    public set position(value: Vector3) {
-        _tempThreeVec3.set(value.x, value.y, value.z);
-
-        if (!this.object3D.parent) {
-            this.object3D.position.copy(_tempThreeVec3);
+        if (newParent) {
+            newParent._children.push(this);
+            newParent.object3D.add(this.object3D);
         } else {
-            this.object3D.parent.worldToLocal(_tempThreeVec3);
-            this.object3D.position.copy(_tempThreeVec3);
+            // Від'єднуємо від батька в Three.js
+            this.object3D.removeFromParent();
         }
+
+        if (wasRoot && !willBeRoot) {
+            // Перестав бути кореневим -> Сцена припиняє його оновлювати напряму (це робить батько)
+            SceneManager.activeScene._onGameObjectParentChanged(this.gameObject, false);
+        } else if (!wasRoot && willBeRoot) {
+            // Став кореневим -> Сцена додає його в свій список оновлення і в threeScene
+            SceneManager.activeScene._onGameObjectParentChanged(this.gameObject, true);
+        }
+
+        // Оновлюємо матриці
+        this.object3D.updateMatrixWorld(true);
     }
 
-    public getLocalPosition(out: Vector3): Vector3 {
-        return out.set(this.object3D.position.x, this.object3D.position.y, this.object3D.position.z);
+    public get childCount(): number {
+        return this._children.length;
     }
+
+    public getChild(index: number): Transform {
+        return this._children[index];
+    }
+
+    // ==========================================
+    // II. LOCAL TRANSFORMS (Master-Slave Sync)
+    // ==========================================
 
     public get localPosition(): Vector3 {
-        return new Vector3(this.object3D.position.x, this.object3D.position.y, this.object3D.position.z);
+        return this._localPosition;
     }
 
     public set localPosition(value: Vector3) {
+        // 1. Update Master
+        this._localPosition.copy(value);
+        // 2. Sync Slave
         this.object3D.position.set(value.x, value.y, value.z);
     }
 
-    public getRotation(out: Quaternion): Quaternion {
-        this.object3D.getWorldQuaternion(_tempThreeQuat);
-        return out.set(_tempThreeQuat.x, _tempThreeQuat.y, _tempThreeQuat.z, _tempThreeQuat.w);
+    public get localRotation(): Quaternion {
+        return this._localRotation;
     }
 
-    public get rotation(): Quaternion {
-        return this.getRotation(new Quaternion());
+    public set localRotation(value: Quaternion) {
+        this._localRotation.copy(value);
+        this.object3D.quaternion.set(value.x, value.y, value.z, value.w);
     }
 
-    public set rotation(value: Quaternion) {
-        _tempThreeQuat.set(value.x, value.y, value.z, value.w);
+    public get localScale(): Vector3 {
+        return this._localScale;
+    }
 
-        if (!this.object3D.parent) {
-            this.object3D.quaternion.copy(_tempThreeQuat);
+    public set localScale(value: Vector3) {
+        this._localScale.copy(value);
+        this.object3D.scale.set(value.x, value.y, value.z);
+    }
+
+    // ==========================================
+    // III. WORLD TRANSFORMS
+    // ==========================================
+
+    public get position(): Vector3 {
+        this.object3D.getWorldPosition(_tempThreeVec3);
+        return new Vector3(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
+    }
+
+    public set position(value: Vector3) {
+        // Конвертуємо світові координати в локальні відносно батька
+        const parent = this.object3D.parent;
+        if (parent) {
+            _tempThreeVec3.set(value.x, value.y, value.z);
+            parent.worldToLocal(_tempThreeVec3);
+            this.localPosition = new Vector3(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
         } else {
-            const parentQuat = new THREE.Quaternion();
-            this.object3D.parent.getWorldQuaternion(parentQuat);
-            parentQuat.invert();
-            parentQuat.multiply(_tempThreeQuat);
-            this.object3D.quaternion.copy(parentQuat);
+            this.localPosition = value;
         }
     }
 
-    public get localRotation(): Quaternion {
-        return new Quaternion(
+    public get rotation(): Quaternion {
+        this.object3D.getWorldQuaternion(_tempThreeQuat);
+        return new Quaternion(_tempThreeQuat.x, _tempThreeQuat.y, _tempThreeQuat.z, _tempThreeQuat.w);
+    }
+
+    public set rotation(value: Quaternion) {
+        const parent = this.object3D.parent;
+        if (parent) {
+            // Хак: тимчасово від'єднуємо, ставимо поворот, приєднуємо назад
+            // Це надійніше, ніж ручна математика кватерніонів
+            const oldParent = this.object3D.parent;
+            this.object3D.removeFromParent();
+
+            this.object3D.quaternion.set(value.x, value.y, value.z, value.w);
+
+            oldParent!.add(this.object3D);
+
+            // Забираємо результат назад у Master (локальний поворот змінився)
+            this._localRotation.set(
+                this.object3D.quaternion.x,
+                this.object3D.quaternion.y,
+                this.object3D.quaternion.z,
+                this.object3D.quaternion.w
+            );
+        } else {
+            this.localRotation = value;
+        }
+    }
+
+    // ==========================================
+    // IV. HELPER METHODS
+    // ==========================================
+
+    public translate(translation: Vector3): void {
+        this.position = this.position.add(translation);
+    }
+
+    public lookAt(target: Vector3): void {
+        // Використовуємо Three.js для розрахунку повороту
+        this.object3D.lookAt(target.x, target.y, target.z);
+
+        // Синхронізуємо назад у Master
+        this._localRotation.set(
             this.object3D.quaternion.x,
             this.object3D.quaternion.y,
             this.object3D.quaternion.z,
@@ -150,74 +195,23 @@ export class Transform extends Component {
         );
     }
 
-    public set localRotation(value: Quaternion) {
-        this.object3D.quaternion.set(value.x, value.y, value.z, value.w);
-    }
-
-    public get localScale(): Vector3 {
-        return new Vector3(this.object3D.scale.x, this.object3D.scale.y, this.object3D.scale.z);
-    }
-
-    public set localScale(value: Vector3) {
-        this.object3D.scale.set(value.x, value.y, value.z);
-    }
-
-    public get lossyScale(): Vector3 {
-        this.object3D.getWorldScale(_tempThreeVec3);
+    public get forward(): Vector3 {
+        _tempThreeVec3.set(0, 0, 1).applyQuaternion(this.object3D.quaternion);
         return new Vector3(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
     }
 
-    public get eulerAngles(): Vector3 {
-        _tempThreeEuler.setFromQuaternion(this.object3D.quaternion, 'YXZ');
-        const rad2deg = 180 / Math.PI;
-        return new Vector3(_tempThreeEuler.x * rad2deg, _tempThreeEuler.y * rad2deg, _tempThreeEuler.z * rad2deg);
-    }
-
-    public set eulerAngles(value: Vector3) {
-        const deg2rad = Math.PI / 180;
-        _tempThreeEuler.set(value.x * deg2rad, value.y * deg2rad, value.z * deg2rad, 'YXZ');
-        this.object3D.quaternion.setFromEuler(_tempThreeEuler);
-    }
-
-    public getForward(out: Vector3): Vector3 {
-        _tempThreeVec3.set(0, 0, 1).applyQuaternion(this.object3D.quaternion);
-        return out.set(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
-    }
-
-    public get forward(): Vector3 { return this.getForward(new Vector3()); }
-
-    public getRight(out: Vector3): Vector3 {
+    public get right(): Vector3 {
         _tempThreeVec3.set(1, 0, 0).applyQuaternion(this.object3D.quaternion);
-        return out.set(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
+        return new Vector3(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
     }
 
-    public get right(): Vector3 { return this.getRight(new Vector3()); }
-
-    public getUp(out: Vector3): Vector3 {
+    public get up(): Vector3 {
         _tempThreeVec3.set(0, 1, 0).applyQuaternion(this.object3D.quaternion);
-        return out.set(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
+        return new Vector3(_tempThreeVec3.x, _tempThreeVec3.y, _tempThreeVec3.z);
     }
 
-    public get up(): Vector3 { return this.getUp(new Vector3()); }
-
-    public translate(translation: Vector3): void {
-        this.object3D.translateX(translation.x);
-        this.object3D.translateY(translation.y);
-        this.object3D.translateZ(translation.z);
-    }
-
-    public lookAt(target: Vector3): void {
-        this.object3D.lookAt(target.x, target.y, target.z);
-    }
-
-    /**
-     * Обертає об'єкт навколо осі на вказаний кут (у градусах).
-     * @param axis Вісь обертання (наприклад, Vector3.up).
-     * @param angle Кут у градусах.
-     * @param space Простір (Local або World). Поки що реалізуємо Local.
-     */
-    public rotate(axis: Vector3, angle: number): void {
-        _tempThreeVec3.set(axis.x, axis.y, axis.z);
-        this.object3D.rotateOnAxis(_tempThreeVec3, angle * (Math.PI / 180));
+    protected override onDestroy(): void {
+        this.object3D.clear();
+        this.object3D.removeFromParent();
     }
 }

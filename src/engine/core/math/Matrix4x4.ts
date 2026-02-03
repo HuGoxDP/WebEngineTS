@@ -1,80 +1,73 @@
+// path: src/engine/core/math/Matrix4x4.ts
+
 import { EngineSettings } from "../EngineSettings.ts";
 import { Vector3 } from "./Vector3.ts";
 import { Vector4 } from "./Vector4.ts";
 import { Quaternion } from "./Quaternion.ts";
-import * as THREE from "three";
 
 /**
  * Matrix4x4.ts
- * Клас матриці 4x4 для роботи з трансформаціями в 3D просторі.
- * Використовується для: позиціонування, обертання, масштабування,
- * проекцій камери, шейдерних операцій.
- * 
- * Формат зберігання: Column-major (як в OpenGL/Three.js)
- * Індексація: m[col][row] або elements[col * 4 + row]
+ * 4x4 matrix class for 3D transformations.
+ * Used for: positioning, rotation, scaling, camera projections, shader operations.
+ *
+ * Storage format: Column-major (like OpenGL)
+ * Indexing: m[col][row] or elements[col * 4 + row]
+ *
+ * IMPORTANT: This is a pure math class with no rendering dependencies.
+ * Three.js synchronization happens in Transform's internal adapter.
  */
 export class Matrix4x4 {
     /**
-     * Елементи матриці у форматі column-major (16 елементів).
-     * Порядок: [m00, m10, m20, m30, m01, m11, m21, m31, m02, m12, m22, m32, m03, m13, m23, m33]
+     * Matrix elements in column-major format (16 elements).
+     * Order: [m00, m10, m20, m30, m01, m11, m21, m31, m02, m12, m22, m32, m03, m13, m23, m33]
      */
     public readonly elements: Float32Array;
 
-    /**
-     * Внутрішній об'єкт Three.js для інтеграції.
-     * НЕ використовувати напряму - лише для двигуна!
-     */
-    public _internalMatrix: THREE.Matrix4;
-
     constructor() {
         this.elements = new Float32Array(16);
-        this._internalMatrix = new THREE.Matrix4();
         this.setIdentity();
     }
 
-
     /**
-     * Повертає одиничну матрицю (Identity Matrix).
+     * Returns identity matrix (Identity Matrix).
      */
     static get identity(): Matrix4x4 {
         return new Matrix4x4();
     }
 
     /**
-     * Повертає нульову матрицю (всі елементи = 0).
+     * Returns zero matrix (all elements = 0).
      */
     static get zero(): Matrix4x4 {
         const m = new Matrix4x4();
         m.elements.fill(0);
-        m._syncToThree();
         return m;
     }
 
 
     /**
-     * Отримує елемент матриці за рядком та стовпцем.
-     * @param row Рядок (0-3)
-     * @param column Стовпець (0-3)
+     * Gets matrix element by row and column.
+     * @param row Row (0-3)
+     * @param column Column (0-3)
      */
     get(row: number, column: number): number {
         return this.elements[column * 4 + row];
     }
 
     /**
-     * Встановлює елемент матриці за рядком та стовпцем.
-     * @param row Рядок (0-3)
-     * @param column Стовпець (0-3)
-     * @param value Значення
+     * Sets matrix element by row and column.
+     * @param row Row (0-3)
+     * @param column Column (0-3)
+     * @param value Value
      */
     set(row: number, column: number, value: number): this {
         this.elements[column * 4 + row] = value;
-        this._syncToThree();
         return this;
     }
 
     /**
-     * Отримує стовпець матриці як Vector4.
-     * @param index Індекс стовпця (0-3)
+     * Gets matrix column as Vector4.
+     * @param index Column index (0-3)
      */
     getColumn(index: number): Vector4 {
         const i = index * 4;
@@ -87,9 +80,9 @@ export class Matrix4x4 {
     }
 
     /**
-     * Встановлює стовпець матриці з Vector4.
-     * @param index Індекс стовпця (0-3)
-     * @param column Вектор значень
+     * Sets matrix column from Vector4.
+     * @param index Column index (0-3)
+     * @param column Vector values
      */
     setColumn(index: number, column: Vector4): this {
         const i = index * 4;
@@ -97,13 +90,12 @@ export class Matrix4x4 {
         this.elements[i + 1] = column.y;
         this.elements[i + 2] = column.z;
         this.elements[i + 3] = column.w;
-        this._syncToThree();
         return this;
     }
 
     /**
-     * Отримує рядок матриці як Vector4.
-     * @param index Індекс рядка (0-3)
+     * Gets matrix row as Vector4.
+     * @param index Row index (0-3)
      */
     getRow(index: number): Vector4 {
         return new Vector4(
@@ -114,23 +106,23 @@ export class Matrix4x4 {
         );
     }
 
+
     /**
-     * Встановлює рядок матриці з Vector4.
-     * @param index Індекс рядка (0-3)
-     * @param row Вектор значень
+     * Sets matrix row from Vector4.
+     * @param index Row index (0-3)
+     * @param row Vector values
      */
     setRow(index: number, row: Vector4): this {
         this.elements[index] = row.x;
         this.elements[index + 4] = row.y;
         this.elements[index + 8] = row.z;
         this.elements[index + 12] = row.w;
-        this._syncToThree();
         return this;
     }
 
 
     /**
-     * Повертає позицію з матриці трансформації.
+     * Returns position from transformation matrix.
      */
     getPosition(): Vector3 {
         return new Vector3(
@@ -141,7 +133,7 @@ export class Matrix4x4 {
     }
 
     /**
-     * Повертає масштаб з матриці трансформації.
+     * Returns scale from transformation matrix.
      */
     getScale(): Vector3 {
         const sx = Math.sqrt(
@@ -157,14 +149,14 @@ export class Matrix4x4 {
     }
 
     /**
-     * Повертає обертання з матриці трансформації як кватерніон.
+     * Returns rotation from transformation matrix as quaternion.
      */
     getRotation(): Quaternion {
         const scale = this.getScale();
         const m = new Matrix4x4();
         m.copy(this);
-        
-        // Нормалізуємо колонки для видалення масштабу
+
+        // Normalize columns to remove scale
         if (scale.x !== 0) {
             m.elements[0] /= scale.x;
             m.elements[1] /= scale.x;
@@ -214,7 +206,7 @@ export class Matrix4x4 {
     }
 
     /**
-     * Перевіряє, чи є матриця одиничною.
+     * Checks if matrix is identity.
      */
     get isIdentity(): boolean {
         const e = this.elements;
@@ -239,11 +231,11 @@ export class Matrix4x4 {
     }
 
     /**
-     * Повертає детермінант матриці.
+     * Returns matrix determinant.
      */
     get determinant(): number {
         const e = this.elements;
-        
+
         const n11 = e[0], n12 = e[4], n13 = e[8], n14 = e[12];
         const n21 = e[1], n22 = e[5], n23 = e[9], n24 = e[13];
         const n31 = e[2], n32 = e[6], n33 = e[10], n34 = e[14];
@@ -286,11 +278,12 @@ export class Matrix4x4 {
     }
 
 
+
     /**
-     * Створює матрицю трансформації з позиції, обертання та масштабу (TRS).
-     * @param position Позиція
-     * @param rotation Обертання (кватерніон)
-     * @param scale Масштаб
+     * Creates transformation matrix from position, rotation and scale (TRS).
+     * @param position Position
+     * @param rotation Rotation (quaternion)
+     * @param scale Scale
      */
     static TRS(position: Vector3, rotation: Quaternion, scale: Vector3): Matrix4x4 {
         const m = new Matrix4x4();
@@ -299,21 +292,20 @@ export class Matrix4x4 {
     }
 
     /**
-     * Створює матрицю переміщення.
-     * @param translation Вектор переміщення
+     * Creates translation matrix.
+     * @param translation Translation vector
      */
     static Translate(translation: Vector3): Matrix4x4 {
         const m = new Matrix4x4();
         m.elements[12] = translation.x;
         m.elements[13] = translation.y;
         m.elements[14] = translation.z;
-        m._syncToThree();
         return m;
     }
 
     /**
-     * Створює матрицю обертання з кватерніона.
-     * @param q Кватерніон обертання
+     * Creates rotation matrix from quaternion.
+     * @param q Rotation quaternion
      */
     static Rotate(q: Quaternion): Matrix4x4 {
         const m = new Matrix4x4();
@@ -321,22 +313,22 @@ export class Matrix4x4 {
         return m;
     }
 
+
     /**
-     * Створює матрицю масштабування.
-     * @param scale Вектор масштабу
+     * Creates scale matrix.
+     * @param scale Scale vector
      */
     static Scale(scale: Vector3): Matrix4x4 {
         const m = new Matrix4x4();
         m.elements[0] = scale.x;
         m.elements[5] = scale.y;
         m.elements[10] = scale.z;
-        m._syncToThree();
         return m;
     }
 
     /**
-     * Створює матрицю обертання навколо осі X.
-     * @param angle Кут в градусах
+     * Creates rotation matrix around X axis.
+     * @param angle Angle in degrees
      */
     static RotateX(angle: number): Matrix4x4 {
         const m = new Matrix4x4();
@@ -347,13 +339,12 @@ export class Matrix4x4 {
         m.elements[6] = s;
         m.elements[9] = -s;
         m.elements[10] = c;
-        m._syncToThree();
         return m;
     }
 
     /**
-     * Створює матрицю обертання навколо осі Y.
-     * @param angle Кут в градусах
+     * Creates rotation matrix around Y axis.
+     * @param angle Angle in degrees
      */
     static RotateY(angle: number): Matrix4x4 {
         const m = new Matrix4x4();
@@ -364,13 +355,12 @@ export class Matrix4x4 {
         m.elements[2] = -s;
         m.elements[8] = s;
         m.elements[10] = c;
-        m._syncToThree();
         return m;
     }
 
     /**
-     * Створює матрицю обертання навколо осі Z.
-     * @param angle Кут в градусах
+     * Creates rotation matrix around Z axis.
+     * @param angle Angle in degrees
      */
     static RotateZ(angle: number): Matrix4x4 {
         const m = new Matrix4x4();
@@ -381,46 +371,44 @@ export class Matrix4x4 {
         m.elements[1] = s;
         m.elements[4] = -s;
         m.elements[5] = c;
-        m._syncToThree();
         return m;
     }
 
     /**
-     * Створює перспективну проекційну матрицю.
-     * @param fov Поле зору в градусах
-     * @param aspect Співвідношення сторін (width / height)
-     * @param near Ближня площина відсікання
-     * @param far Дальня площина відсікання
+     * Creates perspective projection matrix.
+     * @param fov Field of view in degrees
+     * @param aspect Aspect ratio (width / height)
+     * @param near Near clipping plane
+     * @param far Far clipping plane
      */
     static Perspective(fov: number, aspect: number, near: number, far: number): Matrix4x4 {
         const m = new Matrix4x4();
         m.elements.fill(0);
-        
+
         const tanHalfFov = Math.tan((fov * Math.PI / 180) / 2);
-        
+
         m.elements[0] = 1 / (aspect * tanHalfFov);
         m.elements[5] = 1 / tanHalfFov;
         m.elements[10] = -(far + near) / (far - near);
         m.elements[11] = -1;
         m.elements[14] = -(2 * far * near) / (far - near);
-        
-        m._syncToThree();
+
         return m;
     }
 
     /**
-     * Створює ортографічну проекційну матрицю.
-     * @param left Ліва межа
-     * @param right Права межа
-     * @param bottom Нижня межа
-     * @param top Верхня межа
-     * @param near Ближня площина відсікання
-     * @param far Дальня площина відсікання
+     * Creates orthographic projection matrix.
+     * @param left Left bound
+     * @param right Right bound
+     * @param bottom Bottom bound
+     * @param top Top bound
+     * @param near Near clipping plane
+     * @param far Far clipping plane
      */
     static Ortho(left: number, right: number, bottom: number, top: number, near: number, far: number): Matrix4x4 {
         const m = new Matrix4x4();
         m.elements.fill(0);
-        
+
         const w = 1.0 / (right - left);
         const h = 1.0 / (top - bottom);
         const p = 1.0 / (far - near);
@@ -432,20 +420,19 @@ export class Matrix4x4 {
         m.elements[13] = -(top + bottom) * h;
         m.elements[14] = -(far + near) * p;
         m.elements[15] = 1;
-        
-        m._syncToThree();
+
         return m;
     }
 
     /**
-     * Створює матрицю "погляду" (Look At).
-     * @param eye Позиція камери
-     * @param target Точка, на яку дивиться камера
-     * @param up Напрямок "вгору"
+     * Creates "look at" matrix (view matrix).
+     * @param eye Camera position
+     * @param target Target point camera is looking at
+     * @param up Up direction
      */
     static LookAt(eye: Vector3, target: Vector3, up: Vector3): Matrix4x4 {
         const m = new Matrix4x4();
-        
+
         const zAxis = Vector3.subtract(eye, target, new Vector3()).normalize();
         const xAxis = Vector3.cross(up, zAxis, new Vector3()).normalize();
         const yAxis = Vector3.cross(zAxis, xAxis, new Vector3());
@@ -470,13 +457,12 @@ export class Matrix4x4 {
         m.elements[14] = -zAxis.dot(eye);
         m.elements[15] = 1;
 
-        m._syncToThree();
         return m;
     }
 
 
     /**
-     * Встановлює матрицю як одиничну (Identity).
+     * Sets matrix to identity.
      */
     setIdentity(): this {
         this.elements.fill(0);
@@ -484,45 +470,43 @@ export class Matrix4x4 {
         this.elements[5] = 1;
         this.elements[10] = 1;
         this.elements[15] = 1;
-        this._syncToThree();
         return this;
     }
 
     /**
-     * Встановлює матрицю трансформації з позиції, обертання та масштабу.
-     * @param position Позиція
-     * @param rotation Обертання (кватерніон)
-     * @param scale Масштаб
+     * Sets transformation matrix from position, rotation and scale.
+     * @param position Position
+     * @param rotation Rotation (quaternion)
+     * @param scale Scale
      */
     setTRS(position: Vector3, rotation: Quaternion, scale: Vector3): this {
-        // Спочатку обертання
+        // First rotation
         this.setRotation(rotation);
-        
-        // Потім масштаб (множимо перші три стовпці на відповідні компоненти масштабу)
+
+        // Then scale (multiply first three columns by corresponding scale components)
         this.elements[0] *= scale.x;
         this.elements[1] *= scale.x;
         this.elements[2] *= scale.x;
-        
+
         this.elements[4] *= scale.y;
         this.elements[5] *= scale.y;
         this.elements[6] *= scale.y;
-        
+
         this.elements[8] *= scale.z;
         this.elements[9] *= scale.z;
         this.elements[10] *= scale.z;
-        
-        // Нарешті позиція
+
+        // Finally position
         this.elements[12] = position.x;
         this.elements[13] = position.y;
         this.elements[14] = position.z;
-        
-        this._syncToThree();
+
         return this;
     }
 
     /**
-     * Встановлює матрицю обертання з кватерніона.
-     * @param q Кватерніон обертання
+     * Sets rotation matrix from quaternion.
+     * @param q Rotation quaternion
      */
     setRotation(q: Quaternion): this {
         const x = q.x, y = q.y, z = q.z, w = q.w;
@@ -551,50 +535,48 @@ export class Matrix4x4 {
         this.elements[14] = 0;
         this.elements[15] = 1;
 
-        this._syncToThree();
         return this;
     }
 
     /**
-     * Копіює значення з іншої матриці.
-     * @param m Матриця для копіювання
+     * Copies values from another matrix.
+     * @param m Matrix to copy
      */
     copy(m: Matrix4x4): this {
         this.elements.set(m.elements);
-        this._syncToThree();
         return this;
     }
 
     /**
-     * Створює копію цієї матриці.
+     * Creates copy of this matrix.
      */
     clone(): Matrix4x4 {
         const m = new Matrix4x4();
         m.elements.set(this.elements);
-        m._syncToThree();
         return m;
     }
 
     /**
-     * Множить цю матрицю на іншу (this = this * m).
-     * @param m Матриця для множення
+     * Multiplies this matrix by another (this = this * m).
+     * @param m Matrix to multiply
      */
     multiply(m: Matrix4x4): this {
         return this.multiplyMatrices(this, m);
     }
 
+
     /**
-     * Множить цю матрицю зліва на іншу (this = m * this).
-     * @param m Матриця для множення
+     * Premultiplies this matrix by another (this = m * this).
+     * @param m Matrix to multiply
      */
     premultiply(m: Matrix4x4): this {
         return this.multiplyMatrices(m, this);
     }
 
     /**
-     * Множить дві матриці і записує результат в поточну.
-     * @param a Перша матриця
-     * @param b Друга матриця
+     * Multiplies two matrices and stores result in current.
+     * @param a First matrix
+     * @param b Second matrix
      */
     multiplyMatrices(a: Matrix4x4, b: Matrix4x4): this {
         const ae = a.elements;
@@ -631,26 +613,24 @@ export class Matrix4x4 {
         te[11] = a41 * b13 + a42 * b23 + a43 * b33 + a44 * b43;
         te[15] = a41 * b14 + a42 * b24 + a43 * b34 + a44 * b44;
 
-        this._syncToThree();
         return this;
     }
 
     /**
-     * Множить матрицю на скаляр.
-     * @param scalar Число для множення
+     * Multiplies matrix by scalar.
+     * @param scalar Number to multiply by
      */
     multiplyScalar(scalar: number): this {
         for (let i = 0; i < 16; i++) {
             this.elements[i] *= scalar;
         }
-        this._syncToThree();
         return this;
     }
 
     /**
-     * Трансформує точку (з урахуванням позиції, w = 1).
-     * @param point Точка для трансформації
-     * @param out (Опціонально) Вектор для запису результату
+     * Transforms point (with position, w = 1).
+     * @param point Point to transform
+     * @param out (Optional) Vector to write result to
      */
     multiplyPoint(point: Vector3, out?: Vector3): Vector3 {
         const result = out || new Vector3();
@@ -666,10 +646,10 @@ export class Matrix4x4 {
     }
 
     /**
-     * Трансформує точку без урахування перспективного ділення.
-     * Швидше за multiplyPoint, але некоректно працює з проекційними матрицями.
-     * @param point Точка для трансформації
-     * @param out (Опціонально) Вектор для запису результату
+     * Transforms point without perspective division.
+     * Faster than multiplyPoint, but incorrect for projection matrices.
+     * @param point Point to transform
+     * @param out (Optional) Vector to write result to
      */
     multiplyPoint3x4(point: Vector3, out?: Vector3): Vector3 {
         const result = out || new Vector3();
@@ -684,9 +664,9 @@ export class Matrix4x4 {
     }
 
     /**
-     * Трансформує напрямок (без урахування позиції, w = 0).
-     * @param vector Напрямок для трансформації
-     * @param out (Опціонально) Вектор для запису результату
+     * Transforms direction (without position, w = 0).
+     * @param vector Direction to transform
+     * @param out (Optional) Vector to write result to
      */
     multiplyVector(vector: Vector3, out?: Vector3): Vector3 {
         const result = out || new Vector3();
@@ -701,9 +681,9 @@ export class Matrix4x4 {
     }
 
     /**
-     * Трансформує Vector4.
-     * @param v Вектор для трансформації
-     * @param out (Опціонально) Вектор для запису результату
+     * Transforms Vector4.
+     * @param v Vector to transform
+     * @param out (Optional) Vector to write result to
      */
     multiplyVector4(v: Vector4, out?: Vector4): Vector4 {
         const result = out || new Vector4();
@@ -719,7 +699,7 @@ export class Matrix4x4 {
     }
 
     /**
-     * Інвертує матрицю.
+     * Inverts matrix.
      */
     invert(): this {
         const e = this.elements;
@@ -765,19 +745,19 @@ export class Matrix4x4 {
         te[15] = (n12 * n23 * n31 - n13 * n22 * n31 + n13 * n21 * n32 - n11 * n23 * n32 - n12 * n21 * n33 + n11 * n22 * n33) * detInv;
 
         this.elements.set(te);
-        this._syncToThree();
         return this;
     }
 
+
     /**
-     * Повертає інверсну матрицю (не змінюючи оригінал).
+     * Returns inverse matrix (without modifying original).
      */
     inverse(): Matrix4x4 {
         return this.clone().invert();
     }
 
     /**
-     * Транспонує матрицю.
+     * Transposes matrix.
      */
     transpose(): this {
         const e = this.elements;
@@ -790,14 +770,13 @@ export class Matrix4x4 {
         tmp = e[7]; e[7] = e[13]; e[13] = tmp;
         tmp = e[11]; e[11] = e[14]; e[14] = tmp;
 
-        this._syncToThree();
         return this;
     }
 
     /**
-     * Перевіряє рівність матриць з урахуванням похибки.
-     * @param m Матриця для порівняння
-     * @param epsilon Допустима похибка
+     * Checks matrix equality with tolerance.
+     * @param m Matrix to compare
+     * @param epsilon Tolerance
      */
     equals(m: Matrix4x4, epsilon = EngineSettings.Math.EPSILON): boolean {
         for (let i = 0; i < 16; i++) {
@@ -809,22 +788,21 @@ export class Matrix4x4 {
     }
 
     /**
-     * Встановлює значення з масиву.
-     * @param array Масив з 16 елементів
-     * @param offset Зсув в масиві (за замовчуванням 0)
+     * Sets values from an array.
+     * @param array Array of 16 elements
+     * @param offset Offset in an array (default 0)
      */
     fromArray(array: ArrayLike<number>, offset: number = 0): this {
         for (let i = 0; i < 16; i++) {
             this.elements[i] = array[offset + i];
         }
-        this._syncToThree();
         return this;
     }
 
     /**
-     * Повертає масив з елементів матриці.
-     * @param array (Опціонально) Масив для запису
-     * @param offset Зсув в масиві (за замовчуванням 0)
+     * Returns array of matrix elements.
+     * @param array (Optional) Array to write to
+     * @param offset Offset in array (default 0)
      */
     toArray(array?: number[], offset: number = 0): number[] {
         const result = array || [];
@@ -834,8 +812,9 @@ export class Matrix4x4 {
         return result;
     }
 
+
     /**
-     * Повертає рядкове представлення матриці.
+     * Returns string representation of matrix.
      */
     toString(): string {
         const e = this.elements;
@@ -844,33 +823,5 @@ export class Matrix4x4 {
 | ${e[1].toFixed(3)} ${e[5].toFixed(3)} ${e[9].toFixed(3)} ${e[13].toFixed(3)} |
 | ${e[2].toFixed(3)} ${e[6].toFixed(3)} ${e[10].toFixed(3)} ${e[14].toFixed(3)} |
 | ${e[3].toFixed(3)} ${e[7].toFixed(3)} ${e[11].toFixed(3)} ${e[15].toFixed(3)} |`;
-    }
-
-    // === Внутрішні методи ===
-
-    /**
-     * Синхронізує елементи з внутрішньою матрицею Three.js.
-     * @internal
-     */
-    _syncToThree(): void {
-        this._internalMatrix.fromArray(this.elements);
-    }
-
-    /**
-     * Синхронізує елементи з внутрішньої матриці Three.js.
-     * @internal
-     */
-    _syncFromThree(): void {
-        this._internalMatrix.toArray(this.elements);
-    }
-
-    /**
-     * Встановлює значення з матриці Three.js.
-     * @internal
-     */
-    _setFromThreeMatrix(m: THREE.Matrix4): this {
-        m.toArray(this.elements);
-        this._internalMatrix.copy(m);
-        return this;
     }
 }

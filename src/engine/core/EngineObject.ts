@@ -1,7 +1,6 @@
 /**
  * Базовий клас для всіх об'єктів двигуна (GameObject, Component, Assets).
  * Забезпечує унікальний ID та базову ідентифікацію.
- * Більше не зберігає глобальний реєстр об'єктів (цим займається Scene).
  */
 export class EngineObject {
 
@@ -15,7 +14,7 @@ export class EngineObject {
     private _isDestroyed: boolean = false;
 
     constructor(name: string = '') {
-        // Використовуємо вбудований Web Crypto API для генерації UUID
+        // Використовуємо вбудований API браузера (працює в сучасних браузерах)
         this.uuid = crypto.randomUUID();
         this.name = name || this.constructor.name;
     }
@@ -29,7 +28,6 @@ export class EngineObject {
 
     /**
      * Статичний метод для знищення будь-якого об'єкта двигуна.
-     * Аналог Object.Destroy(obj).
      */
     public static destroy(obj: EngineObject | null, delay: number = 0): void {
         if (!obj || !obj.exists()) return;
@@ -42,41 +40,27 @@ export class EngineObject {
     }
 
     /**
+     * Знищує об'єкт (інстанс-метод).
+     */
+    public destroy(delay: number = 0): void {
+        EngineObject.destroy(this, delay);
+    }
+
+    /**
      * Внутрішній метод негайного знищення.
-     * Викликається системою або через static destroy().
      */
     public destroyImmediate(): void {
         if (this._isDestroyed) return;
 
-        // 1. Викликаємо віртуальний метод очищення ресурсів
         this.onDestroy();
-
-        // 2. Ставимо прапор, що об'єкт мертвий
-        // Видалення зі сцени відбудеться автоматично через callback в GameObject.onDestroy,
-        // або через логіку SceneManager, якщо це GameObject.
         this._isDestroyed = true;
-    }
-
-    /**
-     * Знищує об'єкт (інстанс-метод для зручності).
-     */
-    public destroy(): void {
-        EngineObject.destroy(this);
-    }
-
-    /**
-     * Створює копію об'єкта.
-     * TODO: Реалізувати через систему серіалізації.
-     */
-    public static instantiate<T extends EngineObject>(_original: T): T {
-        throw new Error("Instantiate logic requires Serialization system to be fully implemented.");
     }
 
     /**
      * Віртуальний метод для очищення ресурсів нащадками.
      */
     protected onDestroy(): void {
-        // Override me in GameObject / Component
+        // Override me
     }
 
     public getInstanceID(): string {
@@ -85,12 +69,5 @@ export class EngineObject {
 
     public toString(): string {
         return `${this.constructor.name} (${this.name})`;
-    }
-
-    public equals(other: any): boolean {
-        if (other instanceof EngineObject) {
-            return this.uuid === other.uuid;
-        }
-        return false;
     }
 }
