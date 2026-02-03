@@ -1088,4 +1088,103 @@ export class Mesh extends EngineObject {
         this._threeGeometry.dispose();
         super.destroy();
     }
+
+    // ==================== STATIC CONVERTERS ====================
+
+    /**
+     * Створює Mesh з THREE.BufferGeometry.
+     * Використовується для імпорту моделей через GLTF/OBJ loaders.
+     * @param geometry Three.js BufferGeometry
+     * @param name Ім'я меша
+     */
+    public static fromThreeGeometry(geometry: THREE.BufferGeometry, name: string = "Imported Mesh"): Mesh {
+        const mesh = new Mesh(name);
+
+        // Копіюємо позиції вершин
+        const positionAttr = geometry.getAttribute('position');
+        if (positionAttr) {
+            mesh._vertices = [];
+            for (let i = 0; i < positionAttr.count; i++) {
+                mesh._vertices.push(new Vector3(
+                    positionAttr.getX(i),
+                    positionAttr.getY(i),
+                    positionAttr.getZ(i)
+                ));
+            }
+        }
+
+        // Копіюємо нормалі
+        const normalAttr = geometry.getAttribute('normal');
+        if (normalAttr) {
+            mesh._normals = [];
+            for (let i = 0; i < normalAttr.count; i++) {
+                mesh._normals.push(new Vector3(
+                    normalAttr.getX(i),
+                    normalAttr.getY(i),
+                    normalAttr.getZ(i)
+                ));
+            }
+        }
+
+        // Копіюємо UV координати
+        const uvAttr = geometry.getAttribute('uv');
+        if (uvAttr) {
+            mesh._uv = [];
+            for (let i = 0; i < uvAttr.count; i++) {
+                mesh._uv.push(new Vector2(
+                    uvAttr.getX(i),
+                    uvAttr.getY(i)
+                ));
+            }
+        }
+
+        // Копіюємо індекси
+        const index = geometry.index;
+        if (index) {
+            mesh._triangles = [];
+            for (let i = 0; i < index.count; i++) {
+                mesh._triangles.push(index.getX(i));
+            }
+        } else {
+            // Якщо індексів немає, створюємо послідовні
+            mesh._triangles = [];
+            for (let i = 0; i < mesh._vertices.length; i++) {
+                mesh._triangles.push(i);
+            }
+        }
+
+        // Копіюємо кольори вершин (якщо є)
+        const colorAttr = geometry.getAttribute('color');
+        if (colorAttr) {
+            mesh._colors = [];
+            for (let i = 0; i < colorAttr.count; i++) {
+                mesh._colors.push(new Color(
+                    colorAttr.getX(i),
+                    colorAttr.getY(i),
+                    colorAttr.getZ(i),
+                    colorAttr.itemSize >= 4 ? colorAttr.getW(i) : 1
+                ));
+            }
+        }
+
+        // Копіюємо тангенти (якщо є)
+        const tangentAttr = geometry.getAttribute('tangent');
+        if (tangentAttr) {
+            mesh._tangents = [];
+            for (let i = 0; i < tangentAttr.count; i++) {
+                mesh._tangents.push(new Vector4(
+                    tangentAttr.getX(i),
+                    tangentAttr.getY(i),
+                    tangentAttr.getZ(i),
+                    tangentAttr.getW(i)
+                ));
+            }
+        }
+
+        // Перераховуємо bounds
+        mesh.recalculateBounds();
+        mesh._needsUpdate = true;
+
+        return mesh;
+    }
 }

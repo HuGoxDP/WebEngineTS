@@ -2,8 +2,40 @@ import * as THREE from "three";
 import { SceneManager } from "./SceneManager.ts";
 import { Time } from "./Time.ts";
 import { EngineSettings } from "./EngineSettings.ts";
+import { Scenario } from "./scenario";
+import { Input } from "./Input";
 
+/**
+ * Application.ts
+ * Головний клас двигуна.
+ * Аналог Unity Application + основний ігровий цикл.
+ */
 export class Application {
+    // === Статичні властивості (як в Unity Application) ===
+
+    /** Поточний екземпляр Application */
+    private static _instance: Application | null = null;
+
+    /** Отримати поточний екземпляр Application */
+    public static get current(): Application | null {
+        return this._instance;
+    }
+
+    /** Версія движка */
+    public static readonly version: string = "0.1.0";
+
+    /** Чи працює движок */
+    public static get isPlaying(): boolean {
+        return this._instance?.isPlaying ?? false;
+    }
+
+    /** Поточний FPS */
+    public static get targetFrameRate(): number {
+        return 60; // TODO: Зробити налаштовуваним
+    }
+
+    // === Властивості екземпляра ===
+
     public readonly renderer: THREE.WebGLRenderer;
     public readonly canvas: HTMLCanvasElement;
     public isPlaying: boolean = false;
@@ -19,8 +51,35 @@ export class Application {
             powerPreference: "high-performance"
         });
         this.renderer.setPixelRatio(window.devicePixelRatio);
+        Input._init(this.canvas);
+
         this.resize();
         window.addEventListener('resize', () => this.resize());
+
+        // Встановлюємо як поточний екземпляр
+        Application._instance = this;
+    }
+
+    /**
+     * Завантажує та запускає сценарій з URL.
+     * @param url URL до ZIP-архіву сценарію
+     */
+    public async loadScenario(url: string): Promise<Scenario> {
+        const scenario = await Scenario.load(url);
+        this.run();
+        await scenario.run();
+        return scenario;
+    }
+
+    /**
+     * Завантажує та запускає сценарій з ArrayBuffer.
+     * @param data ArrayBuffer з ZIP-даними
+     */
+    public async loadScenarioFromBuffer(data: ArrayBuffer): Promise<Scenario> {
+        const scenario = await Scenario.loadFromBuffer(data);
+        this.run();
+        await scenario.run();
+        return scenario;
     }
 
     public run(): void {
@@ -49,17 +108,19 @@ export class Application {
         }
 
         Time._update(frameDelta);
-        this._fixedUpdateAccumulator += frameDelta;
-        const fixedStep = EngineSettings.Time.FIXED_TIMESTEP;
 
-        while (this._fixedUpdateAccumulator >= fixedStep) {
+        this._fixedUpdateAccumulator += frameDelta;
+        while (this._fixedUpdateAccumulator >= EngineSettings.Time.FIXED_TIMESTEP) {
             SceneManager.activeScene._fixedUpdate();
-            this._fixedUpdateAccumulator -= fixedStep;
+            this._fixedUpdateAccumulator -= EngineSettings.Time.FIXED_TIMESTEP;
         }
 
         SceneManager.activeScene._update();
         SceneManager.activeScene._lateUpdate();
+
         this.render();
+
+        Input._resetFrame();
     };
 
     private render(): void {

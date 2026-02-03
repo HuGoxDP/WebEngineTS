@@ -5,6 +5,8 @@ import { Rect } from "../math/Rect";
 import { Matrix4x4 } from "../math/Matrix4x4";
 import { Vector3 } from "../math/Vector3";
 import type { GameObject } from "../GameObject";
+import { Ray } from "../math/Ray";
+import { Vector2 } from "../math/Vector2";
 
 /**
  * Режими очищення камери.
@@ -306,6 +308,30 @@ export class Camera extends Behaviour {
     }
 
     // === Методи - Інші ===
+
+    /**
+     * Створює промінь, що виходить з камери через вказану точку на екрані.
+     * @param position Позиція на екрані в пікселях (наприклад, Input.mousePosition).
+     */
+    public screenPointToRay(position: Vector2): Ray {
+        if (!this._threeCamera) return new Ray();
+
+        // 1. Конвертуємо пікселі в Normalized Device Coordinates (NDC) [-1 to +1]
+        // Формула: (pos / size) * 2 - 1
+        // Y інвертується, бо в HTML (0,0) зверху-зліва, а в 3D - знизу-зліва (зазвичай)
+        // Але Three.js Raycaster очікує Y вгору.
+        const x = (position.x / window.innerWidth) * 2 - 1;
+        const y = -(position.y / window.innerHeight) * 2 + 1;
+
+        // 2. Unproject vector
+        const threeVec = new THREE.Vector3(x, y, 0.5);
+        threeVec.unproject(this._threeCamera);
+
+        const origin = this.transform.position;
+        const direction = new Vector3(threeVec.x, threeVec.y, threeVec.z).subtract(origin).normalize();
+
+        return new Ray(origin, direction);
+    }
 
     /**
      * Отримує проекційну матрицю камери

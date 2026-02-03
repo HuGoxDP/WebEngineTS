@@ -1,22 +1,22 @@
-import { Application } from "@engine";
-import { SceneManager } from "@engine";
-import { ScenarioRepository } from "./core/scenario/ScenarioRepository";
+import { Application, Scenario, ScenarioLoadState } from "@engine";
 
 // Ініціалізація - Application створюється лише при запуску сценарію
 let app: Application | null = null;
-const repo = new ScenarioRepository();
-const manifests = repo.getAllManifests();
+let currentScenario: Scenario | null = null;
 
 // UI Elements
 const ui = {
     menu: document.getElementById("menu-screen") as HTMLDivElement,
-    grid: document.querySelector(".scenario-grid") as HTMLDivElement,
     app: document.getElementById("app-screen") as HTMLDivElement,
     backBtn: document.getElementById("back-btn") as HTMLButtonElement,
+    loadBtn: document.getElementById("load-scenario-btn") as HTMLButtonElement | null,
+    fileInput: document.getElementById("scenario-file") as HTMLInputElement | null,
+    progressBar: document.getElementById("progress-bar") as HTMLDivElement | null,
+    progressText: document.getElementById("progress-text") as HTMLSpanElement | null,
 };
 
 // Функція перемикання екранів
-function toggleScreen(showGame: boolean) {
+function toggleScreen(showGame: boolean): void {
     if (showGame) {
         ui.menu.style.display = 'none';
         ui.app.style.display = 'block';
@@ -28,88 +28,116 @@ function toggleScreen(showGame: boolean) {
         if (app) {
             app.stop();
         }
+
+        // Вивантажуємо сценарій з пам'яті
+        if (currentScenario) {
+            currentScenario.unload();
+            currentScenario = null;
+        }
+    }
+}
+
+// Оновлення прогресу завантаження
+function updateProgress(progress: number, text: string): void {
+    if (ui.progressBar) {
+        ui.progressBar.style.width = `${progress * 100}%`;
+    }
+    if (ui.progressText) {
+        ui.progressText.textContent = text;
+    }
+}
+
+// Завантаження сценарію з файлу
+async function loadScenarioFromFile(file: File): Promise<void> {
+    try {
+        updateProgress(0, "Завантаження сценарію...");
+
+        // Створюємо новий сценарій
+        currentScenario = new Scenario();
+
+        // Встановлюємо колбек прогресу
+        currentScenario.onProgress((progress) => {
+            updateProgress(progress.progress, progress.currentOperation);
+
+            if (progress.state === ScenarioLoadState.Error) {
+                console.error("[Main] Помилка завантаження:", progress.error);
+                alert(`Помилка завантаження сценарію: ${progress.error}`);
+            }
+        });
+
+        // Завантажуємо з File
+        const data = await file.arrayBuffer();
+        await currentScenario.loadFromData(data);
+
+        console.log("[Main] Сценарій завантажено:", currentScenario.manifest?.name);
+
+        // Запускаємо движок та сценарій
+        startApp();
+        await currentScenario.run();
+
+    } catch (error) {
+        console.error("[Main] Помилка:", error);
+        alert(`Помилка: ${error}`);
+    }
+}
+
+// Завантаження сценарію з URL (експортовано для використання ззовні)
+export async function loadScenarioFromUrl(url: string): Promise<void> {
+    try {
+        updateProgress(0, "Завантаження сценарію з URL...");
+
+        // Завантажуємо сценарій
+        currentScenario = await Scenario.load(url);
+
+        console.log("[Main] Сценарій завантажено:", currentScenario.manifest?.name);
+
+        // Запускаємо движок та сценарій
+        startApp();
+        await currentScenario.run();
+
+    } catch (error) {
+        console.error("[Main] Помилка:", error);
+        alert(`Помилка: ${error}`);
     }
 }
 
 // Кнопка "Назад"
-ui.backBtn.addEventListener("click", () => {
+ui.backBtn?.addEventListener("click", () => {
     toggleScreen(false);
 });
 
-// Генерація карток
-ui.grid.innerHTML = "";
+// Обробник вибору файлу
+ui.fileInput?.addEventListener("change", (event) => {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (file) {
+        loadScenarioFromFile(file);
+    }
+});
 
-manifests.forEach((manifest) => {
-    const card = document.createElement("div");
-    card.className = "card";
+// Кнопка завантаження сценарію
+ui.loadBtn?.addEventListener("click", () => {
+    ui.fileInput?.click();
+});
 
-    // 1. Створюємо блок зображення
-    const imgWrapper = document.createElement("div");
-    imgWrapper.className = "card-image-wrapper";
+// Створення та запуск додатку
+function startApp(): void {
+    if (!app) {
+        const canvas = document.getElementById("webgl-canvas") as HTMLCanvasElement;
+        app = new Application(canvas);
+    }
 
-    const img = document.createElement("img");
-    img.className = "card-img";
-    img.src = manifest.previewImage || "https://via.placeholder.com/400x225?text=No+Preview";
-    img.alt = manifest.name;
+    // Приховати меню та показати гру
+    toggleScreen(true);
 
-    // Оверлей з кнопкою Play
-    const playOverlay = document.createElement("div");
-    playOverlay.className = "play-overlay";
-    playOverlay.innerHTML = `<div class="play-icon">▶</div>`;
+    app.run();
+}
 
-    imgWrapper.appendChild(img);
-    imgWrapper.appendChild(playOverlay);
+// Дочекайтеся завантаження вікна
+window.addEventListener("load", () => {
+    console.log("[Engine] Unity-like 3D Engine ініціалізовано");
+    console.log("[Engine] Завантажте ZIP-архів сценарію для початку");
 
-    // 2. Створюємо блок контенту
-    const content = document.createElement("div");
-    content.className = "card-content";
-
-    const category = document.createElement("div");
-    category.className = "card-category";
-    category.innerText = manifest.category;
-
-    const title = document.createElement("h3");
-    title.innerText = manifest.name;
-
-    const desc = document.createElement("p");
-    desc.innerText = manifest.description;
-
-    content.appendChild(category);
-    content.appendChild(title);
-    content.appendChild(desc);
-
-    // 3. Збираємо картку
-    card.appendChild(imgWrapper);
-    card.appendChild(content);
-
-    // 4. Обробка кліку
-    card.addEventListener("click", async () => {
-        console.log(`Starting: ${manifest.name}`);
-
-        // Показуємо екран з грою
-        toggleScreen(true);
-
-        try {
-            // Створюємо Application якщо ще не створено
-            if (!app) {
-                app = new Application(document.getElementById("webgl-canvas") as HTMLCanvasElement);
-            }
-
-            // Lazy Load коду сценарію
-            const ScenarioClass = await repo.loadScenarioCode(manifest.id);
-            const scenarioInstance = new ScenarioClass();
-
-            // Запуск сцени
-            SceneManager.loadScene(manifest.name);
-            await scenarioInstance.load();
-
-            app.run();
-        } catch (e) {
-            console.error(e);
-            alert("Помилка завантаження сценарію!");
-            toggleScreen(false);
-        }
-    });
-
-    ui.grid.appendChild(card);
+    // Для тестування можна завантажити сценарій з URL:
+    // loadScenarioFromUrl("/scenarios/demo.zip");
 });

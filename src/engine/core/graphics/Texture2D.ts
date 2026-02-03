@@ -468,4 +468,60 @@ export class Texture2D extends Texture {
         }
         return image.toDataURL('image/jpeg', quality);
     }
+
+    /**
+     * Створює Texture2D з THREE.Texture.
+     * @param threeTexture Three.js текстура
+     */
+    public static fromThreeTexture(threeTexture: THREE.Texture): Texture2D {
+        const image = threeTexture.image as HTMLImageElement | HTMLCanvasElement;
+        const width = image?.width || 1;
+        const height = image?.height || 1;
+
+        const texture = new Texture2D(width, height, TextureFormat.RGBA32, true);
+
+        // Замінюємо внутрішню текстуру
+        texture._threeTexture.dispose();
+        (texture as any)._threeTexture = threeTexture;
+        texture._width = width;
+        texture._height = height;
+
+        return texture;
+    }
+
+    /**
+     * Створює Texture2D з ArrayBuffer (бінарні дані зображення).
+     * @param data ArrayBuffer з даними зображення (PNG, JPEG, etc.)
+     */
+    public static fromArrayBuffer(data: ArrayBuffer): Promise<Texture2D> {
+        return new Promise((resolve, reject) => {
+            const blob = new Blob([data]);
+            const url = URL.createObjectURL(blob);
+
+            const img = new Image();
+
+            img.onload = () => {
+                // Звільняємо blob URL
+                URL.revokeObjectURL(url);
+
+                // Створюємо THREE.Texture
+                const threeTexture = new THREE.Texture(img);
+                threeTexture.needsUpdate = true;
+                threeTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // Обгортаємо в Texture2D
+                const texture = Texture2D.fromThreeTexture(threeTexture);
+                texture.name = "Texture from ArrayBuffer";
+
+                resolve(texture);
+            };
+
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error("Failed to load texture from ArrayBuffer"));
+            };
+
+            img.src = url;
+        });
+    }
 }

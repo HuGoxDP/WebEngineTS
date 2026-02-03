@@ -1,5 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
-
 /**
  * Базовий клас для всіх об'єктів двигуна (GameObject, Component, Assets).
  * Забезпечує унікальний ID та базову ідентифікацію.
@@ -17,7 +15,8 @@ export class EngineObject {
     private _isDestroyed: boolean = false;
 
     constructor(name: string = '') {
-        this.uuid = uuidv4();
+        // Використовуємо вбудований Web Crypto API для генерації UUID
+        this.uuid = crypto.randomUUID();
         this.name = name || this.constructor.name;
     }
 

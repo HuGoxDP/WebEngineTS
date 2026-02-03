@@ -28,6 +28,15 @@ export { EngineSettings } from "./core/EngineSettings";
 export { Behaviour } from "./core/Behaviour";
 export { ScriptableBehaviour } from "./core/ScriptableBehaviour";
 export { EngineObject } from "./core/EngineObject";
+export { Input } from "./core/Input";
+export { KeyCode } from "./core/KeyCode";
+
+// =====================
+// Physics - Фізика
+// =====================
+export { Physics } from "./physics/Physics";
+export { Ray } from "./core/math/Ray";
+export { RaycastHit } from "./physics/RaycastHit";
 
 // =====================
 // MATH - Математика
@@ -66,7 +75,8 @@ export { DirectionalLight } from "./core/components/DirectionalLight";
 // =====================
 // SCENARIO - Сценарії
 // =====================
-export { Scenario } from "../core/scenario/Scenario";
-export { ScenarioCategory } from "../core/scenario/ScenarioTypes";
-export type { IScenarioManifest } from "../core/scenario/ScenarioTypes";
+export { Scenario } from "./core/scenario/Scenario";
+export { ScenarioAssets } from "./core/scenario/ScenarioAssets";
+export { ScenarioCategory, ScenarioLoadState } from "./core/scenario/ScenarioTypes";
+export type { IScenarioManifest, IScenarioAuthor, IScenarioLoadProgress, IScenarioContext } from "./core/scenario/ScenarioTypes";
 
