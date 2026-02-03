@@ -1,31 +1,34 @@
-import { ScriptableBehaviour, Vector3, Quaternion, Time } from "@engine";
+// scenarios/SolarSystem/scripts/SelfRotation.ts
+
+import * as Engine from "@engine";
 
 /**
- * Компонент обертання об'єкта навколо своєї осі
- * Додає постійне обертання gameObject
+ * Компонент обертання об'єкта навколо своєї осі.
+ * Додає постійне обертання до GameObject.
  */
-export class SelfRotation extends ScriptableBehaviour {
-    /** Швидкість обертання в градусах на секунду по кожній осі */
-    public rotationSpeed: Vector3 = Vector3.zero;
+export class SelfRotation extends Engine.ScriptableBehaviour {
 
-    onUpdate(): void {
-        const deltaRotation = new Vector3(
-            this.rotationSpeed.x * Time.deltaTime,
-            this.rotationSpeed.y * Time.deltaTime,
-            this.rotationSpeed.z * Time.deltaTime
+    /** Швидкість обертання в градусах на секунду по кожній осі */
+    public rotationSpeed: Engine.Vector3 = Engine.Vector3.zero;
+
+    public override update(): void {
+        const dt = Engine.Time.deltaTime;
+
+        const deltaRotation = new Engine.Vector3(
+            this.rotationSpeed.x * dt,
+            this.rotationSpeed.y * dt,
+            this.rotationSpeed.z * dt
         );
 
-        // Отримуємо поточне обертання та додаємо до нього
-        const currentRotation = this.gameObject.transform.rotation;
-        
-        // Створюємо delta обертання
-        const deltaQuat = Quaternion.fromEuler(
+        // Створюємо delta кватерніон
+        const deltaQuat = Engine.Quaternion.fromEuler(
             deltaRotation.x,
             deltaRotation.y,
             deltaRotation.z
         );
 
         // Множимо: новий rotation = delta * поточний
-        this.gameObject.transform.rotation = deltaQuat.multiply(currentRotation);
+        const currentRotation = this.transform.rotation;
+        this.transform.rotation = deltaQuat.multiply(currentRotation);
     }
 }

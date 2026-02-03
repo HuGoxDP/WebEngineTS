@@ -13,16 +13,8 @@ export class ScriptableBehaviour extends Behaviour {
      */
     private _started: boolean = false;
 
-    /**
-     * Прапор, який вказує, чи був викликаний метод Awake.
-     */
-    private _awoken: boolean = false;
-
     constructor(gameObject: GameObject) {
         super(gameObject);
-        // Awake викликається одразу при створенні компонента (якщо це можливо в архітектурі),
-        // або викликається вручну через GameObject.addComponent.
-        // Для надійності, ми реалізуємо метод _tryAwake, який викличе система.
     }
 
     /**
@@ -30,7 +22,7 @@ export class ScriptableBehaviour extends Behaviour {
      * Використовуйте для ініціалізації змінних.
      */
     public awake(): void {
-        // Virtual method
+        // Virtual method - перевизначається в нащадках
     }
 
     /**
@@ -74,13 +66,14 @@ export class ScriptableBehaviour extends Behaviour {
 
     /**
      * Внутрішній метод для виклику Awake.
+     * Перевизначаємо батьківський метод щоб додати awake().
      * @internal
      */
-    public _systemAwake(): void {
-        if (!this._awoken) {
-            this.awake();
-            this._awoken = true;
-        }
+    public override _systemAwake(): void {
+        // Спочатку викликаємо батьківський _systemAwake (який викликає onAwake для Behaviour)
+        super._systemAwake();
+        // Потім викликаємо користувацький awake (для ScriptableBehaviour)
+        this.awake();
     }
 
     /**

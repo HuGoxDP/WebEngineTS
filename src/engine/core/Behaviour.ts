@@ -16,11 +16,36 @@ export abstract class Behaviour extends Component {
     private _enabled: boolean = true;
 
     /**
+     * Прапор, чи був викликаний Awake.
+     */
+    private _awoken: boolean = false;
+
+    /**
      * Конструктор.
      * @param gameObject Об'єкт, до якого кріпиться поведінка.
      */
     constructor(gameObject: GameObject) {
         super(gameObject);
+    }
+
+    /**
+     * Викликається один раз при створенні компонента.
+     * Використовуйте для ініціалізації.
+     * @virtual
+     */
+    protected onAwake(): void {
+        // Перевизначається в нащадках
+    }
+
+    /**
+     * Внутрішній метод для виклику Awake.
+     * @internal
+     */
+    public _systemAwake(): void {
+        if (!this._awoken) {
+            this.onAwake();
+            this._awoken = true;
+        }
     }
 
     /**

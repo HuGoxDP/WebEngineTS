@@ -77,9 +77,11 @@ export class Camera extends Behaviour {
         // Створюємо камеру
         this.updateCameraType();
         
-        // Додаємо до сцени
+        // Додаємо до сцени через Transform
         if (this.gameObject?.transform.object3D) {
             this.gameObject.transform.object3D.add(this._threeCamera!);
+        } else {
+            console.error("[Camera] Cannot add camera - transform.object3D is null!");
         }
     }
 

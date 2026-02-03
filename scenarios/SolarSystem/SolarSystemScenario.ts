@@ -1,266 +1,230 @@
-// ============================================
-// ThreeJS Engine - Unity-Style Imports
-// ============================================
-//
-// Unity C#:
-//   using UnityEngine;
-//
-// ThreeJS Engine:
-//   import { ... } from "@engine";
-//
-// Все з одного місця - як UnityEngine!
-// ============================================
+// scenarios/SolarSystem/SolarSystemScenario.ts
 
-import {
-    // Core
-    Scenario,
-    Time,
-    ScriptableBehaviour,
-    
-    // Math
-    Vector3,
-    Quaternion,
-    
-    // Graphics
-    Color,
-    Mesh,
-    StandardMaterial,
-    
-    // Components
-    MeshFilter,
-    MeshRenderer,
-    Camera,
-    DirectionalLight
-} from "@engine";
+import * as Engine from "@engine";
+import { OrbitalMotion } from "./scripts/OrbitalMotion";
+import { SelfRotation } from "./scripts/SelfRotation";
+import { CameraController } from "./scripts/CameraController";
+import { MoonOrbit } from "./scripts/MoonOrbit";
 
 /**
- * Планета в сонячній системі
+ * Сценарій Сонячної Системи.
+ * Демонструє планети, що обертаються навколо Сонця.
+ * Розміри планет пропорційні реальним (але масштабовані для наочності).
  */
-interface PlanetData {
-    name: string;
-    radius: number;
-    distance: number;     // Від сонця
-    speed: number;        // Орбітальна швидкість
-    color: Color;
-    angle?: number;       // Поточний кут орбіти
-}
-
-/**
- * Компонент орбітального руху
- */
-class OrbitalMotion extends ScriptableBehaviour {
-    public orbitDistance: number = 10;
-    public orbitSpeed: number = 0.5;
-    public centerPosition: Vector3 = Vector3.zero;
-    private angle: number = 0;
-
-    onUpdate(): void {
-        this.angle += this.orbitSpeed * Time.deltaTime;
-
-        // Обчислюємо позицію на орбіті (коло в XZ площині)
-        const x = Math.cos(this.angle) * this.orbitDistance;
-        const z = Math.sin(this.angle) * this.orbitDistance;
-
-        this.gameObject.transform.position = new Vector3(
-            this.centerPosition.x + x,
-            this.centerPosition.y,
-            this.centerPosition.z + z
-        );
-    }
-}
-
-/**
- * Компонент обертання об'єкта навколо своєї осі
- */
-class SelfRotation extends ScriptableBehaviour {
-    public rotationSpeed: Vector3 = Vector3.zero;
-
-    onUpdate(): void {
-        const deltaRotation = new Vector3(
-            this.rotationSpeed.x * Time.deltaTime,
-            this.rotationSpeed.y * Time.deltaTime,
-            this.rotationSpeed.z * Time.deltaTime
-        );
-
-        // Отримуємо поточне обертання та додаємо до нього
-        const currentRotation = this.gameObject.transform.rotation;
-        
-        // Створюємо delta обертання
-        const deltaQuat = Quaternion.fromEuler(
-            deltaRotation.x,
-            deltaRotation.y,
-            deltaRotation.z
-        );
-
-        // Множимо: новий rotation = delta * поточний
-        this.gameObject.transform.rotation = deltaQuat.multiply(currentRotation);
-    }
-}
-
-/**
- * Сценарій сонячної системи
- */
-export default class SolarSystemScenario extends Scenario {
-    private planets: PlanetData[] = [
-        {
-            name: "Mercury",
-            radius: 0.38,
-            distance: 3.8,
-            speed: 1.6,
-            color: new Color(0.6, 0.6, 0.6, 1)
-        },
-        {
-            name: "Venus",
-            radius: 0.95,
-            distance: 7.2,
-            speed: 1.2,
-            color: new Color(1, 0.8, 0.2, 1)
-        },
-        {
-            name: "Earth",
-            radius: 1,
-            distance: 10,
-            speed: 1,
-            color: new Color(0.2, 0.5, 1, 1)
-        },
-        {
-            name: "Mars",
-            radius: 0.53,
-            distance: 15,
-            speed: 0.8,
-            color: new Color(1, 0.4, 0.2, 1)
-        },
-        {
-            name: "Jupiter",
-            radius: 2.5,
-            distance: 25,
-            speed: 0.4,
-            color: new Color(1, 0.8, 0.5, 1)
-        },
-        {
-            name: "Saturn",
-            radius: 2.1,
-            distance: 35,
-            speed: 0.3,
-            color: new Color(1, 0.9, 0.7, 1)
-        }
-    ];
+export default class SolarSystemScenario extends Engine.Scenario {
 
     public async init(): Promise<void> {
         console.log("🌍 Solar System Scenario Loading...");
 
-        // 1. Створюємо сонце
+        // 1. Створюємо Сонце
         this.createSun();
 
-        // 2. Створюємо планети
-        for (const planetData of this.planets) {
-            this.createPlanet(planetData);
-        }
+        // 2. Створюємо планети з орбітами (реалістичні пропорції)
+        // Формат: назва, радіус планети, відстань від сонця, швидкість орбіти, колір
+        
+        // Меркурій - найменша планета, найближча до Сонця
+        this.createPlanetWithOrbit("Mercury", 0.38, 6, 4.0, new Engine.Color(0.7, 0.7, 0.7, 1));
+        
+        // Венера - трохи менша за Землю
+        this.createPlanetWithOrbit("Venus", 0.95, 10, 1.6, new Engine.Color(0.9, 0.7, 0.4, 1));
+        
+        // Земля - базовий розмір 1.0, з Місяцем
+        this.createEarthWithMoon(14, 1.0);
+        
+        // Марс - менший за Землю
+        this.createPlanetWithOrbit("Mars", 0.53, 20, 0.5, new Engine.Color(0.8, 0.3, 0.2, 1));
+        
+        // Юпітер - найбільша планета (в 11 разів більша за Землю, але зменшуємо для наочності)
+        this.createPlanetWithOrbit("Jupiter", 3.5, 32, 0.08, new Engine.Color(0.9, 0.8, 0.6, 1));
+        
+        // Сатурн - друга за розміром (з кільцями - TODO)
+        this.createPlanetWithOrbit("Saturn", 2.9, 45, 0.03, new Engine.Color(0.9, 0.85, 0.7, 1));
 
-        // 3. Налаштовуємо камеру
+        // 3. Камера
         this.setupCamera();
 
-        // 4. Налаштовуємо освітлення
+        // 4. Освітлення
         this.setupLighting();
 
         console.log("✅ Solar System Ready!");
     }
 
     /**
-     * Створює сонце
+     * Створює Землю з Місяцем.
      */
+    private createEarthWithMoon(distance: number, speed: number): void {
+        // Земля
+        const earth = this.createGameObject("Earth");
+        
+        const earthMeshFilter = earth.addComponent(Engine.MeshFilter);
+        earthMeshFilter.sharedMesh = Engine.Mesh.createSphere(1.0, 32);
+        
+        const earthRenderer = earth.addComponent(Engine.MeshRenderer);
+        const earthMaterial = new Engine.StandardMaterial();
+        earthMaterial.albedoColor = new Engine.Color(0.2, 0.4, 0.8, 1);
+        earthMaterial.metallic = 0.1;
+        earthMaterial.smoothness = 0.6;
+        earthRenderer.material = earthMaterial;
+        
+        // Орбіта Землі
+        const earthOrbital = earth.addComponent(OrbitalMotion);
+        earthOrbital.orbitRadius = distance;
+        earthOrbital.orbitSpeed = speed;
+        earthOrbital.centerPosition = Engine.Vector3.zero;
+        earthOrbital.startAngle = Math.random() * Math.PI * 2;
+        
+        // Обертання Землі
+        const earthRotation = earth.addComponent(SelfRotation);
+        earthRotation.rotationSpeed = new Engine.Vector3(0, 30, 0);
+        
+        // Орбіта Землі (візуалізація)
+        this.createOrbit(distance, new Engine.Color(0.2, 0.4, 0.8, 1));
+        
+        // Місяць
+        const moon = this.createGameObject("Moon");
+        
+        const moonMeshFilter = moon.addComponent(Engine.MeshFilter);
+        moonMeshFilter.sharedMesh = Engine.Mesh.createSphere(0.27, 16);
+        
+        const moonRenderer = moon.addComponent(Engine.MeshRenderer);
+        const moonMaterial = new Engine.StandardMaterial();
+        moonMaterial.albedoColor = new Engine.Color(0.8, 0.8, 0.8, 1);
+        moonMaterial.metallic = 0.0;
+        moonMaterial.smoothness = 0.3;
+        moonRenderer.material = moonMaterial;
+        
+        // Місяць обертається навколо Землі
+        const moonOrbit = moon.addComponent(MoonOrbit);
+        moonOrbit.parentPlanet = earth;
+        moonOrbit.orbitRadius = 2.5;
+        moonOrbit.orbitSpeed = 3.0;
+        
+        console.log("🌍 Earth created with 🌙 Moon");
+    }
+
+    /**
+     * Створює візуалізацію орбіти (коло).
+     */
+    private createOrbit(radius: number, color: Engine.Color, segments: number = 128): void {
+        const orbitObj = this.createGameObject(`Orbit_${radius}`);
+        const line = orbitObj.addComponent(Engine.LineRenderer);
+        
+        line.positionCount = segments;
+        line.loop = true;
+        
+        // Напівпрозорий колір орбіти
+        const orbitColor = new Engine.Color(
+            Math.min(1, color.r * 0.5 + 0.3), 
+            Math.min(1, color.g * 0.5 + 0.3), 
+            Math.min(1, color.b * 0.5 + 0.3), 
+            1.0
+        );
+        line.startColor = orbitColor;
+        line.endColor = orbitColor;
+        
+        for (let i = 0; i < segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            line.setPosition(i, new Engine.Vector3(x, 0, z));
+        }
+    }
+
+    /**
+     * Створює планету разом з візуалізацією орбіти.
+     */
+    private createPlanetWithOrbit(
+        name: string,
+        radius: number,
+        distance: number,
+        speed: number,
+        color: Engine.Color
+    ): void {
+        this.createOrbit(distance, color);
+        this.createPlanet(name, radius, distance, speed, color);
+    }
+
     private createSun(): void {
         const sun = this.createGameObject("Sun");
 
-        // Додаємо геометрію
-        const meshFilter = sun.addComponent(MeshFilter);
-        meshFilter.sharedMesh = Mesh.createSphere(1, 32);
+        const meshFilter = sun.addComponent(Engine.MeshFilter);
+        meshFilter.sharedMesh = Engine.Mesh.createSphere(3.0, 32); // Сонце велике
 
-        // Додаємо матеріал (світиться)
-        const renderer = sun.addComponent(MeshRenderer);
-        const sunMaterial = new StandardMaterial();
-        sunMaterial.albedoColor = Color.yellow;
-        sunMaterial.emissionColor = Color.yellow;
-        renderer.material = sunMaterial;
+        const renderer = sun.addComponent(Engine.MeshRenderer);
+        const material = new Engine.StandardMaterial();
+        material.albedoColor = new Engine.Color(1, 0.9, 0.3, 1);
+        material.emissionColor = new Engine.Color(1, 0.8, 0.3, 1);
+        renderer.material = material;
 
-        // Сонце розташоване в центрі
-        sun.transform.position = Vector3.zero;
+        sun.transform.position = Engine.Vector3.zero;
 
-        // Сонце обертається
-        const selfRotation = sun.addComponent(SelfRotation);
-        selfRotation.rotationSpeed = new Vector3(0, 30, 0);  // Обертається на 30°/сек
+        const rotation = sun.addComponent(SelfRotation);
+        rotation.rotationSpeed = new Engine.Vector3(0, 5, 0);
 
         console.log("☀️ Sun created");
     }
 
-    /**
-     * Створює планету
-     */
-    private createPlanet(data: PlanetData): void {
-        const planet = this.createGameObject(data.name);
+    private createPlanet(
+        name: string,
+        radius: number,
+        distance: number,
+        speed: number,
+        color: Engine.Color
+    ): void {
+        const planet = this.createGameObject(name);
 
-        // Додаємо геометрію
-        const meshFilter = planet.addComponent(MeshFilter);
-        meshFilter.sharedMesh = Mesh.createSphere(data.radius, 16);
+        const meshFilter = planet.addComponent(Engine.MeshFilter);
+        meshFilter.sharedMesh = Engine.Mesh.createSphere(radius, 16);
 
-        // Додаємо матеріал
-        const renderer = planet.addComponent(MeshRenderer);
-        const material = new StandardMaterial();
-        material.albedoColor = data.color;
+        const renderer = planet.addComponent(Engine.MeshRenderer);
+        const material = new Engine.StandardMaterial();
+        material.albedoColor = color;
         material.metallic = 0.2;
-        material.smoothness = 0.8;
+        material.smoothness = 0.5;
         renderer.material = material;
 
-        // Додаємо орбітальний рух
         const orbital = planet.addComponent(OrbitalMotion);
-        orbital.orbitDistance = data.distance;
-        orbital.orbitSpeed = data.speed;
-        orbital.centerPosition = Vector3.zero;
+        orbital.orbitRadius = distance;
+        orbital.orbitSpeed = speed;
+        orbital.centerPosition = Engine.Vector3.zero;
+        orbital.startAngle = Math.random() * Math.PI * 2;
 
-        // Додаємо самообертання
-        const selfRotation = planet.addComponent(SelfRotation);
-        selfRotation.rotationSpeed = new Vector3(0, 90, 0);  // Обертається на 90°/сек
+        const selfRot = planet.addComponent(SelfRotation);
+        selfRot.rotationSpeed = new Engine.Vector3(0, 25, 0);
 
-        console.log(`🌎 Planet "${data.name}" created (radius: ${data.radius}, distance: ${data.distance})`);
+        console.log(`🌎 ${name} created (r=${radius}, d=${distance})`);
     }
 
-    /**
-     * Налаштовує камеру
-     */
     private setupCamera(): void {
         const cameraObj = this.createGameObject("MainCamera");
-        const camera = cameraObj.addComponent(Camera);
+        const camera = cameraObj.addComponent(Engine.Camera);
 
-        // Perspective камера для 3D вигляду
         camera.orthographic = false;
         camera.fieldOfView = 60;
         camera.nearClipPlane = 0.1;
         camera.farClipPlane = 1000;
-        camera.backgroundColor = new Color(0.01, 0.01, 0.02, 1);  // Космос
 
-        // Розташовуємо камеру
-        cameraObj.transform.position = new Vector3(0, 20, 40);
-        cameraObj.transform.lookAt(Vector3.zero);
+        // Позиція камери - далі щоб бачити всю систему
+        cameraObj.transform.position = new Engine.Vector3(0, 40, 70);
+        cameraObj.transform.lookAt(Engine.Vector3.zero);
+        
+        const controller = cameraObj.addComponent(CameraController);
+        controller.moveSpeed = 40;
+        controller.rotateSpeed = 0.2;
 
-        console.log("📷 Camera setup complete");
+        console.log("📷 Camera ready");
     }
 
-    /**
-     * Налаштовує освітлення
-     */
     private setupLighting(): void {
-        const lightObj = this.createGameObject("Sunlight");
-        const light = lightObj.addComponent(DirectionalLight);
+        const lightObj = this.createGameObject("SunLight");
+        const light = lightObj.addComponent(Engine.DirectionalLight);
 
-        // Світло від сонця
-        light.color = Color.white;
-        light.intensity = 1.5;
-        light.shadows = 1;  // LightShadows.Hard
+        light.color = new Engine.Color(1, 0.95, 0.85, 1);
+        light.intensity = 2.0;
 
-        // Розташовуємо світло як сонце
-        lightObj.transform.position = new Vector3(10, 10, 10);
-        lightObj.transform.lookAt(Vector3.zero);
+        lightObj.transform.position = new Engine.Vector3(0, 10, 0);
+        lightObj.transform.eulerAngles = new Engine.Vector3(90, 0, 0);
 
-        console.log("💡 Lighting setup complete");
+        console.log("💡 Light ready");
     }
 }

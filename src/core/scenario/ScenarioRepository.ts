@@ -3,8 +3,9 @@ import { Scenario } from "./Scenario";
 
 export class ScenarioRepository {
 
-    // Шукаємо ТІЛЬКИ manifest.ts файли
-    private _manifestsGlob = import.meta.glob('../../scenarios/**/manifest.ts', { eager: true });
+    // Шукаємо ТІЛЬКИ manifest.ts файли (відносно src/core/scenario/)
+    // ../../../ = вихід з src/core/scenario до кореня проекту
+    private _manifestsGlob = import.meta.glob('../../../scenarios/**/manifest.ts', { eager: true });
 
     private _manifests: IScenarioManifest[] = [];
 

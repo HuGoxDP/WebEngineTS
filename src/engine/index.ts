@@ -57,6 +57,8 @@ export { StandardMaterial, MaterialRenderMode } from "./core/graphics/StandardMa
 export { MeshFilter } from "./core/components/MeshFilter";
 export { Renderer, ShadowCastingMode, LightProbeUsage, ReflectionProbeUsage } from "./core/components/Renderer";
 export { MeshRenderer } from "./core/components/MeshRenderer";
+export { LineRenderer, LineAlignment, LineTextureMode } from "./core/components/LineRenderer";
+export type { GradientColorKey, CurveKey } from "./core/components/LineRenderer";
 export { Camera, CameraClearFlags } from "./core/components/Camera";
 export { Light, LightShadows, LightShadowResolution } from "./core/components/Light";
 export { DirectionalLight } from "./core/components/DirectionalLight";

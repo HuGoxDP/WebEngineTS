@@ -9,6 +9,7 @@ export class Application {
     public isPlaying: boolean = false;
     private _fixedUpdateAccumulator: number = 0;
     private _lastFrameTime: number = 0;
+    private _firstRender: boolean = true;
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
@@ -25,6 +26,7 @@ export class Application {
     public run(): void {
         if (this.isPlaying) return;
         this.isPlaying = true;
+        this._firstRender = true; // Скидаємо для нового сценарію
         this._lastFrameTime = performance.now();
         console.log("Engine started.");
         this.loop();
@@ -63,10 +65,15 @@ export class Application {
     private render(): void {
         const scene = SceneManager.activeScene;
 
+        // Оновлюємо матриці всіх об'єктів
+        scene.threeScene.updateMatrixWorld(true);
+
         // Знаходимо камеру
         const mainCamera = this.findCamera();
 
         if (mainCamera) {
+            // Встановлюємо колір фону (темно-синій космос)
+            this.renderer.setClearColor(0x030310);
             this.renderer.render(scene.threeScene, mainCamera);
         } else {
             // Якщо немає камери, заливаємо темно-синім (щоб розуміти, що рендер працює)
@@ -80,11 +87,35 @@ export class Application {
      */
     private findCamera(): THREE.Camera | null {
         let cam: THREE.Camera | null = null;
+        
+        // Логування тільки при першому рендері
+        const shouldLog = this._firstRender;
+        
+        if (shouldLog) {
+            console.log("[Application] Searching for camera in scene...");
+            console.log("[Application] Scene children count:", SceneManager.activeScene.threeScene.children.length);
+        }
+        
         SceneManager.activeScene.threeScene.traverse((obj) => {
+            if (shouldLog) {
+                console.log("[Application] Traversing:", obj.type, obj.name || "(no name)", "isCamera:", (obj as any).isCamera);
+            }
             if (!cam && (obj as THREE.Camera).isCamera) {
+                if (shouldLog) {
+                    console.log("[Application] ✅ Found camera:", obj);
+                }
                 cam = obj as THREE.Camera;
             }
         });
+        
+        if (!cam && shouldLog) {
+            console.warn("[Application] ⚠️ No camera found in scene!");
+        }
+        
+        if (shouldLog) {
+            this._firstRender = false;
+        }
+        
         return cam;
     }
 

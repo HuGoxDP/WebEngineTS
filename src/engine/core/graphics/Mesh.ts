@@ -111,15 +111,25 @@ export class Mesh extends EngineObject {
     /**
      * Внутрішня геометрія Three.js
      * НЕ використовувати напряму - лише для двигуна!
+     * Автоматично синхронізується при доступі.
      */
-    public _internalGeometry: THREE.BufferGeometry;
+    public get _internalGeometry(): THREE.BufferGeometry {
+        // Автоматичний sync при доступі до геометрії
+        if (this._needsUpdate) {
+            this._syncToThree();
+        }
+        return this._threeGeometry;
+    }
+    
+    /** Внутрішнє сховище для THREE.BufferGeometry */
+    private _threeGeometry!: THREE.BufferGeometry;
     
     /** Флаг чи потрібно оновити геометрію */
     private _needsUpdate: boolean = false;
 
     constructor(name: string = "Mesh") {
         super(name);
-        this._internalGeometry = new THREE.BufferGeometry();
+        this._threeGeometry = new THREE.BufferGeometry();
     }
 
     // ==================== ВЛАСТИВОСТІ ====================
@@ -500,8 +510,8 @@ export class Mesh extends EngineObject {
         if (!this._needsUpdate) return;
 
         // Очистити стару геометрію
-        this._internalGeometry.dispose();
-        this._internalGeometry = new THREE.BufferGeometry();
+        this._threeGeometry.dispose();
+        this._threeGeometry = new THREE.BufferGeometry();
 
         // Вершини
         if (this._vertices.length > 0) {
@@ -511,7 +521,7 @@ export class Mesh extends EngineObject {
                 positions[i * 3 + 1] = this._vertices[i].y;
                 positions[i * 3 + 2] = this._vertices[i].z;
             }
-            this._internalGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            this._threeGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         }
 
         // Нормалі
@@ -522,7 +532,7 @@ export class Mesh extends EngineObject {
                 normals[i * 3 + 1] = this._normals[i].y;
                 normals[i * 3 + 2] = this._normals[i].z;
             }
-            this._internalGeometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+            this._threeGeometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
         }
 
         // Тангенти
@@ -534,7 +544,7 @@ export class Mesh extends EngineObject {
                 tangents[i * 4 + 2] = this._tangents[i].z;
                 tangents[i * 4 + 3] = this._tangents[i].w;
             }
-            this._internalGeometry.setAttribute('tangent', new THREE.BufferAttribute(tangents, 4));
+            this._threeGeometry.setAttribute('tangent', new THREE.BufferAttribute(tangents, 4));
         }
 
         // UV
@@ -544,7 +554,7 @@ export class Mesh extends EngineObject {
                 uvs[i * 2 + 0] = this._uv[i].x;
                 uvs[i * 2 + 1] = this._uv[i].y;
             }
-            this._internalGeometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+            this._threeGeometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
         }
 
         // UV2
@@ -554,7 +564,7 @@ export class Mesh extends EngineObject {
                 uv2s[i * 2 + 0] = this._uv2[i].x;
                 uv2s[i * 2 + 1] = this._uv2[i].y;
             }
-            this._internalGeometry.setAttribute('uv2', new THREE.BufferAttribute(uv2s, 2));
+            this._threeGeometry.setAttribute('uv2', new THREE.BufferAttribute(uv2s, 2));
         }
 
         // Кольори
@@ -566,7 +576,7 @@ export class Mesh extends EngineObject {
                 colors[i * 4 + 2] = this._colors[i].b;
                 colors[i * 4 + 3] = this._colors[i].a;
             }
-            this._internalGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 4));
+            this._threeGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 4));
         }
 
         // Індекси
@@ -574,12 +584,12 @@ export class Mesh extends EngineObject {
             const indices = this._indexFormat === IndexFormat.UInt32
                 ? new Uint32Array(this._triangles)
                 : new Uint16Array(this._triangles);
-            this._internalGeometry.setIndex(new THREE.BufferAttribute(indices, 1));
+            this._threeGeometry.setIndex(new THREE.BufferAttribute(indices, 1));
         }
 
         // Обчислити bounds якщо не встановлено вручну
-        this._internalGeometry.computeBoundingBox();
-        this._internalGeometry.computeBoundingSphere();
+        this._threeGeometry.computeBoundingBox();
+        this._threeGeometry.computeBoundingSphere();
 
         this._needsUpdate = false;
     }
@@ -1075,7 +1085,7 @@ export class Mesh extends EngineObject {
      */
     public destroy(): void {
         this.clear();
-        this._internalGeometry.dispose();
+        this._threeGeometry.dispose();
         super.destroy();
     }
 }

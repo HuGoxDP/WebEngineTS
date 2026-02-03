@@ -91,9 +91,9 @@ export class GameObject extends EngineObject {
         }
         list.push(component);
 
-        if (component instanceof ScriptableBehaviour) {
+        // Викликаємо Awake для всіх Behaviour (включаючи Camera, MeshRenderer, Light тощо)
+        if (component instanceof Behaviour) {
             component._systemAwake();
-            // Тут можна додати логіку для виклику onEnable, якщо об'єкт активний
         }
 
         return component;

@@ -2,8 +2,8 @@ import { Application } from "@engine";
 import { SceneManager } from "@engine";
 import { ScenarioRepository } from "./core/scenario/ScenarioRepository";
 
-// Ініціалізація
-const app = new Application(document.getElementById("webgl-canvas") as HTMLCanvasElement);
+// Ініціалізація - Application створюється лише при запуску сценарію
+let app: Application | null = null;
 const repo = new ScenarioRepository();
 const manifests = repo.getAllManifests();
 
@@ -24,8 +24,10 @@ function toggleScreen(showGame: boolean) {
         ui.app.style.display = 'none';
         ui.menu.style.display = 'block';
 
-        app.stop();
-        SceneManager.loadScene("MenuBackground");
+        // Зупиняємо двигун якщо він працює
+        if (app) {
+            app.stop();
+        }
     }
 }
 
@@ -47,7 +49,6 @@ manifests.forEach((manifest) => {
 
     const img = document.createElement("img");
     img.className = "card-img";
-    // Якщо картинки немає в маніфесті, ставимо заглушку
     img.src = manifest.previewImage || "https://via.placeholder.com/400x225?text=No+Preview";
     img.alt = manifest.name;
 
@@ -65,7 +66,7 @@ manifests.forEach((manifest) => {
 
     const category = document.createElement("div");
     category.className = "card-category";
-    category.innerText = manifest.category; // Physics, Chemistry...
+    category.innerText = manifest.category;
 
     const title = document.createElement("h3");
     title.innerText = manifest.name;
@@ -85,11 +86,16 @@ manifests.forEach((manifest) => {
     card.addEventListener("click", async () => {
         console.log(`Starting: ${manifest.name}`);
 
-        // Показуємо екран завантаження або просто перемикаємо
+        // Показуємо екран з грою
         toggleScreen(true);
 
         try {
-            // Lazy Load коду
+            // Створюємо Application якщо ще не створено
+            if (!app) {
+                app = new Application(document.getElementById("webgl-canvas") as HTMLCanvasElement);
+            }
+
+            // Lazy Load коду сценарію
             const ScenarioClass = await repo.loadScenarioCode(manifest.id);
             const scenarioInstance = new ScenarioClass();
 
