@@ -1,36 +1,71 @@
-﻿import { EngineSettings } from "../EngineSettings.ts";
+﻿// path: src/engine/math/Vector3.ts
+
+import { EngineSettings } from '../EngineSettings';
 
 /**
  * Vector3.ts
  * Математичний клас для роботи з 3D векторами.
  * Реалізує Zero-Allocation pattern через параметр 'out'.
+ *
+ * @remarks
+ * API максимально наближений до Unity Vector3.
  */
 export class Vector3 {
     public x: number;
     public y: number;
     public z: number;
 
+    // ==================== CACHED READONLY INSTANCES ====================
+    // Unity caches these to avoid allocation on every access
+    private static readonly _zero = new Vector3(0, 0, 0);
+    private static readonly _one = new Vector3(1, 1, 1);
+    private static readonly _up = new Vector3(0, 1, 0);
+    private static readonly _down = new Vector3(0, -1, 0);
+    private static readonly _left = new Vector3(-1, 0, 0);
+    private static readonly _right = new Vector3(1, 0, 0);
+    private static readonly _forward = new Vector3(0, 0, 1);
+    private static readonly _back = new Vector3(0, 0, -1);
+
+    // Internal temp vectors for zero-allocation operations
+    private static readonly _temp1 = new Vector3();
+
     constructor(x: number = 0, y: number = 0, z: number = 0) {
         this.x = x;
         this.y = y;
         this.z = z;
     }
-    
-    static get zero(): Vector3 { return new Vector3(0, 0, 0); }
-    static get one(): Vector3 { return new Vector3(1, 1, 1); }
-    static get up(): Vector3 { return new Vector3(0, 1, 0); }
-    static get down(): Vector3 { return new Vector3(0, -1, 0); }
-    static get left(): Vector3 { return new Vector3(-1, 0, 0); }
-    static get right(): Vector3 { return new Vector3(1, 0, 0); }
-    static get forward(): Vector3 { return new Vector3(0, 0, 1); }
-    static get back(): Vector3 { return new Vector3(0, 0, -1); }
+
+    // ==================== STATIC READONLY CONSTANTS ====================
+    // WARNING: These return shared instances. Do NOT mutate!
+    // Clone if you need a mutable copy: Vector3.zero.clone()
+
+    /** Returns (0, 0, 0). Shared instance — do not mutate! */
+    static get zero(): Vector3 { return Vector3._zero; }
+    /** Returns (1, 1, 1). Shared instance — do not mutate! */
+    static get one(): Vector3 { return Vector3._one; }
+    /** Returns (0, 1, 0). Shared instance — do not mutate! */
+    static get up(): Vector3 { return Vector3._up; }
+    /** Returns (0, -1, 0). Shared instance — do not mutate! */
+    static get down(): Vector3 { return Vector3._down; }
+    /** Returns (-1, 0, 0). Shared instance — do not mutate! */
+    static get left(): Vector3 { return Vector3._left; }
+    /** Returns (1, 0, 0). Shared instance — do not mutate! */
+    static get right(): Vector3 { return Vector3._right; }
+    /** Returns (0, 0, 1). Shared instance — do not mutate! */
+    static get forward(): Vector3 { return Vector3._forward; }
+    /** Returns (0, 0, -1). Shared instance — do not mutate! */
+    static get back(): Vector3 { return Vector3._back; }
+
+    // ==================== STATIC METHODS ====================
 
     /**
      * Додає два вектори.
+     * @param a
+     * @param b
      * @param out (Опціонально) Вектор, у який буде записано результат. Якщо не задано, створюється новий.
      */
     static add(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         result.x = a.x + b.x;
         result.y = a.y + b.y;
         result.z = a.z + b.z;
@@ -39,10 +74,12 @@ export class Vector3 {
 
     /**
      * Віднімає вектори (a - b).
+     * @param a
+     * @param b
      * @param out (Опціонально) Вектор для запису результату.
      */
     static subtract(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         result.x = a.x - b.x;
         result.y = a.y - b.y;
         result.z = a.z - b.z;
@@ -53,7 +90,7 @@ export class Vector3 {
      * Покомпонентне множення векторів (Scale).
      */
     static multiply(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         result.x = a.x * b.x;
         result.y = a.y * b.y;
         result.z = a.z * b.z;
@@ -64,7 +101,7 @@ export class Vector3 {
      * Множення вектора на число.
      */
     static multiplyScalar(v: Vector3, scalar: number, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         result.x = v.x * scalar;
         result.y = v.y * scalar;
         result.z = v.z * scalar;
@@ -82,7 +119,7 @@ export class Vector3 {
      * Ділення вектора на число.
      */
     static divideScalar(v: Vector3, scalar: number, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         if (scalar !== 0) {
             const invScalar = 1 / scalar;
             result.x = v.x * invScalar;
@@ -97,10 +134,13 @@ export class Vector3 {
 
     /**
      * Лінійна інтерполяція між двома векторами.
+     * @param a
+     * @param b
      * @param t Параметр інтерполяції (0 = a, 1 = b). Обмежується до [0,1].
+     * @param out
      */
     static lerp(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         t = Math.max(0, Math.min(1, t)); // Clamp t between 0 and 1
         result.x = a.x + (b.x - a.x) * t;
         result.y = a.y + (b.y - a.y) * t;
@@ -112,10 +152,99 @@ export class Vector3 {
      * Лінійна інтерполяція без обмеження параметра t.
      */
     static lerpUnclamped(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         result.x = a.x + (b.x - a.x) * t;
         result.y = a.y + (b.y - a.y) * t;
         result.z = a.z + (b.z - a.z) * t;
+        return result;
+    }
+
+    /**
+     * Сферична інтерполяція між двома векторами.
+     * @param a
+     * @param b
+     * @param t Параметр інтерполяції (0 = a, 1 = b). Обмежується до [0,1].
+     * @param out
+     */
+    static slerp(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
+        const result = out ?? new Vector3();
+        t = Math.max(0, Math.min(1, t));
+
+        const magA = a.magnitude();
+        const magB = b.magnitude();
+
+        if (magA < EngineSettings.Math.EPSILON || magB < EngineSettings.Math.EPSILON) {
+            return Vector3.lerp(a, b, t, result);
+        }
+
+        // Normalize inputs
+        const ax = a.x / magA, ay = a.y / magA, az = a.z / magA;
+        const bx = b.x / magB, by = b.y / magB, bz = b.z / magB;
+
+        // Dot product
+        let dot = ax * bx + ay * by + az * bz;
+        dot = Math.max(-1, Math.min(1, dot));
+
+        const theta = Math.acos(dot);
+        const sinTheta = Math.sin(theta);
+
+        let ratioA: number, ratioB: number;
+        if (sinTheta < EngineSettings.Math.EPSILON) {
+            // Vectors are parallel, use lerp
+            ratioA = 1 - t;
+            ratioB = t;
+        } else {
+            ratioA = Math.sin((1 - t) * theta) / sinTheta;
+            ratioB = Math.sin(t * theta) / sinTheta;
+        }
+
+        // Interpolate magnitude
+        const mag = magA + (magB - magA) * t;
+
+        result.x = (ax * ratioA + bx * ratioB) * mag;
+        result.y = (ay * ratioA + by * ratioB) * mag;
+        result.z = (az * ratioA + bz * ratioB) * mag;
+
+        return result;
+    }
+
+    /**
+     * Сферична інтерполяція без обмеження t.
+     */
+    static slerpUnclamped(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
+        const result = out ?? new Vector3();
+
+        const magA = a.magnitude();
+        const magB = b.magnitude();
+
+        if (magA < EngineSettings.Math.EPSILON || magB < EngineSettings.Math.EPSILON) {
+            return Vector3.lerpUnclamped(a, b, t, result);
+        }
+
+        const ax = a.x / magA, ay = a.y / magA, az = a.z / magA;
+        const bx = b.x / magB, by = b.y / magB, bz = b.z / magB;
+
+        let dot = ax * bx + ay * by + az * bz;
+        dot = Math.max(-1, Math.min(1, dot));
+
+        const theta = Math.acos(dot);
+        const sinTheta = Math.sin(theta);
+
+        let ratioA: number, ratioB: number;
+        if (sinTheta < EngineSettings.Math.EPSILON) {
+            ratioA = 1 - t;
+            ratioB = t;
+        } else {
+            ratioA = Math.sin((1 - t) * theta) / sinTheta;
+            ratioB = Math.sin(t * theta) / sinTheta;
+        }
+
+        const mag = magA + (magB - magA) * t;
+
+        result.x = (ax * ratioA + bx * ratioB) * mag;
+        result.y = (ay * ratioA + by * ratioB) * mag;
+        result.z = (az * ratioA + bz * ratioB) * mag;
+
         return result;
     }
 
@@ -130,7 +259,7 @@ export class Vector3 {
      * Векторний добуток (Cross Product).
      */
     static cross(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         const ax = a.x, ay = a.y, az = a.z;
         const bx = b.x, by = b.y, bz = b.z;
 
@@ -164,9 +293,9 @@ export class Vector3 {
      * Повертає нормалізовану копію вектора.
      */
     static normalized(v: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         const mag = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-        if (mag > 0) {
+        if (mag > EngineSettings.Math.EPSILON) {
             const invMag = 1 / mag;
             result.x = v.x * invMag;
             result.y = v.y * invMag;
@@ -181,7 +310,7 @@ export class Vector3 {
      * Повертає вектор з мінімальними компонентами.
      */
     static min(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         result.x = Math.min(a.x, b.x);
         result.y = Math.min(a.y, b.y);
         result.z = Math.min(a.z, b.z);
@@ -192,7 +321,7 @@ export class Vector3 {
      * Повертає вектор з максимальними компонентами.
      */
     static max(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         result.x = Math.max(a.x, b.x);
         result.y = Math.max(a.y, b.y);
         result.z = Math.max(a.z, b.z);
@@ -203,7 +332,7 @@ export class Vector3 {
      * Обмежує кожну компоненту вектора між відповідними компонентами min та max.
      */
     static clamp(v: Vector3, min: Vector3, max: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         result.x = Math.max(min.x, Math.min(max.x, v.x));
         result.y = Math.max(min.y, Math.min(max.y, v.y));
         result.z = Math.max(min.z, Math.min(max.z, v.z));
@@ -214,14 +343,14 @@ export class Vector3 {
      * Обмежує довжину вектора максимальним значенням.
      */
     static clampMagnitude(v: Vector3, maxLength: number, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         const sqrMag = v.x * v.x + v.y * v.y + v.z * v.z;
         if (sqrMag > maxLength * maxLength) {
             const mag = Math.sqrt(sqrMag);
-            const normalized = mag > 0 ? 1 / mag : 0;
-            result.x = v.x * normalized * maxLength;
-            result.y = v.y * normalized * maxLength;
-            result.z = v.z * normalized * maxLength;
+            const scale = maxLength / mag;
+            result.x = v.x * scale;
+            result.y = v.y * scale;
+            result.z = v.z * scale;
         } else {
             result.x = v.x;
             result.y = v.y;
@@ -234,7 +363,7 @@ export class Vector3 {
      * Відображає вектор відносно площини, заданої нормаллю.
      */
     static reflect(direction: Vector3, normal: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         const dot2 = 2 * (direction.x * normal.x + direction.y * normal.y + direction.z * normal.z);
         result.x = direction.x - dot2 * normal.x;
         result.y = direction.y - dot2 * normal.y;
@@ -246,7 +375,7 @@ export class Vector3 {
      * Проєктує вектор a на вектор b.
      */
     static project(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         const sqrMag = b.x * b.x + b.y * b.y + b.z * b.z;
         if (sqrMag < EngineSettings.Math.EPSILON) {
             result.set(0, 0, 0);
@@ -264,7 +393,7 @@ export class Vector3 {
      * Проєктує вектор на площину, задану нормаллю.
      */
     static projectOnPlane(vector: Vector3, planeNormal: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         const sqrMag = planeNormal.x * planeNormal.x + planeNormal.y * planeNormal.y + planeNormal.z * planeNormal.z;
         if (sqrMag < EngineSettings.Math.EPSILON) {
             result.copy(vector);
@@ -282,10 +411,12 @@ export class Vector3 {
      * Кут між векторами в градусах.
      */
     static angle(from: Vector3, to: Vector3): number {
-        const denominator = Math.sqrt((from.x * from.x + from.y * from.y + from.z * from.z) * 
-                                       (to.x * to.x + to.y * to.y + to.z * to.z));
+        const denominator = Math.sqrt(
+            (from.x * from.x + from.y * from.y + from.z * from.z) *
+            (to.x * to.x + to.y * to.y + to.z * to.z)
+        );
         if (denominator < EngineSettings.Math.EPSILON) return 0;
-        
+
         const dotProduct = from.x * to.x + from.y * to.y + from.z * to.z;
         const dot = Math.max(-1, Math.min(1, dotProduct / denominator));
         return Math.acos(dot) * (180 / Math.PI);
@@ -293,18 +424,128 @@ export class Vector3 {
 
     /**
      * Знаковий кут між векторами в градусах відносно осі.
+     * Uses internal temp to avoid allocation.
      */
     static signedAngle(from: Vector3, to: Vector3, axis: Vector3): number {
         const unsignedAngle = Vector3.angle(from, to);
-        const cross = Vector3.cross(from, to);
+        // Use internal temp vector to avoid allocation
+        Vector3.cross(from, to, Vector3._temp1);
+        const cross = Vector3._temp1;
         const axisSign = axis.x * cross.x + axis.y * cross.y + axis.z * cross.z;
-        const sign = Math.sign(axisSign);
+        const sign = axisSign >= 0 ? 1 : -1;
         return unsignedAngle * sign;
     }
 
-    // ==================== МЕТОДИ ЕКЗЕМПЛЯРА ====================
+    /**
+     * Рухає точку current до target, не перевищуючи maxDistanceDelta.
+     * Unity-like MoveTowards.
+     */
+    static moveTowards(current: Vector3, target: Vector3, maxDistanceDelta: number, out?: Vector3): Vector3 {
+        const result = out ?? new Vector3();
 
-    // ==================== МЕТОДИ ЕКЗЕМПЛЯРА ====================
+        const dx = target.x - current.x;
+        const dy = target.y - current.y;
+        const dz = target.z - current.z;
+
+        const sqrDist = dx * dx + dy * dy + dz * dz;
+
+        if (sqrDist === 0 || (maxDistanceDelta >= 0 && sqrDist <= maxDistanceDelta * maxDistanceDelta)) {
+            result.x = target.x;
+            result.y = target.y;
+            result.z = target.z;
+            return result;
+        }
+
+        const dist = Math.sqrt(sqrDist);
+        const scale = maxDistanceDelta / dist;
+
+        result.x = current.x + dx * scale;
+        result.y = current.y + dy * scale;
+        result.z = current.z + dz * scale;
+
+        return result;
+    }
+
+    /**
+     * Плавно переміщує вектор до цілі з згладжуванням.
+     * Unity-like SmoothDamp (simplified version).
+     * @param current Поточна позиція
+     * @param target Цільова позиція
+     * @param currentVelocity Поточна швидкість (буде модифікована)
+     * @param smoothTime Приблизний час досягнення цілі
+     * @param maxSpeed Максимальна швидкість (Infinity за замовчуванням)
+     * @param deltaTime Час кадру
+     * @param out Вектор для результату
+     */
+    static smoothDamp(
+        current: Vector3,
+        target: Vector3,
+        currentVelocity: Vector3,
+        smoothTime: number,
+        maxSpeed: number = Infinity,
+        deltaTime: number,
+        out?: Vector3
+    ): Vector3 {
+        const result = out ?? new Vector3();
+
+        // Clamp smoothTime to minimum
+        smoothTime = Math.max(0.0001, smoothTime);
+
+        const omega = 2 / smoothTime;
+        const x = omega * deltaTime;
+        const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+
+        let dx = current.x - target.x;
+        let dy = current.y - target.y;
+        let dz = current.z - target.z;
+
+        // Clamp maximum speed
+        const maxChange = maxSpeed * smoothTime;
+        const sqrMag = dx * dx + dy * dy + dz * dz;
+        if (sqrMag > maxChange * maxChange) {
+            const mag = Math.sqrt(sqrMag);
+            dx = (dx / mag) * maxChange;
+            dy = (dy / mag) * maxChange;
+            dz = (dz / mag) * maxChange;
+        }
+
+        const targetX = current.x - dx;
+        const targetY = current.y - dy;
+        const targetZ = current.z - dz;
+
+        const tempX = (currentVelocity.x + omega * dx) * deltaTime;
+        const tempY = (currentVelocity.y + omega * dy) * deltaTime;
+        const tempZ = (currentVelocity.z + omega * dz) * deltaTime;
+
+        currentVelocity.x = (currentVelocity.x - omega * tempX) * exp;
+        currentVelocity.y = (currentVelocity.y - omega * tempY) * exp;
+        currentVelocity.z = (currentVelocity.z - omega * tempZ) * exp;
+
+        result.x = targetX + (dx + tempX) * exp;
+        result.y = targetY + (dy + tempY) * exp;
+        result.z = targetZ + (dz + tempZ) * exp;
+
+        // Prevent overshooting
+        const origMinusCurrentX = target.x - current.x;
+        const origMinusCurrentY = target.y - current.y;
+        const origMinusCurrentZ = target.z - current.z;
+        const outMinusOrigX = result.x - target.x;
+        const outMinusOrigY = result.y - target.y;
+        const outMinusOrigZ = result.z - target.z;
+
+        if (origMinusCurrentX * outMinusOrigX + origMinusCurrentY * outMinusOrigY + origMinusCurrentZ * outMinusOrigZ > 0) {
+            result.x = target.x;
+            result.y = target.y;
+            result.z = target.z;
+            currentVelocity.x = (result.x - target.x) / deltaTime;
+            currentVelocity.y = (result.y - target.y) / deltaTime;
+            currentVelocity.z = (result.z - target.z) / deltaTime;
+        }
+
+        return result;
+    }
+
+    // ==================== INSTANCE METHODS ====================
 
     /**
      * Встановлює значення компонентів.
@@ -417,7 +658,7 @@ export class Vector3 {
     /**
      * Перевіряє рівність з іншим вектором (з точністю epsilon).
      */
-    equals(v: Vector3, epsilon = EngineSettings.Math.EPSILON): boolean {
+    equals(v: Vector3, epsilon: number = EngineSettings.Math.EPSILON): boolean {
         return (
             Math.abs(this.x - v.x) < epsilon &&
             Math.abs(this.y - v.y) < epsilon &&
@@ -443,7 +684,11 @@ export class Vector3 {
      * Нормалізує вектор (робить довжину = 1, мутує поточний).
      */
     normalize(): this {
-        return this.divideScalar(this.magnitude());
+        const mag = this.magnitude();
+        if (mag > EngineSettings.Math.EPSILON) {
+            return this.divideScalar(mag);
+        }
+        return this.set(0, 0, 0);
     }
 
     /**
@@ -451,7 +696,7 @@ export class Vector3 {
      */
     get normalized(): Vector3 {
         const mag = this.magnitude();
-        if (mag > 0) {
+        if (mag > EngineSettings.Math.EPSILON) {
             return new Vector3(this.x / mag, this.y / mag, this.z / mag);
         }
         return new Vector3(0, 0, 0);
@@ -496,5 +741,31 @@ export class Vector3 {
      */
     toString(): string {
         return `(${this.x.toFixed(2)}, ${this.y.toFixed(2)}, ${this.z.toFixed(2)})`;
+    }
+
+    // ==================== THREE.JS ADAPTER METHODS ====================
+    // @internal - For engine sync layer only. Do NOT expose to users.
+
+    /**
+     * @internal
+     * Copies values to a Three.js Vector3-like object.
+     * Used by sync/adapter layer.
+     */
+    _copyToThree(threeVec: { x: number; y: number; z: number }): void {
+        threeVec.x = this.x;
+        threeVec.y = this.y;
+        threeVec.z = this.z;
+    }
+
+    /**
+     * @internal
+     * Copies values from a Three.js Vector3-like object.
+     * Used by sync/adapter layer.
+     */
+    _copyFromThree(threeVec: { x: number; y: number; z: number }): this {
+        this.x = threeVec.x;
+        this.y = threeVec.y;
+        this.z = threeVec.z;
+        return this;
     }
 }
