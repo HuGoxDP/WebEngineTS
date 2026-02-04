@@ -1,4 +1,6 @@
-import { EngineSettings } from "../EngineSettings.ts";
+// path: src/engine/math/Vector4.ts
+
+import { EngineSettings } from '../EngineSettings';
 
 /**
  * Vector4.ts
@@ -12,6 +14,12 @@ export class Vector4 {
     public z: number;
     public w: number;
 
+    // ==================== CACHED READONLY INSTANCES ====================
+    private static readonly _zero = new Vector4(0, 0, 0, 0);
+    private static readonly _one = new Vector4(1, 1, 1, 1);
+    private static readonly _positiveInfinity = new Vector4(Infinity, Infinity, Infinity, Infinity);
+    private static readonly _negativeInfinity = new Vector4(-Infinity, -Infinity, -Infinity, -Infinity);
+
     constructor(x: number = 0, y: number = 0, z: number = 0, w: number = 0) {
         this.x = x;
         this.y = y;
@@ -19,22 +27,25 @@ export class Vector4 {
         this.w = w;
     }
 
-    // Статичні константи
-    static get zero(): Vector4 { return new Vector4(0, 0, 0, 0); }
-    static get one(): Vector4 { return new Vector4(1, 1, 1, 1); }
-    static get positiveInfinity(): Vector4 { 
-        return new Vector4(Infinity, Infinity, Infinity, Infinity); 
-    }
-    static get negativeInfinity(): Vector4 { 
-        return new Vector4(-Infinity, -Infinity, -Infinity, -Infinity); 
-    }
+    // ==================== STATIC READONLY CONSTANTS ====================
+    // WARNING: These return shared instances. Do NOT mutate!
+
+    /** Returns (0, 0, 0, 0). Shared instance — do not mutate! */
+    static get zero(): Vector4 { return Vector4._zero; }
+    /** Returns (1, 1, 1, 1). Shared instance — do not mutate! */
+    static get one(): Vector4 { return Vector4._one; }
+    /** Returns (Infinity, Infinity, Infinity, Infinity). Shared instance — do not mutate! */
+    static get positiveInfinity(): Vector4 { return Vector4._positiveInfinity; }
+    /** Returns (-Infinity, -Infinity, -Infinity, -Infinity). Shared instance — do not mutate! */
+    static get negativeInfinity(): Vector4 { return Vector4._negativeInfinity; }
+
+    // ==================== STATIC METHODS ====================
 
     /**
      * Додає два вектори.
-     * @param out (Опціонально) Вектор, у який буде записано результат. Якщо не задано, створюється новий.
      */
     static add(a: Vector4, b: Vector4, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
+        const result = out ?? new Vector4();
         result.x = a.x + b.x;
         result.y = a.y + b.y;
         result.z = a.z + b.z;
@@ -44,10 +55,9 @@ export class Vector4 {
 
     /**
      * Віднімає вектори (a - b).
-     * @param out (Опціонально) Вектор для запису результату.
      */
     static subtract(a: Vector4, b: Vector4, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
+        const result = out ?? new Vector4();
         result.x = a.x - b.x;
         result.y = a.y - b.y;
         result.z = a.z - b.z;
@@ -59,7 +69,7 @@ export class Vector4 {
      * Покомпонентне множення векторів (Scale).
      */
     static multiply(a: Vector4, b: Vector4, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
+        const result = out ?? new Vector4();
         result.x = a.x * b.x;
         result.y = a.y * b.y;
         result.z = a.z * b.z;
@@ -71,7 +81,7 @@ export class Vector4 {
      * Множення вектора на число.
      */
     static multiplyScalar(v: Vector4, scalar: number, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
+        const result = out ?? new Vector4();
         result.x = v.x * scalar;
         result.y = v.y * scalar;
         result.z = v.z * scalar;
@@ -80,10 +90,17 @@ export class Vector4 {
     }
 
     /**
+     * Аліас для multiplyScalar.
+     */
+    static scale(v: Vector4, scalar: number, out?: Vector4): Vector4 {
+        return Vector4.multiplyScalar(v, scalar, out);
+    }
+
+    /**
      * Ділення вектора на число.
      */
     static divideScalar(v: Vector4, scalar: number, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
+        const result = out ?? new Vector4();
         if (scalar !== 0) {
             const invScalar = 1 / scalar;
             result.x = v.x * invScalar;
@@ -101,8 +118,8 @@ export class Vector4 {
      * Лінійна інтерполяція між двома векторами.
      */
     static lerp(a: Vector4, b: Vector4, t: number, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
-        t = Math.max(0, Math.min(1, t)); // Clamp t between 0 and 1
+        const result = out ?? new Vector4();
+        t = Math.max(0, Math.min(1, t));
         result.x = a.x + (b.x - a.x) * t;
         result.y = a.y + (b.y - a.y) * t;
         result.z = a.z + (b.z - a.z) * t;
@@ -111,10 +128,10 @@ export class Vector4 {
     }
 
     /**
-     * Лінійна інтерполяція без обмеження t (може виходити за межі 0-1).
+     * Лінійна інтерполяція без обмеження t.
      */
     static lerpUnclamped(a: Vector4, b: Vector4, t: number, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
+        const result = out ?? new Vector4();
         result.x = a.x + (b.x - a.x) * t;
         result.y = a.y + (b.y - a.y) * t;
         result.z = a.z + (b.z - a.z) * t;
@@ -152,19 +169,28 @@ export class Vector4 {
     }
 
     /**
-     * Нормалізує вектор (робить його довжину рівною 1).
+     * Повертає нормалізовану копію вектора.
      */
-    static normalize(v: Vector4, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
-        result.copy(v);
-        return result.normalize();
+    static normalized(v: Vector4, out?: Vector4): Vector4 {
+        const result = out ?? new Vector4();
+        const mag = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w);
+        if (mag > EngineSettings.Math.EPSILON) {
+            const invMag = 1 / mag;
+            result.x = v.x * invMag;
+            result.y = v.y * invMag;
+            result.z = v.z * invMag;
+            result.w = v.w * invMag;
+        } else {
+            result.x = result.y = result.z = result.w = 0;
+        }
+        return result;
     }
 
     /**
-     * Повертає вектор з максимальними компонентами з двох векторів.
+     * Повертає вектор з максимальними компонентами.
      */
     static max(a: Vector4, b: Vector4, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
+        const result = out ?? new Vector4();
         result.x = Math.max(a.x, b.x);
         result.y = Math.max(a.y, b.y);
         result.z = Math.max(a.z, b.z);
@@ -173,10 +199,10 @@ export class Vector4 {
     }
 
     /**
-     * Повертає вектор з мінімальними компонентами з двох векторів.
+     * Повертає вектор з мінімальними компонентами.
      */
     static min(a: Vector4, b: Vector4, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
+        const result = out ?? new Vector4();
         result.x = Math.min(a.x, b.x);
         result.y = Math.min(a.y, b.y);
         result.z = Math.min(a.z, b.z);
@@ -185,18 +211,83 @@ export class Vector4 {
     }
 
     /**
+     * Обмежує кожну компоненту вектора.
+     */
+    static clamp(v: Vector4, min: Vector4, max: Vector4, out?: Vector4): Vector4 {
+        const result = out ?? new Vector4();
+        result.x = Math.max(min.x, Math.min(max.x, v.x));
+        result.y = Math.max(min.y, Math.min(max.y, v.y));
+        result.z = Math.max(min.z, Math.min(max.z, v.z));
+        result.w = Math.max(min.w, Math.min(max.w, v.w));
+        return result;
+    }
+
+    /**
+     * Обмежує довжину вектора максимальним значенням.
+     */
+    static clampMagnitude(v: Vector4, maxLength: number, out?: Vector4): Vector4 {
+        const result = out ?? new Vector4();
+        const sqrMag = v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w;
+        if (sqrMag > maxLength * maxLength) {
+            const mag = Math.sqrt(sqrMag);
+            const scale = maxLength / mag;
+            result.x = v.x * scale;
+            result.y = v.y * scale;
+            result.z = v.z * scale;
+            result.w = v.w * scale;
+        } else {
+            result.x = v.x;
+            result.y = v.y;
+            result.z = v.z;
+            result.w = v.w;
+        }
+        return result;
+    }
+
+    /**
      * Проектує вектор на інший вектор.
      */
     static project(vector: Vector4, onNormal: Vector4, out?: Vector4): Vector4 {
+        const result = out ?? new Vector4();
         const sqrMag = onNormal.sqrMagnitude();
         if (sqrMag < EngineSettings.Math.EPSILON) {
-            return (out || new Vector4()).set(0, 0, 0, 0);
+            return result.set(0, 0, 0, 0);
         }
         const dot = Vector4.dot(vector, onNormal);
-        return Vector4.multiplyScalar(onNormal, dot / sqrMag, out);
+        return Vector4.multiplyScalar(onNormal, dot / sqrMag, result);
     }
 
-    // === Методи екземпляра ===
+    /**
+     * Рухає точку current до target, не перевищуючи maxDistanceDelta.
+     */
+    static moveTowards(current: Vector4, target: Vector4, maxDistanceDelta: number, out?: Vector4): Vector4 {
+        const result = out ?? new Vector4();
+
+        const dx = target.x - current.x;
+        const dy = target.y - current.y;
+        const dz = target.z - current.z;
+        const dw = target.w - current.w;
+        const sqrDist = dx * dx + dy * dy + dz * dz + dw * dw;
+
+        if (sqrDist === 0 || (maxDistanceDelta >= 0 && sqrDist <= maxDistanceDelta * maxDistanceDelta)) {
+            result.x = target.x;
+            result.y = target.y;
+            result.z = target.z;
+            result.w = target.w;
+            return result;
+        }
+
+        const dist = Math.sqrt(sqrDist);
+        const scale = maxDistanceDelta / dist;
+
+        result.x = current.x + dx * scale;
+        result.y = current.y + dy * scale;
+        result.z = current.z + dz * scale;
+        result.w = current.w + dw * scale;
+        return result;
+    }
+
+    // ==================== INSTANCE METHODS ====================
 
     /**
      * Встановлює значення компонентів вектора.
@@ -322,7 +413,7 @@ export class Vector4 {
     /**
      * Перевіряє рівність векторів з урахуванням похибки (Epsilon).
      */
-    equals(v: Vector4, epsilon = EngineSettings.Math.EPSILON): boolean {
+    equals(v: Vector4, epsilon: number = EngineSettings.Math.EPSILON): boolean {
         return (
             Math.abs(this.x - v.x) < epsilon &&
             Math.abs(this.y - v.y) < epsilon &&
@@ -333,7 +424,6 @@ export class Vector4 {
 
     /**
      * Повертає довжину вектора (Magnitude).
-     * Для порівняння краще використовувати sqrMagnitude.
      */
     magnitude(): number {
         return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w);
@@ -341,7 +431,6 @@ export class Vector4 {
 
     /**
      * Повертає квадрат довжини вектора.
-     * Швидше за magnitude, бо не використовує корінь.
      */
     sqrMagnitude(): number {
         return this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w;
@@ -349,17 +438,24 @@ export class Vector4 {
 
     /**
      * Нормалізує вектор (робить його довжину рівною 1).
-     * Змінює поточний вектор.
      */
     normalize(): this {
-        return this.divideScalar(this.magnitude());
+        const mag = this.magnitude();
+        if (mag > EngineSettings.Math.EPSILON) {
+            return this.divideScalar(mag);
+        }
+        return this.set(0, 0, 0, 0);
     }
 
     /**
-     * Повертає нормалізовану копію вектора, не змінюючи оригінал.
+     * Повертає нормалізовану копію вектора (не мутує поточний).
      */
-    normalized(): Vector4 {
-        return this.clone().normalize();
+    get normalized(): Vector4 {
+        const mag = this.magnitude();
+        if (mag > EngineSettings.Math.EPSILON) {
+            return new Vector4(this.x / mag, this.y / mag, this.z / mag, this.w / mag);
+        }
+        return new Vector4(0, 0, 0, 0);
     }
 
     /**
@@ -384,12 +480,9 @@ export class Vector4 {
     }
 
     /**
-     * Лінійна інтерполяція між цим вектором та іншим.
-     * @param v Цільовий вектор.
-     * @param t Коефіцієнт (0-1).
+     * Лінійна інтерполяція між цим вектором та іншим (мутує поточний).
      */
     lerp(v: Vector4, t: number): this {
-        // clamp01 t
         t = Math.max(0, Math.min(1, t));
         this.x += (v.x - this.x) * t;
         this.y += (v.y - this.y) * t;
@@ -427,14 +520,11 @@ export class Vector4 {
         const sqrMag = this.sqrMagnitude();
         if (sqrMag > maxLength * maxLength) {
             const mag = Math.sqrt(sqrMag);
-            const normalizedX = this.x / mag;
-            const normalizedY = this.y / mag;
-            const normalizedZ = this.z / mag;
-            const normalizedW = this.w / mag;
-            this.x = normalizedX * maxLength;
-            this.y = normalizedY * maxLength;
-            this.z = normalizedZ * maxLength;
-            this.w = normalizedW * maxLength;
+            const scale = maxLength / mag;
+            this.x *= scale;
+            this.y *= scale;
+            this.z *= scale;
+            this.w *= scale;
         }
         return this;
     }
@@ -472,6 +562,32 @@ export class Vector4 {
         this.y = array[offset + 1];
         this.z = array[offset + 2];
         this.w = array[offset + 3];
+        return this;
+    }
+
+    // ==================== THREE.JS ADAPTER METHODS ====================
+    // @internal - For engine sync layer only.
+
+    /**
+     * @internal
+     * Copies values to a Three.js Vector4-like object.
+     */
+    _copyToThree(threeVec: { x: number; y: number; z: number; w: number }): void {
+        threeVec.x = this.x;
+        threeVec.y = this.y;
+        threeVec.z = this.z;
+        threeVec.w = this.w;
+    }
+
+    /**
+     * @internal
+     * Copies values from a Three.js Vector4-like object.
+     */
+    _copyFromThree(threeVec: { x: number; y: number; z: number; w: number }): this {
+        this.x = threeVec.x;
+        this.y = threeVec.y;
+        this.z = threeVec.z;
+        this.w = threeVec.w;
         return this;
     }
 }
