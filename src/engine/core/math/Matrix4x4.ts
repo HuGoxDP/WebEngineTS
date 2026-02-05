@@ -1,49 +1,61 @@
-// path: src/engine/core/math/Matrix4x4.ts
+// path: src/engine/math/Matrix4x4.ts
 
-import { EngineSettings } from "../EngineSettings.ts";
-import { Vector3 } from "./Vector3.ts";
-import { Vector4 } from "./Vector4.ts";
-import { Quaternion } from "./Quaternion.ts";
+import { EngineSettings } from '../EngineSettings';
+import { Vector3 } from './Vector3';
+import { Vector4 } from './Vector4';
+import { Quaternion } from './Quaternion';
 
 /**
  * Matrix4x4.ts
  * 4x4 matrix class for 3D transformations.
- * Used for: positioning, rotation, scaling, camera projections, shader operations.
+ * Storage format: Column-major (like OpenGL/WebGL)
  *
- * Storage format: Column-major (like OpenGL)
- * Indexing: m[col][row] or elements[col * 4 + row]
- *
- * IMPORTANT: This is a pure math class with no rendering dependencies.
- * Three.js synchronization happens in Transform's internal adapter.
+ * @remarks
+ * API closely follows Unity Matrix4x4.
  */
 export class Matrix4x4 {
     /**
      * Matrix elements in column-major format (16 elements).
-     * Order: [m00, m10, m20, m30, m01, m11, m21, m31, m02, m12, m22, m32, m03, m13, m23, m33]
      */
     public readonly elements: Float32Array;
+
+    // ==================== CACHED READONLY INSTANCES ====================
+    private static _identity: Matrix4x4 | null = null;
+    private static _zero: Matrix4x4 | null = null;
+
+    private static readonly _tempVec1 = new Vector3();
+    private static readonly _tempVec2 = new Vector3();
+    private static readonly _tempVec3 = new Vector3();
 
     constructor() {
         this.elements = new Float32Array(16);
         this.setIdentity();
     }
 
+    // ==================== STATIC READONLY CONSTANTS ====================
+
     /**
-     * Returns identity matrix (Identity Matrix).
+     * Returns identity matrix. Shared instance — do not mutate!
      */
     static get identity(): Matrix4x4 {
-        return new Matrix4x4();
+        if (!Matrix4x4._identity) {
+            Matrix4x4._identity = new Matrix4x4();
+            Object.freeze(Matrix4x4._identity.elements);
+        }
+        return Matrix4x4._identity;
     }
 
     /**
-     * Returns zero matrix (all elements = 0).
+     * Returns zero matrix. Shared instance — do not mutate!
      */
     static get zero(): Matrix4x4 {
-        const m = new Matrix4x4();
-        m.elements.fill(0);
-        return m;
+        if (!Matrix4x4._zero) {
+            Matrix4x4._zero = new Matrix4x4();
+            Matrix4x4._zero.elements.fill(0);
+            Object.freeze(Matrix4x4._zero.elements);
+        }
+        return Matrix4x4._zero;
     }
-
 
     /**
      * Gets matrix element by row and column.
@@ -68,15 +80,16 @@ export class Matrix4x4 {
     /**
      * Gets matrix column as Vector4.
      * @param index Column index (0-3)
+     * @param out Optional vector to write result
      */
-    getColumn(index: number): Vector4 {
+    getColumn(index: number, out?: Vector4): Vector4 {
+        const result = out ?? new Vector4();
         const i = index * 4;
-        return new Vector4(
-            this.elements[i],
-            this.elements[i + 1],
-            this.elements[i + 2],
-            this.elements[i + 3]
-        );
+        result.x = this.elements[i];
+        result.y = this.elements[i + 1];
+        result.z = this.elements[i + 2];
+        result.w = this.elements[i + 3];
+        return result;
     }
 
     /**
@@ -96,14 +109,15 @@ export class Matrix4x4 {
     /**
      * Gets matrix row as Vector4.
      * @param index Row index (0-3)
+     * @param out Optional vector to write result
      */
-    getRow(index: number): Vector4 {
-        return new Vector4(
-            this.elements[index],
-            this.elements[index + 4],
-            this.elements[index + 8],
-            this.elements[index + 12]
-        );
+    getRow(index: number, out?: Vector4): Vector4 {
+        const result = out ?? new Vector4();
+        result.x = this.elements[index];
+        result.y = this.elements[index + 4];
+        result.z = this.elements[index + 8];
+        result.w = this.elements[index + 12];
+        return result;
     }
 
 
@@ -123,86 +137,82 @@ export class Matrix4x4 {
 
     /**
      * Returns position from transformation matrix.
+     * @param out Optional vector to write result
      */
-    getPosition(): Vector3 {
-        return new Vector3(
-            this.elements[12],
-            this.elements[13],
-            this.elements[14]
-        );
+    getPosition(out?: Vector3): Vector3 {
+        const result = out ?? new Vector3();
+        result.x = this.elements[12];
+        result.y = this.elements[13];
+        result.z = this.elements[14];
+        return result;
     }
 
     /**
      * Returns scale from transformation matrix.
+     * @param out Optional vector to write result
      */
-    getScale(): Vector3 {
-        const sx = Math.sqrt(
-            this.elements[0] ** 2 + this.elements[1] ** 2 + this.elements[2] ** 2
-        );
-        const sy = Math.sqrt(
-            this.elements[4] ** 2 + this.elements[5] ** 2 + this.elements[6] ** 2
-        );
-        const sz = Math.sqrt(
-            this.elements[8] ** 2 + this.elements[9] ** 2 + this.elements[10] ** 2
-        );
-        return new Vector3(sx, sy, sz);
+    getScale(out?: Vector3): Vector3 {
+        const result = out ?? new Vector3();
+        const e = this.elements;
+        result.x = Math.sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+        result.y = Math.sqrt(e[4] * e[4] + e[5] * e[5] + e[6] * e[6]);
+        result.z = Math.sqrt(e[8] * e[8] + e[9] * e[9] + e[10] * e[10]);
+        return result;
     }
 
     /**
      * Returns rotation from transformation matrix as quaternion.
+     * @param out Optional quaternion to write result
      */
-    getRotation(): Quaternion {
-        const scale = this.getScale();
-        const m = new Matrix4x4();
-        m.copy(this);
+    getRotation(out?: Quaternion): Quaternion {
+        const result = out ?? new Quaternion();
 
-        // Normalize columns to remove scale
-        if (scale.x !== 0) {
-            m.elements[0] /= scale.x;
-            m.elements[1] /= scale.x;
-            m.elements[2] /= scale.x;
-        }
-        if (scale.y !== 0) {
-            m.elements[4] /= scale.y;
-            m.elements[5] /= scale.y;
-            m.elements[6] /= scale.y;
-        }
-        if (scale.z !== 0) {
-            m.elements[8] /= scale.z;
-            m.elements[9] /= scale.z;
-            m.elements[10] /= scale.z;
-        }
+        // Get scale to normalize
+        const e = this.elements;
+        const sx = Math.sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+        const sy = Math.sqrt(e[4] * e[4] + e[5] * e[5] + e[6] * e[6]);
+        const sz = Math.sqrt(e[8] * e[8] + e[9] * e[9] + e[10] * e[10]);
 
-        const trace = m.elements[0] + m.elements[5] + m.elements[10];
-        const q = new Quaternion();
+        // Normalized rotation matrix elements
+        const m00 = sx > 0 ? e[0] / sx : 0;
+        const m10 = sx > 0 ? e[1] / sx : 0;
+        const m20 = sx > 0 ? e[2] / sx : 0;
+        const m01 = sy > 0 ? e[4] / sy : 0;
+        const m11 = sy > 0 ? e[5] / sy : 0;
+        const m21 = sy > 0 ? e[6] / sy : 0;
+        const m02 = sz > 0 ? e[8] / sz : 0;
+        const m12 = sz > 0 ? e[9] / sz : 0;
+        const m22 = sz > 0 ? e[10] / sz : 0;
+
+        const trace = m00 + m11 + m22;
 
         if (trace > 0) {
-            const s = 0.5 / Math.sqrt(trace + 1.0);
-            q.w = 0.25 / s;
-            q.x = (m.elements[6] - m.elements[9]) * s;
-            q.y = (m.elements[8] - m.elements[2]) * s;
-            q.z = (m.elements[1] - m.elements[4]) * s;
-        } else if (m.elements[0] > m.elements[5] && m.elements[0] > m.elements[10]) {
-            const s = 2.0 * Math.sqrt(1.0 + m.elements[0] - m.elements[5] - m.elements[10]);
-            q.w = (m.elements[6] - m.elements[9]) / s;
-            q.x = 0.25 * s;
-            q.y = (m.elements[4] + m.elements[1]) / s;
-            q.z = (m.elements[8] + m.elements[2]) / s;
-        } else if (m.elements[5] > m.elements[10]) {
-            const s = 2.0 * Math.sqrt(1.0 + m.elements[5] - m.elements[0] - m.elements[10]);
-            q.w = (m.elements[8] - m.elements[2]) / s;
-            q.x = (m.elements[4] + m.elements[1]) / s;
-            q.y = 0.25 * s;
-            q.z = (m.elements[9] + m.elements[6]) / s;
+            const s = 0.5 / Math.sqrt(trace + 1);
+            result.w = 0.25 / s;
+            result.x = (m21 - m12) * s;
+            result.y = (m02 - m20) * s;
+            result.z = (m10 - m01) * s;
+        } else if (m00 > m11 && m00 > m22) {
+            const s = 2 * Math.sqrt(1 + m00 - m11 - m22);
+            result.w = (m21 - m12) / s;
+            result.x = 0.25 * s;
+            result.y = (m01 + m10) / s;
+            result.z = (m02 + m20) / s;
+        } else if (m11 > m22) {
+            const s = 2 * Math.sqrt(1 + m11 - m00 - m22);
+            result.w = (m02 - m20) / s;
+            result.x = (m01 + m10) / s;
+            result.y = 0.25 * s;
+            result.z = (m12 + m21) / s;
         } else {
-            const s = 2.0 * Math.sqrt(1.0 + m.elements[10] - m.elements[0] - m.elements[5]);
-            q.w = (m.elements[1] - m.elements[4]) / s;
-            q.x = (m.elements[8] + m.elements[2]) / s;
-            q.y = (m.elements[9] + m.elements[6]) / s;
-            q.z = 0.25 * s;
+            const s = 2 * Math.sqrt(1 + m22 - m00 - m11);
+            result.w = (m10 - m01) / s;
+            result.x = (m02 + m20) / s;
+            result.y = (m12 + m21) / s;
+            result.z = 0.25 * s;
         }
 
-        return q.normalize();
+        return result.normalize();
     }
 
     /**
@@ -277,26 +287,21 @@ export class Matrix4x4 {
         );
     }
 
-
-
     /**
      * Creates transformation matrix from position, rotation and scale (TRS).
-     * @param position Position
-     * @param rotation Rotation (quaternion)
-     * @param scale Scale
      */
-    static TRS(position: Vector3, rotation: Quaternion, scale: Vector3): Matrix4x4 {
-        const m = new Matrix4x4();
+    static TRS(position: Vector3, rotation: Quaternion, scale: Vector3, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
         m.setTRS(position, rotation, scale);
         return m;
     }
 
     /**
      * Creates translation matrix.
-     * @param translation Translation vector
      */
-    static Translate(translation: Vector3): Matrix4x4 {
-        const m = new Matrix4x4();
+    static Translate(translation: Vector3, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
+        m.setIdentity();
         m.elements[12] = translation.x;
         m.elements[13] = translation.y;
         m.elements[14] = translation.z;
@@ -305,21 +310,19 @@ export class Matrix4x4 {
 
     /**
      * Creates rotation matrix from quaternion.
-     * @param q Rotation quaternion
      */
-    static Rotate(q: Quaternion): Matrix4x4 {
-        const m = new Matrix4x4();
+    static Rotate(q: Quaternion, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
         m.setRotation(q);
         return m;
     }
 
-
     /**
      * Creates scale matrix.
-     * @param scale Scale vector
      */
-    static Scale(scale: Vector3): Matrix4x4 {
-        const m = new Matrix4x4();
+    static Scale(scale: Vector3, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
+        m.setIdentity();
         m.elements[0] = scale.x;
         m.elements[5] = scale.y;
         m.elements[10] = scale.z;
@@ -329,9 +332,11 @@ export class Matrix4x4 {
     /**
      * Creates rotation matrix around X axis.
      * @param angle Angle in degrees
+     * @param out
      */
-    static RotateX(angle: number): Matrix4x4 {
-        const m = new Matrix4x4();
+    static RotateX(angle: number, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
+        m.setIdentity();
         const rad = angle * (Math.PI / 180);
         const c = Math.cos(rad);
         const s = Math.sin(rad);
@@ -345,9 +350,11 @@ export class Matrix4x4 {
     /**
      * Creates rotation matrix around Y axis.
      * @param angle Angle in degrees
+     * @param out
      */
-    static RotateY(angle: number): Matrix4x4 {
-        const m = new Matrix4x4();
+    static RotateY(angle: number, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
+        m.setIdentity();
         const rad = angle * (Math.PI / 180);
         const c = Math.cos(rad);
         const s = Math.sin(rad);
@@ -361,9 +368,11 @@ export class Matrix4x4 {
     /**
      * Creates rotation matrix around Z axis.
      * @param angle Angle in degrees
+     * @param out
      */
-    static RotateZ(angle: number): Matrix4x4 {
-        const m = new Matrix4x4();
+    static RotateZ(angle: number, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
+        m.setIdentity();
         const rad = angle * (Math.PI / 180);
         const c = Math.cos(rad);
         const s = Math.sin(rad);
@@ -376,13 +385,9 @@ export class Matrix4x4 {
 
     /**
      * Creates perspective projection matrix.
-     * @param fov Field of view in degrees
-     * @param aspect Aspect ratio (width / height)
-     * @param near Near clipping plane
-     * @param far Far clipping plane
      */
-    static Perspective(fov: number, aspect: number, near: number, far: number): Matrix4x4 {
-        const m = new Matrix4x4();
+    static Perspective(fov: number, aspect: number, near: number, far: number, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
         m.elements.fill(0);
 
         const tanHalfFov = Math.tan((fov * Math.PI / 180) / 2);
@@ -398,20 +403,14 @@ export class Matrix4x4 {
 
     /**
      * Creates orthographic projection matrix.
-     * @param left Left bound
-     * @param right Right bound
-     * @param bottom Bottom bound
-     * @param top Top bound
-     * @param near Near clipping plane
-     * @param far Far clipping plane
      */
-    static Ortho(left: number, right: number, bottom: number, top: number, near: number, far: number): Matrix4x4 {
-        const m = new Matrix4x4();
+    static Ortho(left: number, right: number, bottom: number, top: number, near: number, far: number, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
         m.elements.fill(0);
 
-        const w = 1.0 / (right - left);
-        const h = 1.0 / (top - bottom);
-        const p = 1.0 / (far - near);
+        const w = 1 / (right - left);
+        const h = 1 / (top - bottom);
+        const p = 1 / (far - near);
 
         m.elements[0] = 2 * w;
         m.elements[5] = 2 * h;
@@ -426,16 +425,14 @@ export class Matrix4x4 {
 
     /**
      * Creates "look at" matrix (view matrix).
-     * @param eye Camera position
-     * @param target Target point camera is looking at
-     * @param up Up direction
      */
-    static LookAt(eye: Vector3, target: Vector3, up: Vector3): Matrix4x4 {
-        const m = new Matrix4x4();
+    static LookAt(eye: Vector3, target: Vector3, up: Vector3, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
 
-        const zAxis = Vector3.subtract(eye, target, new Vector3()).normalize();
-        const xAxis = Vector3.cross(up, zAxis, new Vector3()).normalize();
-        const yAxis = Vector3.cross(zAxis, xAxis, new Vector3());
+        // Use static temp vectors to avoid allocation
+        const zAxis = Vector3.subtract(eye, target, Matrix4x4._tempVec1).normalize();
+        const xAxis = Vector3.cross(up, zAxis, Matrix4x4._tempVec2).normalize();
+        const yAxis = Vector3.cross(zAxis, xAxis, Matrix4x4._tempVec3);
 
         m.elements[0] = xAxis.x;
         m.elements[1] = yAxis.x;
@@ -564,6 +561,13 @@ export class Matrix4x4 {
         return this.multiplyMatrices(this, m);
     }
 
+    /**
+     * Static multiply with out parameter.
+     */
+    static Multiply(a: Matrix4x4, b: Matrix4x4, out?: Matrix4x4): Matrix4x4 {
+        const m = out ?? new Matrix4x4();
+        return m.multiplyMatrices(a, b);
+    }
 
     /**
      * Premultiplies this matrix by another (this = m * this).
@@ -629,11 +633,9 @@ export class Matrix4x4 {
 
     /**
      * Transforms point (with position, w = 1).
-     * @param point Point to transform
-     * @param out (Optional) Vector to write result to
      */
     multiplyPoint(point: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         const e = this.elements;
         const x = point.x, y = point.y, z = point.z;
         const w = 1 / (e[3] * x + e[7] * y + e[11] * z + e[15]);
@@ -645,14 +647,12 @@ export class Matrix4x4 {
         return result;
     }
 
+
     /**
      * Transforms point without perspective division.
-     * Faster than multiplyPoint, but incorrect for projection matrices.
-     * @param point Point to transform
-     * @param out (Optional) Vector to write result to
      */
     multiplyPoint3x4(point: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         const e = this.elements;
         const x = point.x, y = point.y, z = point.z;
 
@@ -665,11 +665,9 @@ export class Matrix4x4 {
 
     /**
      * Transforms direction (without position, w = 0).
-     * @param vector Direction to transform
-     * @param out (Optional) Vector to write result to
      */
     multiplyVector(vector: Vector3, out?: Vector3): Vector3 {
-        const result = out || new Vector3();
+        const result = out ?? new Vector3();
         const e = this.elements;
         const x = vector.x, y = vector.y, z = vector.z;
 
@@ -682,11 +680,9 @@ export class Matrix4x4 {
 
     /**
      * Transforms Vector4.
-     * @param v Vector to transform
-     * @param out (Optional) Vector to write result to
      */
     multiplyVector4(v: Vector4, out?: Vector4): Vector4 {
-        const result = out || new Vector4();
+        const result = out ?? new Vector4();
         const e = this.elements;
         const x = v.x, y = v.y, z = v.z, w = v.w;
 
@@ -747,13 +743,20 @@ export class Matrix4x4 {
         this.elements.set(te);
         return this;
     }
-
-
     /**
      * Returns inverse matrix (without modifying original).
      */
     inverse(): Matrix4x4 {
         return this.clone().invert();
+    }
+
+    /**
+     * Static inverse with out parameter.
+     */
+    static Inverse(m: Matrix4x4, out?: Matrix4x4): Matrix4x4 {
+        const result = out ?? new Matrix4x4();
+        result.copy(m);
+        return result.invert();
     }
 
     /**
@@ -823,5 +826,27 @@ export class Matrix4x4 {
 | ${e[1].toFixed(3)} ${e[5].toFixed(3)} ${e[9].toFixed(3)} ${e[13].toFixed(3)} |
 | ${e[2].toFixed(3)} ${e[6].toFixed(3)} ${e[10].toFixed(3)} ${e[14].toFixed(3)} |
 | ${e[3].toFixed(3)} ${e[7].toFixed(3)} ${e[11].toFixed(3)} ${e[15].toFixed(3)} |`;
+    }
+
+    // ==================== THREE.JS ADAPTER METHODS ====================
+    // @internal - For engine sync layer only.
+
+    /**
+     * @internal
+     * Copies values to a Three.js Matrix4-like object.
+     */
+    _copyToThree(threeMatrix: { elements: ArrayLike<number> & { set(array: ArrayLike<number>): void } }): void {
+        threeMatrix.elements.set(this.elements);
+    }
+
+    /**
+     * @internal
+     * Copies values from a Three.js Matrix4-like object.
+     */
+    _copyFromThree(threeMatrix: { elements: ArrayLike<number> }): this {
+        for (let i = 0; i < 16; i++) {
+            this.elements[i] = threeMatrix.elements[i];
+        }
+        return this;
     }
 }
