@@ -1,29 +1,38 @@
-import { Vector2 } from "./Vector2";
+// path: src/engine/math/Rect.ts
+
+import { Vector2 } from './Vector2';
+import { EngineSettings } from '../EngineSettings';
 
 /**
  * Rect.ts
- * Представляє прямокутник у 2D просторі.
- * Використовується для: viewport камери, UI елементів, sprite bounds, texture coordinates.
- * 
- * Rect описується позицією (x, y) та розміром (width, height).
- * Позиція відповідає лівому нижньому куту прямокутника.
+ * Represents a rectangle in 2D space.
+ * Used for: camera viewport, UI elements, sprite bounds, texture coordinates.
+ *
+ * @remarks
+ * Rect is described by position (x, y) and size (width, height).
+ * Position corresponds to the bottom-left corner of the rectangle.
+ * API matches Unity Rect as closely as possible.
  */
 export class Rect {
-    /** Координата X лівого краю прямокутника */
+    /** X coordinate of the left edge */
     public x: number;
-    /** Координата Y нижнього краю прямокутника */
+    /** Y coordinate of the bottom edge */
     public y: number;
-    /** Ширина прямокутника */
+    /** Width of the rectangle */
     public width: number;
-    /** Висота прямокутника */
+    /** Height of the rectangle */
     public height: number;
 
+    // ==================== CACHED READONLY INSTANCES ====================
+
+    private static readonly _zero = new Rect(0, 0, 0, 0);
+
     /**
-     * Створює новий Rect.
-     * @param x X координата (лівий край)
-     * @param y Y координата (нижній край)
-     * @param width Ширина
-     * @param height Висота
+     * Creates a new Rect.
+     * @param x X coordinate (left edge)
+     * @param y Y coordinate (bottom edge)
+     * @param width Width
+     * @param height Height
      */
     constructor(x: number = 0, y: number = 0, width: number = 0, height: number = 0) {
         this.x = x;
@@ -32,9 +41,9 @@ export class Rect {
         this.height = height;
     }
 
-    // ==================== ВЛАСТИВОСТІ ====================
+    // ==================== PROPERTIES ====================
 
-    /** Мінімальна X координата (лівий край) */
+    /** Minimum X coordinate (left edge) */
     get xMin(): number {
         return this.x;
     }
@@ -45,7 +54,7 @@ export class Rect {
         this.width = xMax - this.x;
     }
 
-    /** Максимальна X координата (правий край) */
+    /** Maximum X coordinate (right edge) */
     get xMax(): number {
         return this.x + this.width;
     }
@@ -54,7 +63,7 @@ export class Rect {
         this.width = value - this.x;
     }
 
-    /** Мінімальна Y координата (нижній край) */
+    /** Minimum Y coordinate (bottom edge) */
     get yMin(): number {
         return this.y;
     }
@@ -65,7 +74,7 @@ export class Rect {
         this.height = yMax - this.y;
     }
 
-    /** Максимальна Y координата (верхній край) */
+    /** Maximum Y coordinate (top edge) */
     get yMax(): number {
         return this.y + this.height;
     }
@@ -74,7 +83,10 @@ export class Rect {
         this.height = value - this.y;
     }
 
-    /** Позиція прямокутника (лівий нижній кут) */
+    /**
+     * Position of the rectangle (bottom-left corner).
+     * WARNING: Allocates new Vector2. Use getPosition(out) in hot paths.
+     */
     get position(): Vector2 {
         return new Vector2(this.x, this.y);
     }
@@ -84,7 +96,10 @@ export class Rect {
         this.y = value.y;
     }
 
-    /** Розмір прямокутника */
+    /**
+     * Size of the rectangle.
+     * WARNING: Allocates new Vector2. Use getSize(out) in hot paths.
+     */
     get size(): Vector2 {
         return new Vector2(this.width, this.height);
     }
@@ -94,7 +109,10 @@ export class Rect {
         this.height = value.y;
     }
 
-    /** Центр прямокутника */
+    /**
+     * Center of the rectangle.
+     * WARNING: Allocates new Vector2. Use getCenter(out) in hot paths.
+     */
     get center(): Vector2 {
         return new Vector2(
             this.x + this.width * 0.5,
@@ -107,7 +125,10 @@ export class Rect {
         this.y = value.y - this.height * 0.5;
     }
 
-    /** Мінімальна точка (лівий нижній кут) */
+    /**
+     * Minimum point (bottom-left corner).
+     * WARNING: Allocates new Vector2. Use getMin(out) in hot paths.
+     */
     get min(): Vector2 {
         return new Vector2(this.xMin, this.yMin);
     }
@@ -117,7 +138,10 @@ export class Rect {
         this.yMin = value.y;
     }
 
-    /** Максимальна точка (правий верхній кут) */
+    /**
+     * Maximum point (top-right corner).
+     * WARNING: Allocates new Vector2. Use getMax(out) in hot paths.
+     */
     get max(): Vector2 {
         return new Vector2(this.xMax, this.yMax);
     }
@@ -127,14 +151,67 @@ export class Rect {
         this.yMax = value.y;
     }
 
-    // ==================== МЕТОДИ ВСТАНОВЛЕННЯ ====================
+    // ==================== ZERO-ALLOCATION GETTERS ====================
 
     /**
-     * Встановлює координати та розмір прямокутника.
-     * @param x X координата
-     * @param y Y координата
-     * @param width Ширина
-     * @param height Висота
+     * Gets position without allocation.
+     * @param out Vector to write result
+     */
+    getPosition(out: Vector2): Vector2 {
+        out.x = this.x;
+        out.y = this.y;
+        return out;
+    }
+
+    /**
+     * Gets size without allocation.
+     * @param out Vector to write result
+     */
+    getSize(out: Vector2): Vector2 {
+        out.x = this.width;
+        out.y = this.height;
+        return out;
+    }
+
+    /**
+     * Gets center without allocation.
+     * @param out Vector to write result
+     */
+    getCenter(out: Vector2): Vector2 {
+        out.x = this.x + this.width * 0.5;
+        out.y = this.y + this.height * 0.5;
+        return out;
+    }
+
+    /**
+     * Gets min point without allocation.
+     * @param out Vector to write result
+     */
+    getMin(out: Vector2): Vector2 {
+        out.x = this.xMin;
+        out.y = this.yMin;
+        return out;
+    }
+
+    /**
+     * Gets max point without allocation.
+     * @param out Vector to write result
+     */
+    getMax(out: Vector2): Vector2 {
+        out.x = this.xMax;
+        out.y = this.yMax;
+        return out;
+    }
+
+    // ==================== SET METHODS ====================
+
+    /**
+     * Sets the coordinates and size of the rectangle.
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @param width Width
+     * @param height Height
+     * @returns this for chaining
      */
     set(x: number, y: number, width: number, height: number): this {
         this.x = x;
@@ -145,8 +222,9 @@ export class Rect {
     }
 
     /**
-     * Копіює значення з іншого Rect.
-     * @param other Rect для копіювання
+     * Copies values from another Rect.
+     * @param other Rect to copy from
+     * @returns this for chaining
      */
     copy(other: Rect): this {
         this.x = other.x;
@@ -157,19 +235,19 @@ export class Rect {
     }
 
     /**
-     * Створює копію цього Rect.
+     * Creates a copy of this Rect.
      */
     clone(): Rect {
         return new Rect(this.x, this.y, this.width, this.height);
     }
 
-    // ==================== МЕТОДИ ПЕРЕВІРКИ ====================
+    // ==================== CHECK METHODS ====================
 
     /**
-     * Перевіряє, чи містить прямокутник вказану точку.
-     * @param point Точка для перевірки
-     * @param allowInverse Якщо true, то враховує прямокутники з від'ємними розмірами
-     * @returns true якщо точка всередині або на межі
+     * Checks if the rectangle contains the specified point.
+     * @param point Point to check
+     * @param allowInverse If true, handles rectangles with negative sizes
+     * @returns true if point is inside or on the edge
      */
     contains(point: Vector2, allowInverse: boolean = false): boolean {
         if (!allowInverse) {
@@ -180,7 +258,7 @@ export class Rect {
                 point.y <= this.yMax
             );
         } else {
-            // Враховуємо від'ємні розміри
+            // Handle negative sizes
             const minX = Math.min(this.x, this.x + this.width);
             const maxX = Math.max(this.x, this.x + this.width);
             const minY = Math.min(this.y, this.y + this.height);
@@ -196,10 +274,10 @@ export class Rect {
     }
 
     /**
-     * Перевіряє, чи перетинається цей прямокутник з іншим.
-     * @param other Інший Rect для перевірки
-     * @param allowInverse Якщо true, то враховує прямокутники з від'ємними розмірами
-     * @returns true якщо є перетин
+     * Checks if this rectangle overlaps with another.
+     * @param other Other Rect to check
+     * @param allowInverse If true, handles rectangles with negative sizes
+     * @returns true if there is overlap
      */
     overlaps(other: Rect, allowInverse: boolean = false): boolean {
         if (!allowInverse) {
@@ -210,7 +288,7 @@ export class Rect {
                 this.yMax > other.yMin
             );
         } else {
-            // Враховуємо від'ємні розміри
+            // Handle negative sizes
             const thisMinX = Math.min(this.x, this.x + this.width);
             const thisMaxX = Math.max(this.x, this.x + this.width);
             const thisMinY = Math.min(this.y, this.y + this.height);
@@ -230,14 +308,14 @@ export class Rect {
         }
     }
 
-    // ==================== УТИЛІТИ ====================
+    // ==================== UTILITIES ====================
 
     /**
-     * Порівнює два Rect на рівність.
-     * @param other Інший Rect для порівняння
-     * @param epsilon Похибка порівняння
+     * Compares two Rects for equality.
+     * @param other Other Rect to compare
+     * @param epsilon Comparison tolerance
      */
-    equals(other: Rect, epsilon: number = 1e-6): boolean {
+    equals(other: Rect, epsilon: number = EngineSettings.Math.EPSILON): boolean {
         return (
             Math.abs(this.x - other.x) < epsilon &&
             Math.abs(this.y - other.y) < epsilon &&
@@ -247,110 +325,135 @@ export class Rect {
     }
 
     /**
-     * Повертає рядкове представлення Rect.
+     * Returns string representation of the Rect.
      */
     toString(): string {
         return `Rect(x: ${this.x.toFixed(2)}, y: ${this.y.toFixed(2)}, width: ${this.width.toFixed(2)}, height: ${this.height.toFixed(2)})`;
     }
 
-    // ==================== СТАТИЧНІ МЕТОДИ ====================
+    // ==================== STATIC METHODS ====================
 
     /**
-     * Створює Rect з мінімальної та максимальної точок.
-     * @param xMin Мінімальна X координата
-     * @param yMin Мінімальна Y координата
-     * @param xMax Максимальна X координата
-     * @param yMax Максимальна Y координата
+     * Creates a Rect from min and max coordinates.
+     * @param xMin Minimum X coordinate
+     * @param yMin Minimum Y coordinate
+     * @param xMax Maximum X coordinate
+     * @param yMax Maximum Y coordinate
+     * @param out Optional Rect to reuse
      */
-    static minMaxRect(xMin: number, yMin: number, xMax: number, yMax: number): Rect {
-        return new Rect(xMin, yMin, xMax - xMin, yMax - yMin);
+    static minMaxRect(xMin: number, yMin: number, xMax: number, yMax: number, out?: Rect): Rect {
+        const rect = out ?? new Rect();
+        rect.x = xMin;
+        rect.y = yMin;
+        rect.width = xMax - xMin;
+        rect.height = yMax - yMin;
+        return rect;
     }
 
     /**
-     * Створює Rect з центру та розміру.
-     * @param center Центр прямокутника
-     * @param size Розмір прямокутника
+     * Creates a Rect from center and size.
+     * @param center Center of the rectangle
+     * @param size Size of the rectangle
+     * @param out Optional Rect to reuse
      */
-    static fromCenterSize(center: Vector2, size: Vector2): Rect {
-        return new Rect(
-            center.x - size.x * 0.5,
-            center.y - size.y * 0.5,
-            size.x,
-            size.y
-        );
+    static fromCenterSize(center: Vector2, size: Vector2, out?: Rect): Rect {
+        const rect = out ?? new Rect();
+        rect.x = center.x - size.x * 0.5;
+        rect.y = center.y - size.y * 0.5;
+        rect.width = size.x;
+        rect.height = size.y;
+        return rect;
     }
 
     /**
-     * Створює Rect з позиції та розміру.
-     * @param position Позиція (лівий нижній кут)
-     * @param size Розмір
+     * Creates a Rect from position and size.
+     * @param position Position (bottom-left corner)
+     * @param size Size
+     * @param out Optional Rect to reuse
      */
-    static fromPositionSize(position: Vector2, size: Vector2): Rect {
-        return new Rect(position.x, position.y, size.x, size.y);
+    static fromPositionSize(position: Vector2, size: Vector2, out?: Rect): Rect {
+        const rect = out ?? new Rect();
+        rect.x = position.x;
+        rect.y = position.y;
+        rect.width = size.x;
+        rect.height = size.y;
+        return rect;
     }
 
     /**
-     * Знаходить нормалізовані координати точки відносно прямокутника.
-     * Повертає (0,0) для лівого нижнього кута та (1,1) для правого верхнього.
-     * @param rect Прямокутник
-     * @param point Точка
+     * Finds normalized coordinates of a point relative to the rectangle.
+     * Returns (0,0) for bottom-left corner and (1,1) for top-right.
+     * @param rect Rectangle
+     * @param point Point
+     * @param out Optional Vector2 to reuse
      */
-    static pointToNormalized(rect: Rect, point: Vector2): Vector2 {
-        return new Vector2(
-            (point.x - rect.x) / rect.width,
-            (point.y - rect.y) / rect.height
-        );
+    static pointToNormalized(rect: Rect, point: Vector2, out?: Vector2): Vector2 {
+        const result = out ?? new Vector2();
+        result.x = rect.width !== 0 ? (point.x - rect.x) / rect.width : 0;
+        result.y = rect.height !== 0 ? (point.y - rect.y) / rect.height : 0;
+        return result;
     }
 
     /**
-     * Знаходить точку за нормалізованими координатами.
-     * @param rect Прямокутник
-     * @param normalizedPoint Нормалізовані координати (0-1)
+     * Finds a point from normalized coordinates.
+     * @param rect Rectangle
+     * @param normalizedPoint Normalized coordinates (0-1)
+     * @param out Optional Vector2 to reuse
      */
-    static normalizedToPoint(rect: Rect, normalizedPoint: Vector2): Vector2 {
-        return new Vector2(
-            rect.x + normalizedPoint.x * rect.width,
-            rect.y + normalizedPoint.y * rect.height
-        );
+    static normalizedToPoint(rect: Rect, normalizedPoint: Vector2, out?: Vector2): Vector2 {
+        const result = out ?? new Vector2();
+        result.x = rect.x + normalizedPoint.x * rect.width;
+        result.y = rect.y + normalizedPoint.y * rect.height;
+        return result;
     }
 
     /**
-     * Створює Rect, що містить обидва вказані прямокутники.
-     * @param a Перший Rect
-     * @param b Другий Rect
+     * Creates a Rect that contains both specified rectangles.
+     * @param a First Rect
+     * @param b Second Rect
+     * @param out Optional Rect to reuse
      */
-    static union(a: Rect, b: Rect): Rect {
+    static union(a: Rect, b: Rect, out?: Rect): Rect {
         const xMin = Math.min(a.xMin, b.xMin);
         const yMin = Math.min(a.yMin, b.yMin);
         const xMax = Math.max(a.xMax, b.xMax);
         const yMax = Math.max(a.yMax, b.yMax);
-        return Rect.minMaxRect(xMin, yMin, xMax, yMax);
+        return Rect.minMaxRect(xMin, yMin, xMax, yMax, out);
     }
 
     /**
-     * Створює Rect, що є перетином двох прямокутників.
-     * Якщо немає перетину, повертає Rect з нульовим розміром.
-     * @param a Перший Rect
-     * @param b Другий Rect
+     * Creates a Rect that is the intersection of two rectangles.
+     * If no intersection, returns a Rect with zero size.
+     * @param a First Rect
+     * @param b Second Rect
+     * @param out Optional Rect to reuse
      */
-    static intersection(a: Rect, b: Rect): Rect {
+    static intersection(a: Rect, b: Rect, out?: Rect): Rect {
+        const rect = out ?? new Rect();
         const xMin = Math.max(a.xMin, b.xMin);
         const yMin = Math.max(a.yMin, b.yMin);
         const xMax = Math.min(a.xMax, b.xMax);
         const yMax = Math.min(a.yMax, b.yMax);
 
-        // Якщо немає перетину
+        // No intersection
         if (xMin >= xMax || yMin >= yMax) {
-            return new Rect(0, 0, 0, 0);
+            rect.set(0, 0, 0, 0);
+            return rect;
         }
 
-        return Rect.minMaxRect(xMin, yMin, xMax, yMax);
+        rect.x = xMin;
+        rect.y = yMin;
+        rect.width = xMax - xMin;
+        rect.height = yMax - yMin;
+        return rect;
     }
 
-    // ==================== СТАТИЧНІ КОНСТАНТИ ====================
+    // ==================== STATIC CONSTANTS ====================
 
-    /** Rect з нульовими координатами та розміром */
+    /**
+     * Returns (0, 0, 0, 0). Shared instance — do not mutate!
+     */
     static get zero(): Rect {
-        return new Rect(0, 0, 0, 0);
+        return Rect._zero;
     }
 }
