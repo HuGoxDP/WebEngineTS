@@ -60,8 +60,6 @@ export class Vector3 {
 
     /**
      * Додає два вектори.
-     * @param a
-     * @param b
      * @param out (Опціонально) Вектор, у який буде записано результат. Якщо не задано, створюється новий.
      */
     static add(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
@@ -74,8 +72,6 @@ export class Vector3 {
 
     /**
      * Віднімає вектори (a - b).
-     * @param a
-     * @param b
      * @param out (Опціонально) Вектор для запису результату.
      */
     static subtract(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
@@ -134,10 +130,7 @@ export class Vector3 {
 
     /**
      * Лінійна інтерполяція між двома векторами.
-     * @param a
-     * @param b
      * @param t Параметр інтерполяції (0 = a, 1 = b). Обмежується до [0,1].
-     * @param out
      */
     static lerp(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -161,10 +154,7 @@ export class Vector3 {
 
     /**
      * Сферична інтерполяція між двома векторами.
-     * @param a
-     * @param b
      * @param t Параметр інтерполяції (0 = a, 1 = b). Обмежується до [0,1].
-     * @param out
      */
     static slerp(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -741,6 +731,54 @@ export class Vector3 {
      */
     toString(): string {
         return `(${this.x.toFixed(2)}, ${this.y.toFixed(2)}, ${this.z.toFixed(2)})`;
+    }
+
+    // ==================== QUATERNION ROTATION ====================
+
+    /**
+     * Applies a quaternion rotation to this vector in-place.
+     *
+     * @param q — the rotation quaternion (must be normalized).
+     * @returns this (for chaining).
+     *
+     * @remarks
+     * Equivalent to Unity's `Quaternion * Vector3` operator.
+     * Uses the optimized formula: v' = q * v * q⁻¹
+     */
+    applyQuaternion(q: { x: number; y: number; z: number; w: number }): this {
+        const vx = this.x, vy = this.y, vz = this.z;
+        const qx = q.x, qy = q.y, qz = q.z, qw = q.w;
+
+        // Calculate quaternion * vector (intermediate)
+        const ix = qw * vx + qy * vz - qz * vy;
+        const iy = qw * vy + qz * vx - qx * vz;
+        const iz = qw * vz + qx * vy - qy * vx;
+        const iw = -qx * vx - qy * vy - qz * vz;
+
+        // Calculate result = intermediate * quaternion⁻¹
+        this.x = ix * qw + iw * -qx + iy * -qz - iz * -qy;
+        this.y = iy * qw + iw * -qy + iz * -qx - ix * -qz;
+        this.z = iz * qw + iw * -qz + ix * -qy - iy * -qx;
+
+        return this;
+    }
+
+    /**
+     * Returns a new vector that is this vector rotated by a quaternion.
+     *
+     * @param q — the rotation quaternion (must be normalized).
+     * @param out — optional pre-allocated result vector.
+     * @returns the rotated vector.
+     *
+     * @remarks
+     * Non-mutating variant of {@link applyQuaternion}.
+     */
+    rotatedBy(q: { x: number; y: number; z: number; w: number }, out?: Vector3): Vector3 {
+        const result = out ?? new Vector3();
+        result.x = this.x;
+        result.y = this.y;
+        result.z = this.z;
+        return result.applyQuaternion(q);
     }
 
     // ==================== THREE.JS ADAPTER METHODS ====================
