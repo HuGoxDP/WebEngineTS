@@ -70,6 +70,7 @@ export abstract class Behaviour extends Component {
         this._onEnabledChanged();
     }
 
+
     /**
      * Is this component enabled **and** is its GameObject active in the scene?
      *
@@ -77,13 +78,11 @@ export abstract class Behaviour extends Component {
      *
      * @remarks
      * Equivalent to Unity's `Behaviour.isActiveAndEnabled`.
-     *
-     * @todo Currently uses `gameObject.activeSelf`. Should use
-     * `gameObject.activeInHierarchy` once it is implemented (Phase 3.5).
+     * Takes the full parent hierarchy into account via
+     * {@link GameObject.activeInHierarchy}.
      */
     public get isActiveAndEnabled(): boolean {
-        // TODO: replace activeSelf → activeInHierarchy when available
-        return this._enabled && this.gameObject.activeSelf;
+        return this._enabled && this.gameObject.activeInHierarchy;
     }
 
     // ==================== INTERNAL METHODS ====================
