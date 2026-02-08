@@ -1,196 +1,417 @@
+// path: src/engine/core/Application.ts
+
 import * as THREE from "three";
 import { SceneManager } from "./SceneManager.ts";
 import { Time } from "./Time.ts";
 import { EngineSettings } from "./EngineSettings.ts";
+import { Camera } from "./components/Camera.ts";
+import { Input } from "./Input.ts";
 import { Scenario } from "./scenario";
-import { Input } from "./Input";
+import type { IScenarioLoadProgress } from "./scenario";
+
+// Reusable THREE.Color to avoid per-frame allocation in _render().
+const _clearColor = new THREE.Color();
 
 /**
- * Application.ts
- * Головний клас двигуна.
- * Аналог Unity Application + основний ігровий цикл.
+ * The main engine entry point and game loop.
+ *
+ * Application owns the Three.js WebGLRenderer, drives the update/render
+ * cycle, and manages the canvas. It is a singleton — only one instance
+ * may exist at a time.
+ *
+ * @remarks
+ * Equivalent to Unity's `Application` + the internal PlayerLoop.
+ *
+ * **Update order per frame (Unity-compatible):**
+ * 1. `FixedUpdate` (may run 0–N times to catch up with physics time)
+ * 2. `Update`
+ * 3. `LateUpdate`
+ * 4. Scenario `onUpdate` (if a scenario is running)
+ * 5. Render (find camera → render scene)
+ * 6. Input reset
+ *
+ * **Three.js isolation:**
+ * The `THREE.WebGLRenderer` is an internal detail. It is never exposed
+ * in any public API.
+ *
+ * **Scenario integration:**
+ * Application provides convenience methods for loading and running
+ * scenarios. The game loop automatically calls `Scenario._onUpdate()`
+ * each frame while a scenario is active.
+ *
+ * @example
+ * ```ts
+ * const app = new Application(document.getElementById("canvas") as HTMLCanvasElement);
+ * app.run();
+ *
+ * // Load a scenario from a downloaded ZIP buffer
+ * await app.loadScenarioFromBuffer(zipArrayBuffer);
+ * // Scenario is now running...
+ *
+ * // Later, to stop:
+ * app.unloadScenario();
+ * ```
  */
 export class Application {
-    // === Статичні властивості (як в Unity Application) ===
 
-    /** Поточний екземпляр Application */
+    // ==================== STATIC ====================
+
+    /** Singleton instance. */
     private static _instance: Application | null = null;
 
-    /** Отримати поточний екземпляр Application */
+    /** Returns the current Application instance, or `null`. */
     public static get current(): Application | null {
-        return this._instance;
+        return Application._instance;
     }
 
-    /** Версія движка */
+    /** Engine version string. */
     public static readonly version: string = "0.1.0";
 
-    /** Чи працює движок */
+    /**
+     * Whether the engine is currently running.
+     *
+     * @remarks Equivalent to Unity's `Application.isPlaying`.
+     */
     public static get isPlaying(): boolean {
-        return this._instance?.isPlaying ?? false;
+        return Application._instance?.isPlaying ?? false;
     }
 
-    /** Поточний FPS */
+    /** Target frame rate (informational — actual rate depends on browser). */
     public static get targetFrameRate(): number {
-        return 60; // TODO: Зробити налаштовуваним
+        return 60; // TODO: make configurable
     }
 
-    // === Властивості екземпляра ===
+    // ==================== INSTANCE FIELDS ====================
 
-    public readonly renderer: THREE.WebGLRenderer;
+    /** The HTML canvas we render into. */
     public readonly canvas: HTMLCanvasElement;
+
+    /** Whether the game loop is active. */
     public isPlaying: boolean = false;
+
+    /**
+     * The underlying Three.js renderer.
+     * @internal — never expose to engine users.
+     */
+    private readonly _threeRenderer: THREE.WebGLRenderer;
+
+    /** Accumulator for fixed-timestep updates. */
     private _fixedUpdateAccumulator: number = 0;
+
+    /** Timestamp of the last frame (in ms). */
     private _lastFrameTime: number = 0;
+
+    /** First-render flag for one-time diagnostics. */
     private _firstRender: boolean = true;
 
+    /** Bound resize handler (stored so we can remove it on dispose). */
+    private readonly _resizeHandler: () => void;
+
+    // ==================== CONSTRUCTOR ====================
+
+    /**
+     * Creates a new Application bound to the given canvas.
+     *
+     * @param canvas — the HTML canvas element to render into.
+     */
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
-        this.renderer = new THREE.WebGLRenderer({
+
+        // Create the Three.js renderer
+        this._threeRenderer = new THREE.WebGLRenderer({
             canvas: this.canvas,
             antialias: true,
-            powerPreference: "high-performance"
+            powerPreference: "high-performance",
         });
-        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this._threeRenderer.setPixelRatio(window.devicePixelRatio);
+
+        // Enable shadow maps
+        this._threeRenderer.shadowMap.enabled = true;
+        this._threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // Init input
         Input._init(this.canvas);
 
-        this.resize();
-        window.addEventListener('resize', () => this.resize());
+        // Resize to fill window
+        this._resizeHandler = () => this._resize();
+        this._resize();
+        window.addEventListener("resize", this._resizeHandler);
 
-        // Встановлюємо як поточний екземпляр
+        // Register as singleton
         Application._instance = this;
     }
 
-    /**
-     * Завантажує та запускає сценарій з URL.
-     * @param url URL до ZIP-архіву сценарію
-     */
-    public async loadScenario(url: string): Promise<Scenario> {
-        const scenario = await Scenario.load(url);
-        this.run();
-        await scenario.run();
-        return scenario;
-    }
+    // ==================== PUBLIC: GAME LOOP ====================
 
     /**
-     * Завантажує та запускає сценарій з ArrayBuffer.
-     * @param data ArrayBuffer з ZIP-даними
+     * Starts the game loop.
+     *
+     * The loop runs at the browser's refresh rate (typically 60 fps)
+     * via `requestAnimationFrame`.
      */
-    public async loadScenarioFromBuffer(data: ArrayBuffer): Promise<Scenario> {
-        const scenario = await Scenario.loadFromBuffer(data);
-        this.run();
-        await scenario.run();
-        return scenario;
-    }
-
     public run(): void {
         if (this.isPlaying) return;
         this.isPlaying = true;
-        this._firstRender = true; // Скидаємо для нового сценарію
+        this._firstRender = true;
         this._lastFrameTime = performance.now();
-        console.log("Engine started.");
-        this.loop();
+        console.log("[Application] Engine started.");
+        this._loop();
     }
 
+    /**
+     * Stops the game loop after the current frame completes.
+     */
     public stop(): void {
         this.isPlaying = false;
     }
 
-    private loop = (): void => {
-        if (!this.isPlaying) return;
-        requestAnimationFrame(this.loop);
+    // ==================== PUBLIC: SCENARIO ====================
 
+    /**
+     * Loads and runs a scenario from a raw ArrayBuffer (ZIP contents).
+     *
+     * This is the primary integration point for Angular hosts:
+     * 1. If a scenario is already running, it is unloaded first.
+     * 2. The ZIP is parsed in memory, manifest validated.
+     * 3. A Scene is created and the entry point is executed.
+     * 4. If the game loop isn't running yet, it is started automatically.
+     *
+     * @param data — the ZIP file as an ArrayBuffer.
+     * @param onProgress — optional callback for loading progress updates.
+     * @returns the loaded and running Scenario instance.
+     *
+     * @example
+     * ```ts
+     * // Angular component
+     * const data = await this.http.get(url, { responseType: 'arraybuffer' }).toPromise();
+     * const scenario = await this.app.loadScenarioFromBuffer(data);
+     * ```
+     */
+    public async loadScenarioFromBuffer(
+        data: ArrayBuffer,
+        onProgress?: (progress: IScenarioLoadProgress) => void
+    ): Promise<Scenario> {
+        // Unload any existing scenario
+        this.unloadScenario();
+
+        const scenario = new Scenario();
+
+        if (onProgress) {
+            scenario.onProgress(onProgress);
+        }
+
+        await scenario.loadFromData(data);
+        await scenario.run();
+
+        // Auto-start engine if not already running
+        if (!this.isPlaying) {
+            this.run();
+        }
+
+        return scenario;
+    }
+
+    /**
+     * Downloads and runs a scenario from a URL.
+     *
+     * Convenience wrapper: fetches the ZIP, then delegates to
+     * {@link loadScenarioFromBuffer}.
+     *
+     * @param url — URL to the ZIP archive.
+     * @param onProgress — optional callback for loading progress updates.
+     * @returns the loaded and running Scenario instance.
+     */
+    public async loadScenarioFromUrl(
+        url: string,
+        onProgress?: (progress: IScenarioLoadProgress) => void
+    ): Promise<Scenario> {
+        // Unload any existing scenario
+        this.unloadScenario();
+
+        const scenario = new Scenario();
+
+        if (onProgress) {
+            scenario.onProgress(onProgress);
+        }
+
+        await scenario.loadFromUrl(url);
+        await scenario.run();
+
+        // Auto-start engine if not already running
+        if (!this.isPlaying) {
+            this.run();
+        }
+
+        return scenario;
+    }
+
+    /**
+     * Unloads the currently running scenario (if any).
+     *
+     * Calls `Scenario.unload()` which handles the full cleanup chain:
+     * entry point teardown → Scene destruction → asset disposal.
+     *
+     * The game loop continues running after unload — the canvas will
+     * show a dark screen until a new scenario is loaded.
+     */
+    public unloadScenario(): void {
+        const current = Scenario.current;
+        if (current) {
+            current.unload();
+        }
+    }
+
+    // ==================== PUBLIC: CLEANUP ====================
+
+    /**
+     * Fully disposes the Application instance.
+     *
+     * Unloads any active scenario, stops the game loop, disposes the
+     * Three.js renderer, and removes event listeners.
+     *
+     * Call this when the Angular component hosting the canvas is destroyed.
+     */
+    public dispose(): void {
+        // Unload scenario first
+        this.unloadScenario();
+
+        // Stop the game loop
+        this.stop();
+
+        // Remove event listeners
+        window.removeEventListener("resize", this._resizeHandler);
+
+        // Dispose the Three.js renderer (releases WebGL context)
+        this._threeRenderer.dispose();
+
+        // Clear singleton
+        if (Application._instance === this) {
+            Application._instance = null;
+        }
+
+        console.log("[Application] Disposed.");
+    }
+
+    // ==================== INTERNAL ACCESSOR ====================
+
+    /**
+     * @internal
+     * The underlying Three.js WebGLRenderer, for engine subsystems only.
+     */
+    public get _internalThreeRenderer(): THREE.WebGLRenderer {
+        return this._threeRenderer;
+    }
+
+    // ==================== GAME LOOP (PRIVATE) ====================
+
+    /**
+     * @internal
+     * The main game loop — called once per animation frame.
+     */
+    private _loop = (): void => {
+        if (!this.isPlaying) return;
+        requestAnimationFrame(this._loop);
+
+        // 1. Compute delta time
         const now = performance.now();
         let frameDelta = (now - this._lastFrameTime) / 1000;
         this._lastFrameTime = now;
 
+        // Clamp to prevent spiral-of-death after tab-away
         if (frameDelta > EngineSettings.Time.MAX_DELTA_TIME) {
             frameDelta = EngineSettings.Time.MAX_DELTA_TIME;
         }
 
+        // 2. Update engine time
         Time._update(frameDelta);
 
+        // 3. Fixed updates (physics timestep)
+        const scene = SceneManager.activeScene;
         this._fixedUpdateAccumulator += frameDelta;
         while (this._fixedUpdateAccumulator >= EngineSettings.Time.FIXED_TIMESTEP) {
-            SceneManager.activeScene._fixedUpdate();
+            scene._fixedUpdate();
             this._fixedUpdateAccumulator -= EngineSettings.Time.FIXED_TIMESTEP;
         }
 
-        SceneManager.activeScene._update();
-        SceneManager.activeScene._lateUpdate();
+        // 4. Per-frame updates
+        scene._update();
+        scene._lateUpdate();
 
-        this.render();
+        // 5. Scenario-level update (entry point onUpdate)
+        const scenario = Scenario.current;
+        if (scenario?.isRunning) {
+            scenario._onUpdate();
+        }
 
+        // 6. Render
+        this._render();
+
+        // 7. Reset per-frame input state
         Input._resetFrame();
     };
 
-    private render(): void {
-        const scene = SceneManager.activeScene;
-
-        // Оновлюємо матриці всіх об'єктів
-        scene.threeScene.updateMatrixWorld(true);
-
-        // Знаходимо камеру
-        const mainCamera = this.findCamera();
-
-        if (mainCamera) {
-            // Встановлюємо колір фону (темно-синій космос)
-            this.renderer.setClearColor(0x030310);
-            this.renderer.render(scene.threeScene, mainCamera);
-        } else {
-            // Якщо немає камери, заливаємо темно-синім (щоб розуміти, що рендер працює)
-            this.renderer.setClearColor(0x000022);
-            this.renderer.clear();
-        }
-    }
+    // ==================== RENDERING (PRIVATE) ====================
 
     /**
-     * Допоміжний метод для пошуку камери
+     * @internal
+     * Renders the active scene using the main camera.
+     *
+     * Uses {@link Camera.main} to find the camera — no Three.js scene
+     * traversal needed.
      */
-    private findCamera(): THREE.Camera | null {
-        let cam: THREE.Camera | null = null;
-        
-        // Логування тільки при першому рендері
-        const shouldLog = this._firstRender;
-        
-        if (shouldLog) {
-            console.log("[Application] Searching for camera in scene...");
-            console.log("[Application] Scene children count:", SceneManager.activeScene.threeScene.children.length);
-        }
-        
-        SceneManager.activeScene.threeScene.traverse((obj) => {
-            if (shouldLog) {
-                console.log("[Application] Traversing:", obj.type, obj.name || "(no name)", "isCamera:", (obj as any).isCamera);
+    private _render(): void {
+        const scene = SceneManager.activeScene;
+        const threeScene = scene._internalThreeScene;
+
+        // Ensure all world matrices are up-to-date
+        threeScene.updateMatrixWorld(true);
+
+        // Find the main camera via the engine Camera registry
+        const mainCamera = Camera.main;
+
+        if (mainCamera !== null) {
+            const threeCamera = mainCamera._internalThreeCamera;
+
+            if (threeCamera !== null) {
+                // Use the camera's background color — reuse cached THREE.Color
+                const bg = mainCamera.backgroundColor;
+                _clearColor.setRGB(bg.r, bg.g, bg.b);
+                this._threeRenderer.setClearColor(_clearColor, bg.a);
+                this._threeRenderer.render(threeScene, threeCamera);
             }
-            if (!cam && (obj as THREE.Camera).isCamera) {
-                if (shouldLog) {
-                    console.log("[Application] ✅ Found camera:", obj);
-                }
-                cam = obj as THREE.Camera;
+        } else {
+            // No camera — render dark blue so the user knows the engine is alive
+            if (this._firstRender) {
+                console.warn(
+                    "[Application] ⚠️ No camera found. Add a Camera component to a GameObject."
+                );
+                this._firstRender = false;
             }
-        });
-        
-        if (!cam && shouldLog) {
-            console.warn("[Application] ⚠️ No camera found in scene!");
+            this._threeRenderer.setClearColor(0x000022);
+            this._threeRenderer.clear();
         }
-        
-        if (shouldLog) {
+
+        if (this._firstRender) {
             this._firstRender = false;
         }
-        
-        return cam;
     }
 
-    private resize(): void {
+    // ==================== RESIZE (PRIVATE) ====================
+
+    /**
+     * @internal
+     * Handles canvas resize — updates renderer size and camera aspect ratios.
+     */
+    private _resize(): void {
         const width = window.innerWidth;
         const height = window.innerHeight;
-        this.renderer.setSize(width, height);
 
-        // ВАЖЛИВО: Оновлюємо Aspect Ratio камери, інакше картинка буде сплюснута або зникне
-        const camera = this.findCamera();
-        if (camera && (camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
-            const perspectiveCam = camera as THREE.PerspectiveCamera;
-            perspectiveCam.aspect = width / height;
-            perspectiveCam.updateProjectionMatrix();
+        this._threeRenderer.setSize(width, height);
+
+        // Update aspect ratio on all active cameras
+        const aspect = width / height;
+        for (const cam of Camera.allCameras) {
+            cam.aspect = aspect;
         }
     }
 }

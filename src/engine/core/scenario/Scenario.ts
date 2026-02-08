@@ -1,114 +1,194 @@
-import JSZip from 'jszip';
-import { EngineObject } from '../EngineObject';
-import type { IScenarioManifest, IScenarioContext, IScenarioLoadProgress } from './ScenarioTypes';
-import { ScenarioLoadState } from './ScenarioTypes';
+// path: src/engine/core/scenario/Scenario.ts
+
+import JSZip from "jszip";
+import { EngineObject } from "../EngineObject.ts";
+import { ScenarioAssets } from "./ScenarioAssets.ts";
+import { SceneManager } from "../SceneManager.ts";
+import type {
+    IScenarioManifest,
+    IScenarioContext,
+    IScenarioEntryPoint,
+    IScenarioLoadProgress,
+} from "./ScenarioTypes.ts";
+import { ScenarioLoadState } from "./ScenarioTypes.ts";
 
 /**
- * Scenario.ts
- * Представляє завантажений сценарій в пам'яті.
- * Аналог Unity AssetBundle - тримається в RAM і очищається при вивантаженні.
+ * A loaded scenario instance.
  *
- * Життєвий цикл:
- * 1. LoadFromUrl/LoadFromData - завантаження ZIP в пам'ять
- * 2. Initialize - парсинг маніфесту та підготовка
- * 3. Run - запуск точки входу
- * 4. Unload - очищення пам'яті
+ * Represents a ZIP archive parsed in memory. Manages the full lifecycle:
+ * download → parse → execute entry point → teardown → release resources.
+ *
+ * Equivalent to Unity's AssetBundle — lives in RAM and is cleaned up
+ * completely when unloaded, leaving no leaked textures, blob URLs,
+ * GameObjects, or Scenes.
+ *
+ * **Lifecycle:**
+ * ```
+ * loadFromUrl / loadFromData / loadFromFile
+ *   → ZIP parsed in memory
+ *   → manifest.json read + validated
+ *   → ScenarioAssets created
+ *   → state = Ready
+ *
+ * run()
+ *   → Scene created for the scenario
+ *   → entry point loaded via Blob URL + dynamic import()
+ *   → entryPoint.onSetup(context) called
+ *   → state = Running
+ *   → entryPoint.onUpdate() called each frame (if defined)
+ *
+ * unload()
+ *   → entryPoint.onTeardown() called (if defined)
+ *   → Scene destroyed (all GameObjects destroyed)
+ *   → ScenarioAssets disposed (textures, models, blob URLs)
+ *   → script blob URLs revoked
+ *   → ZIP reference released
+ *   → state = Unloaded
+ * ```
+ *
+ * **Script execution:**
+ * Scripts in the ZIP are pre-compiled ES modules (.js). The entry point
+ * is loaded via `Blob URL + dynamic import()` — no eval(). Engine classes
+ * (GameObject, Vector3, etc.) are imported by the script from the engine
+ * library (e.g. `import { GameObject } from "webunity"`), resolved at
+ * runtime through the host page's import map.
+ *
+ * @example
+ * ```ts
+ * // Angular host — loading a scenario:
+ * const response = await fetch("/scenarios/demo.zip");
+ * const data = await response.arrayBuffer();
+ *
+ * const scenario = await Scenario.loadFromBuffer(data);
+ * await scenario.run();
+ *
+ * // Later, to stop:
+ * scenario.unload();
+ * ```
  */
 export class Scenario extends EngineObject {
-    // === Статичні властивості ===
 
-    /** Поточний активний сценарій */
+    // ==================== STATIC ====================
+
+    /** The currently active scenario (only one can be active at a time). */
     private static _current: Scenario | null = null;
 
-    /** Отримати поточний активний сценарій */
+    /** Returns the currently running scenario, or null. */
     public static get current(): Scenario | null {
-        return this._current;
+        return Scenario._current;
     }
 
-    // === Властивості екземпляра ===
+    // ==================== INSTANCE STATE ====================
 
-    /** Маніфест сценарію */
+    /** Parsed manifest from the ZIP root. */
     private _manifest: IScenarioManifest | null = null;
 
-    /** ZIP-архів в пам'яті */
+    /** In-memory ZIP archive. Null after unload. */
     private _zip: JSZip | null = null;
 
-    /** Поточний стан завантаження */
+    /** Current lifecycle state. */
     private _loadState: ScenarioLoadState = ScenarioLoadState.Unloaded;
 
-    /** Кеш завантажених ресурсів (blob URLs) */
-    private _assetCache: Map<string, string> = new Map();
+    /** Asset provider — loads textures/models from the ZIP. */
+    private _assets: ScenarioAssets | null = null;
 
-    /** Кеш завантажених скриптів (blob URLs) */
-    private _scriptCache: Map<string, string> = new Map();
+    /** The entry point instance (class or plain object). */
+    private _entryPoint: IScenarioEntryPoint | null = null;
 
-    /** Колбек прогресу завантаження */
+    /** Blob URLs created for script modules — revoked on unload. */
+    private _scriptBlobUrls: string[] = [];
+
+    /** Progress callback. */
     private _onProgressCallback?: (progress: IScenarioLoadProgress) => void;
 
-    /** Контекст виконання для скриптів */
-    private _context: IScenarioContext | null = null;
-
-    // === Конструктор ===
+    // ==================== CONSTRUCTOR ====================
 
     constructor(name: string = "Scenario") {
         super(name);
     }
 
-    // === Публічний API ===
+    // ==================== PUBLIC PROPERTIES ====================
 
-    /** Отримати маніфест сценарію */
-    public get manifest(): IScenarioManifest | null {
+    /** The scenario manifest (null until loaded). */
+    public get manifest(): Readonly<IScenarioManifest> | null {
         return this._manifest;
     }
 
-    /** Отримати поточний стан */
+    /** Current lifecycle state. */
     public get loadState(): ScenarioLoadState {
         return this._loadState;
     }
 
-    /** Чи завантажений сценарій */
+    /** Whether the scenario is loaded and ready or already running. */
     public get isLoaded(): boolean {
         return this._loadState === ScenarioLoadState.Ready ||
-               this._loadState === ScenarioLoadState.Running;
+            this._loadState === ScenarioLoadState.Running;
     }
 
-    /** Чи виконується сценарій */
+    /** Whether the scenario entry point has been executed. */
     public get isRunning(): boolean {
         return this._loadState === ScenarioLoadState.Running;
     }
 
     /**
-     * Встановлює колбек для відстеження прогресу завантаження.
-     * @param callback Функція, яка викликається при зміні прогресу
+     * The asset provider for this scenario.
+     *
+     * Available after loading. Scenario authors access this through
+     * `context.assets` in their entry point, not directly.
      */
-    public onProgress(callback: (progress: IScenarioLoadProgress) => void): Scenario {
+    public get assets(): ScenarioAssets | null {
+        return this._assets;
+    }
+
+    // ==================== PUBLIC: PROGRESS ====================
+
+    /**
+     * Registers a callback to receive loading progress updates.
+     *
+     * @param callback — called with progress info during load.
+     * @returns `this` for chaining.
+     *
+     * @example
+     * ```ts
+     * const scenario = new Scenario();
+     * scenario.onProgress(p => updateUI(p.progress, p.currentOperation));
+     * await scenario.loadFromUrl("/scenarios/demo.zip");
+     * ```
+     */
+    public onProgress(callback: (progress: IScenarioLoadProgress) => void): this {
         this._onProgressCallback = callback;
         return this;
     }
 
+    // ==================== PUBLIC: LOADING ====================
+
     /**
-     * Завантажує сценарій з URL.
-     * ZIP-архів завантажується в пам'ять (RAM).
-     * @param url URL до ZIP-архіву сценарію
+     * Downloads and parses a scenario from a URL.
+     *
+     * The ZIP is streamed into memory with progress reporting.
+     * After parsing, the scenario is in the `Ready` state.
+     *
+     * @param url — URL to the ZIP archive.
      */
     public async loadFromUrl(url: string): Promise<void> {
-        this.updateProgress(ScenarioLoadState.Loading, 0, "Downloading scenario...");
+        this._updateProgress(ScenarioLoadState.Loading, 0, "Downloading scenario...");
 
         try {
-            // Завантажуємо ZIP як ArrayBuffer
             const response = await fetch(url);
             if (!response.ok) {
-                throw new Error(`Failed to download scenario: ${response.status} ${response.statusText}`);
+                throw new Error(
+                    `Failed to download scenario: ${response.status} ${response.statusText}`
+                );
             }
 
-            const totalSize = parseInt(response.headers.get('content-length') || '0');
+            const totalSize = parseInt(response.headers.get("content-length") || "0", 10);
             const reader = response.body?.getReader();
 
             if (!reader) {
-                throw new Error("Failed to read response body");
+                throw new Error("Failed to get response body reader");
             }
 
-            // Читаємо з прогресом
+            // Stream chunks with progress
             const chunks: Uint8Array[] = [];
             let receivedSize = 0;
 
@@ -120,12 +200,12 @@ export class Scenario extends EngineObject {
                 receivedSize += value.length;
 
                 if (totalSize > 0) {
-                    const progress = receivedSize / totalSize * 0.5; // 50% на завантаження
-                    this.updateProgress(ScenarioLoadState.Loading, progress, "Downloading...");
+                    const progress = (receivedSize / totalSize) * 0.5; // 0–50% for download
+                    this._updateProgress(ScenarioLoadState.Loading, progress, "Downloading...");
                 }
             }
 
-            // Об'єднуємо чанки в один ArrayBuffer
+            // Merge chunks into a single ArrayBuffer
             const data = new Uint8Array(receivedSize);
             let offset = 0;
             for (const chunk of chunks) {
@@ -133,74 +213,87 @@ export class Scenario extends EngineObject {
                 offset += chunk.length;
             }
 
-            // Завантажуємо з даних
             await this.loadFromData(data.buffer);
 
         } catch (error) {
-            this.updateProgress(ScenarioLoadState.Error, 0, "Failed", String(error));
+            this._updateProgress(ScenarioLoadState.Error, 0, "Download failed", String(error));
             throw error;
         }
     }
 
     /**
-     * Завантажує сценарій з ArrayBuffer.
-     * Використовується коли ZIP вже завантажено (наприклад, з File input).
-     * @param data ArrayBuffer з ZIP-даними
+     * Parses a scenario from a raw ArrayBuffer (the ZIP contents).
+     *
+     * Use this when the host application has already downloaded the ZIP
+     * (e.g. from Angular HttpClient or a File input).
+     *
+     * @param data — the ZIP file as an ArrayBuffer.
      */
     public async loadFromData(data: ArrayBuffer): Promise<void> {
-        this.updateProgress(ScenarioLoadState.Loading, 0.5, "Parsing ZIP archive...");
+        this._updateProgress(ScenarioLoadState.Loading, 0.5, "Parsing ZIP archive...");
 
         try {
-            // Парсимо ZIP в пам'ять
+            // Parse ZIP in memory
             this._zip = await JSZip.loadAsync(data);
 
-            this.updateProgress(ScenarioLoadState.Loading, 0.6, "Reading manifest...");
+            this._updateProgress(ScenarioLoadState.Loading, 0.6, "Reading manifest...");
 
-            // Читаємо маніфест
-            const manifestFile = this._zip.file('manifest.json');
+            // Read and validate manifest
+            const manifestFile = this._zip.file("manifest.json");
             if (!manifestFile) {
-                throw new Error("Manifest file (manifest.json) not found in ZIP archive");
+                throw new Error("manifest.json not found in ZIP archive");
             }
 
-            const manifestJson = await manifestFile.async('string');
+            const manifestJson = await manifestFile.async("string");
             this._manifest = JSON.parse(manifestJson) as IScenarioManifest;
+            Scenario._validateManifest(this._manifest);
 
-            // Валідація маніфесту
-            this.validateManifest(this._manifest);
+            this._updateProgress(ScenarioLoadState.Loading, 0.8, "Preparing assets...");
 
-            this.updateProgress(ScenarioLoadState.Loading, 0.8, "Preparing assets...");
-
-            // Оновлюємо ім'я об'єкта
+            // Update object name from manifest
             this.name = this._manifest.name;
 
-            // Створюємо контекст виконання
-            this._context = this.createContext();
+            // Create asset provider
+            this._assets = new ScenarioAssets(this._zip);
 
-            this.updateProgress(ScenarioLoadState.Ready, 1, "Ready");
+            this._updateProgress(ScenarioLoadState.Ready, 1, "Ready");
 
-            console.log(`[Scenario] Loaded: ${this._manifest.name} v${this._manifest.version}`);
+            console.log(
+                `[Scenario] Loaded: ${this._manifest.name} v${this._manifest.version}`
+            );
 
         } catch (error) {
-            this.updateProgress(ScenarioLoadState.Error, 0, "Failed to parse", String(error));
+            this._updateProgress(ScenarioLoadState.Error, 0, "Failed to parse", String(error));
             throw error;
         }
     }
 
+    // ==================== PUBLIC: EXECUTION ====================
+
     /**
-     * Запускає виконання сценарію.
-     * Знаходить і виконує точку входу (entryPoint).
+     * Starts the scenario.
+     *
+     * 1. Unloads any previously running scenario.
+     * 2. Creates a dedicated Scene for this scenario.
+     * 3. Loads the entry point module via `Blob URL + dynamic import()`.
+     * 4. Calls `entryPoint.onSetup(context)`.
+     *
+     * After this call, the scenario is in the `Running` state and
+     * {@link _onUpdate} should be called each frame by Application.
      */
     public async run(): Promise<void> {
         if (!this.isLoaded || !this._manifest || !this._zip) {
-            throw new Error("Scenario is not loaded. Call loadFromUrl or loadFromData first.");
+            throw new Error(
+                "[Scenario] Not loaded. Call loadFromUrl() or loadFromData() first."
+            );
         }
 
         if (this.isRunning) {
-            console.warn("[Scenario] Scenario is already running");
+            console.warn("[Scenario] Already running.");
             return;
         }
 
-        // Вивантажуємо попередній сценарій
+        // Unload the previous scenario (if any)
         if (Scenario._current && Scenario._current !== this) {
             Scenario._current.unload();
         }
@@ -209,231 +302,244 @@ export class Scenario extends EngineObject {
         this._loadState = ScenarioLoadState.Running;
 
         try {
-            // Завантажуємо і виконуємо точку входу
-            const entryPath = `scripts/${this._manifest.entryPoint}`;
-            const entryFile = this._zip.file(entryPath);
+            // Create a dedicated scene for this scenario
+            SceneManager.createScene(this._manifest.name);
 
-            if (!entryFile) {
-                throw new Error(`Entry point not found: ${entryPath}`);
-            }
+            // Build the context that the entry point receives
+            const context = this._createContext();
 
-            const scriptContent = await entryFile.async('string');
+            // Load and instantiate the entry point
+            this._entryPoint = await this._loadEntryPoint();
 
-            // Виконуємо скрипт в ізольованому контексті
-            await this.executeScript(scriptContent, this._manifest.entryPoint);
+            // Call onSetup — the scenario builds its world here
+            await this._entryPoint.onSetup(context);
 
             console.log(`[Scenario] Running: ${this._manifest.name}`);
 
         } catch (error) {
             this._loadState = ScenarioLoadState.Error;
+            console.error("[Scenario] Failed to run:", error);
             throw error;
         }
     }
 
     /**
-     * Вивантажує сценарій з пам'яті.
-     * Очищає всі ресурси та кеші.
+     * Called every frame by Application while the scenario is running.
+     *
+     * Delegates to the entry point's `onUpdate()` if defined.
+     *
+     * @internal — called by the game loop, not by scenario authors.
+     */
+    public _onUpdate(): void {
+        if (this._entryPoint?.onUpdate) {
+            this._entryPoint.onUpdate();
+        }
+    }
+
+    // ==================== PUBLIC: UNLOADING ====================
+
+    /**
+     * Unloads the scenario and releases **all** resources.
+     *
+     * Cleanup order:
+     * 1. Call `entryPoint.onTeardown()` (if defined).
+     * 2. Destroy the scenario's Scene (destroys all GameObjects).
+     * 3. Dispose ScenarioAssets (textures, models, blob URLs).
+     * 4. Revoke script blob URLs.
+     * 5. Release ZIP reference.
+     *
+     * After this call, the scenario is in the `Unloaded` state and
+     * cannot be re-run. Create a new Scenario instance to reload.
      */
     public unload(): void {
+        if (this._loadState === ScenarioLoadState.Unloaded) return;
+
         console.log(`[Scenario] Unloading: ${this.name}`);
 
-        // Очищаємо blob URLs для ресурсів
-        for (const blobUrl of this._assetCache.values()) {
-            URL.revokeObjectURL(blobUrl);
+        // 1. Entry point teardown
+        if (this._entryPoint?.onTeardown) {
+            try {
+                this._entryPoint.onTeardown();
+            } catch (error) {
+                console.error("[Scenario] Error in onTeardown:", error);
+            }
         }
-        this._assetCache.clear();
+        this._entryPoint = null;
 
-        // Очищаємо blob URLs для скриптів
-        for (const blobUrl of this._scriptCache.values()) {
-            URL.revokeObjectURL(blobUrl);
+        // 2. Destroy the scenario's scene (all GameObjects, Three.js objects)
+        const scene = SceneManager.getSceneByName(this.name);
+        if (scene) {
+            scene.destroy();
         }
-        this._scriptCache.clear();
 
-        // Очищаємо ZIP з пам'яті
+        // 3. Dispose asset provider (textures, models, blob URLs)
+        if (this._assets) {
+            this._assets.dispose();
+            this._assets = null;
+        }
+
+        // 4. Revoke script blob URLs
+        for (const url of this._scriptBlobUrls) {
+            URL.revokeObjectURL(url);
+        }
+        this._scriptBlobUrls = [];
+
+        // 5. Release ZIP and manifest
         this._zip = null;
         this._manifest = null;
-        this._context = null;
 
-        // Оновлюємо стан
+        // 6. Update state
         this._loadState = ScenarioLoadState.Unloaded;
 
-        // Очищаємо поточний сценарій
         if (Scenario._current === this) {
             Scenario._current = null;
         }
+    }
 
-        // Викликаємо GC
-        if (typeof globalThis.gc === 'function') {
-            globalThis.gc();
+    // ==================== PROTECTED ====================
+
+    /**
+     * Called by EngineObject.Destroy() — ensures cleanup.
+     */
+    protected override onDestroy(): void {
+        this.unload();
+    }
+
+    // ==================== PRIVATE: ENTRY POINT LOADING ====================
+
+    /**
+     * Loads the entry point module from the ZIP using Blob URL + dynamic import().
+     *
+     * The module must have a default export that implements IScenarioEntryPoint.
+     * If the default export is a class (has .prototype), it is instantiated with new.
+     * If it is a plain object, it is used directly.
+     *
+     * @returns the entry point instance.
+     */
+    private async _loadEntryPoint(): Promise<IScenarioEntryPoint> {
+        const manifest = this._manifest!;
+        const zip = this._zip!;
+
+        const entryPath = `scripts/${manifest.entryPoint}`;
+        const entryFile = zip.file(entryPath);
+
+        if (!entryFile) {
+            throw new Error(`[Scenario] Entry point not found in ZIP: ${entryPath}`);
         }
+
+        const module = await this._importScriptModule(entryPath);
+
+        // Validate default export
+        const defaultExport = module.default;
+        if (!defaultExport) {
+            throw new Error(
+                `[Scenario] Entry point "${manifest.entryPoint}" has no default export. ` +
+                "The entry point module must export a default class or object implementing IScenarioEntryPoint."
+            );
+        }
+
+        // Instantiate if it's a class, use directly if it's an object
+        let entryPoint: IScenarioEntryPoint;
+
+        if (typeof defaultExport === "function" && defaultExport.prototype) {
+            // It's a class — instantiate
+            // Cast is safe: the typeof + .prototype guard above proves constructability.
+            const EntryClass = defaultExport as new () => IScenarioEntryPoint;
+            entryPoint = new EntryClass();
+        } else if (typeof defaultExport === "object") {
+            // It's a plain object
+            entryPoint = defaultExport as IScenarioEntryPoint;
+        } else {
+            throw new Error(
+                `[Scenario] Entry point default export must be a class or object, got: ${typeof defaultExport}`
+            );
+        }
+
+        // Validate onSetup
+        if (typeof entryPoint.onSetup !== "function") {
+            throw new Error(
+                `[Scenario] Entry point must implement onSetup(context). ` +
+                `Found: ${typeof entryPoint.onSetup}`
+            );
+        }
+
+        return entryPoint;
     }
 
     /**
-     * Отримує ресурс з архіву за шляхом.
-     * @param path Шлях до ресурсу відносно папки assets/
+     * Loads an ES module from the ZIP's scripts/ directory via Blob URL + dynamic import().
+     *
+     * The blob URL is tracked and revoked on unload.
+     *
+     * @param scriptPath — full path inside the ZIP (e.g. "scripts/Scenario.js").
+     * @returns the module namespace object.
      */
-    public async getAsset(path: string): Promise<Blob> {
-        if (!this._zip) {
-            throw new Error("Scenario is not loaded");
-        }
-
-        const assetPath = `assets/${path}`;
-        const file = this._zip.file(assetPath);
+    private async _importScriptModule(
+        scriptPath: string
+    ): Promise<Record<string, unknown>> {
+        const zip = this._zip!;
+        const file = zip.file(scriptPath);
 
         if (!file) {
-            throw new Error(`Asset not found: ${assetPath}`);
+            throw new Error(`[Scenario] Script not found in ZIP: ${scriptPath}`);
         }
 
-        const data = await file.async('arraybuffer');
-        return new Blob([data]);
-    }
+        const code = await file.async("string");
 
-    /**
-     * Отримує URL для ресурсу (blob URL).
-     * URL зберігається в кеші і буде звільнений при unload.
-     * @param path Шлях до ресурсу відносно папки assets/
-     */
-    public async getAssetUrl(path: string): Promise<string> {
-        // Перевіряємо кеш
-        if (this._assetCache.has(path)) {
-            return this._assetCache.get(path)!;
-        }
+        // Create a Blob URL so the browser treats this as an ES module
+        const blob = new Blob([code], { type: "application/javascript" });
+        const blobUrl = URL.createObjectURL(blob);
+        this._scriptBlobUrls.push(blobUrl);
 
-        const blob = await this.getAsset(path);
-        const url = URL.createObjectURL(blob);
-
-        // Зберігаємо в кеш
-        this._assetCache.set(path, url);
-
-        return url;
-    }
-
-    // === Приватні методи ===
-
-    /**
-     * Валідація маніфесту.
-     */
-    private validateManifest(manifest: IScenarioManifest): void {
-        if (!manifest.manifestVersion) {
-            throw new Error("Manifest is missing 'manifestVersion'");
-        }
-        if (!manifest.id) {
-            throw new Error("Manifest is missing 'id'");
-        }
-        if (!manifest.name) {
-            throw new Error("Manifest is missing 'name'");
-        }
-        if (!manifest.version) {
-            throw new Error("Manifest is missing 'version'");
-        }
-        if (!manifest.entryPoint) {
-            throw new Error("Manifest is missing 'entryPoint'");
+        try {
+            // Dynamic import — the browser's native ES module loader handles this.
+            // Bare specifiers like `from "webunity"` are resolved via the host page's import map.
+            const module = await import(/* @vite-ignore */ blobUrl);
+            return module as Record<string, unknown>;
+        } catch (error) {
+            throw new Error(
+                `[Scenario] Failed to import script "${scriptPath}": ${error}`
+            );
         }
     }
 
+    // ==================== PRIVATE: CONTEXT ====================
+
     /**
-     * Створює контекст виконання для скриптів сценарію.
+     * Builds the IScenarioContext passed to the entry point's onSetup().
      */
-    private createContext(): IScenarioContext {
+    private _createContext(): IScenarioContext {
         return {
-            manifest: this._manifest!,
-            getAsset: (path: string) => this.getAsset(path),
-            loadTexture: (path: string) => this.loadTexture(path),
-            loadModel: (path: string) => this.loadModel(path)
+            manifest: Object.freeze({ ...this._manifest! }),
+            assets: this._assets!,
+            importScript: (path: string) => this._importScriptFromContext(path),
         };
     }
 
     /**
-     * Завантажує текстуру з архіву.
+     * Implementation of context.importScript() — loads a module from scripts/.
+     *
+     * Normalizes the path and delegates to _importScriptModule().
+     *
+     * @param path — path relative to scripts/ (e.g. "helpers/math.js").
      */
-    private async loadTexture(path: string): Promise<HTMLImageElement> {
-        const url = await this.getAssetUrl(path);
-
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve(img);
-            img.onerror = () => reject(new Error(`Failed to load texture: ${path}`));
-            img.src = url;
-        });
-    }
-
-    /**
-     * Завантажує 3D модель з архіву.
-     * TODO: Реалізувати повноцінне завантаження через GLTFLoader
-     */
-    private async loadModel(path: string): Promise<unknown> {
-        const blob = await this.getAsset(path);
-        // TODO: Інтеграція з ModelLoader
-        console.log(`[Scenario] Model loading requested: ${path}, size: ${blob.size} bytes`);
-        return blob;
-    }
-
-    /**
-     * Виконує скрипт в ізольованому контексті.
-     * @param code Код скрипта
-     * @param filename Ім'я файлу для debug
-     */
-    private async executeScript(code: string, filename: string): Promise<void> {
-        // Створюємо обгортку для скрипта з контекстом
-        const wrappedCode = `
-            (async function(scenario, require) {
-                ${code}
-            })
-        `;
-
-        try {
-            // Компілюємо скрипт
-            const scriptFn = eval(wrappedCode);
-
-            // Функція require для імпорту інших скриптів сценарію
-            const scenarioRequire = async (path: string) => {
-                return this.requireScript(path);
-            };
-
-            // Виконуємо з контекстом
-            await scriptFn(this._context, scenarioRequire);
-
-        } catch (error) {
-            console.error(`[Scenario] Script error in ${filename}:`, error);
-            throw error;
-        }
-    }
-
-    /**
-     * Імпортує додатковий скрипт з архіву.
-     */
-    private async requireScript(path: string): Promise<unknown> {
+    private async _importScriptFromContext(
+        path: string
+    ): Promise<Record<string, unknown>> {
         if (!this._zip) {
-            throw new Error("Scenario is not loaded");
+            throw new Error("[Scenario] Cannot import script — scenario is not loaded.");
         }
 
-        const scriptPath = path.startsWith('scripts/') ? path : `scripts/${path}`;
-        const file = this._zip.file(scriptPath);
-
-        if (!file) {
-            throw new Error(`Script not found: ${scriptPath}`);
-        }
-
-        const code = await file.async('string');
-
-        // Виконуємо як модуль і повертаємо exports
-        const exports: Record<string, unknown> = {};
-        const wrappedCode = `
-            (function(exports, scenario, require) {
-                ${code}
-            })
-        `;
-
-        const scriptFn = eval(wrappedCode);
-        await scriptFn(exports, this._context, (p: string) => this.requireScript(p));
-
-        return exports;
+        const scriptPath = path.startsWith("scripts/") ? path : `scripts/${path}`;
+        return this._importScriptModule(scriptPath);
     }
 
+    // ==================== PRIVATE: PROGRESS ====================
+
     /**
-     * Оновлює прогрес завантаження.
+     * Updates the load state and notifies the progress callback.
      */
-    private updateProgress(
+    private _updateProgress(
         state: ScenarioLoadState,
         progress: number,
         operation: string,
@@ -446,23 +552,35 @@ export class Scenario extends EngineObject {
                 state,
                 progress,
                 currentOperation: operation,
-                error
+                error,
             });
         }
     }
 
+    // ==================== PRIVATE: VALIDATION ====================
+
     /**
-     * Очищення ресурсів при знищенні об'єкта.
+     * Validates that all required manifest fields are present.
      */
-    protected override onDestroy(): void {
-        this.unload();
+    private static _validateManifest(manifest: IScenarioManifest): void {
+        const required: (keyof IScenarioManifest)[] = [
+            "manifestVersion", "id", "name", "version", "entryPoint",
+        ];
+
+        for (const field of required) {
+            if (!manifest[field]) {
+                throw new Error(`[Scenario] Manifest is missing required field: '${field}'`);
+            }
+        }
     }
 
-    // === Статичні методи (фабричні) ===
+    // ==================== STATIC FACTORIES ====================
 
     /**
-     * Створює і завантажує сценарій з URL.
-     * @param url URL до ZIP-архіву
+     * Creates and loads a scenario from a URL.
+     *
+     * @param url — URL to the ZIP archive.
+     * @returns a loaded Scenario in the `Ready` state.
      */
     public static async load(url: string): Promise<Scenario> {
         const scenario = new Scenario();
@@ -471,23 +589,43 @@ export class Scenario extends EngineObject {
     }
 
     /**
-     * Створює і завантажує сценарій з ArrayBuffer.
-     * @param data ArrayBuffer з ZIP-даними
-     * @param name Опціональна назва сценарію
+     * Creates and loads a scenario from a raw ArrayBuffer.
+     *
+     * This is the primary entry point for Angular integration where
+     * the host downloads the ZIP via HttpClient.
+     *
+     * @param data — the ZIP file as an ArrayBuffer.
+     * @param name — optional name (overridden by manifest.name after parsing).
+     * @returns a loaded Scenario in the `Ready` state.
+     *
+     * @example
+     * ```ts
+     * // Angular component
+     * const data = await this.http.get(url, { responseType: 'arraybuffer' })
+     *     .toPromise();
+     * const scenario = await Scenario.loadFromBuffer(data);
+     * await scenario.run();
+     * ```
      */
-    public static async loadFromBuffer(data: ArrayBuffer, name?: string): Promise<Scenario> {
+    public static async loadFromBuffer(
+        data: ArrayBuffer,
+        name?: string
+    ): Promise<Scenario> {
         const scenario = new Scenario(name);
         await scenario.loadFromData(data);
         return scenario;
     }
 
     /**
-     * Створює і завантажує сценарій з File об'єкта.
-     * Зручно для <input type="file">.
-     * @param file File об'єкт з ZIP-архівом
+     * Creates and loads a scenario from a File object.
+     *
+     * Convenient for `<input type="file">` upload flows.
+     *
+     * @param file — a File object containing the ZIP.
+     * @returns a loaded Scenario in the `Ready` state.
      */
     public static async loadFromFile(file: File): Promise<Scenario> {
         const data = await file.arrayBuffer();
-        return this.loadFromBuffer(data, file.name);
+        return Scenario.loadFromBuffer(data, file.name);
     }
 }

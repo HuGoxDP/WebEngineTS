@@ -2,7 +2,7 @@ import { EngineObject } from "../EngineObject";
 import { Vector3 } from "../math/Vector3";
 import { Vector2 } from "../math/Vector2";
 import { Vector4 } from "../math/Vector4";
-import { Color } from "./Color";
+import { Color } from "../math/Color";
 import { Bounds } from "../math/Bounds";
 import * as THREE from "three";
 

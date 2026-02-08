@@ -1,77 +1,82 @@
+// path: src/engine/core/components/DirectionalLight.ts
+
 import * as THREE from "three";
-import { Light } from "./Light";
-import type { GameObject } from "../GameObject";
+import { Light } from "./Light.ts";
+import type { GameObject } from "../GameObject.ts";
 
 /**
- * Компонент DirectionalLight - сонячне світло.
- * Світло, що йде з однієї точки у нескінченності (як сонце).
- * 
- * Повна імітація Unity DirectionalLight.
+ * A light that shines uniformly in one direction, simulating sunlight.
+ *
+ * Directional lights have no position falloff — all objects are lit as
+ * if the light source is infinitely far away. The light direction is
+ * determined by the Transform's forward axis (rotation).
+ *
+ * @remarks
+ * Equivalent to Unity's `UnityEngine.Light` with `LightType.Directional`.
+ *
+ * @example
+ * ```ts
+ * const lightGo = new GameObject("Sun");
+ * const light = lightGo.addComponent(DirectionalLight);
+ * light.intensity = 1.2;
+ * light.color = new Color(1, 0.95, 0.85); // warm sunlight
+ * light.shadows = LightShadows.Soft;
+ * lightGo.transform.rotation = Quaternion.euler(50, -30, 0);
+ * ```
  */
 export class DirectionalLight extends Light {
+
+    // ==================== CONSTRUCTOR ====================
+
     constructor(gameObject: GameObject) {
         super(gameObject);
         this.name = "DirectionalLight";
     }
 
-    // === Lifecycle ===
-
-    protected onAwake(): void {
-        // Створюємо Three.js DirectionalLight
-        const threeLight = new THREE.DirectionalLight(0xffffff, 1);
-        
-        // Налаштовуємо тіні за замовчуванням
-        threeLight.castShadow = true;
-        threeLight.shadow.mapSize.width = 2048;
-        threeLight.shadow.mapSize.height = 2048;
-        threeLight.shadow.camera.far = 200;
-        threeLight.shadow.camera.near = 0.5;
-        
-        // Встановлюємо для Light базового класу
-        this.setThreeLight(threeLight);
-
-        // Вызиваємо базовий onAwake
-        super.onAwake();
-    }
-
-    // === Властивості ===
+    // ==================== FACTORY (implements Light abstract) ====================
 
     /**
-     * Дальність світла для тіней (mundo space)
+     * @internal
+     * Creates a Three.js DirectionalLight with sensible defaults.
+     *
+     * Shadow defaults:
+     * - castShadow = true
+     * - shadow map = 2048 × 2048
+     * - shadow camera range = 0.5 – 200
+     */
+    protected override _createThreeLight(): THREE.Light {
+        const light = new THREE.DirectionalLight(0xFFFFFF, 1);
+
+        // Default shadow setup
+        light.castShadow = true;
+        light.shadow.mapSize.width = 2048;
+        light.shadow.mapSize.height = 2048;
+        light.shadow.camera.near = 0.5;
+        light.shadow.camera.far = 200;
+
+        return light;
+    }
+
+    // ==================== DIRECTIONAL-SPECIFIC PROPERTIES ====================
+
+    /**
+     * The maximum distance from the camera at which shadows are rendered.
+     *
+     * This controls the far plane of the shadow camera.
+     *
+     * @remarks Equivalent to Unity's `QualitySettings.shadowDistance`
+     * (applied per-light for simplicity).
      */
     public get shadowDistance(): number {
-        if (!this._threeLight) {
-            return 100;
-        }
-
-        const light = this._threeLight as THREE.DirectionalLight;
+        const light = this._internalThreeLight as THREE.DirectionalLight | null;
+        if (light === null) return 200;
         return light.shadow.camera.far;
     }
 
     public set shadowDistance(value: number) {
-        if (!this._threeLight) return;
-
-        const light = this._threeLight as THREE.DirectionalLight;
+        const light = this._internalThreeLight as THREE.DirectionalLight | null;
+        if (light === null) return;
         light.shadow.camera.far = Math.max(0.1, value);
-    }
-
-    /**
-     * Розмір area light для тіней (для soft shadows)
-     */
-    public get shadowBias(): number {
-        if (!this._threeLight) return 0.005;
-        return (this._threeLight as any).shadow.bias;
-    }
-
-    public set shadowBias(value: number) {
-        if (!this._threeLight) return;
-        (this._threeLight as THREE.DirectionalLight).shadow.bias = value;
-    }
-
-    /**
-     * Отримати внутрішнє THREE.js світло
-     */
-    public getThreeLight(): THREE.DirectionalLight | null {
-        return this._threeLight as THREE.DirectionalLight;
+        light.shadow.camera.updateProjectionMatrix();
     }
 }

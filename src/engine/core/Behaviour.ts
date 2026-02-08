@@ -70,7 +70,6 @@ export abstract class Behaviour extends Component {
         this._onEnabledChanged();
     }
 
-
     /**
      * Is this component enabled **and** is its GameObject active in the scene?
      *
@@ -86,6 +85,25 @@ export abstract class Behaviour extends Component {
     }
 
     // ==================== INTERNAL METHODS ====================
+
+    /**
+     * @internal
+     * Called by {@link GameObject.addComponent} for built-in engine components
+     * (subclasses of Behaviour that are **not** {@link ScriptableBehaviour}).
+     *
+     * This is the initialization entry point for components like Camera, Light,
+     * MeshRenderer, etc. It calls the protected {@link onAwake} hook.
+     *
+     * User scripts (ScriptableBehaviour) use `_systemAwake()` instead,
+     * which calls the public `awake()` hook.
+     *
+     * @remarks
+     * Matches Unity's internal behaviour where built-in components run
+     * their initialization logic as soon as they are added to a GameObject.
+     */
+    public _internalInitialize(): void {
+        this.onAwake();
+    }
 
     /**
      * @internal
@@ -143,6 +161,27 @@ export abstract class Behaviour extends Component {
     }
 
     // ==================== LIFECYCLE HOOKS ====================
+
+    /**
+     * Called once when the component is first initialized.
+     *
+     * Override this in built-in engine components (Camera, Light, MeshRenderer, etc.)
+     * to create and configure internal Three.js objects.
+     *
+     * @remarks
+     * Equivalent to Unity's internal component initialization.
+     *
+     * For **user scripts**, use {@link ScriptableBehaviour.awake} instead.
+     * This method is specifically for engine-internal components that need
+     * to set up Three.js objects before the component becomes active.
+     *
+     * Called from {@link _internalInitialize}, which is invoked by
+     * {@link GameObject.addComponent} for non-ScriptableBehaviour Behaviours.
+     * @virtual
+     */
+    protected onAwake(): void {
+        // Override in built-in engine components
+    }
 
     /**
      * Called when this component transitions from inactive to active.

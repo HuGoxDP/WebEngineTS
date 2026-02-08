@@ -23,7 +23,7 @@ export class BoxCollider extends Collider {
         this._shape.userData = { collider: this }; // Зв'язок назад
 
         // Приєднуємо до батька, щоб він рухався разом з ним
-        this.transform.object3D.add(this._shape);
+        this.transform._internalObject3D.add(this._shape);
     }
 
     public get center(): Vector3 { return this._center; }

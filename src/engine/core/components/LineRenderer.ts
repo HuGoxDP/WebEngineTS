@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { Renderer } from "./Renderer";
-import { Color } from "../graphics/Color";
+import { Renderer } from "../rendering/Renderer.ts";
+import { Color } from "../math/Color";
 import { Vector3 } from "../math/Vector3";
 import type { GameObject } from "../GameObject";
 
@@ -143,8 +143,8 @@ export class LineRenderer extends Renderer {
         this._threeObject = this._threeLine;
         
         // Додаємо до сцени через Transform
-        if (this.gameObject?.transform.object3D) {
-            this.gameObject.transform.object3D.add(this._threeLine);
+        if (this.gameObject?.transform._internalObject3D) {
+            this.gameObject.transform._internalObject3D.add(this._threeLine);
         }
     }
 
@@ -163,8 +163,8 @@ export class LineRenderer extends Renderer {
     }
 
     protected override onDestroy(): void {
-        if (this._threeLine && this.gameObject?.transform.object3D) {
-            this.gameObject.transform.object3D.remove(this._threeLine);
+        if (this._threeLine && this.gameObject?.transform._internalObject3D) {
+            this.gameObject.transform._internalObject3D.remove(this._threeLine);
         }
         
         if (this._threeLine) {

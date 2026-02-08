@@ -1,94 +1,150 @@
+// path: src/engine/core/graphics/Material.ts
+
 import * as THREE from "three";
-import { EngineObject } from "../EngineObject";
-import { Shader } from "./Shader";
-import { Color } from "./Color";
-import { Texture } from "./Texture";
-import { Vector2 } from "../math/Vector2";
-import { Vector4 } from "../math/Vector4";
-import { Matrix4x4 } from "../math/Matrix4x4";
+import { EngineObject } from "../EngineObject.ts";
+import { Shader } from "./Shader.ts";
+import { Color } from "../math/Color.ts";
+import { Texture } from "./Texture.ts";
+import { Vector2 } from "../math/Vector2.ts";
+import { Vector4 } from "../math/Vector4.ts";
+import { Matrix4x4 } from "../math/Matrix4x4.ts";
+
+// ==================== PROPERTY VALUE TYPE ====================
 
 /**
- * Базовий клас для всіх матеріалів.
- * Повна імітація Unity Material API.
- * 
- * Material зберігає властивості (колір, текстури, float значення) та посилання на Shader.
- * Внутрішньо використовує THREE.Material, але користувач цього не бачить.
+ * Union of all types that can be stored as a material property.
+ * Used instead of `any` for the internal property map.
+ */
+type MaterialPropertyValue = number | Color | Vector4 | Matrix4x4 | Texture | null;
+
+// ==================== MATERIAL CLASS ====================
+
+/**
+ * Base class for all materials.
+ *
+ * A Material stores shader properties (colors, floats, textures, vectors,
+ * matrices) and a reference to a {@link Shader}. Internally it manages a
+ * `THREE.Material` that mirrors engine state, but users never interact
+ * with Three.js directly.
+ *
+ * @remarks
+ * Equivalent to Unity's `UnityEngine.Material`.
+ *
+ * **Shared vs Instance semantics:**
+ * - `renderer.sharedMaterial` — the shared asset (editing affects all users).
+ * - `renderer.material` — auto-clones on first access (editing is per-object).
+ *
+ * @example
+ * ```ts
+ * const mat = new Material(Shader.Standard);
+ * mat.color = Color.red;
+ * mat.mainTexture = myTexture;
+ * renderer.sharedMaterial = mat;
+ * ```
  */
 export class Material extends EngineObject {
-    /** 
-     * @internal - НЕ використовувати напряму!
-     * Внутрішній THREE.js матеріал
-     */
-    public _threeMaterial: THREE.Material;
 
-    /** Шейдер матеріалу */
+    // ==================== PRIVATE FIELDS ====================
+
+    /**
+     * The underlying Three.js material.
+     * @internal — NEVER expose to engine users.
+     */
+    protected _threeMatHandle: THREE.Material;
+
+    /** The shader defining which Three.js material type to use. */
     private _shader: Shader;
 
-    /** Черга рендерингу (менше = раніше) */
+    /** Render queue priority (lower = earlier). Default 2000 (Geometry). */
     private _renderQueue: number = 2000;
 
-    /** Увімкнені ключові слова шейдера */
+    /** Active shader keywords. */
     private _keywords: Set<string> = new Set();
 
-    /** Кастомні властивості матеріалу */
-    private _properties: Map<string, any> = new Map();
+    /** Custom property store (shader property name → value). */
+    private _properties: Map<string, MaterialPropertyValue> = new Map();
+
+    // ==================== CONSTRUCTOR ====================
 
     /**
-     * Створює новий матеріал з вказаним шейдером.
-     * @param shader Шейдер для матеріалу
+     * Creates a new material with the given shader.
+     * @param shader — the shader (e.g. `Shader.Standard`, `Shader.Unlit`).
      */
     constructor(shader: Shader);
-    
+
     /**
-     * Створює копію матеріалу.
-     * @param source Вихідний матеріал для копіювання
+     * Creates a copy of an existing material.
+     * @param source — the material to copy.
      */
     constructor(source: Material);
-    
+
     constructor(shaderOrSource: Shader | Material) {
         super("Material");
 
         if (shaderOrSource instanceof Material) {
-            // Копіюємо з іншого матеріалу
+            // ---- COPY FROM MATERIAL ----
             const source = shaderOrSource;
             this._shader = source._shader;
             this._renderQueue = source._renderQueue;
             this._keywords = new Set(source._keywords);
-            this._properties = new Map(source._properties);
-            
-            // Клонуємо THREE.Material
-            this._threeMaterial = source._threeMaterial.clone();
+            this._properties = Material._deepCloneProperties(source._properties);
+            this._threeMatHandle = source._threeMatHandle.clone();
             this.name = source.name + " (Instance)";
         } else {
-            // Створюємо з шейдера
+            // ---- CREATE FROM SHADER ----
             this._shader = shaderOrSource;
-            this._threeMaterial = this.createThreeMaterial(this._shader);
+            this._threeMatHandle = Material._createThreeMaterial(this._shader);
             this.name = `Material (${this._shader.shaderName})`;
         }
     }
 
-    // === Властивості ===
+    // ==================== INTERNAL THREE.JS ACCESSORS ====================
 
-    /** Шейдер матеріалу */
+    /**
+     * @internal
+     * The underlying Three.js material handle.
+     *
+     * Used by:
+     * - {@link Renderer} — to assign material to Three.js mesh
+     * - {@link StandardMaterial} — subclass accesses via `protected _threeMatHandle`
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public get _internalThreeMaterial(): THREE.Material {
+        return this._threeMatHandle;
+    }
+
+    // ==================== PUBLIC PROPERTIES ====================
+
+    /**
+     * The shader used by this material.
+     *
+     * Changing the shader recreates the internal Three.js material
+     * and preserves basic settings (transparency).
+     *
+     * @remarks Equivalent to Unity's `Material.shader`.
+     */
     public get shader(): Shader {
         return this._shader;
     }
 
     public set shader(value: Shader) {
         if (this._shader === value) return;
-        
-        // Змінюємо шейдер - потрібно пересоздати THREE.Material
+
         this._shader = value;
-        const oldMaterial = this._threeMaterial;
-        this._threeMaterial = this.createThreeMaterial(value);
-        
-        // Копіюємо базові властивості
-        this._threeMaterial.transparent = oldMaterial.transparent;
-        
-        oldMaterial.dispose();
+        const oldMat = this._threeMatHandle;
+        this._threeMatHandle = Material._createThreeMaterial(value);
+
+        // Preserve basic rendering state
+        this._threeMatHandle.transparent = oldMat.transparent;
+
+        oldMat.dispose();
     }
 
-    /** Головний колір матеріалу */
+    /**
+     * Main color (`_Color` property).
+     * @remarks Equivalent to Unity's `Material.color`.
+     */
     public get color(): Color {
         return this.getColor("_Color");
     }
@@ -97,7 +153,10 @@ export class Material extends EngineObject {
         this.setColor("_Color", value);
     }
 
-    /** Головна текстура матеріалу */
+    /**
+     * Main texture (`_MainTex` property).
+     * @remarks Equivalent to Unity's `Material.mainTexture`.
+     */
     public get mainTexture(): Texture | null {
         return this.getTexture("_MainTex");
     }
@@ -106,7 +165,10 @@ export class Material extends EngineObject {
         this.setTexture("_MainTex", value);
     }
 
-    /** Offset головної текстури */
+    /**
+     * UV offset of the main texture.
+     * @remarks Equivalent to Unity's `Material.mainTextureOffset`.
+     */
     public get mainTextureOffset(): Vector2 {
         return this.getTextureOffset("_MainTex");
     }
@@ -115,7 +177,10 @@ export class Material extends EngineObject {
         this.setTextureOffset("_MainTex", value);
     }
 
-    /** Масштаб головної текстури */
+    /**
+     * UV scale (tiling) of the main texture.
+     * @remarks Equivalent to Unity's `Material.mainTextureScale`.
+     */
     public get mainTextureScale(): Vector2 {
         return this.getTextureScale("_MainTex");
     }
@@ -124,7 +189,10 @@ export class Material extends EngineObject {
         this.setTextureScale("_MainTex", value);
     }
 
-    /** Черга рендерингу */
+    /**
+     * Render queue priority.
+     * @remarks Equivalent to Unity's `Material.renderQueue`.
+     */
     public get renderQueue(): number {
         return this._renderQueue;
     }
@@ -133,172 +201,175 @@ export class Material extends EngineObject {
         this._renderQueue = value;
     }
 
-    // === Методи для роботи з властивостями ===
+    // ==================== PROPERTY ACCESSORS ====================
 
     /**
-     * Перевіряє, чи матеріал має властивість.
-     * @param propertyName Ім'я властивості (наприклад "_Color")
+     * Returns true if this material has the named property.
+     * @param propertyName — Unity-style name (e.g. `"_Color"`, `"_MainTex"`).
      */
     public hasProperty(propertyName: string): boolean {
         return this._shader.hasProperty(propertyName) || this._properties.has(propertyName);
     }
 
+    // ---- Color ----
+
     /**
-     * Отримує колір за іменем властивості.
+     * Gets a color property.
+     * @param propertyName — e.g. `"_Color"`, `"_EmissionColor"`.
+     * @returns the color value, or white if not set.
      */
     public getColor(propertyName: string): Color {
-        if (this._properties.has(propertyName)) {
-            return (this._properties.get(propertyName) as Color).clone();
+        const value = this._properties.get(propertyName);
+        if (value instanceof Color) {
+            return value.clone();
         }
-
-        // За замовчуванням білий
         return Color.white;
     }
 
     /**
-     * Встановлює колір для властивості.
+     * Sets a color property and syncs to the Three.js material.
+     * @param propertyName — e.g. `"_Color"`, `"_EmissionColor"`, `"_SpecColor"`.
+     * @param value — the color value.
      */
     public setColor(propertyName: string, value: Color): void {
         this._properties.set(propertyName, value.clone());
-        
-        // Оновлюємо THREE.Material
-        if (propertyName === "_Color") {
-            (this._threeMaterial as any).color?.setHex(value.getHex());
-            (this._threeMaterial as any).opacity = value.a;
-        } else if (propertyName === "_EmissionColor") {
-            (this._threeMaterial as any).emissive?.setHex(value.getHex());
-        } else if (propertyName === "_SpecColor") {
-            (this._threeMaterial as any).specular?.setHex(value.getHex());
-        }
+        this._syncColorToThree(propertyName, value);
     }
 
+    // ---- Float ----
+
     /**
-     * Отримує float значення за іменем властивості.
+     * Gets a float property.
+     * @param propertyName — e.g. `"_Metallic"`, `"_Glossiness"`.
+     * @returns the float value, or 0 if not set.
      */
     public getFloat(propertyName: string): number {
-        if (this._properties.has(propertyName)) {
-            return this._properties.get(propertyName) as number;
-        }
-        return 0;
+        const value = this._properties.get(propertyName);
+        return typeof value === "number" ? value : 0;
     }
 
     /**
-     * Встановлює float значення для властивості.
+     * Sets a float property and syncs to the Three.js material.
+     * @param propertyName — e.g. `"_Metallic"`, `"_Glossiness"`, `"_BumpScale"`.
+     * @param value — the float value.
      */
     public setFloat(propertyName: string, value: number): void {
         this._properties.set(propertyName, value);
-        
-        // Оновлюємо THREE.Material
-        if (propertyName === "_Metallic") {
-            (this._threeMaterial as any).metalness = value;
-        } else if (propertyName === "_Glossiness") {
-            (this._threeMaterial as any).roughness = 1.0 - value; // Unity Smoothness = 1 - Roughness
-        } else if (propertyName === "_BumpScale") {
-            (this._threeMaterial as any).normalScale?.set(value, value);
-        } else if (propertyName === "_OcclusionStrength") {
-            (this._threeMaterial as any).aoMapIntensity = value;
-        } else if (propertyName === "_Shininess") {
-            (this._threeMaterial as any).shininess = value;
-        }
+        this._syncFloatToThree(propertyName, value);
     }
 
+    // ---- Int ----
+
     /**
-     * Отримує int значення за іменем властивості.
+     * Gets an integer property.
+     * @param propertyName — the property name.
+     * @returns the integer value, or 0 if not set.
      */
     public getInt(propertyName: string): number {
         return Math.floor(this.getFloat(propertyName));
     }
 
     /**
-     * Встановлює int значення для властивості.
+     * Sets an integer property.
+     * @param propertyName — the property name.
+     * @param value — the integer value.
      */
     public setInt(propertyName: string, value: number): void {
         this.setFloat(propertyName, Math.floor(value));
     }
 
+    // ---- Vector4 ----
+
     /**
-     * Отримує Vector4 за іменем властивості.
+     * Gets a Vector4 property.
+     * @param propertyName — the property name.
+     * @returns the vector, or Vector4.zero if not set.
      */
     public getVector(propertyName: string): Vector4 {
-        if (this._properties.has(propertyName)) {
-            return (this._properties.get(propertyName) as Vector4).clone();
+        const value = this._properties.get(propertyName);
+        if (value instanceof Vector4) {
+            return value.clone();
         }
         return Vector4.zero;
     }
 
     /**
-     * Встановлює Vector4 для властивості.
+     * Sets a Vector4 property.
+     * @param propertyName — the property name.
+     * @param value — the vector value.
      */
     public setVector(propertyName: string, value: Vector4): void {
         this._properties.set(propertyName, value.clone());
     }
 
+    // ---- Matrix4x4 ----
+
     /**
-     * Отримує Matrix4x4 за іменем властивості.
+     * Gets a Matrix4x4 property.
+     * @param propertyName — the property name.
+     * @returns the matrix, or identity if not set.
      */
     public getMatrix(propertyName: string): Matrix4x4 {
-        if (this._properties.has(propertyName)) {
-            return (this._properties.get(propertyName) as Matrix4x4).clone();
+        const value = this._properties.get(propertyName);
+        if (value instanceof Matrix4x4) {
+            return value.clone();
         }
         return Matrix4x4.identity;
     }
 
     /**
-     * Встановлює Matrix4x4 для властивості.
+     * Sets a Matrix4x4 property.
+     * @param propertyName — the property name.
+     * @param value — the matrix value.
      */
     public setMatrix(propertyName: string, value: Matrix4x4): void {
         this._properties.set(propertyName, value.clone());
     }
 
+    // ---- Texture ----
+
     /**
-     * Отримує текстуру за іменем властивості.
+     * Gets a texture property.
+     * @param propertyName — e.g. `"_MainTex"`, `"_BumpMap"`.
+     * @returns the texture, or null if not set.
      */
     public getTexture(propertyName: string): Texture | null {
-        if (this._properties.has(propertyName)) {
-            return this._properties.get(propertyName) as Texture;
+        const value = this._properties.get(propertyName);
+        if (value instanceof Texture) {
+            return value;
         }
         return null;
     }
 
     /**
-     * Встановлює текстуру для властивості.
+     * Sets a texture property and syncs to the Three.js material.
+     * @param propertyName — e.g. `"_MainTex"`, `"_BumpMap"`, `"_MetallicGlossMap"`.
+     * @param value — the texture, or null to clear.
      */
     public setTexture(propertyName: string, value: Texture | null): void {
         this._properties.set(propertyName, value);
-        
-        // Оновлюємо THREE.Material
-        const threeTexture = value ? value._threeTexture : null;
-        
-        if (propertyName === "_MainTex") {
-            (this._threeMaterial as any).map = threeTexture;
-        } else if (propertyName === "_BumpMap") {
-            (this._threeMaterial as any).normalMap = threeTexture;
-        } else if (propertyName === "_MetallicGlossMap") {
-            (this._threeMaterial as any).metalnessMap = threeTexture;
-            (this._threeMaterial as any).roughnessMap = threeTexture;
-        } else if (propertyName === "_OcclusionMap") {
-            (this._threeMaterial as any).aoMap = threeTexture;
-        } else if (propertyName === "_EmissionMap") {
-            (this._threeMaterial as any).emissiveMap = threeTexture;
-        }
-        
-        this._threeMaterial.needsUpdate = true;
+        this._syncTextureToThree(propertyName, value);
     }
 
+    // ---- Texture Offset / Scale ----
+
     /**
-     * Отримує offset текстури.
+     * Gets the UV offset of a texture property.
+     * @param propertyName — texture property name.
      */
     public getTextureOffset(propertyName: string): Vector2 {
         const texture = this.getTexture(propertyName);
         if (texture) {
-            const offset = texture._threeTexture.offset;
+            const offset = texture._internalThreeTexture.offset;
             return new Vector2(offset.x, offset.y);
         }
         return Vector2.zero;
     }
 
     /**
-     * Встановлює offset текстури.
+     * Sets the UV offset of a texture property.
+     * @param propertyName — texture property name.
+     * @param value — the offset vector.
      */
     public setTextureOffset(propertyName: string, value: Vector2): void {
         const texture = this.getTexture(propertyName);
@@ -308,19 +379,22 @@ export class Material extends EngineObject {
     }
 
     /**
-     * Отримує масштаб (tiling) текстури.
+     * Gets the UV tiling (scale) of a texture property.
+     * @param propertyName — texture property name.
      */
     public getTextureScale(propertyName: string): Vector2 {
         const texture = this.getTexture(propertyName);
         if (texture) {
-            const repeat = texture._threeTexture.repeat;
+            const repeat = texture._internalThreeTexture.repeat;
             return new Vector2(repeat.x, repeat.y);
         }
         return Vector2.one;
     }
 
     /**
-     * Встановлює масштаб (tiling) текстури.
+     * Sets the UV tiling (scale) of a texture property.
+     * @param propertyName — texture property name.
+     * @param value — the scale vector.
      */
     public setTextureScale(propertyName: string, value: Vector2): void {
         const texture = this.getTexture(propertyName);
@@ -329,49 +403,163 @@ export class Material extends EngineObject {
         }
     }
 
-    // === Система ключових слів (keywords) ===
+    // ==================== KEYWORDS ====================
 
     /**
-     * Вмикає ключове слово шейдера.
+     * Enables a shader keyword.
+     * @param keyword — the keyword to enable.
      */
     public enableKeyword(keyword: string): void {
         this._keywords.add(keyword);
     }
 
     /**
-     * Вимикає ключове слово шейдера.
+     * Disables a shader keyword.
+     * @param keyword — the keyword to disable.
      */
     public disableKeyword(keyword: string): void {
         this._keywords.delete(keyword);
     }
 
     /**
-     * Перевіряє, чи увімкнено ключове слово.
+     * Returns true if the keyword is enabled.
+     * @param keyword — the keyword to check.
      */
     public isKeywordEnabled(keyword: string): boolean {
         return this._keywords.has(keyword);
     }
 
-    // === Копіювання ===
+    // ==================== CLONE & COPY ====================
 
     /**
-     * Копіює властивості з іншого матеріалу.
+     * Creates a deep copy of this material.
+     *
+     * The clone has its own Three.js material, property map, and keywords.
+     * Modifying the clone does not affect the original.
+     *
+     * @returns a new Material with identical properties.
+     *
+     * @remarks
+     * Equivalent to Unity's implicit clone when accessing `Renderer.material`.
+     * Also used by `new Material(existingMaterial)`.
      */
-    public copyPropertiesFromMaterial(source: Material): void {
-        this._properties = new Map(source._properties);
-        this._keywords = new Set(source._keywords);
-        this._renderQueue = source._renderQueue;
-        
-        // Оновлюємо THREE.Material
-        this._threeMaterial.needsUpdate = true;
+    public clone(): Material {
+        return new Material(this);
     }
 
-    // === Приватні методи ===
+    /**
+     * Copies all properties from another material into this one.
+     *
+     * @param source — the material to copy from.
+     *
+     * @remarks
+     * Equivalent to Unity's `Material.CopyPropertiesFromMaterial`.
+     * Does NOT change the shader — only copies property values, keywords,
+     * and render queue.
+     */
+    public copyPropertiesFromMaterial(source: Material): void {
+        this._properties = Material._deepCloneProperties(source._properties);
+        this._keywords = new Set(source._keywords);
+        this._renderQueue = source._renderQueue;
+        this._threeMatHandle.needsUpdate = true;
+    }
+
+    // ==================== LIFECYCLE ====================
+
+    protected override onDestroy(): void {
+        this._threeMatHandle.dispose();
+        this._properties.clear();
+        this._keywords.clear();
+    }
+
+    // ==================== INTERNAL THREE.JS SYNC ====================
+    // These methods push engine property values into Three.js material fields.
+    // They use `as any` casts because Three.js material subtypes have different
+    // property sets (color, emissive, metalness, etc.) and there is no common
+    // interface. This is acceptable in the internal sync layer.
 
     /**
-     * Створює відповідний THREE.Material на основі шейдера.
+     * @internal Syncs a color property to the Three.js material.
      */
-    private createThreeMaterial(shader: Shader): THREE.Material {
+    private _syncColorToThree(propertyName: string, value: Color): void {
+        const mat = this._threeMatHandle as unknown as Record<string, unknown>;
+
+        if (propertyName === "_Color") {
+            const c = mat["color"] as THREE.Color | undefined;
+            c?.setHex(value.getHex());
+            (mat as Record<string, unknown>)["opacity"] = value.a;
+        } else if (propertyName === "_EmissionColor") {
+            const e = mat["emissive"] as THREE.Color | undefined;
+            e?.setHex(value.getHex());
+        } else if (propertyName === "_SpecColor") {
+            const s = mat["specular"] as THREE.Color | undefined;
+            s?.setHex(value.getHex());
+        }
+    }
+
+    /**
+     * @internal Syncs a float property to the Three.js material.
+     */
+    private _syncFloatToThree(propertyName: string, value: number): void {
+        const mat = this._threeMatHandle as unknown as Record<string, unknown>;
+
+        switch (propertyName) {
+            case "_Metallic":
+                mat["metalness"] = value;
+                break;
+            case "_Glossiness":
+                // Unity Smoothness = 1 − Three.js Roughness
+                mat["roughness"] = 1.0 - value;
+                break;
+            case "_BumpScale": {
+                const ns = mat["normalScale"] as THREE.Vector2 | undefined;
+                ns?.set(value, value);
+                break;
+            }
+            case "_OcclusionStrength":
+                mat["aoMapIntensity"] = value;
+                break;
+            case "_Shininess":
+                mat["shininess"] = value;
+                break;
+        }
+    }
+
+    /**
+     * @internal Syncs a texture property to the Three.js material.
+     */
+    private _syncTextureToThree(propertyName: string, value: Texture | null): void {
+        const mat = this._threeMatHandle as unknown as Record<string, unknown>;
+        const threeTex = value ? value._internalThreeTexture : null;
+
+        switch (propertyName) {
+            case "_MainTex":
+                mat["map"] = threeTex;
+                break;
+            case "_BumpMap":
+                mat["normalMap"] = threeTex;
+                break;
+            case "_MetallicGlossMap":
+                mat["metalnessMap"] = threeTex;
+                mat["roughnessMap"] = threeTex;
+                break;
+            case "_OcclusionMap":
+                mat["aoMap"] = threeTex;
+                break;
+            case "_EmissionMap":
+                mat["emissiveMap"] = threeTex;
+                break;
+        }
+
+        this._threeMatHandle.needsUpdate = true;
+    }
+
+    // ==================== STATIC HELPERS ====================
+
+    /**
+     * @internal Creates a Three.js material corresponding to the shader type.
+     */
+    private static _createThreeMaterial(shader: Shader): THREE.Material {
         const materialType = shader._threeMaterialType;
 
         switch (materialType) {
@@ -399,16 +587,34 @@ export class Material extends EngineObject {
                 });
 
             default:
-                console.warn(`Material: Невідомий тип матеріалу ${materialType}, використовуємо Standard`);
+                console.warn(`[Material] Unknown material type "${materialType}", falling back to MeshStandardMaterial`);
                 return new THREE.MeshStandardMaterial();
         }
     }
 
-    // === Знищення ===
-
-    protected override onDestroy(): void {
-        this._threeMaterial.dispose();
-        this._properties.clear();
-        this._keywords.clear();
+    /**
+     * @internal Deep-clones the property map.
+     *
+     * Cloneable types (Color, Vector4, Matrix4x4) get cloned.
+     * Textures and numbers are shared (correct: textures are assets,
+     * numbers are primitives).
+     */
+    private static _deepCloneProperties(
+        source: Map<string, MaterialPropertyValue>
+    ): Map<string, MaterialPropertyValue> {
+        const clone = new Map<string, MaterialPropertyValue>();
+        for (const [key, value] of source) {
+            if (value instanceof Color) {
+                clone.set(key, value.clone());
+            } else if (value instanceof Vector4) {
+                clone.set(key, value.clone());
+            } else if (value instanceof Matrix4x4) {
+                clone.set(key, value.clone());
+            } else {
+                // number, Texture (shared asset), or null — copy reference
+                clone.set(key, value);
+            }
+        }
+        return clone;
     }
 }

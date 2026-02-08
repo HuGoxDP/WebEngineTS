@@ -1,106 +1,230 @@
+// path: src/engine/core/components/Camera.ts
+
 import * as THREE from "three";
-import { Behaviour } from "../Behaviour";
-import { Color } from "../graphics/Color";
-import { Rect } from "../math/Rect";
-import { Matrix4x4 } from "../math/Matrix4x4";
-import { Vector3 } from "../math/Vector3";
-import type { GameObject } from "../GameObject";
-import { Ray } from "../math/Ray";
-import { Vector2 } from "../math/Vector2";
+import { Behaviour } from "../Behaviour.ts";
+import { Color } from "../math/Color.ts";
+import { Rect } from "../math/Rect.ts";
+import { Matrix4x4 } from "../math/Matrix4x4.ts";
+import { Vector3 } from "../math/Vector3.ts";
+import { Vector2 } from "../math/Vector2.ts";
+import { Ray } from "../math/Ray.ts";
+import type { GameObject } from "../GameObject.ts";
+
+// ==================== CACHED THREE.JS TEMPORARIES ====================
+// Used in coordinate conversion methods to avoid per-call allocations.
+
+const _tvec3 = new THREE.Vector3();
+
+// ==================== ENUMS ====================
 
 /**
- * Режими очищення камери.
+ * How the camera clears the background before rendering.
+ *
+ * @remarks Equivalent to Unity's `CameraClearFlags`.
  */
 export enum CameraClearFlags {
-    /** Очистити фон кольором */
+    /** Fill the background with {@link Camera.backgroundColor}. */
     SolidColor = 0,
-    
-    /** Очистити тільки глибину (для шарування камер) */
+    /** Clear only the depth buffer (for layered camera rendering). */
     Depth = 1,
-    
-    /** Не очищувати (рідко використовується) */
-    Nothing = 2
+    /** Don't clear anything. */
+    Nothing = 2,
 }
 
+// ==================== CAMERA ====================
+
 /**
- * Компонент Camera для візуалізації сцени.
- * Повна імітація Unity Camera.
- * 
- * Камера генерує viewport для рендерингу та управляє проекцією.
+ * A component that renders the scene from a specific viewpoint.
+ *
+ * Camera controls projection (perspective or orthographic), clipping planes,
+ * viewport, and background color. It creates and manages an internal Three.js
+ * camera that is added as a child of the Transform's scene graph node.
+ *
+ * @remarks
+ * Equivalent to Unity's `UnityEngine.Camera`.
+ *
+ * **Static access:**
+ * - {@link Camera.main} — returns the first active Camera tagged as "MainCamera"
+ *   (or the first active Camera if none is tagged).
+ * - {@link Camera.allCameras} — returns all active cameras sorted by depth.
+ *
+ * **Three.js isolation:**
+ * - The internal Three.js camera is never exposed in public API.
+ * - {@link Application} accesses it via the `@internal` accessor
+ *   {@link _internalThreeCamera} for rendering.
+ *
+ * @example
+ * ```ts
+ * const camGo = new GameObject("Main Camera");
+ * camGo.tag = "MainCamera";
+ * const cam = camGo.addComponent(Camera);
+ * cam.fieldOfView = 60;
+ * cam.backgroundColor = new Color(0.01, 0.01, 0.06);
+ * camGo.transform.position = new Vector3(0, 2, 5);
+ * camGo.transform.lookAt(Vector3.zero);
+ * ```
  */
 export class Camera extends Behaviour {
-    /**
-     * @internal - НЕ використовувати напряму!
-     * THREE.js камера (PerspectiveCamera або OrthographicCamera)
-     */
-    public _threeCamera: THREE.Camera | null = null;
 
-    /** Режим проекції (true = ortho, false = perspective) */
+    // ==================== STATIC CAMERA REGISTRY ====================
+
+    /**
+     * All currently active Camera instances, in order of creation.
+     * Cameras add themselves in `onAwake` and remove in `onDestroy`.
+     * @internal
+     */
+    private static _activeCameras: Camera[] = [];
+
+    /**
+     * Returns the main camera.
+     *
+     * The main camera is the first active Camera whose GameObject is tagged
+     * `"MainCamera"`. If no camera has that tag, the first active Camera
+     * is returned. Returns `null` if no cameras exist.
+     *
+     * @remarks Equivalent to Unity's `Camera.main`.
+     */
+    public static get main(): Camera | null {
+        // Prefer tagged MainCamera
+        for (const cam of Camera._activeCameras) {
+            if (cam.isActiveAndEnabled && cam.gameObject.tag === "MainCamera") {
+                return cam;
+            }
+        }
+        // Fallback: first active camera
+        for (const cam of Camera._activeCameras) {
+            if (cam.isActiveAndEnabled) {
+                return cam;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns all active cameras sorted by {@link depth} (ascending).
+     *
+     * @remarks Equivalent to Unity's `Camera.allCameras`.
+     */
+    public static get allCameras(): readonly Camera[] {
+        return Camera._activeCameras
+            .filter(c => c.isActiveAndEnabled)
+            .sort((a, b) => a._depth - b._depth);
+    }
+
+    // ==================== INTERNAL THREE.JS STATE ====================
+
+    /**
+     * The underlying Three.js camera (Perspective or Orthographic).
+     * @internal
+     */
+    private _threeCamera: THREE.PerspectiveCamera | THREE.OrthographicCamera | null = null;
+
+    // ==================== ENGINE PROPERTIES ====================
+
+    /** True = orthographic projection, false = perspective. */
     private _orthographic: boolean = false;
 
-    /** Кут зору (для perspective, у градусах) */
+    /** Vertical field of view in degrees (perspective mode). */
     private _fieldOfView: number = 60;
 
-    /** Розмір (для orthographic, половина висоти) */
+    /** Half-height of the orthographic view volume in world units. */
     private _orthographicSize: number = 5;
 
-    /** Близька площина відсікання */
+    /** Near clipping plane distance. */
     private _nearClipPlane: number = 0.3;
 
-    /** Далека площина відсікання */
+    /** Far clipping plane distance. */
     private _farClipPlane: number = 1000;
 
-    /** Aspect ratio (width / height) */
+    /** Width / height ratio. */
     private _aspect: number = 16 / 9;
 
-    /** Viewport (у нормальних координатах 0-1) */
+    /** Normalized viewport rectangle (0–1). */
     private _viewport: Rect = new Rect(0, 0, 1, 1);
 
-    /** Фоновий колір */
+    /** Background clear color. */
     private _backgroundColor: Color = Color.black;
 
-    /** Режим очищення */
+    /** How the camera clears the background. */
     private _clearFlags: CameraClearFlags = CameraClearFlags.SolidColor;
 
-    /** Глибина рендерингу (для шарування камер) */
+    /** Rendering depth (higher = rendered later, drawn on top). */
     private _depth: number = 0;
 
-    /** Маска для culling (які об'єкти рендерити) */
-    private _cullingMask: number = 0xffffffff;
+    /** Culling mask — determines which layers this camera renders. */
+    private _cullingMask: number = 0xFFFFFFFF;
+
+    // ==================== CONSTRUCTOR ====================
 
     constructor(gameObject: GameObject) {
         super(gameObject);
         this.name = "Camera";
     }
 
-    // === Lifecycle ===
-
-    protected onAwake(): void {
-        // Створюємо камеру
-        this.updateCameraType();
-        
-        // Додаємо до сцени через Transform
-        if (this.gameObject?.transform.object3D) {
-            this.gameObject.transform.object3D.add(this._threeCamera!);
-        } else {
-            console.error("[Camera] Cannot add camera - transform.object3D is null!");
-        }
-    }
-
-    protected onDestroy(): void {
-        if (this._threeCamera && this.gameObject?.transform.object3D) {
-            this.gameObject.transform.object3D.remove(this._threeCamera);
-        }
-        
-        this._threeCamera = null;
-        
-        super.onDestroy();
-    }
-
-    // === Властивості - Проекція ===
+    // ==================== INTERNAL ACCESSOR ====================
 
     /**
-     * Чи використовувати ортогональну проекцію (замість перспективи)
+     * @internal
+     * The underlying Three.js camera, used by {@link Application} for rendering.
+     *
+     * Returns `null` if the camera hasn't been initialized yet
+     * (before `onAwake` runs).
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public get _internalThreeCamera(): THREE.Camera | null {
+        return this._threeCamera;
+    }
+
+    // ==================== LIFECYCLE ====================
+
+    /**
+     * @internal
+     * Creates the Three.js camera, attaches it as an internal child
+     * of the Transform, and registers this camera in the static registry.
+     */
+    protected override onAwake(): void {
+        // Create the Three.js camera based on current projection mode
+        this._rebuildThreeCamera();
+
+        // Attach to Transform's scene graph
+        if (this._threeCamera !== null) {
+            this.gameObject.transform._addInternalChild(this._threeCamera);
+        }
+
+        // Register in the global camera list
+        Camera._activeCameras.push(this);
+    }
+
+    /**
+     * @internal
+     * Detaches the Three.js camera from the Transform and unregisters
+     * from the static camera registry.
+     */
+    protected override onDestroy(): void {
+        // Detach from Transform
+        if (this._threeCamera !== null) {
+            this.gameObject.transform._removeInternalChild(this._threeCamera);
+            this._threeCamera = null;
+        }
+
+        // Unregister from global camera list
+        const idx = Camera._activeCameras.indexOf(this);
+        if (idx !== -1) {
+            Camera._activeCameras.splice(idx, 1);
+        }
+    }
+
+    // ==================== PROJECTION PROPERTIES ====================
+
+    /**
+     * Whether this camera uses orthographic projection.
+     *
+     * Setting this to `true` switches to orthographic mode.
+     * Setting to `false` switches to perspective mode.
+     * The camera is recreated when this changes.
+     *
+     * @remarks Equivalent to Unity's `Camera.orthographic`.
      */
     public get orthographic(): boolean {
         return this._orthographic;
@@ -108,13 +232,14 @@ export class Camera extends Behaviour {
 
     public set orthographic(value: boolean) {
         if (this._orthographic === value) return;
-        
         this._orthographic = value;
-        this.updateCameraType();
+        this._switchCameraType();
     }
 
     /**
-     * Кут зору (для perspective режиму, у градусах)
+     * The vertical field of view in degrees (perspective mode only).
+     *
+     * @remarks Equivalent to Unity's `Camera.fieldOfView`.
      */
     public get fieldOfView(): number {
         return this._fieldOfView;
@@ -122,15 +247,16 @@ export class Camera extends Behaviour {
 
     public set fieldOfView(value: number) {
         this._fieldOfView = value;
-        
-        if (!this._orthographic && this._threeCamera instanceof THREE.PerspectiveCamera) {
+        if (this._threeCamera instanceof THREE.PerspectiveCamera) {
             this._threeCamera.fov = value;
-            (this._threeCamera as any).updateProjectionMatrix();
+            this._threeCamera.updateProjectionMatrix();
         }
     }
 
     /**
-     * Розмір камери (для orthographic, половина висоти у світовому просторі)
+     * Half-size of the orthographic view volume (orthographic mode only).
+     *
+     * @remarks Equivalent to Unity's `Camera.orthographicSize`.
      */
     public get orthographicSize(): number {
         return this._orthographicSize;
@@ -138,14 +264,15 @@ export class Camera extends Behaviour {
 
     public set orthographicSize(value: number) {
         this._orthographicSize = value;
-        
-        if (this._orthographic && this._threeCamera instanceof THREE.OrthographicCamera) {
-            this.updateOrthoCamera();
+        if (this._threeCamera instanceof THREE.OrthographicCamera) {
+            this._applyOrthoParams(this._threeCamera);
         }
     }
 
     /**
-     * Близька площина відсікання
+     * The near clipping plane distance.
+     *
+     * @remarks Equivalent to Unity's `Camera.nearClipPlane`.
      */
     public get nearClipPlane(): number {
         return this._nearClipPlane;
@@ -153,15 +280,16 @@ export class Camera extends Behaviour {
 
     public set nearClipPlane(value: number) {
         this._nearClipPlane = value;
-        
-        if (this._threeCamera) {
-            (this._threeCamera as any).near = value;
-            (this._threeCamera as any).updateProjectionMatrix();
+        if (this._threeCamera !== null) {
+            this._threeCamera.near = value;
+            this._threeCamera.updateProjectionMatrix();
         }
     }
 
     /**
-     * Далека площина відсікання
+     * The far clipping plane distance.
+     *
+     * @remarks Equivalent to Unity's `Camera.farClipPlane`.
      */
     public get farClipPlane(): number {
         return this._farClipPlane;
@@ -169,15 +297,18 @@ export class Camera extends Behaviour {
 
     public set farClipPlane(value: number) {
         this._farClipPlane = value;
-        
-        if (this._threeCamera) {
-            (this._threeCamera as any).far = value;
-            (this._threeCamera as any).updateProjectionMatrix();
+        if (this._threeCamera !== null) {
+            this._threeCamera.far = value;
+            this._threeCamera.updateProjectionMatrix();
         }
     }
 
     /**
-     * Aspect ratio (ширина / висота)
+     * The aspect ratio (width / height).
+     *
+     * Typically set automatically by the Application when the canvas resizes.
+     *
+     * @remarks Equivalent to Unity's `Camera.aspect`.
      */
     public get aspect(): number {
         return this._aspect;
@@ -185,19 +316,20 @@ export class Camera extends Behaviour {
 
     public set aspect(value: number) {
         this._aspect = value;
-        
         if (this._threeCamera instanceof THREE.PerspectiveCamera) {
             this._threeCamera.aspect = value;
             this._threeCamera.updateProjectionMatrix();
         } else if (this._threeCamera instanceof THREE.OrthographicCamera) {
-            this.updateOrthoCamera();
+            this._applyOrthoParams(this._threeCamera);
         }
     }
 
-    // === Властивості - Viewport ===
+    // ==================== VIEWPORT & RENDERING PROPERTIES ====================
 
     /**
-     * Viewport камери (нормальні координати 0-1)
+     * The normalized viewport rectangle (0–1 range).
+     *
+     * @remarks Equivalent to Unity's `Camera.rect`.
      */
     public get viewport(): Rect {
         return this._viewport.clone();
@@ -207,10 +339,10 @@ export class Camera extends Behaviour {
         this._viewport = value.clone();
     }
 
-    // === Властивості - Рендеринг ===
-
     /**
-     * Фоновий колір камери
+     * The background color used when {@link clearFlags} is `SolidColor`.
+     *
+     * @remarks Equivalent to Unity's `Camera.backgroundColor`.
      */
     public get backgroundColor(): Color {
         return this._backgroundColor.clone();
@@ -221,7 +353,9 @@ export class Camera extends Behaviour {
     }
 
     /**
-     * Режим очищення (як очищувати екран)
+     * How the camera clears the background before rendering.
+     *
+     * @remarks Equivalent to Unity's `Camera.clearFlags`.
      */
     public get clearFlags(): CameraClearFlags {
         return this._clearFlags;
@@ -232,7 +366,10 @@ export class Camera extends Behaviour {
     }
 
     /**
-     * Глибина рендерингу (більша глибина = рендериться пізніше)
+     * The rendering depth. Cameras with higher depth are rendered later
+     * (drawn on top of cameras with lower depth).
+     *
+     * @remarks Equivalent to Unity's `Camera.depth`.
      */
     public get depth(): number {
         return this._depth;
@@ -243,7 +380,9 @@ export class Camera extends Behaviour {
     }
 
     /**
-     * Маска culling (які об'єкти рендерити)
+     * The layer mask that determines which objects this camera renders.
+     *
+     * @remarks Equivalent to Unity's `Camera.cullingMask`.
      */
     public get cullingMask(): number {
         return this._cullingMask;
@@ -253,190 +392,176 @@ export class Camera extends Behaviour {
         this._cullingMask = value;
     }
 
-    // === Методи - Конвертація координат ===
+    // ==================== COORDINATE CONVERSION ====================
 
     /**
-     * Конвертує світові координати у координати екрану.
-     * @param position Позиція у світовому просторі
-     * @returns Позиція на екрані (z = глибина від камери)
+     * Converts a world-space position to screen-space pixel coordinates.
+     *
+     * @param position — world-space point.
+     * @returns screen-space point where `x`/`y` are in pixels and
+     *          `z` is the depth from the camera.
+     *
+     * @remarks Equivalent to Unity's `Camera.WorldToScreenPoint`.
      */
     public worldToScreenPoint(position: Vector3): Vector3 {
-        if (!this._threeCamera) {
-            console.error("Camera not initialized");
-            return Vector3.zero;
-        }
+        if (this._threeCamera === null) return Vector3.zero;
 
-        const vec = new THREE.Vector3(position.x, position.y, position.z);
-        vec.project(this._threeCamera);
+        _tvec3.set(position.x, position.y, position.z);
+        _tvec3.project(this._threeCamera);
 
-        // Конвертуємо з [-1, 1] в екранні координати
         const screenWidth = window.innerWidth;
         const screenHeight = window.innerHeight;
 
         return new Vector3(
-            (vec.x + 1) / 2 * screenWidth,
-            -(vec.y - 1) / 2 * screenHeight,
-            -vec.z  // Глибина від камери
+            ((_tvec3.x + 1) * 0.5) * screenWidth,
+            ((1 - _tvec3.y) * 0.5) * screenHeight,
+            -_tvec3.z
         );
     }
 
     /**
-     * Конвертує координати екрану у світові координати.
-     * @param screenPos Позиція на екрані
-     * @returns Позиція у світовому просторі
+     * Converts screen-space pixel coordinates to a world-space position.
+     *
+     * @param screenPos — screen-space point where `x`/`y` are in pixels
+     *                     and `z` is the depth from the camera.
+     * @returns world-space position.
+     *
+     * @remarks Equivalent to Unity's `Camera.ScreenToWorldPoint`.
      */
     public screenToWorldPoint(screenPos: Vector3): Vector3 {
-        if (!this._threeCamera) {
-            console.error("Camera not initialized");
-            return Vector3.zero;
-        }
+        if (this._threeCamera === null) return Vector3.zero;
 
         const screenWidth = window.innerWidth;
         const screenHeight = window.innerHeight;
 
-        // Конвертуємо екранні координати в [-1, 1]
-        const vec = new THREE.Vector3(
+        _tvec3.set(
             (screenPos.x / screenWidth) * 2 - 1,
             -(screenPos.y / screenHeight) * 2 + 1,
             -screenPos.z
         );
+        _tvec3.unproject(this._threeCamera);
 
-        // Unproject у світові координати
-        vec.unproject(this._threeCamera);
-
-        return new Vector3(vec.x, vec.y, vec.z);
+        return new Vector3(_tvec3.x, _tvec3.y, _tvec3.z);
     }
 
-    // === Методи - Інші ===
-
     /**
-     * Створює промінь, що виходить з камери через вказану точку на екрані.
-     * @param position Позиція на екрані в пікселях (наприклад, Input.mousePosition).
+     * Creates a ray from the camera through a screen-space pixel position.
+     *
+     * @param position — screen position in pixels (e.g. `Input.mousePosition`).
+     * @returns a {@link Ray} from the camera's position in the direction of
+     *          the screen point.
+     *
+     * @remarks Equivalent to Unity's `Camera.ScreenPointToRay`.
      */
     public screenPointToRay(position: Vector2): Ray {
-        if (!this._threeCamera) return new Ray();
+        if (this._threeCamera === null) return new Ray();
 
-        // 1. Конвертуємо пікселі в Normalized Device Coordinates (NDC) [-1 to +1]
-        // Формула: (pos / size) * 2 - 1
-        // Y інвертується, бо в HTML (0,0) зверху-зліва, а в 3D - знизу-зліва (зазвичай)
-        // Але Three.js Raycaster очікує Y вгору.
-        const x = (position.x / window.innerWidth) * 2 - 1;
-        const y = -(position.y / window.innerHeight) * 2 + 1;
+        const ndcX = (position.x / window.innerWidth) * 2 - 1;
+        const ndcY = -(position.y / window.innerHeight) * 2 + 1;
 
-        // 2. Unproject vector
-        const threeVec = new THREE.Vector3(x, y, 0.5);
-        threeVec.unproject(this._threeCamera);
+        _tvec3.set(ndcX, ndcY, 0.5);
+        _tvec3.unproject(this._threeCamera);
 
         const origin = this.transform.position;
-        const direction = new Vector3(threeVec.x, threeVec.y, threeVec.z).subtract(origin).normalize();
+        const direction = new Vector3(
+            _tvec3.x - origin.x,
+            _tvec3.y - origin.y,
+            _tvec3.z - origin.z
+        ).normalize();
 
         return new Ray(origin, direction);
     }
 
+    // ==================== MATRIX ACCESS ====================
+
     /**
-     * Отримує проекційну матрицю камери
+     * Returns the camera's projection matrix.
+     *
+     * @remarks Equivalent to Unity's `Camera.projectionMatrix`.
      */
-    public getProjectionMatrix(): Matrix4x4 {
-        if (!this._threeCamera) {
-            return Matrix4x4.identity;
-        }
+    public get projectionMatrix(): Matrix4x4 {
+        if (this._threeCamera === null) return Matrix4x4.identity;
 
         const result = new Matrix4x4();
-        const m = this._threeCamera.projectionMatrix;
-        
-        // Копіюємо елементи напряму
+        const src = this._threeCamera.projectionMatrix.elements;
         for (let i = 0; i < 16; i++) {
-            result["elements"][i] = m.elements[i];
+            result.elements[i] = src[i];
         }
-        
         return result;
     }
 
     /**
-     * Отримує view матрицю камери
+     * Returns the camera's view matrix (world → camera space).
+     *
+     * @remarks Equivalent to Unity's inverse of `Camera.cameraToWorldMatrix`.
      */
-    public getViewMatrix(): Matrix4x4 {
-        if (!this._threeCamera) {
-            return Matrix4x4.identity;
-        }
+    public get worldToCameraMatrix(): Matrix4x4 {
+        if (this._threeCamera === null) return Matrix4x4.identity;
 
         const result = new Matrix4x4();
-        const m = this._threeCamera.matrixWorldInverse;
-        
-        // Копіюємо елементи напряму
+        const src = this._threeCamera.matrixWorldInverse.elements;
         for (let i = 0; i < 16; i++) {
-            result["elements"][i] = m.elements[i];
+            result.elements[i] = src[i];
         }
-        
         return result;
     }
 
-    // === Приватні методи ===
+    // ==================== PRIVATE HELPERS ====================
 
     /**
-     * Перестворює камеру при зміні типу (perspective <-> ortho)
+     * @internal
+     * Creates the initial Three.js camera based on current projection settings.
      */
-    private updateCameraType(): void {
-        // Видаляємо стару камеру
-        if (this._threeCamera && this.gameObject?.transform.object3D) {
-            this.gameObject.transform.object3D.remove(this._threeCamera);
-        }
-
+    private _rebuildThreeCamera(): void {
         if (this._orthographic) {
-            this.createOrthoCamera();
+            const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, this._nearClipPlane, this._farClipPlane);
+            this._applyOrthoParams(cam);
+            this._threeCamera = cam;
         } else {
-            this.createPerspectiveCamera();
+            this._threeCamera = new THREE.PerspectiveCamera(
+                this._fieldOfView,
+                this._aspect,
+                this._nearClipPlane,
+                this._farClipPlane
+            );
+        }
+    }
+
+    /**
+     * @internal
+     * Destroys the current Three.js camera, rebuilds it with the new
+     * projection type, and re-attaches to the Transform.
+     */
+    private _switchCameraType(): void {
+        // Detach old
+        if (this._threeCamera !== null) {
+            this.gameObject.transform._removeInternalChild(this._threeCamera);
         }
 
-        // Додаємо нову камеру
-        if (this._threeCamera && this.gameObject?.transform.object3D) {
-            this.gameObject.transform.object3D.add(this._threeCamera);
+        // Rebuild
+        this._rebuildThreeCamera();
+
+        // Re-attach
+        if (this._threeCamera !== null) {
+            this.gameObject.transform._addInternalChild(this._threeCamera);
         }
     }
 
     /**
-     * Створює перспективну камеру
+     * @internal
+     * Applies current orthographic parameters to an OrthographicCamera.
      */
-    private createPerspectiveCamera(): void {
-        this._threeCamera = new THREE.PerspectiveCamera(
-            this._fieldOfView,
-            this._aspect,
-            this._nearClipPlane,
-            this._farClipPlane
-        );
-    }
+    private _applyOrthoParams(cam: THREE.OrthographicCamera): void {
+        const halfHeight = this._orthographicSize;
+        const halfWidth = halfHeight * this._aspect;
 
-    /**
-     * Створює ортогональну камеру
-     */
-    private createOrthoCamera(): void {
-        const width = this._orthographicSize * this._aspect;
-        const height = this._orthographicSize;
+        cam.left = -halfWidth;
+        cam.right = halfWidth;
+        cam.top = halfHeight;
+        cam.bottom = -halfHeight;
+        cam.near = this._nearClipPlane;
+        cam.far = this._farClipPlane;
 
-        this._threeCamera = new THREE.OrthographicCamera(
-            -width / 2,
-            width / 2,
-            height / 2,
-            -height / 2,
-            this._nearClipPlane,
-            this._farClipPlane
-        );
-    }
-
-    /**
-     * Оновлює ортогональну камеру при зміні параметрів
-     */
-    private updateOrthoCamera(): void {
-        if (!(this._threeCamera instanceof THREE.OrthographicCamera)) return;
-
-        const width = this._orthographicSize * this._aspect;
-        const height = this._orthographicSize;
-
-        this._threeCamera.left = -width / 2;
-        this._threeCamera.right = width / 2;
-        this._threeCamera.top = height / 2;
-        this._threeCamera.bottom = -height / 2;
-
-        this._threeCamera.updateProjectionMatrix();
+        cam.updateProjectionMatrix();
     }
 }

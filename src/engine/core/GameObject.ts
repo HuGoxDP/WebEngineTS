@@ -67,6 +67,7 @@ export class GameObject extends EngineObject {
     public tag: string = "Untagged";
 
     // ==================== PRIVATE FIELDS ====================
+
     /** Local active state (independent of parent hierarchy). */
     private _activeSelf: boolean = true;
 
@@ -221,16 +222,21 @@ export class GameObject extends EngineObject {
      *
      * Lifecycle order:
      * 1. Constructor runs
-     * 2. `Awake()` fires (if {@link ScriptableBehaviour})
+     * 2. `Awake()` fires — `_systemAwake()` for user scripts,
+     *    `_internalInitialize()` for built-in components
      * 3. `OnEnable()` fires (if active and enabled)
      */
     public addComponent<T extends Component>(type: new (go: GameObject) => T): T {
         const component = new type(this);
         this._components.push(component);
 
-        // Lifecycle: Awake (if ScriptableBehaviour)
+        // Lifecycle: Awake
+        // - ScriptableBehaviour (user scripts) → _systemAwake() → public awake()
+        // - Built-in Behaviours (Camera, Light, etc.) → _internalInitialize() → protected onAwake()
         if (component instanceof ScriptableBehaviour) {
             component._systemAwake();
+        } else if (component instanceof Behaviour) {
+            component._internalInitialize();
         }
 
         // Lifecycle: OnEnable (if the GO is active in hierarchy and component is enabled)
@@ -620,7 +626,6 @@ export class GameObject extends EngineObject {
     }
 
     // ==================== PRIVATE HELPERS ====================
-
 
     /**
      * Recursive helper for {@link getComponentsInChildren}.

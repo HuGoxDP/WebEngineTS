@@ -1,6 +1,6 @@
-import { Component } from "../Component";
-import { Mesh } from "../graphics/Mesh";
-import type { GameObject } from "../GameObject";
+import { Component } from "../Component.ts";
+import { Mesh } from "../graphics/Mesh.ts";
+import type { GameObject } from "../GameObject.ts";
 
 /**
  * Компонент для зберігання геометрії меша.

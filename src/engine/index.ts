@@ -52,7 +52,7 @@ export { Rect } from "./core/math/Rect";
 // =====================
 // GRAPHICS - Графіка
 // =====================
-export { Color } from "./core/graphics/Color";
+export { Color } from "./core/math/Color";
 export { Mesh } from "./core/graphics/Mesh";
 export { Texture, FilterMode, TextureWrapMode } from "./core/graphics/Texture";
 export { Texture2D, TextureFormat } from "./core/graphics/Texture2D";
@@ -63,9 +63,9 @@ export { StandardMaterial, MaterialRenderMode } from "./core/graphics/StandardMa
 // =====================
 // COMPONENTS - Компоненти
 // =====================
-export { MeshFilter } from "./core/components/MeshFilter";
-export { Renderer, ShadowCastingMode, LightProbeUsage, ReflectionProbeUsage } from "./core/components/Renderer";
-export { MeshRenderer } from "./core/components/MeshRenderer";
+export { MeshFilter } from "./core/rendering/MeshFilter.ts";
+export { Renderer, ShadowCastingMode} from "./core/rendering/Renderer.ts";
+export { MeshRenderer } from "./core/rendering/MeshRenderer.ts";
 export { LineRenderer, LineAlignment, LineTextureMode } from "./core/components/LineRenderer";
 export type { GradientColorKey, CurveKey } from "./core/components/LineRenderer";
 export { Camera, CameraClearFlags } from "./core/components/Camera";
