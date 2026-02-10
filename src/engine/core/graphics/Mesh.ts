@@ -1083,7 +1083,7 @@ export class Mesh extends EngineObject {
     /**
      * Знищити меш та звільнити ресурси
      */
-    public destroy(): void {
+    public override destroy(): void {
         this.clear();
         this._threeGeometry.dispose();
         super.destroy();

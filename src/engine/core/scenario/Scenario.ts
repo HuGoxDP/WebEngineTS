@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import { EngineObject } from "../EngineObject.ts";
 import { ScenarioAssets } from "./ScenarioAssets.ts";
 import { SceneManager } from "../SceneManager.ts";
+import { ScenarioBehaviour } from "./ScenarioBehaviour.ts";
 import type {
     IScenarioManifest,
     IScenarioContext,
@@ -11,6 +12,24 @@ import type {
     IScenarioLoadProgress,
 } from "./ScenarioTypes.ts";
 import { ScenarioLoadState } from "./ScenarioTypes.ts";
+
+/**
+ * Regex to match ES module import/export specifiers.
+ *
+ * Captures relative specifiers (starting with `./ or ../`) from:
+ * - `import { X } from "./path"`
+ * - `import X from "./path"`
+ * - `import "./path"` (side-effect)
+ * - `export { X } from "./path"`
+ * - `export * from "./path"`
+ *
+ * Group 1 = the full `from "..."` or just `import "..."` portion with quotes.
+ * Group 2 = the relative specifier itself (without quotes).
+ *
+ * @internal
+ */
+const _RELATIVE_IMPORT_RE =
+    /(?:import|export)\s+(?:[\s\S]*?\s+from\s+|)(["'])(\.\.?\/[^"']+)\1/g;
 
 /**
  * A loaded scenario instance.
@@ -22,36 +41,30 @@ import { ScenarioLoadState } from "./ScenarioTypes.ts";
  * completely when unloaded, leaving no leaked textures, blob URLs,
  * GameObjects, or Scenes.
  *
- * **Lifecycle:**
+ * **Script execution & import resolution:**
+ * Scripts in the ZIP are pre-compiled ES modules (.js). Before execution,
+ * the engine pre-links ALL scripts in the `scripts/` directory:
+ * 1. Enumerates all `.js` files.
+ * 2. Builds a dependency graph from relative imports.
+ * 3. Processes files in dependency order (leaves first).
+ * 4. Rewrites relative import specifiers to Blob URLs.
+ * 5. Creates Blob URLs from rewritten code.
+ *
+ * This means scenario authors write **standard ES imports** between
+ * their modules — the engine handles the Blob URL indirection transparently.
+ *
+ * Bare specifiers like `from "WebEngineTS"` are resolved by the host
+ * page's import map and are NOT rewritten.
+ *
+ * @example
+ * ```ts
+ * // Scenario author writes normal imports:
+ * import { ScenarioBehaviour } from "WebEngineTS";
+ * import { CameraOrbit } from "./components/CameraOrbit";
+ * import { createPlanet } from "./helpers/PlanetFactory";
+ *
+ * export default class MyScenario extends ScenarioBehaviour { ... }
  * ```
- * loadFromUrl / loadFromData / loadFromFile
- *   → ZIP parsed in memory
- *   → manifest.json read + validated
- *   → ScenarioAssets created
- *   → state = Ready
- *
- * run()
- *   → Scene created for the scenario
- *   → entry point loaded via Blob URL + dynamic import()
- *   → entryPoint.onSetup(context) called
- *   → state = Running
- *   → entryPoint.onUpdate() called each frame (if defined)
- *
- * unload()
- *   → entryPoint.onTeardown() called (if defined)
- *   → Scene destroyed (all GameObjects destroyed)
- *   → ScenarioAssets disposed (textures, models, blob URLs)
- *   → script blob URLs revoked
- *   → ZIP reference released
- *   → state = Unloaded
- * ```
- *
- * **Script execution:**
- * Scripts in the ZIP are pre-compiled ES modules (.js). The entry point
- * is loaded via `Blob URL + dynamic import()` — no eval(). Engine classes
- * (GameObject, Vector3, etc.) are imported by the script from the engine
- * library (e.g. `import { GameObject } from "webunity"`), resolved at
- * runtime through the host page's import map.
  *
  * @example
  * ```ts
@@ -92,11 +105,18 @@ export class Scenario extends EngineObject {
     /** Asset provider — loads textures/models from the ZIP. */
     private _assets: ScenarioAssets | null = null;
 
-    /** The entry point instance (class or plain object). */
-    private _entryPoint: IScenarioEntryPoint | null = null;
+    /** The entry point instance (extends ScenarioBehaviour). */
+    private _entryPoint: ScenarioBehaviour | null = null;
 
     /** Blob URLs created for script modules — revoked on unload. */
     private _scriptBlobUrls: string[] = [];
+
+    /**
+     * Pre-linked script registry: normalized ZIP path → Blob URL.
+     * Built by {@link _prelinkAllScripts} before the entry point runs.
+     * @internal
+     */
+    private _scriptBlobUrlMap: Map<string, string> = new Map();
 
     /** Progress callback. */
     private _onProgressCallback?: (progress: IScenarioLoadProgress) => void;
@@ -134,7 +154,7 @@ export class Scenario extends EngineObject {
      * The asset provider for this scenario.
      *
      * Available after loading. Scenario authors access this through
-     * `context.assets` in their entry point, not directly.
+     * `this.context.assets` in their ScenarioBehaviour, not directly.
      */
     public get assets(): ScenarioAssets | null {
         return this._assets;
@@ -147,13 +167,6 @@ export class Scenario extends EngineObject {
      *
      * @param callback — called with progress info during load.
      * @returns `this` for chaining.
-     *
-     * @example
-     * ```ts
-     * const scenario = new Scenario();
-     * scenario.onProgress(p => updateUI(p.progress, p.currentOperation));
-     * await scenario.loadFromUrl("/scenarios/demo.zip");
-     * ```
      */
     public onProgress(callback: (progress: IScenarioLoadProgress) => void): this {
         this._onProgressCallback = callback;
@@ -224,9 +237,6 @@ export class Scenario extends EngineObject {
     /**
      * Parses a scenario from a raw ArrayBuffer (the ZIP contents).
      *
-     * Use this when the host application has already downloaded the ZIP
-     * (e.g. from Angular HttpClient or a File input).
-     *
      * @param data — the ZIP file as an ArrayBuffer.
      */
     public async loadFromData(data: ArrayBuffer): Promise<void> {
@@ -275,11 +285,9 @@ export class Scenario extends EngineObject {
      *
      * 1. Unloads any previously running scenario.
      * 2. Creates a dedicated Scene for this scenario.
-     * 3. Loads the entry point module via `Blob URL + dynamic import()`.
-     * 4. Calls `entryPoint.onSetup(context)`.
-     *
-     * After this call, the scenario is in the `Running` state and
-     * {@link _onUpdate} should be called each frame by Application.
+     * 3. Pre-links all scripts (rewrites relative imports → Blob URLs).
+     * 4. Loads the entry point module.
+     * 5. Calls `ScenarioBehaviour._systemInit(context)` (which invokes `awake()`).
      */
     public async run(): Promise<void> {
         if (!this.isLoaded || !this._manifest || !this._zip) {
@@ -305,14 +313,17 @@ export class Scenario extends EngineObject {
             // Create a dedicated scene for this scenario
             SceneManager.createScene(this._manifest.name);
 
+            // Pre-link all scripts — rewrites relative imports to Blob URLs
+            await this._prelinkAllScripts();
+
             // Build the context that the entry point receives
             const context = this._createContext();
 
             // Load and instantiate the entry point
-            this._entryPoint = await this._loadEntryPoint();
+            this._entryPoint = await this._loadEntryPoint(context);
 
-            // Call onSetup — the scenario builds its world here
-            await this._entryPoint.onSetup(context);
+            // Awake — the scenario builds its world here (may be async)
+            await this._entryPoint._systemInit(context);
 
             console.log(`[Scenario] Running: ${this._manifest.name}`);
 
@@ -324,15 +335,29 @@ export class Scenario extends EngineObject {
     }
 
     /**
-     * Called every frame by Application while the scenario is running.
-     *
-     * Delegates to the entry point's `onUpdate()` if defined.
-     *
-     * @internal — called by the game loop, not by scenario authors.
+     * @internal — called by the game loop.
+     */
+    public _onFixedUpdate(): void {
+        if (this._entryPoint) {
+            this._entryPoint._systemFixedUpdate();
+        }
+    }
+
+    /**
+     * @internal — called by the game loop.
      */
     public _onUpdate(): void {
-        if (this._entryPoint?.onUpdate) {
-            this._entryPoint.onUpdate();
+        if (this._entryPoint) {
+            this._entryPoint._systemUpdate();
+        }
+    }
+
+    /**
+     * @internal — called by the game loop.
+     */
+    public _onLateUpdate(): void {
+        if (this._entryPoint) {
+            this._entryPoint._systemLateUpdate();
         }
     }
 
@@ -342,14 +367,11 @@ export class Scenario extends EngineObject {
      * Unloads the scenario and releases **all** resources.
      *
      * Cleanup order:
-     * 1. Call `entryPoint.onTeardown()` (if defined).
+     * 1. Call `ScenarioBehaviour._systemDestroy()` (invokes `onDestroy()`).
      * 2. Destroy the scenario's Scene (destroys all GameObjects).
      * 3. Dispose ScenarioAssets (textures, models, blob URLs).
      * 4. Revoke script blob URLs.
      * 5. Release ZIP reference.
-     *
-     * After this call, the scenario is in the `Unloaded` state and
-     * cannot be re-run. Create a new Scenario instance to reload.
      */
     public unload(): void {
         if (this._loadState === ScenarioLoadState.Unloaded) return;
@@ -357,11 +379,11 @@ export class Scenario extends EngineObject {
         console.log(`[Scenario] Unloading: ${this.name}`);
 
         // 1. Entry point teardown
-        if (this._entryPoint?.onTeardown) {
+        if (this._entryPoint) {
             try {
-                this._entryPoint.onTeardown();
+                this._entryPoint._systemDestroy();
             } catch (error) {
-                console.error("[Scenario] Error in onTeardown:", error);
+                console.error("[Scenario] Error in onDestroy:", error);
             }
         }
         this._entryPoint = null;
@@ -383,6 +405,7 @@ export class Scenario extends EngineObject {
             URL.revokeObjectURL(url);
         }
         this._scriptBlobUrls = [];
+        this._scriptBlobUrlMap.clear();
 
         // 5. Release ZIP and manifest
         this._zip = null;
@@ -405,78 +428,359 @@ export class Scenario extends EngineObject {
         this.unload();
     }
 
+    // ==================== PRIVATE: SCRIPT PRE-LINKING ====================
+
+    /**
+     * Pre-links all `.js` scripts in the ZIP's `scripts/` directory.
+     *
+     * **Algorithm (dependency-order Blob URL creation):**
+     * 1. Enumerate all `.js` files under `scripts/`.
+     * 2. Read source code and extract relative import targets for each.
+     * 3. Process files in dependency order (leaves first):
+     *    - Files with no relative imports (or all deps already resolved)
+     *      are processed first.
+     *    - For each file: rewrite relative specifiers → Blob URLs of
+     *      already-processed dependencies, then create a Blob URL.
+     * 4. Repeat until all files are processed (or cycle detected).
+     *
+     * After this method completes, {@link _scriptBlobUrlMap} contains
+     * the Blob URL for every script, and the entry point can be
+     * dynamically imported with all cross-module imports pre-resolved.
+     *
+     * @internal
+     */
+    private async _prelinkAllScripts(): Promise<void> {
+        const zip = this._zip!;
+
+        // 1. Enumerate all .js files under scripts/
+        const scriptFiles: Map<string, string> = new Map(); // zipPath → source code
+
+        zip.forEach((relativePath, file) => {
+            if (
+                !file.dir &&
+                relativePath.startsWith("scripts/") &&
+                relativePath.endsWith(".js")
+            ) {
+                // Normalize separators (Windows ZIP tools may use backslashes)
+                const normalized = relativePath.replace(/\\/g, "/");
+                scriptFiles.set(normalized, ""); // source loaded below
+            }
+        });
+
+        // Read all source files in parallel
+        const readPromises: Promise<void>[] = [];
+        for (const [path] of scriptFiles) {
+            const file = zip.file(path);
+            if (file) {
+                readPromises.push(
+                    file.async("string").then(code => {
+                        scriptFiles.set(path, code);
+                    })
+                );
+            }
+        }
+        await Promise.all(readPromises);
+
+        console.log(`[Scenario] Pre-linking ${scriptFiles.size} script(s)...`);
+
+        // 2. Extract dependency info for each file
+        //    deps = set of normalized ZIP paths this file imports from
+        const fileDeps: Map<string, Set<string>> = new Map();
+
+        for (const [zipPath, code] of scriptFiles) {
+            const deps = new Set<string>();
+
+            // Find all relative import specifiers
+            let match: RegExpExecArray | null;
+            _RELATIVE_IMPORT_RE.lastIndex = 0;
+
+            while ((match = _RELATIVE_IMPORT_RE.exec(code)) !== null) {
+                const specifier = match[2]; // e.g. "./components/CameraOrbit"
+                const resolved = Scenario._resolveRelativeImport(zipPath, specifier);
+                if (resolved && scriptFiles.has(resolved)) {
+                    deps.add(resolved);
+                }
+            }
+
+            fileDeps.set(zipPath, deps);
+        }
+
+        // 3. Process in dependency order (iterative topological sort)
+        const resolved = this._scriptBlobUrlMap;
+        const remaining = new Set(scriptFiles.keys());
+        let lastSize = -1;
+
+        while (remaining.size > 0) {
+            if (remaining.size === lastSize) {
+                // No progress — circular dependency detected.
+                // Process remaining files anyway (browser may handle cycles).
+                console.warn(
+                    `[Scenario] Circular dependency detected among: ${[...remaining].join(", ")}. ` +
+                    `Processing anyway — runtime behavior may vary.`
+                );
+                for (const path of remaining) {
+                    this._createRewrittenBlobUrl(path, scriptFiles.get(path)!, resolved);
+                }
+                remaining.clear();
+                break;
+            }
+
+            lastSize = remaining.size;
+
+            for (const path of remaining) {
+                const deps = fileDeps.get(path)!;
+                const allDepsResolved = [...deps].every(d => resolved.has(d));
+
+                if (allDepsResolved) {
+                    this._createRewrittenBlobUrl(path, scriptFiles.get(path)!, resolved);
+                    remaining.delete(path);
+                }
+            }
+        }
+
+        console.log(`[Scenario] Pre-linked ${resolved.size} script(s).`);
+    }
+
+    /**
+     * Rewrites relative imports in source code to Blob URLs, then
+     * creates and registers a Blob URL for the file.
+     *
+     * @param zipPath — normalized path in the ZIP (e.g. "scripts/Scenario.js").
+     * @param code — original source code.
+     * @param resolved — map of already-resolved zipPath → blobURL.
+     *
+     * @internal
+     */
+    private _createRewrittenBlobUrl(
+        zipPath: string,
+        code: string,
+        resolved: Map<string, string>
+    ): void {
+        // Rewrite relative imports to Blob URLs
+        _RELATIVE_IMPORT_RE.lastIndex = 0;
+
+        const rewritten = code.replace(
+            _RELATIVE_IMPORT_RE,
+            (fullMatch: string, quote: string, specifier: string) => {
+                const target = Scenario._resolveRelativeImport(zipPath, specifier);
+
+                if (target && resolved.has(target)) {
+                    // Replace the specifier with the Blob URL
+                    return fullMatch.replace(
+                        `${quote}${specifier}${quote}`,
+                        `${quote}${resolved.get(target)!}${quote}`
+                    );
+                }
+
+                // Leave unchanged (bare specifier or unresolved)
+                return fullMatch;
+            }
+        );
+
+        // Create Blob URL
+        const blob = new Blob([rewritten], { type: "application/javascript" });
+        const blobUrl = URL.createObjectURL(blob);
+        this._scriptBlobUrls.push(blobUrl);
+        resolved.set(zipPath, blobUrl);
+    }
+
+    /**
+     * Resolves a relative import specifier to a normalized ZIP path.
+     *
+     * Handles:
+     * - `./components/CameraOrbit` → `scripts/components/CameraOrbit.js`
+     * - `./components/CameraOrbit.js` → `scripts/components/CameraOrbit.js`
+     * - `../helpers/utils` → `scripts/helpers/utils.js` (from scripts/sub/)
+     *
+     * @param fromPath — the importing file's ZIP path (e.g. "scripts/Scenario.js").
+     * @param specifier — the relative specifier (e.g. "./components/CameraOrbit").
+     * @returns normalized ZIP path, or null if resolution fails.
+     *
+     * @internal
+     */
+    private static _resolveRelativeImport(
+        fromPath: string,
+        specifier: string
+    ): string | null {
+        // Get the directory of the importing file
+        const lastSlash = fromPath.lastIndexOf("/");
+        const fromDir = lastSlash >= 0 ? fromPath.substring(0, lastSlash) : "";
+
+        // Resolve relative to the importing file's directory
+        const parts = `${fromDir}/${specifier}`.split("/");
+        const resolved: string[] = [];
+
+        for (const part of parts) {
+            if (part === "." || part === "") continue;
+            if (part === "..") {
+                resolved.pop();
+            } else {
+                resolved.push(part);
+            }
+        }
+
+        let result = resolved.join("/");
+
+        // Ensure .js extension
+        if (!result.endsWith(".js")) {
+            result += ".js";
+        }
+
+        return result;
+    }
+
     // ==================== PRIVATE: ENTRY POINT LOADING ====================
 
     /**
-     * Loads the entry point module from the ZIP using Blob URL + dynamic import().
+     * Loads the entry point module from the pre-linked script registry.
      *
-     * The module must have a default export that implements IScenarioEntryPoint.
-     * If the default export is a class (has .prototype), it is instantiated with new.
-     * If it is a plain object, it is used directly.
-     *
-     * @returns the entry point instance.
+     * @param context — the scenario context (passed to legacy adapter if needed).
+     * @returns the ScenarioBehaviour instance.
      */
-    private async _loadEntryPoint(): Promise<IScenarioEntryPoint> {
+    private async _loadEntryPoint(
+        context: IScenarioContext
+    ): Promise<ScenarioBehaviour> {
         const manifest = this._manifest!;
-        const zip = this._zip!;
-
         const entryPath = `scripts/${manifest.entryPoint}`;
-        const entryFile = zip.file(entryPath);
 
-        if (!entryFile) {
-            throw new Error(`[Scenario] Entry point not found in ZIP: ${entryPath}`);
+        // Look up in pre-linked registry
+        const blobUrl = this._scriptBlobUrlMap.get(entryPath);
+        if (!blobUrl) {
+            throw new Error(
+                `[Scenario] Entry point not found: "${entryPath}". ` +
+                `Available scripts: ${[...this._scriptBlobUrlMap.keys()].join(", ")}`
+            );
         }
 
-        const module = await this._importScriptModule(entryPath);
+        let module: Record<string, unknown>;
+        try {
+            module = await import(/* @vite-ignore */ blobUrl) as Record<string, unknown>;
+        } catch (error) {
+            throw new Error(
+                `[Scenario] Failed to import entry point "${manifest.entryPoint}": ${error}`
+            );
+        }
 
         // Validate default export
         const defaultExport = module.default;
         if (!defaultExport) {
             throw new Error(
                 `[Scenario] Entry point "${manifest.entryPoint}" has no default export. ` +
-                "The entry point module must export a default class or object implementing IScenarioEntryPoint."
+                "The entry point module must export a default class extending ScenarioBehaviour."
             );
         }
 
-        // Instantiate if it's a class, use directly if it's an object
-        let entryPoint: IScenarioEntryPoint;
+        // Instantiate if it's a class
+        let instance: unknown;
 
         if (typeof defaultExport === "function" && defaultExport.prototype) {
-            // It's a class — instantiate
-            // Cast is safe: the typeof + .prototype guard above proves constructability.
-            const EntryClass = defaultExport as new () => IScenarioEntryPoint;
-            entryPoint = new EntryClass();
+            const EntryClass = defaultExport as new () => unknown;
+            instance = new EntryClass();
         } else if (typeof defaultExport === "object") {
-            // It's a plain object
-            entryPoint = defaultExport as IScenarioEntryPoint;
+            instance = defaultExport;
         } else {
             throw new Error(
                 `[Scenario] Entry point default export must be a class or object, got: ${typeof defaultExport}`
             );
         }
 
-        // Validate onSetup
-        if (typeof entryPoint.onSetup !== "function") {
-            throw new Error(
-                `[Scenario] Entry point must implement onSetup(context). ` +
-                `Found: ${typeof entryPoint.onSetup}`
-            );
+        // Check if it's a ScenarioBehaviour (preferred path)
+        // NOTE: We use a brand check instead of `instanceof` because
+        // the scenario's module may come from a different bundle (standalone
+        // import map build) where ScenarioBehaviour is a separate class instance.
+        if (Scenario._isScenarioBehaviour(instance)) {
+            return instance as ScenarioBehaviour;
         }
 
-        return entryPoint;
+        // Legacy fallback: check for IScenarioEntryPoint shape
+        const legacy = instance as Partial<IScenarioEntryPoint>;
+        if (typeof legacy.onSetup === "function") {
+            console.warn(
+                `[Scenario] Entry point uses deprecated IScenarioEntryPoint interface. ` +
+                `Migrate to ScenarioBehaviour. See ScenarioTypes.ts for migration guide.`
+            );
+            return Scenario._createLegacyAdapter(legacy as IScenarioEntryPoint, context);
+        }
+
+        throw new Error(
+            `[Scenario] Entry point must extend ScenarioBehaviour. ` +
+            `Got an object that is neither a ScenarioBehaviour nor a legacy IScenarioEntryPoint.`
+        );
     }
 
     /**
-     * Loads an ES module from the ZIP's scripts/ directory via Blob URL + dynamic import().
+     * Duck-type check for ScenarioBehaviour instances across bundle boundaries.
      *
-     * The blob URL is tracked and revoked on unload.
+     * When the scenario loads `from "WebEngineTS"` via import map, it gets
+     * classes from the standalone bundle — a different copy than what the
+     * Angular host uses. `instanceof` fails across copies, so we check
+     * for the `__scenarioBehaviour` brand marker on the constructor.
      *
-     * @param scriptPath — full path inside the ZIP (e.g. "scripts/Scenario.js").
+     * @internal
+     */
+    private static _isScenarioBehaviour(obj: unknown): boolean {
+        if (!obj || typeof obj !== "object") return false;
+
+        const ctor = (obj as Record<string, unknown>).constructor;
+        if (!ctor || typeof ctor !== "function") return false;
+
+        // Brand check: ScenarioBehaviour.__scenarioBehaviour === true
+        if ((ctor as unknown as Record<string, unknown>).__scenarioBehaviour === true) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Wraps a legacy IScenarioEntryPoint in a ScenarioBehaviour adapter.
+     *
+     * @internal
+     */
+    private static _createLegacyAdapter(
+        legacy: IScenarioEntryPoint,
+        context: IScenarioContext
+    ): ScenarioBehaviour {
+        const adapter = new ScenarioBehaviour();
+
+        adapter.awake = () => legacy.onSetup(context);
+
+        if (legacy.onUpdate) {
+            adapter.update = () => legacy.onUpdate!();
+        }
+
+        if (legacy.onTeardown) {
+            adapter.onDestroy = () => legacy.onTeardown!();
+        }
+
+        return adapter;
+    }
+
+    /**
+     * Loads an ES module from the pre-linked registry or directly from ZIP.
+     *
+     * Used by `context.importScript()` for on-demand loading.
+     *
+     * @param scriptPath — full path inside the ZIP (e.g. "scripts/helpers/utils.js").
      * @returns the module namespace object.
      */
     private async _importScriptModule(
         scriptPath: string
     ): Promise<Record<string, unknown>> {
+        // Try pre-linked registry first
+        const blobUrl = this._scriptBlobUrlMap.get(scriptPath);
+        if (blobUrl) {
+            try {
+                const module = await import(/* @vite-ignore */ blobUrl);
+                return module as Record<string, unknown>;
+            } catch (error) {
+                throw new Error(
+                    `[Scenario] Failed to import script "${scriptPath}": ${error}`
+                );
+            }
+        }
+
+        // Fallback: load directly from ZIP (e.g. dynamically loaded scripts)
         const zip = this._zip!;
         const file = zip.file(scriptPath);
 
@@ -485,16 +789,12 @@ export class Scenario extends EngineObject {
         }
 
         const code = await file.async("string");
-
-        // Create a Blob URL so the browser treats this as an ES module
         const blob = new Blob([code], { type: "application/javascript" });
-        const blobUrl = URL.createObjectURL(blob);
-        this._scriptBlobUrls.push(blobUrl);
+        const url = URL.createObjectURL(blob);
+        this._scriptBlobUrls.push(url);
 
         try {
-            // Dynamic import — the browser's native ES module loader handles this.
-            // Bare specifiers like `from "webunity"` are resolved via the host page's import map.
-            const module = await import(/* @vite-ignore */ blobUrl);
+            const module = await import(/* @vite-ignore */ url);
             return module as Record<string, unknown>;
         } catch (error) {
             throw new Error(
@@ -506,7 +806,7 @@ export class Scenario extends EngineObject {
     // ==================== PRIVATE: CONTEXT ====================
 
     /**
-     * Builds the IScenarioContext passed to the entry point's onSetup().
+     * Builds the IScenarioContext passed to ScenarioBehaviour.
      */
     private _createContext(): IScenarioContext {
         return {
@@ -518,10 +818,6 @@ export class Scenario extends EngineObject {
 
     /**
      * Implementation of context.importScript() — loads a module from scripts/.
-     *
-     * Normalizes the path and delegates to _importScriptModule().
-     *
-     * @param path — path relative to scripts/ (e.g. "helpers/math.js").
      */
     private async _importScriptFromContext(
         path: string
@@ -591,16 +887,12 @@ export class Scenario extends EngineObject {
     /**
      * Creates and loads a scenario from a raw ArrayBuffer.
      *
-     * This is the primary entry point for Angular integration where
-     * the host downloads the ZIP via HttpClient.
-     *
      * @param data — the ZIP file as an ArrayBuffer.
      * @param name — optional name (overridden by manifest.name after parsing).
      * @returns a loaded Scenario in the `Ready` state.
      *
      * @example
      * ```ts
-     * // Angular component
      * const data = await this.http.get(url, { responseType: 'arraybuffer' })
      *     .toPromise();
      * const scenario = await Scenario.loadFromBuffer(data);
@@ -618,8 +910,6 @@ export class Scenario extends EngineObject {
 
     /**
      * Creates and loads a scenario from a File object.
-     *
-     * Convenient for `<input type="file">` upload flows.
      *
      * @param file — a File object containing the ZIP.
      * @returns a loaded Scenario in the `Ready` state.

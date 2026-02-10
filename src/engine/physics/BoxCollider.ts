@@ -3,11 +3,12 @@ import { Collider } from "./Collider";
 import { Vector3 } from "../core/math/Vector3";
 import { GameObject } from "../core/GameObject";
 
+/*
 export class BoxCollider extends Collider {
     private _center: Vector3 = new Vector3(0, 0, 0);
     private _size: Vector3 = new Vector3(1, 1, 1);
 
-    /** @internal Невидимий меш для фізичних прорахунків */
+    /!** @internal Невидимий меш для фізичних прорахунків *!/
     private _shape: THREE.Mesh;
 
     constructor(gameObject: GameObject) {
@@ -38,8 +39,8 @@ export class BoxCollider extends Collider {
         this._shape.scale.set(value.x, value.y, value.z);
     }
 
-    /** @internal */
+    /!** @internal *!/
     public _getPhysicsShape(): THREE.Object3D {
         return this._shape;
     }
-}
+}*/

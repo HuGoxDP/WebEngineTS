@@ -23,12 +23,11 @@ const _clearColor = new THREE.Color();
  * Equivalent to Unity's `Application` + the internal PlayerLoop.
  *
  * **Update order per frame (Unity-compatible):**
- * 1. `FixedUpdate` (may run 0–N times to catch up with physics time)
- * 2. `Update`
- * 3. `LateUpdate`
- * 4. Scenario `onUpdate` (if a scenario is running)
- * 5. Render (find camera → render scene)
- * 6. Input reset
+ * 1. `FixedUpdate` — components then scenario (may run 0–N times)
+ * 2. `Update` — components then scenario
+ * 3. `LateUpdate` — components then scenario
+ * 4. Render (find camera → render scene)
+ * 5. Input reset
  *
  * **Three.js isolation:**
  * The `THREE.WebGLRenderer` is an internal detail. It is never exposed
@@ -36,8 +35,9 @@ const _clearColor = new THREE.Color();
  *
  * **Scenario integration:**
  * Application provides convenience methods for loading and running
- * scenarios. The game loop automatically calls `Scenario._onUpdate()`
- * each frame while a scenario is active.
+ * scenarios. The game loop automatically calls the scenario's
+ * `_onFixedUpdate()`, `_onUpdate()`, and `_onLateUpdate()` each frame
+ * while a scenario is active, matching ScenarioBehaviour's lifecycle.
  *
  * @example
  * ```ts
@@ -307,6 +307,13 @@ export class Application {
     /**
      * @internal
      * The main game loop — called once per animation frame.
+     *
+     * **Update order (Unity-compatible):**
+     * 1. FixedUpdate — components, then scenario (0–N times)
+     * 2. Update — components, then scenario
+     * 3. LateUpdate — components, then scenario
+     * 4. Render
+     * 5. Input reset
      */
     private _loop = (): void => {
         if (!this.isPlaying) return;
@@ -325,28 +332,37 @@ export class Application {
         // 2. Update engine time
         Time._update(frameDelta);
 
-        // 3. Fixed updates (physics timestep)
+        // 3. Get active scene and scenario
         const scene = SceneManager.activeScene;
+        const scenario = Scenario.current;
+        const scenarioRunning = scenario?.isRunning ?? false;
+
+        // 4. Fixed updates (physics timestep) — components then scenario
         this._fixedUpdateAccumulator += frameDelta;
         while (this._fixedUpdateAccumulator >= EngineSettings.Time.FIXED_TIMESTEP) {
             scene._fixedUpdate();
+            if (scenarioRunning) {
+                scenario!._onFixedUpdate();
+            }
             this._fixedUpdateAccumulator -= EngineSettings.Time.FIXED_TIMESTEP;
         }
 
-        // 4. Per-frame updates
+        // 5. Per-frame updates — components then scenario
         scene._update();
-        scene._lateUpdate();
-
-        // 5. Scenario-level update (entry point onUpdate)
-        const scenario = Scenario.current;
-        if (scenario?.isRunning) {
-            scenario._onUpdate();
+        if (scenarioRunning) {
+            scenario!._onUpdate();
         }
 
-        // 6. Render
+        // 6. Late updates — components then scenario
+        scene._lateUpdate();
+        if (scenarioRunning) {
+            scenario!._onLateUpdate();
+        }
+
+        // 7. Render
         this._render();
 
-        // 7. Reset per-frame input state
+        // 8. Reset per-frame input state
         Input._resetFrame();
     };
 

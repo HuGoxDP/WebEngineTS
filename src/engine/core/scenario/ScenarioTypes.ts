@@ -90,8 +90,8 @@ export interface IScenarioManifest {
     /**
      * Path to the entry point module, relative to `scripts/`.
      *
-     * The module must have a **default export** that implements
-     * {@link IScenarioEntryPoint}.
+     * The module must have a **default export** — a class that extends
+     * {@link ScenarioBehaviour}.
      *
      * @example `"Scenario.js"` → loaded from `scripts/Scenario.js`
      */
@@ -225,17 +225,17 @@ export interface IAssetProvider {
 // ==================== SCENARIO CONTEXT ====================
 
 /**
- * The context object passed to the scenario entry point's `onSetup()`.
+ * The context object available via `this.context` in {@link ScenarioBehaviour}.
  *
  * Provides everything the scenario needs to interact with the engine:
  * - The scenario manifest (read-only metadata)
  * - An asset provider for loading textures, models, and raw files
- * - A scene reference for the scenario's dedicated scene
+ * - A script importer for loading sub-modules from the ZIP
  *
  * @remarks
  * Engine core classes (GameObject, Vector3, Camera, etc.) are **not**
  * provided through this context — they are imported directly by the
- * scenario's ES modules via `import { GameObject } from "webunity"`.
+ * scenario's ES modules via `import { GameObject } from "WebEngineTS"`.
  *
  * The context provides only **runtime-specific** services that can't
  * be statically imported (manifest data, asset loading from the ZIP).
@@ -249,8 +249,10 @@ export interface IScenarioContext {
      *
      * @example
      * ```ts
-     * const texture = await context.assets.loadTexture("brick.png");
-     * material.albedoTexture = texture;
+     * async awake(): Promise<void> {
+     *     const texture = await this.context.assets.loadTexture("brick.png");
+     *     material.albedoTexture = texture;
+     * }
      * ```
      */
     readonly assets: IAssetProvider;
@@ -267,112 +269,58 @@ export interface IScenarioContext {
      *
      * @example
      * ```ts
-     * const utils = await context.importScript("utils/GridBuilder.js");
-     * const grid = utils.createGrid(10, 10);
+     * async awake(): Promise<void> {
+     *     const utils = await this.context.importScript("utils/GridBuilder.js");
+     *     const grid = utils.createGrid(10, 10);
+     * }
      * ```
      */
     importScript(path: string): Promise<Record<string, unknown>>;
 }
 
-// ==================== ENTRY POINT CONTRACT ====================
+// ==================== ENTRY POINT CONTRACT (DEPRECATED) ====================
 
 /**
- * The contract that a scenario's entry point module must fulfill.
+ * The legacy contract for scenario entry points.
  *
- * The entry point JS file (specified in `manifest.entryPoint`) must
- * have a **default export** — either a class or a plain object — that
- * implements this interface.
+ * @deprecated Use {@link ScenarioBehaviour} instead. Extend `ScenarioBehaviour`
+ * and override its lifecycle methods (`awake`, `start`, `update`, etc.).
  *
- * @remarks
- * Equivalent pattern to a Unity MonoBehaviour on a "bootstrap" GameObject,
- * but without requiring the full component lifecycle since the entry point
- * is not attached to a Transform.
+ * This interface is retained for backward compatibility and will be
+ * removed in a future version.
  *
- * **Lifecycle:**
- * 1. Engine loads the module via `Blob URL + dynamic import()`.
- * 2. Engine reads `module.default`.
- *    - If it's a class (has `.prototype`), the engine instantiates it with `new`.
- *    - If it's a plain object, it's used directly.
- * 3. `onSetup(context)` is called once — the scenario builds its scene here.
- * 4. `onUpdate()` (if defined) is called every frame while the scenario runs.
- * 5. `onTeardown()` is called once before the scenario is unloaded.
- *
- * @example
+ * **Migration guide:**
  * ```ts
- * // scripts/Scenario.ts (compiled to Scenario.js)
- * import { GameObject, Camera, MeshFilter, MeshRenderer,
- *          Mesh, StandardMaterial, Vector3, Quaternion,
- *          DirectionalLight, ScriptableBehaviour } from "webunity";
- * import type { IScenarioContext } from "webunity";
- *
- * class RotateCube extends ScriptableBehaviour {
- *     onUpdate(): void {
- *         this.transform.rotate(Vector3.up, 90 * Time.deltaTime);
- *     }
+ * // BEFORE (deprecated):
+ * export default class MyScenario {
+ *     async onSetup(context: IScenarioContext): Promise<void> { ... }
+ *     onUpdate(): void { ... }
+ *     onTeardown(): void { ... }
  * }
  *
- * export default class MyScenario {
- *     async onSetup(context: IScenarioContext): Promise<void> {
- *         // Camera
- *         const camGo = new GameObject("Main Camera");
- *         camGo.tag = "MainCamera";
- *         const cam = camGo.addComponent(Camera);
- *         cam.fieldOfView = 60;
- *         camGo.transform.position = new Vector3(0, 2, 5);
- *         camGo.transform.lookAt(Vector3.zero);
+ * // AFTER (recommended):
+ * import { ScenarioBehaviour } from "WebEngineTS";
  *
- *         // Light
- *         const lightGo = new GameObject("Sun");
- *         lightGo.addComponent(DirectionalLight);
- *         lightGo.transform.rotation = Quaternion.euler(50, -30, 0);
- *
- *         // Cube with rotation script
- *         const cube = new GameObject("Cube");
- *         cube.addComponent(MeshFilter).sharedMesh = Mesh.createCube();
- *         cube.addComponent(MeshRenderer).sharedMaterial = new StandardMaterial();
- *         cube.addComponent(RotateCube);
- *     }
- *
- *     onTeardown(): void {
- *         console.log("Scenario ended!");
- *     }
+ * export default class MyScenario extends ScenarioBehaviour {
+ *     async awake(): Promise<void> { ... }  // replaces onSetup
+ *     update(): void { ... }                // replaces onUpdate
+ *     onDestroy(): void { ... }             // replaces onTeardown
  * }
  * ```
  */
 export interface IScenarioEntryPoint {
     /**
-     * Called once when the scenario starts.
-     *
-     * This is where the scenario creates its scene — cameras, lights,
-     * GameObjects, scripts, and any async asset loading.
-     *
-     * @param context — provides manifest info, asset loading, and script importing.
+     * @deprecated Use {@link ScenarioBehaviour.awake} instead.
      */
     onSetup(context: IScenarioContext): void | Promise<void>;
 
     /**
-     * Called every frame while the scenario is running (optional).
-     *
-     * Use this for scenario-level logic that doesn't belong to any
-     * specific GameObject / component. Most per-object logic should
-     * live in ScriptableBehaviour subclasses instead.
-     *
-     * @remarks
-     * This runs AFTER all component Update() calls for the frame.
+     * @deprecated Use {@link ScenarioBehaviour.update} instead.
      */
     onUpdate?(): void;
 
     /**
-     * Called once before the scenario is unloaded (optional).
-     *
-     * Use this for cleanup that goes beyond what the engine handles
-     * automatically (e.g., closing WebSocket connections, stopping
-     * custom audio, saving user progress to a server).
-     *
-     * @remarks
-     * The engine automatically handles: destroying all GameObjects,
-     * releasing textures/materials, revoking blob URLs, clearing the
-     * Scene. You only need onTeardown for non-engine resources.
+     * @deprecated Use {@link ScenarioBehaviour.onDestroy} instead.
      */
     onTeardown?(): void;
 }

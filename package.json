@@ -1,23 +1,59 @@
 {
-  "name": "threejs-engine",
-  "private": true,
-  "version": "0.0.0",
+  "name": "WebEngineTS",
+  "version": "0.1.0",
+  "description": "Unity-like game engine for the web, built on TypeScript + Three.js",
   "type": "module",
-  "scripts": {},
-  "devDependencies": {
-    "@rollup/plugin-commonjs": "^29.0.0",
-    "@rollup/plugin-node-resolve": "^16.0.3",
-    "@rollup/plugin-typescript": "^12.3.0",
-    "@types/node": "^25.0.3",
-    "@types/three": "^0.182.0",
-    "rollup": "^4.57.1",
-    "rollup-plugin-dts": "^6.3.0",
-    "tslib": "^2.8.1",
-    "typescript": "~5.9.3"
+  "main": "./dist/WebEngineTS.cjs.js",
+  "module": "./dist/WebEngineTS.esm.js",
+  "types": "./dist/WebEngineTS.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/WebEngineTS.esm.js",
+      "require": "./dist/WebEngineTS.cjs.js",
+      "types": "./dist/WebEngineTS.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c rollup.config.mjs",
+    "dev": "rollup -c rollup.config.mjs --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  },
+  "peerDependenciesMeta": {
+    "three": {
+      "optional": false
+    }
   },
   "dependencies": {
+    "@types/node": "^25.2.2",
     "jszip": "^3.10.1",
     "reflect-metadata": "^0.2.2",
-    "three": "^0.182.0"
-  }
+    "tslib": "^2.8.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.0",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "@types/three": "^0.182.0",
+    "rollup": "^4.57.0",
+    "rollup-plugin-dts": "^6.3.0",
+    "typescript": "^5.9.0"
+  },
+  "keywords": [
+    "game-engine",
+    "threejs",
+    "unity",
+    "webgl",
+    "typescript",
+    "3d"
+  ],
+  "license": "MIT",
+  "sideEffects": false
 }

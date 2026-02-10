@@ -140,7 +140,7 @@ export class LineRenderer extends Renderer {
         });
         
         this._threeLine = new THREE.Line(geometry, material);
-        this._threeObject = this._threeLine;
+       // this._threeObject = this._threeLine;
         
         // Додаємо до сцени через Transform
         if (this.gameObject?.transform._internalObject3D) {
@@ -175,7 +175,7 @@ export class LineRenderer extends Renderer {
         }
         
         this._threeLine = null;
-        this._threeObject = null;
+      //  this._threeObject = null;
         
         super.onDestroy();
     }
@@ -539,18 +539,18 @@ export class LineRenderer extends Renderer {
 
     // === Реалізація абстрактних методів Renderer ===
 
-    protected override updateMaterial(): void {
+  /*  protected override updateMaterial(): void {
         if (!this._threeLine) return;
         
-        const mat = this._materialInstance || this._sharedMaterial;
+       // const mat = this._materialInstance || this._sharedMaterial;
         
         if (mat) {
             // Для лінії використовуємо LineBasicMaterial
             // TODO: конвертувати Material в LineBasicMaterial
         }
-    }
+    }*/
 
-    protected override updateMaterials(): void {
+   /* protected override updateMaterials(): void {
         this.updateMaterial();
-    }
+    }*/
 }

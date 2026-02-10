@@ -1,21 +1,21 @@
 // src/engine/index.ts
 // ============================================
-// ThreeJS Engine - Unity-like API
+// WebEngineTS - Unity-like API
 // ============================================
 //
-// Використання (як у Unity):
+// Usage (like Unity):
 //
 //   Unity C#:
 //     using UnityEngine;
 //
-//   ThreeJS Engine:
-//     import { Vector3, GameObject, Camera } from '@engine';
+//   WebEngineTS:
+//     import { Vector3, GameObject, Camera } from 'WebEngineTS';
 //
-// Все з одного місця - як UnityEngine namespace!
+// Everything from a single import — like UnityEngine namespace!
 // ============================================
 
 // =====================
-// CORE - Ядро двигуна
+// CORE - Engine core
 // =====================
 export { GameObject } from "./core/GameObject";
 export { Component } from "./core/Component";
@@ -32,14 +32,14 @@ export { Input } from "./core/Input";
 export { KeyCode } from "./core/KeyCode";
 
 // =====================
-// Physics - Фізика
+// Physics
 // =====================
 export { Physics } from "./physics/Physics";
 export { Ray } from "./core/math/Ray";
 export { RaycastHit } from "./physics/RaycastHit";
 
 // =====================
-// MATH - Математика
+// MATH
 // =====================
 export { Vector2 } from "./core/math/Vector2";
 export { Vector3 } from "./core/math/Vector3";
@@ -50,7 +50,7 @@ export { Bounds } from "./core/math/Bounds";
 export { Rect } from "./core/math/Rect";
 
 // =====================
-// GRAPHICS - Графіка
+// GRAPHICS
 // =====================
 export { Color } from "./core/math/Color";
 export { Mesh } from "./core/graphics/Mesh";
@@ -61,7 +61,7 @@ export { Material } from "./core/graphics/Material";
 export { StandardMaterial, MaterialRenderMode } from "./core/graphics/StandardMaterial";
 
 // =====================
-// COMPONENTS - Компоненти
+// COMPONENTS
 // =====================
 export { MeshFilter } from "./core/rendering/MeshFilter.ts";
 export { Renderer, ShadowCastingMode} from "./core/rendering/Renderer.ts";
@@ -73,10 +73,16 @@ export { Light, LightShadows, LightShadowResolution } from "./core/components/Li
 export { DirectionalLight } from "./core/components/DirectionalLight";
 
 // =====================
-// SCENARIO - Сценарії
+// SCENARIO
 // =====================
 export { Scenario } from "./core/scenario/Scenario";
+export { ScenarioBehaviour } from "./core/scenario/ScenarioBehaviour";
 export { ScenarioAssets } from "./core/scenario/ScenarioAssets";
 export { ScenarioCategory, ScenarioLoadState } from "./core/scenario/ScenarioTypes";
-export type { IScenarioManifest, IScenarioAuthor, IScenarioLoadProgress, IScenarioContext } from "./core/scenario/ScenarioTypes";
-
+export type {
+    IScenarioManifest,
+    IScenarioAuthor,
+    IScenarioLoadProgress,
+    IScenarioContext,
+    IScenarioEntryPoint,
+} from "./core/scenario/ScenarioTypes";

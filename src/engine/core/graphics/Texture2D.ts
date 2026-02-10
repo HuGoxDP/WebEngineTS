@@ -412,7 +412,7 @@ export class Texture2D extends Texture {
      * @param threeTexture — the Three.js texture to wrap.
      * @returns a new Texture2D wrapping the given handle.
      */
-    public static _fromThreeTexture(threeTexture: THREE.Texture): Texture2D {
+    public static override _fromThreeTexture(threeTexture: THREE.Texture): Texture2D {
         const image = threeTexture.image as HTMLImageElement | HTMLCanvasElement;
         const width = image?.width || 1;
         const height = image?.height || 1;
