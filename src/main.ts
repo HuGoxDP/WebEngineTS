@@ -1,6 +1,8 @@
-import { Application, Scenario, ScenarioLoadState } from "@engine";
+
 
 // Ініціалізація - Application створюється лише при запуску сценарію
+import {Application, Scenario, ScenarioLoadState} from "WebEngineTS";
+
 let app: Application | null = null;
 let currentScenario: Scenario | null = null;
 

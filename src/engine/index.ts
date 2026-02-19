@@ -71,6 +71,8 @@ export type { GradientColorKey, CurveKey } from "./core/components/LineRenderer"
 export { Camera, CameraClearFlags } from "./core/components/Camera";
 export { Light, LightShadows, LightShadowResolution } from "./core/components/Light";
 export { DirectionalLight } from "./core/components/DirectionalLight";
+export { PointLight } from "./core/components/PointLight";
+export { AmbientLight } from "./core/components/AmbientLight";
 
 // =====================
 // SCENARIO

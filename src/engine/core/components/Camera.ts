@@ -525,6 +525,8 @@ export class Camera extends Behaviour {
                 this._farClipPlane
             );
         }
+
+        this._threeCamera.rotateY(Math.PI);
     }
 
     /**
