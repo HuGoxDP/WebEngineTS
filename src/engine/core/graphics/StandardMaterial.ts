@@ -15,11 +15,11 @@ import { Texture2D } from "./Texture2D.ts";
 export enum MaterialRenderMode {
     /** Fully opaque (default). */
     Opaque = 0,
-    /** Alpha cutout — pixels below threshold are discarded. */
+    /** Alpha cutout â€” pixels below threshold are discarded. */
     Cutout = 1,
-    /** Fade transparency — alpha blending, no depth write. */
+    /** Fade transparency â€” alpha blending, no depth write. */
     Fade = 2,
-    /** Full transparency — alpha blending with depth write. */
+    /** Full transparency â€” alpha blending with depth write. */
     Transparent = 3
 }
 
@@ -114,7 +114,7 @@ export class StandardMaterial extends Material {
      * Smoothness (0 = rough, 1 = smooth).
      *
      * @remarks
-     * Unity uses **smoothness**, Three.js uses **roughness** (= 1 − smoothness).
+     * Unity uses **smoothness**, Three.js uses **roughness** (= 1 âˆ’ smoothness).
      * The conversion is handled automatically by `setFloat("_Glossiness", ...)`.
      */
     public get smoothness(): number {
@@ -222,7 +222,7 @@ export class StandardMaterial extends Material {
     }
 
     /**
-     * Ambient occlusion strength (0–1).
+     * Ambient occlusion strength (0â€“1).
      * @remarks Equivalent to Unity's `_OcclusionStrength` property.
      */
     public get occlusionStrength(): number {
@@ -244,11 +244,31 @@ export class StandardMaterial extends Material {
     }
 
     public set emissionColor(value: Color) {
+        // Store in property map (base class _syncColorToThree uses getHex
+        // which clamps to [0,1] — we override the Three.js sync below).
         this.setColor("_EmissionColor", value);
 
-        // Three.js needs emissiveIntensity synced separately
-        const intensity = Math.max(value.r, value.g, value.b);
-        (this._threeMatHandle as THREE.MeshStandardMaterial).emissiveIntensity = intensity;
+        // Split HDR emission into normalized color + intensity.
+        // Three.js formula: finalEmission = emissive * emissiveIntensity.
+        // We normalize so emissive.maxComponent = 1.0 and carry the
+        // HDR range in emissiveIntensity. This preserves color ratios
+        // even for values > 1 (e.g. setEmission(color, 5)).
+        const mat = this._threeMatHandle as THREE.MeshStandardMaterial;
+        const maxComp = Math.max(value.r, value.g, value.b);
+
+        if (maxComp > 0) {
+            mat.emissive.setRGB(
+                value.r / maxComp,
+                value.g / maxComp,
+                value.b / maxComp
+            );
+            mat.emissiveIntensity = maxComp;
+        } else {
+            mat.emissive.setRGB(0, 0, 0);
+            mat.emissiveIntensity = 0;
+        }
+
+        mat.needsUpdate = true;
     }
 
     /**

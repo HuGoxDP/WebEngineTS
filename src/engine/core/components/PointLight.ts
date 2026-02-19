@@ -19,7 +19,7 @@ import type { GameObject } from "../GameObject.ts";
  *
  * **Decay model:** Three.js uses physically-correct decay by default
  * (inverse-square falloff, `decay = 2`). This matches real-world behavior.
- * Unity uses a custom falloff curve that reaches zero at `range` — we
+ * Unity uses a custom falloff curve that reaches zero at `range` â€” we
  * approximate this by setting `distance = range` and `decay = 2`.
  *
  * @example
@@ -29,7 +29,7 @@ import type { GameObject } from "../GameObject.ts";
  * sunLight.intensity = 2;
  * sunLight.range = 50;
  * sunLight.color = new Color(1, 0.95, 0.8);
- * // Position at origin — light radiates outward in all directions
+ * // Position at origin â€” light radiates outward in all directions
  * sunGo.transform.position = Vector3.zero;
  * ```
  */
@@ -45,6 +45,17 @@ export class PointLight extends Light {
      * In Unity, this is `Light.range`.
      */
     private _range: number = 10;
+
+    /**
+     * Rate at which light intensity falls off with distance.
+     *
+     * - `0` = no falloff (constant brightness within range)
+     * - `1` = linear falloff (1/distance)
+     * - `2` = physically correct inverse-square (1/distance²)
+     *
+     * Maps to Three.js `PointLight.decay`.
+     */
+    private _decay: number = 2;
 
     // ==================== CONSTRUCTOR ====================
 
@@ -62,13 +73,13 @@ export class PointLight extends Light {
      *
      * - `distance` = range (light fades to zero at this distance)
      * - `decay` = 2 (inverse-square falloff, physically correct)
-     * - Shadow map = 1024 × 1024 (lower default than DirectionalLight
-     *   because point light shadows use a cube map = 6× cost)
+     * - Shadow map = 1024 Ã— 1024 (lower default than DirectionalLight
+     *   because point light shadows use a cube map = 6Ã— cost)
      */
     protected override _createThreeLight(): THREE.Light {
-        const light = new THREE.PointLight(0xFFFFFF, 1, this._range, 2);
+        const light = new THREE.PointLight(0xFFFFFF, 1, this._range, this._decay);
 
-        // Default shadow setup (point light shadows are expensive — 6 faces)
+        // Default shadow setup (point light shadows are expensive â€” 6 faces)
         light.castShadow = false;
         light.shadow.mapSize.width = 1024;
         light.shadow.mapSize.height = 1024;
@@ -96,20 +107,47 @@ export class PointLight extends Light {
 
     public set range(value: number) {
         this._range = Math.max(0, value);
-        this._syncRange();
+        this._syncPointLightParams();
+    }
+
+    /**
+     * Rate at which light intensity diminishes with distance.
+     *
+     * Common values:
+     * - `0` — no falloff, constant brightness within range (artistic/stylized)
+     * - `1` — linear falloff, gentle dimming (good for game scenes)
+     * - `2` — inverse-square, physically correct (realistic but aggressive)
+     *
+     * @remarks
+     * Unity does not expose decay directly — it uses a built-in falloff
+     * curve. This property gives scenario authors explicit control.
+     *
+     * For solar system or large scenes, use `decay = 1` with high intensity.
+     * For indoor/realistic lighting, use `decay = 2`.
+     *
+     * @default 2
+     */
+    public get decay(): number {
+        return this._decay;
+    }
+
+    public set decay(value: number) {
+        this._decay = Math.max(0, value);
+        this._syncPointLightParams();
     }
 
     // ==================== PRIVATE SYNC ====================
 
     /**
      * @internal
-     * Pushes the range value to the Three.js point light.
+     * Pushes range and decay to the Three.js point light.
      */
-    private _syncRange(): void {
+    private _syncPointLightParams(): void {
         const light = this._internalThreeLight as THREE.PointLight | null;
         if (light === null) return;
 
         light.distance = this._range;
+        light.decay = this._decay;
 
         // Keep shadow camera in sync with range
         light.shadow.camera.far = Math.max(0.1, this._range);
