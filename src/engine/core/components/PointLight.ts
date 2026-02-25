@@ -19,7 +19,7 @@ import type { GameObject } from "../GameObject.ts";
  *
  * **Decay model:** Three.js uses physically-correct decay by default
  * (inverse-square falloff, `decay = 2`). This matches real-world behavior.
- * Unity uses a custom falloff curve that reaches zero at `range` â€” we
+ * Unity uses a custom falloff curve that reaches zero at `range`  we
  * approximate this by setting `distance = range` and `decay = 2`.
  *
  * @example
@@ -29,7 +29,7 @@ import type { GameObject } from "../GameObject.ts";
  * sunLight.intensity = 2;
  * sunLight.range = 50;
  * sunLight.color = new Color(1, 0.95, 0.8);
- * // Position at origin â€” light radiates outward in all directions
+ * // Position at origin  light radiates outward in all directions
  * sunGo.transform.position = Vector3.zero;
  * ```
  */
@@ -79,7 +79,7 @@ export class PointLight extends Light {
     protected override _createThreeLight(): THREE.Light {
         const light = new THREE.PointLight(0xFFFFFF, 1, this._range, this._decay);
 
-        // Default shadow setup (point light shadows are expensive â€” 6 faces)
+        // Default shadow setup (point light shadows are expensive  6 faces)
         light.castShadow = false;
         light.shadow.mapSize.width = 1024;
         light.shadow.mapSize.height = 1024;

@@ -15,11 +15,11 @@ import { Texture2D } from "./Texture2D.ts";
 export enum MaterialRenderMode {
     /** Fully opaque (default). */
     Opaque = 0,
-    /** Alpha cutout â€” pixels below threshold are discarded. */
+    /** Alpha cutout  pixels below threshold are discarded. */
     Cutout = 1,
-    /** Fade transparency â€” alpha blending, no depth write. */
+    /** Fade transparency  alpha blending, no depth write. */
     Fade = 2,
-    /** Full transparency â€” alpha blending with depth write. */
+    /** Full transparency  alpha blending with depth write. */
     Transparent = 3
 }
 
