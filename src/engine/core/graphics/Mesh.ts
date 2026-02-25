@@ -9,7 +9,7 @@ import * as THREE from "three";
 /**
  * Mesh.ts
  * Клас для зберігання та управління геометричними даними 3D мешу.
- * 
+ *
  * Меш містить:
  * - Вершини (vertices) - позиції точок у 3D просторі
  * - Нормалі (normals) - напрямки поверхонь для освітлення
@@ -18,7 +18,7 @@ import * as THREE from "three";
  * - Кольори вершин (colors)
  * - Індекси трикутників (triangles)
  * - Обмежувальну коробку (bounds)
- * 
+ *
  * Аналог Unity Mesh.
  */
 
@@ -71,7 +71,7 @@ export class SubMesh {
  */
 export class Mesh extends EngineObject {
     // ==================== ВЕРШИННІ ДАНІ ====================
-    
+
     /** Масив позицій вершин */
     private _vertices: Vector3[] = [];
     /** Масив нормалей (один вектор на вершину) */
@@ -88,26 +88,26 @@ export class Mesh extends EngineObject {
     private _uv4: Vector2[] = [];
     /** Кольори вершин */
     private _colors: Color[] = [];
-    
+
     // ==================== ІНДЕКСИ ====================
-    
+
     /** Масив індексів трикутників (кожні 3 індекси = 1 трикутник) */
     private _triangles: number[] = [];
     /** Формат індексів */
     private _indexFormat: IndexFormat = IndexFormat.UInt16;
-    
+
     // ==================== BOUNDS ====================
-    
+
     /** Обмежувальна коробка меша */
     private _bounds: Bounds = new Bounds();
-    
+
     // ==================== SUBMESHES ====================
-    
+
     /** Масив submesh для мультиматеріалів */
     private _subMeshes: SubMesh[] = [];
-    
+
     // ==================== INTERNAL ====================
-    
+
     /**
      * Внутрішня геометрія Three.js
      * НЕ використовувати напряму - лише для двигуна!
@@ -120,10 +120,10 @@ export class Mesh extends EngineObject {
         }
         return this._threeGeometry;
     }
-    
+
     /** Внутрішнє сховище для THREE.BufferGeometry */
     private _threeGeometry!: THREE.BufferGeometry;
-    
+
     /** Флаг чи потрібно оновити геометрію */
     private _needsUpdate: boolean = false;
 
@@ -306,12 +306,12 @@ export class Mesh extends EngineObject {
             console.warn(`[Mesh] SubMesh index ${index} cannot be negative`);
             return;
         }
-        
+
         // Розширити масив якщо потрібно
         while (this._subMeshes.length <= index) {
             this._subMeshes.push(new SubMesh());
         }
-        
+
         this._subMeshes[index] = submesh;
         this._needsUpdate = true;
     }
@@ -476,7 +476,7 @@ export class Mesh extends EngineObject {
 
         const min = new Vector3(minX, minY, minZ);
         const max = new Vector3(maxX, maxY, maxZ);
-        
+
         this._bounds.setMinMax(min, max);
     }
 
@@ -668,7 +668,7 @@ export class Mesh extends EngineObject {
      */
     public static createSphere(radius: number = 0.5, segments: number = 32): Mesh {
         const mesh = new Mesh("Sphere");
-        
+
         const widthSegments = Math.max(3, Math.floor(segments));
         const heightSegments = Math.max(2, Math.floor(segments / 2));
 
@@ -752,7 +752,7 @@ export class Mesh extends EngineObject {
             const y = iy * segmentHeight - halfHeight;
             for (let ix = 0; ix < gridX; ix++) {
                 const x = ix * segmentWidth - halfWidth;
-                
+
                 vertices.push(new Vector3(x, y, 0));
                 normals.push(new Vector3(0, 0, 1));
                 uvs.push(new Vector2(ix / widthSegs, 1 - (iy / heightSegs)));
@@ -791,7 +791,7 @@ export class Mesh extends EngineObject {
      */
     public static createCylinder(radius: number = 0.5, height: number = 1, segments: number = 32): Mesh {
         const mesh = new Mesh("Cylinder");
-        
+
         const radialSegments = Math.max(3, Math.floor(segments));
         const heightSegments = 1;
         const halfHeight = height / 2;
@@ -903,10 +903,10 @@ export class Mesh extends EngineObject {
      */
     public static createCapsule(radius: number = 0.5, height: number = 2, segments: number = 32): Mesh {
         const mesh = new Mesh("Capsule");
-        
+
         const radialSegments = Math.max(3, Math.floor(segments));
         const heightSegments = Math.max(1, Math.floor(segments / 4));
-        
+
         const cylinderHeight = Math.max(0, height - radius * 2);
         const halfCylinderHeight = cylinderHeight / 2;
 
@@ -931,10 +931,10 @@ export class Mesh extends EngineObject {
                 const z = radius * sinTheta * sinPhi;
 
                 vertices.push(new Vector3(x, y, z));
-                
+
                 const normal = new Vector3(x, y - halfCylinderHeight, z).normalized;
                 normals.push(normal);
-                
+
                 uvs.push(new Vector2(lon / radialSegments, 1 - lat / (heightSegments * 2)));
             }
         }
@@ -971,10 +971,10 @@ export class Mesh extends EngineObject {
                 const z = radius * sinTheta * sinPhi;
 
                 vertices.push(new Vector3(x, y, z));
-                
+
                 const normal = new Vector3(x, y + halfCylinderHeight, z).normalized;
                 normals.push(normal);
-                
+
                 uvs.push(new Vector2(lon / radialSegments, 0.5 - lat / (heightSegments * 2)));
             }
         }
@@ -1004,6 +1004,101 @@ export class Mesh extends EngineObject {
     }
 
     /**
+     * Creates a torus (donut shape) mesh.
+     *
+     * Use for orbit rings, halos, Saturn rings, or any circular path
+     * that needs to be visible as a 3D mesh with proper lighting.
+     *
+     * The torus lies in the XZ plane (Y-up), centered at origin.
+     *
+     * @param radius — distance from center of torus to center of tube.
+     * @param tube — radius of the tube cross-section.
+     * @param radialSegments — segments around the ring (default 64).
+     * @param tubularSegments — segments around the tube (default 8).
+     * @returns a new torus Mesh.
+     *
+     * @remarks Equivalent to Unity's built-in Torus primitive.
+     *
+     * @example
+     * ```ts
+     * // Orbit ring: radius 9 (Earth orbit), thin tube
+     * const orbitMesh = Mesh.createTorus(9, 0.02, 128, 6);
+     *
+     * // Saturn ring: radius 2.5, flat tube
+     * const ringMesh = Mesh.createTorus(2.5, 0.3, 64, 8);
+     * ```
+     */
+    public static createTorus(
+        radius: number = 1,
+        tube: number = 0.4,
+        radialSegments: number = 64,
+        tubularSegments: number = 8
+    ): Mesh {
+        const mesh = new Mesh("Torus");
+
+        const radSegs = Math.max(3, Math.floor(radialSegments));
+        const tubeSegs = Math.max(3, Math.floor(tubularSegments));
+
+        const vertices: Vector3[] = [];
+        const normals: Vector3[] = [];
+        const uvs: Vector2[] = [];
+        const indices: number[] = [];
+
+        for (let j = 0; j <= radSegs; j++) {
+            for (let i = 0; i <= tubeSegs; i++) {
+                const u = (i / tubeSegs) * Math.PI * 2;
+                const v = (j / radSegs) * Math.PI * 2;
+
+                const cosV = Math.cos(v);
+                const sinV = Math.sin(v);
+                const cosU = Math.cos(u);
+                const sinU = Math.sin(u);
+
+                // Position on the torus surface (XZ plane, Y-up)
+                const x = (radius + tube * cosU) * cosV;
+                const y = tube * sinU;
+                const z = (radius + tube * cosU) * sinV;
+
+                vertices.push(new Vector3(x, y, z));
+
+                // Normal = direction from ring center to surface point
+                const cx = radius * cosV;
+                const cz = radius * sinV;
+                const nx = x - cx;
+                const ny = y;
+                const nz = z - cz;
+                const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+                normals.push(new Vector3(nx / len, ny / len, nz / len));
+
+                // UV
+                uvs.push(new Vector2(j / radSegs, i / tubeSegs));
+            }
+        }
+
+        // Indices
+        for (let j = 0; j < radSegs; j++) {
+            for (let i = 0; i < tubeSegs; i++) {
+                const a = j * (tubeSegs + 1) + i;
+                const b = a + tubeSegs + 1;
+                const c = a + 1;
+                const d = b + 1;
+
+                indices.push(a, b, c);
+                indices.push(b, d, c);
+            }
+        }
+
+        mesh._vertices = vertices;
+        mesh._normals = normals;
+        mesh._uv = uvs;
+        mesh._triangles = indices;
+        mesh.recalculateBounds();
+        mesh._needsUpdate = true;
+
+        return mesh;
+    }
+
+    /**
      * Створити quad (прямокутник, 2 трикутники)
      * @param width Ширина quad
      * @param height Висота quad
@@ -1011,7 +1106,7 @@ export class Mesh extends EngineObject {
      */
     public static createQuad(width: number = 1, height: number = 1): Mesh {
         const mesh = new Mesh("Quad");
-        
+
         const halfWidth = width / 2;
         const halfHeight = height / 2;
 
@@ -1051,7 +1146,7 @@ export class Mesh extends EngineObject {
      */
     public clone(): Mesh {
         const cloned = new Mesh(this.name + " (Clone)");
-        
+
         // Копіюємо вершинні дані
         cloned._vertices = this._vertices.map(v => v.clone());
         cloned._normals = this._normals.map(n => n.clone());
@@ -1061,20 +1156,20 @@ export class Mesh extends EngineObject {
         cloned._uv3 = this._uv3.map(uv => uv.clone());
         cloned._uv4 = this._uv4.map(uv => uv.clone());
         cloned._colors = this._colors.map(c => c.clone());
-        
+
         // Копіюємо індекси
         cloned._triangles = [...this._triangles];
         cloned._indexFormat = this._indexFormat;
-        
+
         // Копіюємо submeshes
         cloned._subMeshes = this._subMeshes.map(sm => new SubMesh(sm.indexStart, sm.indexCount, sm.topology));
-        
+
         // Копіюємо bounds
         cloned._bounds = this._bounds.clone();
-        
+
         // Позначаємо як потребує оновлення
         cloned._needsUpdate = true;
-        
+
         return cloned;
     }
 
