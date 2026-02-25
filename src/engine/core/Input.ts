@@ -13,20 +13,20 @@ import { KeyCode } from "./KeyCode.ts";
  * Equivalent to Unity's `UnityEngine.Input`.
  *
  * **Keyboard:**
- * - {@link getKey} — true while held
- * - {@link getKeyDown} — true on the frame it was pressed
- * - {@link getKeyUp} — true on the frame it was released
- * - {@link anyKey} — true if any key is currently held
- * - {@link anyKeyDown} — true if any key was pressed this frame
+ * - {@link getKey}  true while held
+ * - {@link getKeyDown}  true on the frame it was pressed
+ * - {@link getKeyUp}  true on the frame it was released
+ * - {@link anyKey}  true if any key is currently held
+ * - {@link anyKeyDown}  true if any key was pressed this frame
  *
  * **Mouse:**
  * - {@link getMouseButton} / {@link getMouseButtonDown} / {@link getMouseButtonUp}
- * - {@link mousePosition} — pixel coordinates relative to canvas
- * - {@link mouseScrollDelta} — scroll wheel delta (vertical in y)
+ * - {@link mousePosition}  pixel coordinates relative to canvas
+ * - {@link mouseScrollDelta}  scroll wheel delta (vertical in y)
  *
  * **Axes:**
- * - {@link getAxis} — smoothed input (-1 to +1)
- * - {@link getAxisRaw} — instant input (-1, 0, or +1)
+ * - {@link getAxis}  smoothed input (-1 to +1)
+ * - {@link getAxisRaw}  instant input (-1, 0, or +1)
  *
  * @example
  * ```ts
@@ -67,8 +67,14 @@ export class Input {
     /** Internal mouse position (canvas-relative pixels). */
     private static _mousePosition: Vector2 = new Vector2(0, 0);
 
+    /** Mouse movement delta since last frame (pixels). */
+    private static _mouseDelta: Vector2 = new Vector2(0, 0);
+
     /** Internal scroll delta accumulated this frame. */
     private static _mouseScrollDelta: Vector2 = new Vector2(0, 0);
+
+    /** Whether the cursor is currently locked (pointer lock). */
+    private static _cursorLocked: boolean = false;
 
     // ==================== AXIS SMOOTHING ====================
 
@@ -106,6 +112,7 @@ export class Input {
         mousemove: (e: MouseEvent) => void;
         wheel: (e: WheelEvent) => void;
         contextmenu: (e: Event) => void;
+        pointerlockchange: () => void;
         resize: () => void;
     } | null = null;
 
@@ -115,7 +122,7 @@ export class Input {
      * @internal
      * Initializes input event listeners. Called once by Application.
      *
-     * @param canvas — the rendering canvas to attach mouse events to.
+     * @param canvas  the rendering canvas to attach mouse events to.
      */
     public static _init(canvas: HTMLCanvasElement): void {
         Input._canvas = canvas;
@@ -150,6 +157,12 @@ export class Input {
                     e.clientX - rect.left,
                     e.clientY - rect.top
                 );
+                // Accumulate movement delta for this frame.
+                // movementX/Y works in both normal and pointer-lock mode.
+                Input._mouseDelta.set(
+                    Input._mouseDelta.x + e.movementX,
+                    Input._mouseDelta.y + e.movementY
+                );
             },
             wheel: (e: WheelEvent) => {
                 // Accumulate scroll delta for this frame.
@@ -162,6 +175,9 @@ export class Input {
                 );
             },
             contextmenu: (e: Event) => e.preventDefault(),
+            pointerlockchange: () => {
+                Input._cursorLocked = document.pointerLockElement === canvas;
+            },
             resize: () => {
                 Input._canvasRect = canvas.getBoundingClientRect();
             },
@@ -180,6 +196,7 @@ export class Input {
         canvas.addEventListener("mousemove", handlers.mousemove);
         canvas.addEventListener("wheel", handlers.wheel, { passive: true });
         canvas.addEventListener("contextmenu", handlers.contextmenu);
+        document.addEventListener("pointerlockchange", handlers.pointerlockchange);
     }
 
     /**
@@ -201,6 +218,7 @@ export class Input {
         canvas.removeEventListener("mousemove", h.mousemove);
         canvas.removeEventListener("wheel", h.wheel);
         canvas.removeEventListener("contextmenu", h.contextmenu);
+        document.removeEventListener("pointerlockchange", h.pointerlockchange);
 
         Input._handlers = null;
         Input._canvas = null;
@@ -222,6 +240,7 @@ export class Input {
         }
 
         Input._mouseScrollDelta.set(0, 0);
+        Input._mouseDelta.set(0, 0);
     }
 
     /**
@@ -229,7 +248,7 @@ export class Input {
      * Updates smoothed axis values. Called once per frame by Application
      * with the current unscaled delta time.
      *
-     * @param dt — unscaled delta time for this frame (seconds).
+     * @param dt  unscaled delta time for this frame (seconds).
      */
     public static _updateAxes(dt: number): void {
         Input._smoothAxis("Horizontal", dt);
@@ -293,7 +312,7 @@ export class Input {
     /**
      * Returns `true` while the specified mouse button is held.
      *
-     * @param button — `0` = Left, `1` = Middle, `2` = Right
+     * @param button  `0` = Left, `1` = Middle, `2` = Right
      *
      * @remarks
      * Equivalent to Unity's `Input.GetMouseButton()`.
@@ -305,7 +324,7 @@ export class Input {
     /**
      * Returns `true` during the frame the mouse button was pressed.
      *
-     * @param button — `0` = Left, `1` = Middle, `2` = Right
+     * @param button  `0` = Left, `1` = Middle, `2` = Right
      *
      * @remarks
      * Equivalent to Unity's `Input.GetMouseButtonDown()`.
@@ -317,7 +336,7 @@ export class Input {
     /**
      * Returns `true` during the frame the mouse button was released.
      *
-     * @param button — `0` = Left, `1` = Middle, `2` = Right
+     * @param button  `0` = Left, `1` = Middle, `2` = Right
      *
      * @remarks
      * Equivalent to Unity's `Input.GetMouseButtonUp()`.
@@ -329,7 +348,7 @@ export class Input {
     /**
      * The current mouse position in pixel coordinates relative to the canvas.
      *
-     * Returns a **copy** — modifications do not affect internal state.
+     * Returns a **copy**  modifications do not affect internal state.
      *
      * @remarks
      * Equivalent to Unity's `Input.mousePosition`.
@@ -342,17 +361,74 @@ export class Input {
     /**
      * The mouse scroll delta accumulated during this frame.
      *
-     * - `y > 0` — scrolled up
-     * - `y < 0` — scrolled down
-     * - `x` — horizontal scroll (if available)
+     * - `y > 0`  scrolled up
+     * - `y < 0`  scrolled down
+     * - `x`  horizontal scroll (if available)
      *
-     * Returns a **copy** — modifications do not affect internal state.
+     * Returns a **copy**  modifications do not affect internal state.
      *
      * @remarks
      * Equivalent to Unity's `Input.mouseScrollDelta`.
      */
     public static get mouseScrollDelta(): Vector2 {
         return Input._mouseScrollDelta.clone();
+    }
+
+    /**
+     * The mouse movement delta since the last frame, in pixels.
+     *
+     * Works in both normal and pointer-lock mode. In pointer-lock mode
+     * this provides unlimited mouse movement (no screen edge clamping).
+     *
+     * Returns a **copy** — modifications do not affect internal state.
+     *
+     * @remarks
+     * Similar to Unity's `Input.GetAxis("Mouse X")` / `"Mouse Y"`,
+     * but returns raw pixel delta rather than a normalized value.
+     * Divide by screen dimensions or a sensitivity factor as needed.
+     */
+    public static get mouseDelta(): Vector2 {
+        return Input._mouseDelta.clone();
+    }
+
+    /**
+     * Whether the cursor is currently locked (pointer lock active).
+     *
+     * When locked, the cursor is hidden and mouse movement is unlimited
+     * (not clamped to screen edges). Use {@link lockCursor} to activate.
+     *
+     * @remarks
+     * Equivalent to Unity's `Cursor.lockState == CursorLockMode.Locked`.
+     */
+    public static get cursorLocked(): boolean {
+        return Input._cursorLocked;
+    }
+
+    /**
+     * Locks the cursor to the canvas (hides cursor, enables unlimited movement).
+     *
+     * Must be called from a user gesture (click, keypress) due to
+     * browser security restrictions.
+     *
+     * @remarks
+     * Equivalent to Unity's `Cursor.lockState = CursorLockMode.Locked`.
+     */
+    public static lockCursor(): void {
+        if (Input._canvas && !Input._cursorLocked) {
+            Input._canvas.requestPointerLock();
+        }
+    }
+
+    /**
+     * Unlocks the cursor (shows cursor, normal mouse behavior).
+     *
+     * @remarks
+     * Equivalent to Unity's `Cursor.lockState = CursorLockMode.None`.
+     */
+    public static unlockCursor(): void {
+        if (Input._cursorLocked) {
+            document.exitPointerLock();
+        }
     }
 
     // ==================== AXIS API ====================
@@ -416,7 +492,7 @@ export class Input {
             if (raw > 0 && next > raw) next = raw;
             if (raw < 0 && next < raw) next = raw;
         } else {
-            // No input — decay back toward zero at gravity rate
+            // No input decay back toward zero at gravity rate
             if (current > 0) {
                 next = Math.max(0, current - Input._AXIS_GRAVITY * dt);
             } else if (current < 0) {

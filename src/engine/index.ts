@@ -59,6 +59,7 @@ export { Texture2D, TextureFormat } from "./core/graphics/Texture2D";
 export { Shader, ShaderPropertyType } from "./core/graphics/Shader";
 export { Material } from "./core/graphics/Material";
 export { StandardMaterial, MaterialRenderMode } from "./core/graphics/StandardMaterial";
+export { UnlitMaterial } from "./core/graphics/UnlitMaterial";
 
 // =====================
 // COMPONENTS
@@ -73,7 +74,7 @@ export { Light, LightShadows, LightShadowResolution } from "./core/components/Li
 export { DirectionalLight } from "./core/components/DirectionalLight";
 export { PointLight } from "./core/components/PointLight";
 export { AmbientLight } from "./core/components/AmbientLight";
-
+export { CinematicCamera, CameraMode } from "./core/components/CinematicCamera";
 // =====================
 // SCENARIO
 // =====================
