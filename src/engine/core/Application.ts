@@ -16,17 +16,17 @@ const _clearColor = new THREE.Color();
  * The main engine entry point and game loop.
  *
  * Application owns the Three.js WebGLRenderer, drives the update/render
- * cycle, and manages the canvas. It is a singleton — only one instance
+ * cycle, and manages the canvas. It is a singleton - only one instance
  * may exist at a time.
  *
  * @remarks
  * Equivalent to Unity's `Application` + the internal PlayerLoop.
  *
  * **Update order per frame (Unity-compatible):**
- * 1. `FixedUpdate` — components then scenario (may run 0–N times)
- * 2. `Update` — components then scenario
- * 3. `LateUpdate` — components then scenario
- * 4. Render (find camera → render scene)
+ * 1. `FixedUpdate` - components then scenario (may run 0â€“N times)
+ * 2. `Update` - components then scenario
+ * 3. `LateUpdate` - components then scenario
+ * 4. Render (find camera â†’ render scene)
  * 5. Input reset
  *
  * **Three.js isolation:**
@@ -76,7 +76,7 @@ export class Application {
         return Application._instance?.isPlaying ?? false;
     }
 
-    /** Target frame rate (informational — actual rate depends on browser). */
+    /** Target frame rate (informational - actual rate depends on browser). */
     public static get targetFrameRate(): number {
         return 60; // TODO: make configurable
     }
@@ -91,7 +91,7 @@ export class Application {
 
     /**
      * The underlying Three.js renderer.
-     * @internal — never expose to engine users.
+     * @internal - never expose to engine users.
      */
     private readonly _threeRenderer: THREE.WebGLRenderer;
 
@@ -112,7 +112,7 @@ export class Application {
     /**
      * Creates a new Application bound to the given canvas.
      *
-     * @param canvas — the HTML canvas element to render into.
+     * @param canvas - the HTML canvas element to render into.
      */
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
@@ -124,6 +124,15 @@ export class Application {
             powerPreference: "high-performance",
         });
         this._threeRenderer.setPixelRatio(window.devicePixelRatio);
+
+        // Color management — sRGB output for correct gamma
+        this._threeRenderer.outputColorSpace = THREE.SRGBColorSpace;
+
+        // Tone mapping — compress HDR to LDR with natural look.
+        // ACESFilmic gives film-like contrast and smooth highlight rolloff,
+        // making emissive materials glow naturally without bloom post-processing.
+        this._threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this._threeRenderer.toneMappingExposure = 1.0;
 
         // Enable shadow maps
         this._threeRenderer.shadowMap.enabled = true;
@@ -176,8 +185,8 @@ export class Application {
      * 3. A Scene is created and the entry point is executed.
      * 4. If the game loop isn't running yet, it is started automatically.
      *
-     * @param data — the ZIP file as an ArrayBuffer.
-     * @param onProgress — optional callback for loading progress updates.
+     * @param data - the ZIP file as an ArrayBuffer.
+     * @param onProgress - optional callback for loading progress updates.
      * @returns the loaded and running Scenario instance.
      *
      * @example
@@ -217,8 +226,8 @@ export class Application {
      * Convenience wrapper: fetches the ZIP, then delegates to
      * {@link loadScenarioFromBuffer}.
      *
-     * @param url — URL to the ZIP archive.
-     * @param onProgress — optional callback for loading progress updates.
+     * @param url - URL to the ZIP archive.
+     * @param onProgress - optional callback for loading progress updates.
      * @returns the loaded and running Scenario instance.
      */
     public async loadScenarioFromUrl(
@@ -249,9 +258,9 @@ export class Application {
      * Unloads the currently running scenario (if any).
      *
      * Calls `Scenario.unload()` which handles the full cleanup chain:
-     * entry point teardown → Scene destruction → asset disposal.
+     * entry point teardown â†’ Scene destruction â†’ asset disposal.
      *
-     * The game loop continues running after unload — the canvas will
+     * The game loop continues running after unload - the canvas will
      * show a dark screen until a new scenario is loaded.
      */
     public unloadScenario(): void {
@@ -292,6 +301,59 @@ export class Application {
         console.log("[Application] Disposed.");
     }
 
+    // ==================== RENDERING QUALITY ====================
+
+    /**
+     * Global exposure multiplier for tone mapping.
+     *
+     * Higher values brighten the entire scene; lower values darken it.
+     * Only effective when tone mapping is enabled (default: ACES Filmic).
+     *
+     * @remarks
+     * Equivalent to Unity's post-processing Exposure override.
+     *
+     * @default 1.0
+     */
+    public get exposure(): number {
+        return this._threeRenderer.toneMappingExposure;
+    }
+
+    public set exposure(value: number) {
+        this._threeRenderer.toneMappingExposure = Math.max(0, value);
+    }
+
+    /**
+     * Whether shadow mapping is enabled globally.
+     *
+     * @remarks Equivalent to Unity's `QualitySettings.shadows`.
+     *
+     * @default true
+     */
+    public get shadowsEnabled(): boolean {
+        return this._threeRenderer.shadowMap.enabled;
+    }
+
+    public set shadowsEnabled(value: boolean) {
+        this._threeRenderer.shadowMap.enabled = value;
+    }
+
+    /**
+     * The device pixel ratio used for rendering.
+     *
+     * Set to `1` for performance, or `window.devicePixelRatio` for
+     * crisp rendering on high-DPI screens.
+     *
+     * @remarks Equivalent to Unity's `QualitySettings.resolutionScalingFixedDPIFactor`.
+     */
+    public get pixelRatio(): number {
+        return this._threeRenderer.getPixelRatio();
+    }
+
+    public set pixelRatio(value: number) {
+        this._threeRenderer.setPixelRatio(Math.max(0.5, Math.min(3, value)));
+        this._resize();
+    }
+
     // ==================== INTERNAL ACCESSOR ====================
 
     /**
@@ -306,12 +368,12 @@ export class Application {
 
     /**
      * @internal
-     * The main game loop — called once per animation frame.
+     * The main game loop - called once per animation frame.
      *
      * **Update order (Unity-compatible):**
-     * 1. FixedUpdate — components, then scenario (0–N times)
-     * 2. Update — components, then scenario
-     * 3. LateUpdate — components, then scenario
+     * 1. FixedUpdate - components, then scenario (0â€“N times)
+     * 2. Update - components, then scenario
+     * 3. LateUpdate - components, then scenario
      * 4. Render
      * 5. Input reset
      */
@@ -337,7 +399,7 @@ export class Application {
         const scenario = Scenario.current;
         const scenarioRunning = scenario?.isRunning ?? false;
 
-        // 4. Fixed updates (physics timestep) — components then scenario
+        // 4. Fixed updates (physics timestep) - components then scenario
         this._fixedUpdateAccumulator += frameDelta;
         while (this._fixedUpdateAccumulator >= EngineSettings.Time.FIXED_TIMESTEP) {
             scene._fixedUpdate();
@@ -347,13 +409,13 @@ export class Application {
             this._fixedUpdateAccumulator -= EngineSettings.Time.FIXED_TIMESTEP;
         }
 
-        // 5. Per-frame updates — components then scenario
+        // 5. Per-frame updates - components then scenario
         scene._update();
         if (scenarioRunning) {
             scenario!._onUpdate();
         }
 
-        // 6. Late updates — components then scenario
+        // 6. Late updates - components then scenario
         scene._lateUpdate();
         if (scenarioRunning) {
             scenario!._onLateUpdate();
@@ -372,7 +434,7 @@ export class Application {
      * @internal
      * Renders the active scene using the main camera.
      *
-     * Uses {@link Camera.main} to find the camera — no Three.js scene
+     * Uses {@link Camera.main} to find the camera - no Three.js scene
      * traversal needed.
      */
     private _render(): void {
@@ -389,17 +451,17 @@ export class Application {
             const threeCamera = mainCamera._internalThreeCamera;
 
             if (threeCamera !== null) {
-                // Use the camera's background color — reuse cached THREE.Color
+                // Use the camera's background color - reuse cached THREE.Color
                 const bg = mainCamera.backgroundColor;
                 _clearColor.setRGB(bg.r, bg.g, bg.b);
                 this._threeRenderer.setClearColor(_clearColor, bg.a);
                 this._threeRenderer.render(threeScene, threeCamera);
             }
         } else {
-            // No camera — render dark blue so the user knows the engine is alive
+            // No camera - render dark blue so the user knows the engine is alive
             if (this._firstRender) {
                 console.warn(
-                    "[Application] ⚠️ No camera found. Add a Camera component to a GameObject."
+                    "[Application] âš ï¸ No camera found. Add a Camera component to a GameObject."
                 );
                 this._firstRender = false;
             }
@@ -416,7 +478,7 @@ export class Application {
 
     /**
      * @internal
-     * Handles canvas resize — updates renderer size and camera aspect ratios.
+     * Handles canvas resize - updates renderer size and camera aspect ratios.
      */
     private _resize(): void {
         const width = window.innerWidth;

@@ -73,6 +73,7 @@ export { Camera, CameraClearFlags } from "./core/components/Camera";
 export { Light, LightShadows, LightShadowResolution } from "./core/components/Light";
 export { DirectionalLight } from "./core/components/DirectionalLight";
 export { PointLight } from "./core/components/PointLight";
+export { SpotLight} from "./core/components/SpotLight.ts";
 export { AmbientLight } from "./core/components/AmbientLight";
 export { CinematicCamera, CameraMode } from "./core/components/CinematicCamera";
 // =====================
