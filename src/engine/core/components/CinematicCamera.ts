@@ -182,10 +182,11 @@ export class CinematicCamera extends ScriptableBehaviour {
         const dt = Time.deltaTime;
 
         // ── Rotation (LMB drag) ──
+        // Convention: drag right → scene rotates right → camera orbits left (yaw--)
         if (Input.getMouseButton(0)) {
             const delta = Input.mouseDelta;
-            this._yaw += delta.x * this.orbitSpeed;
-            this._pitch -= delta.y * this.orbitSpeedY;
+            this._yaw -= delta.x * this.orbitSpeed;
+            this._pitch += delta.y * this.orbitSpeedY;
             this._pitch = Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._pitch));
         }
 

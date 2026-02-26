@@ -493,11 +493,11 @@ export class Quaternion {
         const s2 = Math.sin(y * Quaternion.DEG2RAD_HALF);
         const s3 = Math.sin(z * Quaternion.DEG2RAD_HALF);
 
-        // YXZ order (Unity default)
+        // YXZ order (Unity default): R = Ry · Rx · Rz
         this.x = s1 * c2 * c3 + c1 * s2 * s3;
         this.y = c1 * s2 * c3 - s1 * c2 * s3;
-        this.z = c1 * c2 * s3 + s1 * s2 * c3;
-        this.w = c1 * c2 * c3 - s1 * s2 * s3;
+        this.z = c1 * c2 * s3 - s1 * s2 * c3;
+        this.w = c1 * c2 * c3 + s1 * s2 * s3;
 
         return this;
     }
@@ -615,22 +615,37 @@ export class Quaternion {
     toEuler(out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
 
-        // YXZ order (Unity default)
-        const sinr_cosp = 2 * (this.w * this.x + this.y * this.z);
-        const cosr_cosp = 1 - 2 * (this.x * this.x + this.y * this.y);
-        const x = Math.atan2(sinr_cosp, cosr_cosp);
+        // YXZ intrinsic order: R = Ry · Rx · Rz
+        // Matrix element m23 = -sin(x) → x = asin(-m23)
+        // m23 from quaternion = 2(qy·qz - qw·qx)
+        const sinX = 2 * (this.w * this.x - this.y * this.z);
 
-        const sinp = 2 * (this.w * this.y - this.z * this.x);
-        let y: number;
-        if (Math.abs(sinp) >= 1) {
-            y = (Math.PI / 2) * Math.sign(sinp);
-        } else {
-            y = Math.asin(sinp);
+        let x: number;
+        if (Math.abs(sinX) >= 0.9999999) {
+            // Gimbal lock — set z=0, solve y
+            x = (Math.PI / 2) * Math.sign(sinX);
+            const y = 2 * Math.atan2(this.y, this.w);
+            result.x = x * Quaternion.RAD2DEG;
+            result.y = y * Quaternion.RAD2DEG;
+            result.z = 0;
+            return result;
         }
 
-        const siny_cosp = 2 * (this.w * this.z + this.x * this.y);
-        const cosy_cosp = 1 - 2 * (this.y * this.y + this.z * this.z);
-        const z = Math.atan2(siny_cosp, cosy_cosp);
+        x = Math.asin(sinX);
+
+        // y = atan2(m13, m33)
+        // m13 = 2(qx·qz + qw·qy),  m33 = 1 - 2(qx² + qy²)
+        const y = Math.atan2(
+            2 * (this.x * this.z + this.w * this.y),
+            1 - 2 * (this.x * this.x + this.y * this.y)
+        );
+
+        // z = atan2(m21, m22)
+        // m21 = 2(qx·qy + qw·qz),  m22 = 1 - 2(qx² + qz²)
+        const z = Math.atan2(
+            2 * (this.x * this.y + this.w * this.z),
+            1 - 2 * (this.x * this.x + this.z * this.z)
+        );
 
         result.x = x * Quaternion.RAD2DEG;
         result.y = y * Quaternion.RAD2DEG;
