@@ -75,7 +75,21 @@ export { DirectionalLight } from "./core/components/DirectionalLight";
 export { PointLight } from "./core/components/PointLight";
 export { SpotLight} from "./core/components/SpotLight.ts";
 export { AmbientLight } from "./core/components/AmbientLight";
-export { CinematicCamera, CameraMode } from "./core/components/CinematicCamera";
+
+// ====================
+// CINEMACHINE
+// ====================
+export { CameraState, CinemachineBlendStyle, CinemachineBody, CinemachineAim } from "./core/cinemachine/CinemachineCore";
+export { CinemachineVirtualCamera } from "./core/cinemachine/CinemachineVirtualCamera";
+export { CinemachineBrain } from "./core/cinemachine/CinemachineBrain";
+export { CinemachineOrbitalBody } from "./core/cinemachine/CinemachineOrbitalBody";
+export { CinemachineOrbitalAim } from "./core/cinemachine/CinemachineOrbitalAim";
+export { CinemachineFlyBody } from "./core/cinemachine/CinemachineFlyBody";
+export { CinemachinePOVAim } from "./core/cinemachine/CinemachinePOVAim";
+export { CinemachineFollowBody } from "./core/cinemachine/CinemachineFollowBody";
+export { CinemachineHardLookAtAim } from "./core/cinemachine/CinemachineHardLookAtAim";
+
+
 // =====================
 // SCENARIO
 // =====================
