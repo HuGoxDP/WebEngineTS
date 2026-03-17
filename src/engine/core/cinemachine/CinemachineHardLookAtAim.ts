@@ -5,10 +5,6 @@ import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
 import type { GameObject } from "../GameObject.ts";
 
-/**
- * Instantly rotates the camera to look at the lookAt target.
- * No damping. Equivalent to Unity's `CinemachineHardLookAt`.
- */
 export class CinemachineHardLookAtAim extends CinemachineAim {
 
     constructor(gameObject: GameObject) {

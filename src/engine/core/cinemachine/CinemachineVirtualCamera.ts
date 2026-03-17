@@ -90,7 +90,6 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
     /** Last computed state (used as input for next frame). */
     private _state: CameraState = new CameraState();
 
-    /** Debug: log first computation only. */
     private _debugged: boolean = false;
 
     // ==================== CONSTRUCTOR ====================
@@ -109,8 +108,7 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
 
     public override start(): void {
         this._discoverComponents();
-        // Initialize state from this VCam's transform so Body/Aim
-        // get a sane starting position (not always origin)
+        // Init state from this GO's transform so Body/Aim start sane
         this._state = new CameraState(
             this.transform.position,
             this.transform.rotation,
@@ -149,11 +147,9 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
      * @internal
      */
     public _computeState(dt: number): CameraState {
-        // Propagate targets to Body/Aim
         if (this._body) this._body.followTarget = this.follow;
         if (this._aim) this._aim.lookAtTarget = this.lookAt;
 
-        // Stage 1: Body → position
         let position: Vector3;
         if (this._body && this._body.isActiveAndEnabled) {
             position = this._body.computePosition(this._state, dt);
@@ -161,7 +157,6 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
             position = this.transform.position;
         }
 
-        // Stage 2: Aim → rotation
         let rotation: Quaternion;
         if (this._aim && this._aim.isActiveAndEnabled) {
             rotation = this._aim.computeRotation(position, this._state, dt);
@@ -169,22 +164,21 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
             rotation = this.transform.rotation;
         }
 
-        // Build new state
-        this._state = new CameraState(position, rotation, this.fieldOfView);
-
-        // Debug first frame
+        // Debug: log first state and any NaN
         if (!this._debugged) {
             this._debugged = true;
-            const p = position;
             const e = rotation.eulerAngles;
+            const hasNaN = isNaN(e.x) || isNaN(e.y) || isNaN(e.z);
             console.log(
                 `[VCam] "${this.gameObject.name}" first state: ` +
-                `pos=(${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}) ` +
+                `pos=(${position.x.toFixed(1)}, ${position.y.toFixed(1)}, ${position.z.toFixed(1)}) ` +
                 `euler=(${e.x.toFixed(1)}, ${e.y.toFixed(1)}, ${e.z.toFixed(1)}) ` +
-                `body=${this._body ? "active" : "NONE"} aim=${this._aim ? "active" : "NONE"}`
+                `quat=(${rotation.x.toFixed(4)}, ${rotation.y.toFixed(4)}, ${rotation.z.toFixed(4)}, ${rotation.w.toFixed(4)})` +
+                (hasNaN ? " ⚠️ NaN DETECTED!" : " ✓")
             );
         }
 
+        this._state = new CameraState(position, rotation, this.fieldOfView);
         return this._state;
     }
 
@@ -233,9 +227,7 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
         }
 
         console.log(
-            `[VCam] "${this.gameObject.name}" discovered: ` +
-            `body=${this._body?.name ?? "NONE"} aim=${this._aim?.name ?? "NONE"} ` +
-            `(${components.length} components total)`
+            `[VCam] "${this.gameObject.name}" body=${this._body?.name ?? "NONE"} aim=${this._aim?.name ?? "NONE"}`
         );
     }
 

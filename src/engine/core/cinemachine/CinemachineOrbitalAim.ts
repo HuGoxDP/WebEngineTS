@@ -6,9 +6,6 @@ import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
 import type { GameObject } from "../GameObject.ts";
 
-/**
- * Aims the camera at the {@link CinemachineOrbitalBody}'s orbit center.
- */
 export class CinemachineOrbitalAim extends CinemachineAim {
 
     private _orbitalBody: CinemachineOrbitalBody | null = null;

@@ -7,96 +7,69 @@ import { Quaternion } from "../math/Quaternion.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
- * Point-of-view aim: mouse controls camera rotation (FPS-style).
+ * POV aim: mouse-driven yaw/pitch for FPS camera.
  *
- * Yaw (horizontal) and Pitch (vertical) are driven by mouse movement.
- * Typically used with pointer lock for unlimited rotation.
- *
- * @remarks
- * Equivalent to Unity's `Cinemachine.CinemachinePOV`.
- * Typically paired with {@link CinemachineFlyBody}.
- *
- * **Coordinate convention:** In Three.js's right-handed system, positive
- * Y rotation is counter-clockwise from above (= left turn). We negate
- * the yaw delta so that moving the mouse right correctly turns the
- * camera right.
- *
- * @example
- * ```ts
- * const vcamGo = new GameObject("FPS Cam");
- * vcamGo.addComponent(CinemachineVirtualCamera);
- * vcamGo.addComponent(CinemachineFlyBody);
- * const aim = vcamGo.addComponent(CinemachinePOVAim);
- * aim.sensitivity = 0.15;
- * ```
+ * Convention:
+ * - Positive X rotation (pitch > 0) tilts camera UP in Three.js
+ * - So `pitch -= delta.y` (mouse-down → positive delta → pitch decreases → look down)
+ * - Positive Y rotation = CCW from above = turn LEFT in right-handed
+ * - So `yaw -= delta.x` (mouse-right → positive delta → yaw decreases → turn right)
  */
 export class CinemachinePOVAim extends CinemachineAim {
 
-    // ==================== PUBLIC SETTINGS ====================
-
-    /** Mouse look sensitivity (degrees per pixel). */
     public sensitivity: number = 0.15;
-
-    /** Minimum pitch angle in degrees. */
     public minPitch: number = -89;
-
-    /** Maximum pitch angle in degrees. */
     public maxPitch: number = 89;
-
-    /**
-     * Whether to only apply mouse look when cursor is locked.
-     * Set to `false` to always rotate with mouse movement.
-     */
     public requirePointerLock: boolean = true;
 
-    // ==================== INTERNAL STATE ====================
-
-    /** Current yaw angle in degrees. */
     private _yaw: number = 0;
-
-    /** Current pitch angle in degrees. */
     private _pitch: number = 0;
-
-    /** Whether initial angles have been extracted. */
     private _initialized: boolean = false;
-
-    // ==================== CONSTRUCTOR ====================
+    private _debugFrames: number = 0;
 
     constructor(gameObject: GameObject) {
         super(gameObject);
         this.name = "CinemachinePOVAim";
     }
 
-    // ==================== PIPELINE ====================
-
     public override computeRotation(
         cameraPosition: Vector3,
         currentState: CameraState,
         dt: number
     ): Quaternion {
-        // Initialize from current rotation on first frame
         if (!this._initialized) {
-            const euler = currentState.rotation.eulerAngles;
-            this._yaw = euler.y;
-            this._pitch = euler.x;
+            // Don't extract euler from currentState — it might be NaN
+            // from a previous camera. Start at (0, 0) = looking down -Z.
+            this._yaw = 0;
+            this._pitch = 0;
             this._initialized = true;
         }
 
-        // Only process mouse when locked (or if requirePointerLock is off)
         if (!this.requirePointerLock || Input.cursorLocked) {
             const delta = Input.mouseDelta;
 
-            // Three.js right-handed convention: positive Y rotation = turn LEFT.
-            // We negate so that mouse-right (positive delta.x) = turn RIGHT.
+            // Mouse right (delta.x > 0) → yaw decreases → CW from above → turn right
             this._yaw -= delta.x * this.sensitivity;
 
-            // In right-handed coordinates, positive X rotation tilts the
-            // nose down. DOM movementY is positive-downward, so += makes
-            // mouse-down = look down (natural, non-inverted).
-            this._pitch += delta.y * this.sensitivity;
+            // Mouse down (delta.y > 0) → pitch decreases → look down
+            this._pitch -= delta.y * this.sensitivity;
             this._pitch = Math.max(this.minPitch, Math.min(this.maxPitch, this._pitch));
         }
 
-        return Quaternion.euler(this._pitch, this._yaw, 0);
+        const result = Quaternion.euler(this._pitch, this._yaw, 0);
+
+        // Debug first 3 active frames
+        this._debugFrames++;
+        if (this._debugFrames <= 3) {
+            const e = result.eulerAngles;
+            console.log(
+                `[POVAim] frame=${this._debugFrames} ` +
+                `pitch=${this._pitch.toFixed(1)} yaw=${this._yaw.toFixed(1)} ` +
+                `euler=(${e.x.toFixed(1)}, ${e.y.toFixed(1)}, ${e.z.toFixed(1)}) ` +
+                `quat=(${result.x.toFixed(3)}, ${result.y.toFixed(3)}, ${result.z.toFixed(3)}, ${result.w.toFixed(3)})`
+            );
+        }
+
+        return result;
     }
 }
