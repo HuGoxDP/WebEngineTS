@@ -19,16 +19,12 @@ export class CinemachineBrain extends ScriptableBehaviour {
     private _camera: Camera | null = null;
     private _frameCount: number = 0;
 
-    constructor(gameObject: GameObject) {
-        super(gameObject);
-        this.name = "CinemachineBrain";
-    }
+    constructor(gameObject: GameObject) { super(gameObject); this.name = "CinemachineBrain"; }
 
     public override start(): void {
         for (const comp of (this.gameObject as any)._components) {
             if (comp !== this && "fieldOfView" in comp && "_internalThreeCamera" in comp) {
-                this._camera = comp as Camera;
-                break;
+                this._camera = comp as Camera; break;
             }
         }
     }
@@ -45,15 +41,11 @@ export class CinemachineBrain extends ScriptableBehaviour {
 
         let finalState: CameraState;
         if (this._blendProgress < 1) {
-            this._blendProgress += dt / this._blendDuration;
-            this._blendProgress = Math.min(1, this._blendProgress);
-
+            this._blendProgress = Math.min(1, this._blendProgress + dt / this._blendDuration);
             let t: number;
-            switch (this.defaultBlendStyle) {
-                case CinemachineBlendStyle.Cut:    t = 1; break;
-                case CinemachineBlendStyle.Linear: t = this._blendProgress; break;
-                default: t = this._blendProgress * this._blendProgress * (3 - 2 * this._blendProgress); break;
-            }
+            if (this.defaultBlendStyle === CinemachineBlendStyle.Cut) t = 1;
+            else if (this.defaultBlendStyle === CinemachineBlendStyle.Linear) t = this._blendProgress;
+            else t = this._blendProgress * this._blendProgress * (3 - 2 * this._blendProgress);
             finalState = CameraState.lerp(this._outgoingState, activeState, t);
         } else {
             finalState = activeState;
@@ -63,28 +55,23 @@ export class CinemachineBrain extends ScriptableBehaviour {
         this.transform.rotation = finalState.rotation;
         if (this._camera) this._camera.fieldOfView = finalState.fieldOfView;
 
-        // Debug
         if (this._frameCount <= 3 || this._frameCount % 120 === 0) {
             const p = finalState.position;
             const e = finalState.rotation.eulerAngles;
             console.log(
-                `[Brain] f=${this._frameCount} ` +
-                `pos=(${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}) ` +
-                `rot=(${e.x.toFixed(1)},${e.y.toFixed(1)},${e.z.toFixed(1)}) ` +
-                `vcam=${this._activeVCam?.gameObject.name}`
+                `[Brain] f=${this._frameCount} pos=(${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}) ` +
+                `rot=(${e.x.toFixed(1)},${e.y.toFixed(1)},${e.z.toFixed(1)}) vcam=${this._activeVCam?.gameObject.name}`
             );
         }
     }
 
-    public get activeVirtualCamera(): CinemachineVirtualCamera | null { return this._activeVCam; }
-    public get isBlending(): boolean { return this._blendProgress < 1; }
+    public get activeVirtualCamera() { return this._activeVCam; }
+    public get isBlending() { return this._blendProgress < 1; }
 
     public cut(vcam: CinemachineVirtualCamera): void {
-        this._activeVCam = vcam;
-        this._blendProgress = 1;
-        const state = vcam._computeState(0);
-        this.transform.position = state.position;
-        this.transform.rotation = state.rotation;
+        this._activeVCam = vcam; this._blendProgress = 1;
+        const s = vcam._computeState(0);
+        this.transform.position = s.position; this.transform.rotation = s.rotation;
     }
 
     private _findActiveVCam(): CinemachineVirtualCamera | null {
@@ -99,10 +86,8 @@ export class CinemachineBrain extends ScriptableBehaviour {
     private _onVCamChanged(newVCam: CinemachineVirtualCamera | null): void {
         const hadPrev = this._activeVCam !== null;
         if (hadPrev) this._outgoingState = this._activeVCam!.state;
-
         this._activeVCam = newVCam;
 
-        // First activation from null → always Cut
         if (!hadPrev || this.defaultBlendStyle === CinemachineBlendStyle.Cut) {
             this._blendProgress = 1;
         } else {

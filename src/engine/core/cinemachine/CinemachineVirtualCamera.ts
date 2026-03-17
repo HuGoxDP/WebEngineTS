@@ -89,7 +89,6 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
 
     /** Last computed state (used as input for next frame). */
     private _state: CameraState = new CameraState();
-
     private _debugged: boolean = false;
 
     // ==================== CONSTRUCTOR ====================
@@ -108,7 +107,6 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
 
     public override start(): void {
         this._discoverComponents();
-        // Init state from this GO's transform so Body/Aim start sane
         this._state = new CameraState(
             this.transform.position,
             this.transform.rotation,
@@ -164,17 +162,14 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
             rotation = this.transform.rotation;
         }
 
-        // Debug: log first state and any NaN
         if (!this._debugged) {
             this._debugged = true;
             const e = rotation.eulerAngles;
-            const hasNaN = isNaN(e.x) || isNaN(e.y) || isNaN(e.z);
             console.log(
                 `[VCam] "${this.gameObject.name}" first state: ` +
-                `pos=(${position.x.toFixed(1)}, ${position.y.toFixed(1)}, ${position.z.toFixed(1)}) ` +
-                `euler=(${e.x.toFixed(1)}, ${e.y.toFixed(1)}, ${e.z.toFixed(1)}) ` +
-                `quat=(${rotation.x.toFixed(4)}, ${rotation.y.toFixed(4)}, ${rotation.z.toFixed(4)}, ${rotation.w.toFixed(4)})` +
-                (hasNaN ? " ⚠️ NaN DETECTED!" : " ✓")
+                `pos=(${position.x.toFixed(1)},${position.y.toFixed(1)},${position.z.toFixed(1)}) ` +
+                `q=(${rotation.x.toFixed(4)},${rotation.y.toFixed(4)},${rotation.z.toFixed(4)},${rotation.w.toFixed(4)}) ` +
+                `euler=(${e.x.toFixed(1)},${e.y.toFixed(1)},${e.z.toFixed(1)})`
             );
         }
 
@@ -215,20 +210,12 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
     private _discoverComponents(): void {
         this._body = null;
         this._aim = null;
-
         const components = (this.gameObject as any)._components as any[];
         for (const comp of components) {
-            if (!this._body && comp instanceof CinemachineBody) {
-                this._body = comp;
-            }
-            if (!this._aim && comp instanceof CinemachineAim) {
-                this._aim = comp;
-            }
+            if (!this._body && comp instanceof CinemachineBody) this._body = comp;
+            if (!this._aim && comp instanceof CinemachineAim) this._aim = comp;
         }
-
-        console.log(
-            `[VCam] "${this.gameObject.name}" body=${this._body?.name ?? "NONE"} aim=${this._aim?.name ?? "NONE"}`
-        );
+        console.log(`[VCam] "${this.gameObject.name}" body=${this._body?.name ?? "NONE"} aim=${this._aim?.name ?? "NONE"}`);
     }
 
     // ==================== UNUSED LIFECYCLE (silent) ====================

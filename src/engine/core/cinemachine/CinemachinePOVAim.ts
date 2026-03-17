@@ -9,11 +9,9 @@ import type { GameObject } from "../GameObject.ts";
 /**
  * POV aim: mouse-driven yaw/pitch for FPS camera.
  *
- * Convention:
- * - Positive X rotation (pitch > 0) tilts camera UP in Three.js
- * - So `pitch -= delta.y` (mouse-down → positive delta → pitch decreases → look down)
- * - Positive Y rotation = CCW from above = turn LEFT in right-handed
- * - So `yaw -= delta.x` (mouse-right → positive delta → yaw decreases → turn right)
+ * Uses engine convention (+Z forward) via Quaternion.euler(pitch, yaw, 0).
+ * The yaw += delta.x / pitch -= delta.y signs are user-confirmed correct
+ * in combination with FlyBody's Vector3.forward convention.
  */
 export class CinemachinePOVAim extends CinemachineAim {
 
@@ -25,7 +23,6 @@ export class CinemachinePOVAim extends CinemachineAim {
     private _yaw: number = 0;
     private _pitch: number = 0;
     private _initialized: boolean = false;
-    private _debugFrames: number = 0;
 
     constructor(gameObject: GameObject) {
         super(gameObject);
@@ -38,8 +35,6 @@ export class CinemachinePOVAim extends CinemachineAim {
         dt: number
     ): Quaternion {
         if (!this._initialized) {
-            // Don't extract euler from currentState — it might be NaN
-            // from a previous camera. Start at (0, 0) = looking down -Z.
             this._yaw = 0;
             this._pitch = 0;
             this._initialized = true;
@@ -47,29 +42,12 @@ export class CinemachinePOVAim extends CinemachineAim {
 
         if (!this.requirePointerLock || Input.cursorLocked) {
             const delta = Input.mouseDelta;
-
-            // Mouse right (delta.x > 0) → yaw decreases → CW from above → turn right
-            this._yaw -= delta.x * this.sensitivity;
-
-            // Mouse down (delta.y > 0) → pitch decreases → look down
+            // User-confirmed correct signs:
+            this._yaw += delta.x * this.sensitivity;
             this._pitch -= delta.y * this.sensitivity;
             this._pitch = Math.max(this.minPitch, Math.min(this.maxPitch, this._pitch));
         }
 
-        const result = Quaternion.euler(this._pitch, this._yaw, 0);
-
-        // Debug first 3 active frames
-        this._debugFrames++;
-        if (this._debugFrames <= 3) {
-            const e = result.eulerAngles;
-            console.log(
-                `[POVAim] frame=${this._debugFrames} ` +
-                `pitch=${this._pitch.toFixed(1)} yaw=${this._yaw.toFixed(1)} ` +
-                `euler=(${e.x.toFixed(1)}, ${e.y.toFixed(1)}, ${e.z.toFixed(1)}) ` +
-                `quat=(${result.x.toFixed(3)}, ${result.y.toFixed(3)}, ${result.z.toFixed(3)}, ${result.w.toFixed(3)})`
-            );
-        }
-
-        return result;
+        return Quaternion.euler(this._pitch, this._yaw, 0);
     }
 }
