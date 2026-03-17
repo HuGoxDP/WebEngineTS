@@ -1,6 +1,7 @@
 // path: src/engine/core/ScriptableBehaviour.ts
 
 import { Behaviour } from "./Behaviour.ts";
+import { Coroutine, CoroutineRunner, YieldInstruction } from "./Coroutine.ts";
 import type { GameObject } from "./GameObject.ts";
 
 /**
@@ -9,6 +10,9 @@ import type { GameObject } from "./GameObject.ts";
  * Adds Unity-style lifecycle hooks: {@link awake}, {@link start},
  * {@link update}, {@link lateUpdate}, {@link fixedUpdate},
  * and {@link onDestroy}.
+ *
+ * Also provides the coroutine API: {@link startCoroutine},
+ * {@link stopCoroutine}, and {@link stopAllCoroutines}.
  *
  * Hierarchy: {@link EngineObject} → {@link Component} → {@link Behaviour} → ScriptableBehaviour
  *
@@ -34,13 +38,17 @@ import type { GameObject } from "./GameObject.ts";
  *     private speed: number = 5;
  *
  *     public start(): void {
- *         console.log("Player ready!");
+ *         this.startCoroutine(this.spawnEffect());
  *     }
  *
  *     public update(): void {
- *         // Move the player every frame
- *         const dt = Time.deltaTime;
- *         this.transform.translate(new Vector3(0, 0, this.speed * dt));
+ *         this.transform.translate(new Vector3(0, 0, this.speed * Time.deltaTime));
+ *     }
+ *
+ *     private *spawnEffect(): Generator<YieldInstruction> {
+ *         console.log("Spawning...");
+ *         yield new WaitForSeconds(1);
+ *         console.log("Ready!");
  *     }
  * }
  * ```
@@ -56,10 +64,66 @@ export class ScriptableBehaviour extends Behaviour {
      */
     private _started: boolean = false;
 
+    /**
+     * Coroutine runner for this behaviour instance.
+     * Lazy-initialized on first `startCoroutine()` call to avoid
+     * allocation overhead for behaviours that never use coroutines.
+     * @internal
+     */
+    private _coroutineRunner: CoroutineRunner | null = null;
+
     // ==================== CONSTRUCTOR ====================
 
     constructor(gameObject: GameObject) {
         super(gameObject);
+    }
+
+    // ==================== COROUTINE API ====================
+
+    /**
+     * Starts a coroutine.
+     *
+     * The generator function is advanced once immediately (up to the first yield).
+     * Subsequent yields are processed by the engine each frame.
+     *
+     * @param generator — the generator (result of calling a `function*`).
+     * @returns a {@link Coroutine} handle that can be yielded (to wait for it)
+     *          or passed to {@link stopCoroutine}.
+     *
+     * @remarks Equivalent to Unity's `MonoBehaviour.StartCoroutine()`.
+     *
+     * @example
+     * ```ts
+     * const co = this.startCoroutine(this.fadeOut());
+     * // later:
+     * this.stopCoroutine(co);
+     * ```
+     */
+    public startCoroutine(generator: Generator<YieldInstruction, void, void>): Coroutine {
+        if (!this._coroutineRunner) {
+            this._coroutineRunner = new CoroutineRunner();
+        }
+        return this._coroutineRunner.startCoroutine(generator);
+    }
+
+    /**
+     * Stops a specific coroutine.
+     *
+     * @param coroutine — the handle returned by {@link startCoroutine}.
+     *
+     * @remarks Equivalent to Unity's `MonoBehaviour.StopCoroutine()`.
+     */
+    public stopCoroutine(coroutine: Coroutine): void {
+        this._coroutineRunner?.stopCoroutine(coroutine);
+    }
+
+    /**
+     * Stops all coroutines running on this behaviour.
+     *
+     * @remarks Equivalent to Unity's `MonoBehaviour.StopAllCoroutines()`.
+     */
+    public stopAllCoroutines(): void {
+        this._coroutineRunner?.stopAllCoroutines();
     }
 
     // ==================== USER LIFECYCLE HOOKS ====================
@@ -158,26 +222,22 @@ export class ScriptableBehaviour extends Behaviour {
      * Always called after {@link onDisable} (handled automatically by
      * {@link Behaviour._destroyImmediate}).
      *
-     * It is safe to override this without calling `super.onDestroy()` —
-     * the engine handles `onDisable` independently before this is called.
-     *
      * @virtual Override in user scripts.
      */
     protected override onDestroy(): void {
-        // Override in user scripts for cleanup
+        // Stop all coroutines on destroy
+        this._coroutineRunner?.stopAllCoroutines();
+        // Override in user scripts for additional cleanup
     }
 
     // ==================== INTERNAL SYSTEM METHODS ====================
+
     /**
      * @internal
      * Called by `GameObject.addComponent()` immediately after the component
      * is constructed and added to the components list.
      *
      * Invokes the user-facing {@link awake} callback.
-     *
-     * @remarks
-     * In Unity, Awake is called even on disabled GameObjects.
-     * It runs before OnEnable and before Start.
      */
     public _systemAwake(): void {
         this.awake();
@@ -187,9 +247,8 @@ export class ScriptableBehaviour extends Behaviour {
      * @internal
      * Called by the engine's update loop (via `GameObject._systemUpdate`).
      *
-     * Handles the Start-before-first-Update guarantee:
-     * - If this is the first update and the component is active, {@link start} is called.
-     * - Then {@link update} is called every frame while active.
+     * Handles the Start-before-first-Update guarantee, then runs Update,
+     * then ticks coroutines (Update phase).
      */
     public _systemUpdate(): void {
         if (!this.isActiveAndEnabled) return;
@@ -200,17 +259,22 @@ export class ScriptableBehaviour extends Behaviour {
         }
 
         this.update();
+
+        // Tick coroutines after user Update (Unity order)
+        this._coroutineRunner?.tickUpdate();
     }
 
     /**
      * @internal
      * Called by the engine's late update loop (via `GameObject._systemLateUpdate`).
      *
-     * Only fires after {@link start} has been called.
+     * Runs LateUpdate, then ticks coroutines (LateUpdate phase — resolves WaitForEndOfFrame).
      */
     public _systemLateUpdate(): void {
         if (this.isActiveAndEnabled && this._started) {
             this.lateUpdate();
+            // Resolve WaitForEndOfFrame
+            this._coroutineRunner?.tickLateUpdate();
         }
     }
 
@@ -218,12 +282,13 @@ export class ScriptableBehaviour extends Behaviour {
      * @internal
      * Called by the engine's fixed update loop (via `GameObject._systemFixedUpdate`).
      *
-     * Used for physics and other fixed-timestep processing.
-     * Only fires after {@link start} has been called.
+     * Runs FixedUpdate, then ticks coroutines (FixedUpdate phase — resolves WaitForFixedUpdate).
      */
     public _systemFixedUpdate(): void {
         if (this.isActiveAndEnabled && this._started) {
             this.fixedUpdate();
+            // Resolve WaitForFixedUpdate
+            this._coroutineRunner?.tickFixedUpdate();
         }
     }
 }

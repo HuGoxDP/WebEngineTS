@@ -41,6 +41,8 @@ export { RaycastHit } from "./physics/RaycastHit";
 // =====================
 // MATH
 // =====================
+export { Mathf } from "./core/math/Mathf";
+export { AnimationCurve, Keyframe, WrapMode } from "./core/math/AnimationCurve";
 export { Vector2 } from "./core/math/Vector2";
 export { Vector3 } from "./core/math/Vector3";
 export { Vector4 } from "./core/math/Vector4";
@@ -48,6 +50,14 @@ export { Quaternion } from "./core/math/Quaternion";
 export { Matrix4x4 } from "./core/math/Matrix4x4";
 export { Bounds } from "./core/math/Bounds";
 export { Rect } from "./core/math/Rect";
+
+// COROUTINES
+export {
+    Coroutine, CoroutineRunner,
+    WaitForSeconds, WaitForSecondsRealtime,
+    WaitUntil, WaitWhile,
+    WaitForEndOfFrame, WaitForFixedUpdate
+} from "./core/Coroutine";
 
 // =====================
 // GRAPHICS

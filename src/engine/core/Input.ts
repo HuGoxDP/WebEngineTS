@@ -157,11 +157,12 @@ export class Input {
                     e.clientX - rect.left,
                     e.clientY - rect.top
                 );
-                // Accumulate movement delta for this frame.
-                // movementX/Y works in both normal and pointer-lock mode.
+                // Clamp movementX/Y to reject browser pointer-lock spikes
+                const mx = Math.max(-150, Math.min(150, e.movementX));
+                const my = Math.max(-150, Math.min(150, e.movementY));
                 Input._mouseDelta.set(
-                    Input._mouseDelta.x + e.movementX,
-                    Input._mouseDelta.y + e.movementY
+                    Input._mouseDelta.x + mx,
+                    Input._mouseDelta.y + my
                 );
             },
             wheel: (e: WheelEvent) => {
