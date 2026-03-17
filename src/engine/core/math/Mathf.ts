@@ -1,4 +1,4 @@
-// path: src/engine/core/math/Mathf.ts
+// path: src/engine/core/math/Mathf.test.ts
 
 /**
  * A collection of common math functions and constants.
