@@ -8,10 +8,7 @@ import type { GameObject } from "../GameObject.ts";
 
 /**
  * POV aim: mouse-driven yaw/pitch for FPS camera.
- *
- * Uses engine convention (+Z forward) via Quaternion.euler(pitch, yaw, 0).
- * The yaw += delta.x / pitch -= delta.y signs are user-confirmed correct
- * in combination with FlyBody's Vector3.forward convention.
+ * Equivalent to Unity's `CinemachinePanTilt`.
  */
 export class CinemachinePOVAim extends CinemachineAim {
 
@@ -42,9 +39,10 @@ export class CinemachinePOVAim extends CinemachineAim {
 
         if (!this.requirePointerLock || Input.cursorLocked) {
             const delta = Input.mouseDelta;
-            // User-confirmed correct signs:
-            this._yaw += delta.x * this.sensitivity;
-            this._pitch -= delta.y * this.sensitivity;
+            // Confirmed: yaw -= gives correct left/right
+            this._yaw -= delta.x * this.sensitivity;
+            // Flipped: += so mouse-down = look down (user requested)
+            this._pitch += delta.y * this.sensitivity;
             this._pitch = Math.max(this.minPitch, Math.min(this.maxPitch, this._pitch));
         }
 

@@ -19,8 +19,7 @@ export class Quaternion {
     public w: number;
 
     // ==================== CACHED READONLY INSTANCES ====================
-    private static readonly _identity = new Quaternion(0, 0, 0, 1);
-
+    private static readonly _identity = Object.freeze(new Quaternion(0, 0, 0, 1));
     // Constants
     private static readonly DEG2RAD_HALF = Math.PI / 360; // (PI / 180) / 2
     private static readonly RAD2DEG = 180 / Math.PI;

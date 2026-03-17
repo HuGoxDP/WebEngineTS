@@ -17,14 +17,14 @@ export class Vector3 {
 
     // ==================== CACHED READONLY INSTANCES ====================
     // Unity caches these to avoid allocation on every access
-    private static readonly _zero = new Vector3(0, 0, 0);
-    private static readonly _one = new Vector3(1, 1, 1);
-    private static readonly _up = new Vector3(0, 1, 0);
-    private static readonly _down = new Vector3(0, -1, 0);
-    private static readonly _left = new Vector3(-1, 0, 0);
-    private static readonly _right = new Vector3(1, 0, 0);
-    private static readonly _forward = new Vector3(0, 0, 1);
-    private static readonly _back = new Vector3(0, 0, -1);
+    private static readonly _zero = Object.freeze(new Vector3(0, 0, 0));
+    private static readonly _one = Object.freeze(new Vector3(1, 1, 1));
+    private static readonly _up = Object.freeze(new Vector3(0, 1, 0));
+    private static readonly _down = Object.freeze(new Vector3(0, -1, 0));
+    private static readonly _left = Object.freeze(new Vector3(-1, 0, 0));
+    private static readonly _right = Object.freeze(new Vector3(1, 0, 0));
+    private static readonly _forward = Object.freeze(new Vector3(0, 0, 1));
+    private static readonly _back = Object.freeze(new Vector3(0, 0, -1));
 
     // Internal temp vectors for zero-allocation operations
     private static readonly _temp1 = new Vector3();
