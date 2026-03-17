@@ -11,11 +11,6 @@ import type { GameObject } from "../GameObject.ts";
  * Drives the real {@link Camera} from the highest-priority active
  * {@link CinemachineVirtualCamera}.
  *
- * Attach to the same GameObject as a Camera component. Each frame
- * the Brain selects the highest-priority active VCam, runs its
- * Body → Aim pipeline, optionally blends with the outgoing camera,
- * and applies the result to the Camera's Transform and lens.
- *
  * @remarks
  * Equivalent to Unity 6's `Cinemachine.CinemachineBrain`.
  */
@@ -24,7 +19,7 @@ export class CinemachineBrain extends ScriptableBehaviour {
     // ==================== PUBLIC SETTINGS ====================
 
     /** Default blend style when transitioning between virtual cameras. */
-    public defaultBlendStyle: CinemachineBlendStyle = CinemachineBlendStyle.Cut;
+    public defaultBlendStyle: CinemachineBlendStyle = CinemachineBlendStyle.EaseInOut;
 
     /** Default blend duration in seconds. */
     public defaultBlendTime: number = 0.75;
@@ -32,11 +27,11 @@ export class CinemachineBrain extends ScriptableBehaviour {
     // ==================== INTERNAL STATE ====================
 
     private _activeVCam: CinemachineVirtualCamera | null = null;
-    private _previousVCam: CinemachineVirtualCamera | null = null;
     private _blendProgress: number = 1;
     private _blendDuration: number = 0;
     private _outgoingState: CameraState = new CameraState();
     private _camera: Camera | null = null;
+    private _frameCount: number = 0;
 
     // ==================== CONSTRUCTOR ====================
 
@@ -48,7 +43,6 @@ export class CinemachineBrain extends ScriptableBehaviour {
     // ==================== LIFECYCLE ====================
 
     public override start(): void {
-        // Discover Camera via duck-typing to avoid circular imports
         for (const comp of (this.gameObject as any)._components) {
             if (comp !== this && "fieldOfView" in comp && "_internalThreeCamera" in comp) {
                 this._camera = comp as Camera;
@@ -60,12 +54,10 @@ export class CinemachineBrain extends ScriptableBehaviour {
         }
     }
 
-    /**
-     * @internal
-     * Runs in lateUpdate so all game logic has already executed.
-     */
+    /** @internal */
     public override lateUpdate(): void {
         const dt = Time.deltaTime;
+        this._frameCount++;
 
         // 1. Select highest-priority VCam
         const bestVCam = this._findActiveVCam();
@@ -77,10 +69,10 @@ export class CinemachineBrain extends ScriptableBehaviour {
 
         if (!this._activeVCam) return;
 
-        // 3. Run active VCam pipeline → CameraState
+        // 3. Run pipeline
         const activeState = this._activeVCam._computeState(dt);
 
-        // 4. Blend (if transitioning)
+        // 4. Blend or direct apply
         let finalState: CameraState;
 
         if (this._blendProgress < 1) {
@@ -89,45 +81,48 @@ export class CinemachineBrain extends ScriptableBehaviour {
 
             let t: number;
             switch (this.defaultBlendStyle) {
-                case CinemachineBlendStyle.Cut:
-                    t = 1;
-                    break;
-                case CinemachineBlendStyle.Linear:
-                    t = this._blendProgress;
-                    break;
+                case CinemachineBlendStyle.Cut:    t = 1; break;
+                case CinemachineBlendStyle.Linear: t = this._blendProgress; break;
                 case CinemachineBlendStyle.EaseInOut:
-                default:
-                    t = this._smoothStep(this._blendProgress);
-                    break;
+                default: t = this._smoothStep(this._blendProgress); break;
             }
-
             finalState = CameraState.lerp(this._outgoingState, activeState, t);
         } else {
             finalState = activeState;
         }
 
-        // 5. Apply to real Camera
+        // 5. Apply
         this.transform.position = finalState.position;
         this.transform.rotation = finalState.rotation;
-
         if (this._camera) {
             this._camera.fieldOfView = finalState.fieldOfView;
+        }
+
+        // Debug: log first 3 frames and every 120 frames
+        if (this._frameCount <= 3 || this._frameCount % 120 === 0) {
+            const p = finalState.position;
+            const r = finalState.rotation.eulerAngles;
+            console.log(
+                `[Brain] frame=${this._frameCount} ` +
+                `pos=(${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}) ` +
+                `rot=(${r.x.toFixed(1)}, ${r.y.toFixed(1)}, ${r.z.toFixed(1)}) ` +
+                `fov=${finalState.fieldOfView.toFixed(0)} ` +
+                `blend=${this._blendProgress.toFixed(2)} ` +
+                `vcam=${this._activeVCam?.gameObject.name ?? "null"}`
+            );
         }
     }
 
     // ==================== PUBLIC API ====================
 
-    /** The currently active virtual camera. */
     public get activeVirtualCamera(): CinemachineVirtualCamera | null {
         return this._activeVCam;
     }
 
-    /** Whether the Brain is currently blending between two cameras. */
     public get isBlending(): boolean {
         return this._blendProgress < 1;
     }
 
-    /** Forces an immediate cut to the specified VCam (no blend). */
     public cut(vcam: CinemachineVirtualCamera): void {
         this._activeVCam = vcam;
         this._blendProgress = 1;
@@ -152,27 +147,31 @@ export class CinemachineBrain extends ScriptableBehaviour {
     }
 
     private _onVCamChanged(newVCam: CinemachineVirtualCamera | null): void {
-        if (this._activeVCam) {
-            this._outgoingState = this._activeVCam.state;
-            this._previousVCam = this._activeVCam;
+        const hadPrevious = this._activeVCam !== null;
+
+        if (hadPrevious) {
+            // Snapshot outgoing state for blending
+            this._outgoingState = this._activeVCam!.state;
         }
 
         this._activeVCam = newVCam;
 
-        if (newVCam && this.defaultBlendStyle !== CinemachineBlendStyle.Cut) {
+        // First activation from null → always Cut (no state to blend from)
+        // Subsequent transitions → use configured blend style
+        if (!hadPrevious || this.defaultBlendStyle === CinemachineBlendStyle.Cut) {
+            this._blendProgress = 1;
+            console.log(`[Brain] Cut to "${newVCam?.gameObject.name}" (${hadPrevious ? "cut style" : "first activation"})`);
+        } else {
             this._blendDuration = this.defaultBlendTime;
             this._blendProgress = 0;
-        } else {
-            this._blendProgress = 1;
+            console.log(`[Brain] Blend to "${newVCam?.gameObject.name}" over ${this.defaultBlendTime}s`);
         }
     }
 
-    /** Hermite smoothstep: t²(3 − 2t) */
     private _smoothStep(t: number): number {
         return t * t * (3 - 2 * t);
     }
 
-    // ==================== UNUSED LIFECYCLE ====================
     public override update(): void {}
     public override fixedUpdate(): void {}
 }

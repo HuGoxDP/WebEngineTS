@@ -90,8 +90,10 @@ export class CinemachinePOVAim extends CinemachineAim {
             // We negate so that mouse-right (positive delta.x) = turn RIGHT.
             this._yaw -= delta.x * this.sensitivity;
 
-            // DOM movementY is positive-downward; -= makes mouse-up = look up.
-            this._pitch -= delta.y * this.sensitivity;
+            // In right-handed coordinates, positive X rotation tilts the
+            // nose down. DOM movementY is positive-downward, so += makes
+            // mouse-down = look down (natural, non-inverted).
+            this._pitch += delta.y * this.sensitivity;
             this._pitch = Math.max(this.minPitch, Math.min(this.maxPitch, this._pitch));
         }
 

@@ -6,15 +6,8 @@ import { Quaternion } from "../math/Quaternion.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
- * Instantly rotates the camera to look directly at the lookAt target.
- *
- * No damping, dead zones, or screen-space framing — instant, hard
- * rotation every frame. Simple and predictable.
- *
- * @remarks
- * Equivalent to Unity 6's `Cinemachine.CinemachineHardLookAt`.
- * Typically paired with {@link CinemachineFollowBody} or
- * {@link CinemachineOrbitalBody}.
+ * Instantly rotates the camera to look at the lookAt target.
+ * No damping. Equivalent to Unity's `CinemachineHardLookAt`.
  */
 export class CinemachineHardLookAtAim extends CinemachineAim {
 
@@ -32,7 +25,6 @@ export class CinemachineHardLookAtAim extends CinemachineAim {
             return currentState.rotation;
         }
 
-        // Centralized helper handles Three.js -Z view convention
         return CameraState.cameraLookRotation(
             cameraPosition,
             this.lookAtTarget.position

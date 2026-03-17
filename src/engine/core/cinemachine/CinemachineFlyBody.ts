@@ -59,6 +59,15 @@ export class CinemachineFlyBody extends CinemachineBody {
         if (!this._initialized) {
             this._position = currentState.position.clone();
             this._initialized = true;
+
+            // Debug: show initial state
+            const fwd = Vector3.back.rotatedBy(currentState.rotation);
+            const rht = Vector3.right.rotatedBy(currentState.rotation);
+            console.log(
+                `[FlyBody] Init at (${this._position.x.toFixed(1)}, ${this._position.y.toFixed(1)}, ${this._position.z.toFixed(1)}) ` +
+                `viewDir=(${fwd.x.toFixed(2)}, ${fwd.y.toFixed(2)}, ${fwd.z.toFixed(2)}) ` +
+                `right=(${rht.x.toFixed(2)}, ${rht.y.toFixed(2)}, ${rht.z.toFixed(2)})`
+            );
         }
 
         // ── Cursor lock on click ──
@@ -83,12 +92,12 @@ export class CinemachineFlyBody extends CinemachineBody {
 
         const move = new Vector3(0, 0, 0);
 
-        if (Input.getKey(KeyCode.KeyW)) { move.z += forward.z; }
-        if (Input.getKey(KeyCode.KeyS)) { move.z -= forward.z; }
-        if (Input.getKey(KeyCode.KeyD)) { move.x += right.x; }
-        if (Input.getKey(KeyCode.KeyA)) { move.x -= right.x;}
+        if (Input.getKey(KeyCode.KeyW)) { move.x += forward.x; move.y += forward.y; move.z += forward.z; }
+        if (Input.getKey(KeyCode.KeyS)) { move.x -= forward.x; move.y -= forward.y; move.z -= forward.z; }
+        if (Input.getKey(KeyCode.KeyD)) { move.x += right.x; move.y += right.y; move.z += right.z; }
+        if (Input.getKey(KeyCode.KeyA)) { move.x -= right.x; move.y -= right.y; move.z -= right.z; }
         if (Input.getKey(KeyCode.Space)) { move.y += 1; }
-        if (Input.getKey(KeyCode.ControlLeft)) { move.y -= 1; }
+        if (Input.getKey(KeyCode.ControlLeft) || Input.getKey(KeyCode.ControlRight)) { move.y -= 1; }
 
         // Normalize to prevent faster diagonal movement
         const len = Math.sqrt(move.x * move.x + move.y * move.y + move.z * move.z);

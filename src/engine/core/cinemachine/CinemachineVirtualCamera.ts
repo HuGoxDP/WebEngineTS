@@ -90,6 +90,9 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
     /** Last computed state (used as input for next frame). */
     private _state: CameraState = new CameraState();
 
+    /** Debug: log first computation only. */
+    private _debugged: boolean = false;
+
     // ==================== CONSTRUCTOR ====================
 
     constructor(gameObject: GameObject) {
@@ -106,6 +109,13 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
 
     public override start(): void {
         this._discoverComponents();
+        // Initialize state from this VCam's transform so Body/Aim
+        // get a sane starting position (not always origin)
+        this._state = new CameraState(
+            this.transform.position,
+            this.transform.rotation,
+            this.fieldOfView
+        );
     }
 
     protected override onDestroy(): void {
@@ -161,6 +171,20 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
 
         // Build new state
         this._state = new CameraState(position, rotation, this.fieldOfView);
+
+        // Debug first frame
+        if (!this._debugged) {
+            this._debugged = true;
+            const p = position;
+            const e = rotation.eulerAngles;
+            console.log(
+                `[VCam] "${this.gameObject.name}" first state: ` +
+                `pos=(${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}) ` +
+                `euler=(${e.x.toFixed(1)}, ${e.y.toFixed(1)}, ${e.z.toFixed(1)}) ` +
+                `body=${this._body ? "active" : "NONE"} aim=${this._aim ? "active" : "NONE"}`
+            );
+        }
+
         return this._state;
     }
 
@@ -198,7 +222,6 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
         this._body = null;
         this._aim = null;
 
-        // Access component list directly — this is engine-internal code
         const components = (this.gameObject as any)._components as any[];
         for (const comp of components) {
             if (!this._body && comp instanceof CinemachineBody) {
@@ -209,12 +232,11 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
             }
         }
 
-        if (!this._body) {
-            console.warn(`[CinemachineVirtualCamera] "${this.gameObject.name}" has no CinemachineBody component.`);
-        }
-        if (!this._aim) {
-            console.warn(`[CinemachineVirtualCamera] "${this.gameObject.name}" has no CinemachineAim component.`);
-        }
+        console.log(
+            `[VCam] "${this.gameObject.name}" discovered: ` +
+            `body=${this._body?.name ?? "NONE"} aim=${this._aim?.name ?? "NONE"} ` +
+            `(${components.length} components total)`
+        );
     }
 
     // ==================== UNUSED LIFECYCLE (silent) ====================
