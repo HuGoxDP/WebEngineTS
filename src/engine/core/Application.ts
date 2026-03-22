@@ -8,6 +8,8 @@ import { Camera } from "./components/Camera.ts";
 import { Input } from "./Input.ts";
 import { Scenario } from "./scenario";
 import type { IScenarioLoadProgress } from "./scenario";
+import { RenderSettings } from "./RenderSettings.ts";
+import { CameraClearFlags } from "./components/Camera.ts";
 
 // Reusable THREE.Color to avoid per-frame allocation in _render().
 const _clearColor = new THREE.Color();
@@ -451,11 +453,17 @@ export class Application {
             const threeCamera = mainCamera._internalThreeCamera;
 
             if (threeCamera !== null) {
-                // Use the camera's background color - reuse cached THREE.Color
-                const bg = mainCamera.backgroundColor;
-                _clearColor.setRGB(bg.r, bg.g, bg.b);
-                this._threeRenderer.setClearColor(_clearColor, bg.a);
-                this._threeRenderer.render(threeScene, threeCamera);
+                // Sync render settings (skybox, fog) to Three.js
+                const useSkybox = mainCamera.clearFlags === CameraClearFlags.Skybox;
+                RenderSettings._syncToThree(threeScene, useSkybox);
+                // If not using skybox, apply camera background color
+                if (!useSkybox) {
+                    const bg = mainCamera.backgroundColor;
+                    _clearColor.setRGB(bg.r, bg.g, bg.b);
+                    this._threeRenderer.setClearColor(_clearColor, bg.a);
+                }
+
+              this._threeRenderer.render(threeScene, threeCamera);
             }
         } else {
             // No camera - render dark blue so the user knows the engine is alive

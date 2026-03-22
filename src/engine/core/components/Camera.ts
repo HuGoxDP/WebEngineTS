@@ -29,6 +29,7 @@ export enum CameraClearFlags {
     Depth = 1,
     /** Don't clear anything. */
     Nothing = 2,
+    Skybox = 3,
 }
 
 // ==================== CAMERA ====================
