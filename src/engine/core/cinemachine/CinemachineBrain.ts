@@ -58,10 +58,6 @@ export class CinemachineBrain extends ScriptableBehaviour {
         if (this._frameCount <= 3 || this._frameCount % 120 === 0) {
             const p = finalState.position;
             const e = finalState.rotation.eulerAngles;
-            console.log(
-                `[Brain] f=${this._frameCount} pos=(${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}) ` +
-                `rot=(${e.x.toFixed(1)},${e.y.toFixed(1)},${e.z.toFixed(1)}) vcam=${this._activeVCam?.gameObject.name}`
-            );
         }
     }
 
@@ -94,7 +90,6 @@ export class CinemachineBrain extends ScriptableBehaviour {
             this._blendDuration = this.defaultBlendTime;
             this._blendProgress = 0;
         }
-        console.log(`[Brain] → "${newVCam?.gameObject.name}" (${hadPrev ? "blend" : "first"})`);
     }
 
     public override update(): void {}

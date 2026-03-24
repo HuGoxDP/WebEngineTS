@@ -13,6 +13,7 @@ import { Color } from "../math/Color.ts";
 import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
 import type { IAssetProvider } from "./ScenarioTypes.ts";
+import { Resources, type IAssetSource } from "../assets/Resources.ts";
 
 /**
  * Runtime asset manager for a scenario.
@@ -36,8 +37,7 @@ import type { IAssetProvider } from "./ScenarioTypes.ts";
  * Implements {@link IAssetProvider} so that {@link Scenario} can depend on
  * the interface rather than this concrete class.
  */
-export class ScenarioAssets implements IAssetProvider {
-
+export class ScenarioAssets implements IAssetProvider, IAssetSource {
     // ==================== PRIVATE STATE ====================
 
     /** In-memory ZIP archive reference. */
@@ -112,28 +112,6 @@ export class ScenarioAssets implements IAssetProvider {
         const url = URL.createObjectURL(blob);
         this._blobUrls.push(url);
         return url;
-    }
-
-    /**
-     * Returns a blob URL synchronously if the asset file exists in the ZIP.
-     * Creates and caches the URL for later revocation.
-     *
-     * @param path — path relative to `assets/`.
-     * @returns a blob URL string, or empty string if not found.
-     *
-     * @remarks Useful for Cubemap/Skybox loading where you need URLs up front.
-     * Prefer {@link getAssetUrl} for async workflows.
-     */
-    public getBlobUrl(path: string): string {
-        // This is a synchronous helper — reads file to ArrayBuffer in one shot
-        const assetPath = `assets/${path}`;
-        const file = this._zip.file(assetPath);
-        if (!file) return "";
-
-        // Note: JSZip file objects can be read synchronously if already decompressed.
-        // For safety, we return a placeholder and the actual URL is created async.
-        // Callers should prefer getAssetUrl() for reliability.
-        return "";
     }
 
     // ==================== IAssetProvider: TEXTURES ====================
@@ -246,6 +224,8 @@ export class ScenarioAssets implements IAssetProvider {
      * Called automatically by `Scenario.unload()`.
      */
     public dispose(): void {
+        Resources._clearSource();
+
         // Destroy cached textures (triggers Texture.onDestroy → THREE.Texture.dispose)
         for (const texture of this._textureCache.values()) {
             if (texture.exists()) {
@@ -269,6 +249,73 @@ export class ScenarioAssets implements IAssetProvider {
         this._blobUrls = [];
 
         console.log("[ScenarioAssets] Disposed.");
+    }
+
+    // ==================== IAssetSource IMPLEMENTATION ====================
+
+    /** @internal */
+    public has(path: string): boolean {
+        return this._zip.file(path) !== null;
+    }
+
+    /** @internal */
+    public list(prefix?: string): string[] {
+        const paths: string[] = [];
+        this._zip.forEach((relativePath) => {
+            if (!prefix || relativePath.startsWith(prefix)) {
+                paths.push(relativePath);
+            }
+        });
+        return paths;
+    }
+
+    /** @internal */
+    public async readBytes(path: string): Promise<Uint8Array> {
+        const file = this._zip.file(path);
+        if (!file) throw new Error(`[ScenarioAssets] File not found: ${path}`);
+        const ab = await file.async("arraybuffer");
+        return new Uint8Array(ab);
+    }
+
+    /** @internal */
+    public async readText(path: string): Promise<string> {
+        const file = this._zip.file(path);
+        if (!file) throw new Error(`[ScenarioAssets] File not found: ${path}`);
+        return file.async("text");
+    }
+
+    /** @internal */
+    public async getBlobUrl(path: string): Promise<string> {
+        const file = this._zip.file(path);
+        if (!file) throw new Error(`[ScenarioAssets] File not found: ${path}`);
+        const data = await file.async("arraybuffer");
+        const blob = new Blob([data], { type: ScenarioAssets._getMimeType(path) });
+        const url = URL.createObjectURL(blob);
+        this._blobUrls.push(url);
+        return url;
+    }
+
+    // ==================== RESOURCES INTEGRATION ====================
+
+    /**
+     * @internal
+     * Activates this ScenarioAssets as the Resources backend.
+     * Registers the GameObject (model) decoder and sets the source.
+     * Called by Scenario.run().
+     */
+    public _activateAsResourceSource(): void {
+        // Register model decoder (requires Three.js — stays here, not in Resources)
+        Resources.registerDecoder(
+            GameObject,
+            [".glb", ".gltf"],
+            async (bytes: Uint8Array, path: string) => {
+                const gltf = await this._parseGLTF(bytes.buffer as ArrayBuffer, path);
+                return this._convertGLTFScene(gltf, path);
+            },
+        );
+
+        Resources._setSource(this);
+        console.log("[ScenarioAssets] Resources activated");
     }
 
     // ==================== PRIVATE: GLTF PARSING ====================

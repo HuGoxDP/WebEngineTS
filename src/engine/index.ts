@@ -51,6 +51,14 @@ export { Rect } from "./core/math/Rect";
 export { Ray } from "./core/math/Ray";
 
 // =====================
+// ASSETS (Unity-style Resources API)
+// =====================
+export { Resources } from "./core/assets/Resources";
+export type { IAssetSource } from "./core/assets/Resources";
+export { LoadHandle } from "./core/assets/LoadHandle";
+export { JsonAsset, TextAsset, BinaryAsset } from "./core/assets/AssetTypes";
+
+// =====================
 // COROUTINES
 // =====================
 export {
@@ -129,7 +137,7 @@ export type {
     IScenarioAuthor,
     IScenarioLoadProgress,
     IScenarioContext,
-    IScenarioEntryPoint,
+    IAssetProvider,
 } from "./core/scenario/ScenarioTypes";
 
 
@@ -170,6 +178,10 @@ import { Rect } from "./core/math/Rect";
 import { Ray } from "./core/math/Ray";
 
 import { Coroutine, CoroutineRunner, WaitForSeconds, WaitForSecondsRealtime, WaitUntil, WaitWhile, WaitForEndOfFrame, WaitForFixedUpdate } from "./core/Coroutine";
+
+import { Resources } from "./core/assets/Resources";
+import { LoadHandle } from "./core/assets/LoadHandle";
+import { JsonAsset, TextAsset, BinaryAsset } from "./core/assets/AssetTypes";
 
 import { Mesh } from "./core/graphics/Mesh";
 import { Texture, FilterMode, TextureWrapMode } from "./core/graphics/Texture";
@@ -240,6 +252,9 @@ const WebEngineTS = {
     Coroutine, CoroutineRunner,
     WaitForSeconds, WaitForSecondsRealtime,
     WaitUntil, WaitWhile, WaitForEndOfFrame, WaitForFixedUpdate,
+
+    // Assets
+    Resources, LoadHandle, JsonAsset, TextAsset, BinaryAsset,
 
     // Graphics
     Mesh, Texture, FilterMode, TextureWrapMode,

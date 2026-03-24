@@ -8,8 +8,12 @@
  * containing a manifest, pre-compiled scripts (ES modules), and assets.
  *
  * This file contains only pure interfaces and enums with **zero** runtime
- * dependencies. Every other scenario file imports from here.
+ * dependencies. `import type` is used for engine types — TypeScript erases
+ * these at compile time, so no circular dependency is created.
  */
+
+import type { Texture2D } from "../graphics/Texture2D.ts";
+import type { GameObject } from "../GameObject.ts";
 
 // ==================== MANIFEST ====================
 
@@ -164,9 +168,8 @@ export interface IScenarioLoadProgress {
  * Concrete implementation lives in `ScenarioAssets.ts`.
  * This interface ensures Scenario.ts depends on the contract, not the class.
  *
- * **Type parameters in return values are engine types, not Three.js types.**
- * - `Texture2D` — from the engine's graphics module
- * - `GameObject` — from the engine's core module
+ * Return types use engine types imported via `import type` — these are
+ * erased at compile time and do not create circular runtime dependencies.
  */
 export interface IAssetProvider {
     /**
@@ -189,29 +192,21 @@ export interface IAssetProvider {
     /**
      * Loads a texture from the archive.
      *
-     * Returned as an engine `Texture2D` instance (not a Three.js texture).
-     *
      * @param path — path relative to `assets/textures/`
      *               (e.g. `"brick.png"` or `"textures/brick.png"`).
-     *
-     * @remarks Return type is `Promise<unknown>` at the interface level
-     * to avoid a circular dependency on Texture2D in this pure-types file.
-     * Scenario.ts will cast internally; scenario authors receive the real type
-     * via `ScenarioContext.assets.loadTexture()`.
+     * @returns an engine Texture2D instance.
      */
-    loadTexture(path: string): Promise<unknown>;
+    loadTexture(path: string): Promise<Texture2D>;
 
     /**
      * Loads a 3D model (GLB/GLTF) from the archive and converts it
-     * to a GameObject hierarchy.
+     * to a GameObject hierarchy with MeshFilter + MeshRenderer.
      *
      * @param path — path relative to `assets/models/`
      *               (e.g. `"robot.glb"` or `"models/robot.glb"`).
-     *
-     * @remarks Return type is `Promise<unknown>` at the interface level
-     * for the same reason as loadTexture. The runtime type is `GameObject`.
+     * @returns a root GameObject containing the full model hierarchy.
      */
-    loadModel(path: string): Promise<unknown>;
+    loadModel(path: string): Promise<GameObject>;
 
     /**
      * Releases all cached assets and revokes all blob URLs.
@@ -276,51 +271,4 @@ export interface IScenarioContext {
      * ```
      */
     importScript(path: string): Promise<Record<string, unknown>>;
-}
-
-// ==================== ENTRY POINT CONTRACT (DEPRECATED) ====================
-
-/**
- * The legacy contract for scenario entry points.
- *
- * @deprecated Use {@link ScenarioBehaviour} instead. Extend `ScenarioBehaviour`
- * and override its lifecycle methods (`awake`, `start`, `update`, etc.).
- *
- * This interface is retained for backward compatibility and will be
- * removed in a future version.
- *
- * **Migration guide:**
- * ```ts
- * // BEFORE (deprecated):
- * export default class MyScenario {
- *     async onSetup(context: IScenarioContext): Promise<void> { ... }
- *     onUpdate(): void { ... }
- *     onTeardown(): void { ... }
- * }
- *
- * // AFTER (recommended):
- * import { ScenarioBehaviour } from "WebEngineTS";
- *
- * export default class MyScenario extends ScenarioBehaviour {
- *     async awake(): Promise<void> { ... }  // replaces onSetup
- *     update(): void { ... }                // replaces onUpdate
- *     onDestroy(): void { ... }             // replaces onTeardown
- * }
- * ```
- */
-export interface IScenarioEntryPoint {
-    /**
-     * @deprecated Use {@link ScenarioBehaviour.awake} instead.
-     */
-    onSetup(context: IScenarioContext): void | Promise<void>;
-
-    /**
-     * @deprecated Use {@link ScenarioBehaviour.update} instead.
-     */
-    onUpdate?(): void;
-
-    /**
-     * @deprecated Use {@link ScenarioBehaviour.onDestroy} instead.
-     */
-    onTeardown?(): void;
 }

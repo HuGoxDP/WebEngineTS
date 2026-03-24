@@ -8,11 +8,10 @@ import { ScenarioBehaviour } from "./ScenarioBehaviour.ts";
 import type {
     IScenarioManifest,
     IScenarioContext,
-    IScenarioEntryPoint,
     IScenarioLoadProgress,
 } from "./ScenarioTypes.ts";
 import { ScenarioLoadState } from "./ScenarioTypes.ts";
-
+import { Resources } from "../assets/Resources.ts";
 /**
  * Regex to match ES module import/export specifiers.
  *
@@ -316,11 +315,14 @@ export class Scenario extends EngineObject {
             // Pre-link all scripts — rewrites relative imports to Blob URLs
             await this._prelinkAllScripts();
 
+            // Activate asset source for Resources API
+            this._assets!._activateAsResourceSource();
+
             // Build the context that the entry point receives
             const context = this._createContext();
 
             // Load and instantiate the entry point
-            this._entryPoint = await this._loadEntryPoint(context);
+            this._entryPoint = await this._loadEntryPoint();
 
             // Awake — the scenario builds its world here (may be async)
             await this._entryPoint._systemInit(context);
@@ -396,6 +398,7 @@ export class Scenario extends EngineObject {
 
         // 3. Dispose asset provider (textures, models, blob URLs)
         if (this._assets) {
+            Resources._clearSource();
             this._assets.dispose();
             this._assets = null;
         }
@@ -633,13 +636,9 @@ export class Scenario extends EngineObject {
 
     /**
      * Loads the entry point module from the pre-linked script registry.
-     *
-     * @param context — the scenario context (passed to legacy adapter if needed).
      * @returns the ScenarioBehaviour instance.
      */
-    private async _loadEntryPoint(
-        context: IScenarioContext
-    ): Promise<ScenarioBehaviour> {
+    private async _loadEntryPoint(): Promise<ScenarioBehaviour> {
         const manifest = this._manifest!;
         const entryPath = `scripts/${manifest.entryPoint}`;
 
@@ -692,19 +691,8 @@ export class Scenario extends EngineObject {
             return instance as ScenarioBehaviour;
         }
 
-        // Legacy fallback: check for IScenarioEntryPoint shape
-        const legacy = instance as Partial<IScenarioEntryPoint>;
-        if (typeof legacy.onSetup === "function") {
-            console.warn(
-                `[Scenario] Entry point uses deprecated IScenarioEntryPoint interface. ` +
-                `Migrate to ScenarioBehaviour. See ScenarioTypes.ts for migration guide.`
-            );
-            return Scenario._createLegacyAdapter(legacy as IScenarioEntryPoint, context);
-        }
-
         throw new Error(
-            `[Scenario] Entry point must extend ScenarioBehaviour. ` +
-            `Got an object that is neither a ScenarioBehaviour nor a legacy IScenarioEntryPoint.`
+          `[Scenario] Entry point must extend ScenarioBehaviour.`
         );
     }
 
@@ -730,30 +718,6 @@ export class Scenario extends EngineObject {
         }
 
         return false;
-    }
-
-    /**
-     * Wraps a legacy IScenarioEntryPoint in a ScenarioBehaviour adapter.
-     *
-     * @internal
-     */
-    private static _createLegacyAdapter(
-        legacy: IScenarioEntryPoint,
-        context: IScenarioContext
-    ): ScenarioBehaviour {
-        const adapter = new ScenarioBehaviour();
-
-        adapter.awake = () => legacy.onSetup(context);
-
-        if (legacy.onUpdate) {
-            adapter.update = () => legacy.onUpdate!();
-        }
-
-        if (legacy.onTeardown) {
-            adapter.onDestroy = () => legacy.onTeardown!();
-        }
-
-        return adapter;
     }
 
     /**
