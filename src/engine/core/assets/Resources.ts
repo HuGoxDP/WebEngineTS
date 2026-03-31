@@ -266,6 +266,33 @@ export class Resources {
     }
 
     /**
+     * Loads a single asset, returning `null` if not found (instead of throwing).
+     *
+     * This is the recommended method for optional assets where missing files
+     * are expected (e.g. normal maps, optional models).
+     *
+     * @param type — the asset class (e.g. `Texture2D`, `GameObject`).
+     * @param path — asset path (relative to `assets/`).
+     * @returns the loaded asset, or `null` if not found.
+     *
+     * @example
+     * ```ts
+     * const normal = await Resources.tryLoad(Texture2D, "textures/earth_normal");
+     * if (normal) mat.normalTexture = normal;
+     * ```
+     */
+    public static async tryLoad<T>(
+        type: new (...args: any[]) => T,
+        path: string,
+    ): Promise<T | null> {
+        try {
+            return await Resources.load(type, path);
+        } catch {
+            return null;
+        }
+    }
+
+    /**
      * Loads all assets of a given type under a path prefix.
      *
      * @param type — the asset class.

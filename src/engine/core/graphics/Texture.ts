@@ -10,7 +10,7 @@ import { EngineObject } from "../EngineObject.ts";
  *
  * @remarks
  * Equivalent to Unity's `FilterMode`.
- * Values are engine-owned — Three.js mapping is internal.
+ * Values are engine-owned â€” Three.js mapping is internal.
  */
 export enum FilterMode {
     /** Nearest-neighbour (pixelated). */
@@ -37,7 +37,7 @@ export enum TextureWrapMode {
 }
 
 // ==================== INTERNAL MAPPING ====================
-// Maps engine enums → Three.js constants. Never exposed.
+// Maps engine enums â†’ Three.js constants. Never exposed.
 
 /** @internal */
 function filterModeToThreeMag(mode: FilterMode): THREE.MagnificationTextureFilter {
@@ -100,7 +100,7 @@ function threeWrapToWrapMode(wrap: THREE.Wrapping): TextureWrapMode {
  * Equivalent to Unity's `UnityEngine.Texture`.
  *
  * Subclasses:
- * - {@link Texture2D} — standard 2D image texture.
+ * - {@link Texture2D} â€” standard 2D image texture.
  *
  * **Engine-first design:** The underlying `THREE.Texture` is hidden.
  * All public API uses engine-owned types.
@@ -111,7 +111,7 @@ export class Texture extends EngineObject {
 
     /**
      * The underlying Three.js texture.
-     * @internal — NEVER expose to engine users.
+     * @internal â€” NEVER expose to engine users.
      */
     private _threeTexture: THREE.Texture;
 
@@ -147,8 +147,8 @@ export class Texture extends EngineObject {
      * The underlying Three.js texture handle.
      *
      * Used by:
-     * - {@link Material} — to assign textures to Three.js material slots
-     * - {@link Texture2D} — to replace the texture handle after loading
+     * - {@link Material} â€” to assign textures to Three.js material slots
+     * - {@link Texture2D} â€” to replace the texture handle after loading
      *
      * **NEVER use in user-facing code.**
      */
@@ -163,7 +163,7 @@ export class Texture extends EngineObject {
      * Used by {@link Texture2D} when loading from URL or creating from
      * canvas, where the texture handle must be swapped after construction.
      *
-     * @param tex — the new Three.js texture. The old one is NOT disposed
+     * @param tex â€” the new Three.js texture. The old one is NOT disposed
      *              (caller must handle disposal if needed).
      */
     public _setInternalThreeTexture(tex: THREE.Texture): void {
@@ -179,7 +179,7 @@ export class Texture extends EngineObject {
      * Used by asset loaders and converters that produce THREE.Texture
      * objects from external sources (GLTF, image files, etc.).
      *
-     * @param threeTexture — the Three.js texture to wrap.
+     * @param threeTexture â€” the Three.js texture to wrap.
      * @returns a new Texture wrapping the given handle.
      */
     public static _fromThreeTexture(threeTexture: THREE.Texture): Texture {
@@ -238,8 +238,8 @@ export class Texture extends EngineObject {
     /**
      * Sets the UV offset for this texture.
      *
-     * @param x — horizontal offset.
-     * @param y — vertical offset.
+     * @param x â€” horizontal offset.
+     * @param y â€” vertical offset.
      *
      * @remarks
      * Equivalent to setting `Material.mainTextureOffset` when this
@@ -252,8 +252,8 @@ export class Texture extends EngineObject {
     /**
      * Sets the UV tiling (repeat) for this texture.
      *
-     * @param x — horizontal repeat count.
-     * @param y — vertical repeat count.
+     * @param x â€” horizontal repeat count.
+     * @param y â€” vertical repeat count.
      *
      * @remarks
      * Equivalent to setting `Material.mainTextureScale` when this
@@ -266,7 +266,7 @@ export class Texture extends EngineObject {
     /**
      * Loads a texture from a URL.
      *
-     * @param url — path to the texture file.
+     * @param url â€” path to the texture file.
      * @returns a new Texture (loading completes asynchronously).
      *
      * @remarks
@@ -293,6 +293,17 @@ export class Texture extends EngineObject {
     // ==================== LIFECYCLE ====================
 
     protected override onDestroy(): void {
+        // Close ImageBitmap if present — unlike HTMLImageElement,
+        // ImageBitmap is not garbage-collected and requires explicit .close()
+        // to release its backing pixel buffer. Three.js dispose() does NOT
+        // do this (see three.js#23953).
+        const image = this._threeTexture.image;
+        if (image != null && typeof image === "object" && "close" in image
+            && typeof (image as ImageBitmap).close === "function") {
+            (image as ImageBitmap).close();
+        }
+        this._threeTexture.image = null;
+
         this._threeTexture.dispose();
     }
 

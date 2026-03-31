@@ -42,7 +42,7 @@ export enum TextureFormat {
  *
  * @example
  * ```ts
- * // Create a solid red 64×64 texture
+ * // Create a solid red 64Ã—64 texture
  * const tex = new Texture2D(64, 64);
  * const pixels = new Array(64 * 64).fill(Color.red);
  * tex.setPixels(pixels);
@@ -61,15 +61,23 @@ export class Texture2D extends Texture {
     private _pixels: Color[] | null = null;
     private _mipmapCount: number = 1;
 
+    /**
+     * @internal
+     * When true, the constructor skips canvas allocation.
+     * Used by {@link _wrapThreeTexture} to avoid creating a
+     * throwaway Canvas that would leak memory.
+     */
+    private static _skipCanvasAllocation: boolean = false;
+
     // ==================== CONSTRUCTOR ====================
 
     /**
      * Creates a new 2D texture.
      *
-     * @param width — width in pixels.
-     * @param height — height in pixels.
-     * @param format — pixel format.
-     * @param mipChain — whether to generate mipmaps.
+     * @param width â€” width in pixels.
+     * @param height â€” height in pixels.
+     * @param format â€” pixel format.
+     * @param mipChain â€” whether to generate mipmaps.
      */
     constructor(
         width: number,
@@ -84,6 +92,13 @@ export class Texture2D extends Texture {
         this._format = format;
         this._isReadable = true;
         this._mipmapCount = mipChain ? Texture2D._calcMipmapCount(width, height) : 1;
+
+        if (Texture2D._skipCanvasAllocation) {
+            // Fast path: caller will replace the Three.js texture immediately
+            // via _setInternalThreeTexture(). Skip canvas allocation to avoid
+            // creating a large throwaway Canvas that leaks memory.
+            return;
+        }
 
         // Create a canvas-backed Three.js texture
         const canvas = document.createElement("canvas");
@@ -138,8 +153,8 @@ export class Texture2D extends Texture {
     /**
      * Gets the color of a pixel.
      *
-     * @param x — x coordinate (0 to width−1).
-     * @param y — y coordinate (0 to height−1).
+     * @param x â€” x coordinate (0 to widthâˆ’1).
+     * @param y â€” y coordinate (0 to heightâˆ’1).
      * @returns a copy of the pixel color.
      */
     public getPixel(x: number, y: number): Color {
@@ -162,9 +177,9 @@ export class Texture2D extends Texture {
      *
      * Call {@link apply} after all changes to push data to the GPU.
      *
-     * @param x — x coordinate.
-     * @param y — y coordinate.
-     * @param color — the color to set.
+     * @param x â€” x coordinate.
+     * @param y â€” y coordinate.
+     * @param color â€” the color to set.
      */
     public setPixel(x: number, y: number, color: Color): void {
         if (!this._isReadable) {
@@ -181,8 +196,8 @@ export class Texture2D extends Texture {
     /**
      * Gets a bilinearly interpolated color at normalized UV coordinates.
      *
-     * @param u — horizontal coordinate (0.0–1.0).
-     * @param v — vertical coordinate (0.0–1.0).
+     * @param u â€” horizontal coordinate (0.0â€“1.0).
+     * @param v â€” vertical coordinate (0.0â€“1.0).
      * @returns the interpolated color.
      */
     public getPixelBilinear(u: number, v: number): Color {
@@ -231,7 +246,7 @@ export class Texture2D extends Texture {
     /**
      * Sets all pixels from a Color array.
      *
-     * @param colors — must be exactly `width × height` colors.
+     * @param colors â€” must be exactly `width Ã— height` colors.
      */
     public setPixels(colors: Color[]): void {
         if (!this._isReadable) {
@@ -256,8 +271,8 @@ export class Texture2D extends Texture {
     /**
      * Pushes pixel changes to the GPU texture.
      *
-     * @param updateMipmaps — whether to regenerate mipmaps.
-     * @param makeNoLongerReadable — if true, frees CPU pixel data (optimization).
+     * @param updateMipmaps â€” whether to regenerate mipmaps.
+     * @param makeNoLongerReadable â€” if true, frees CPU pixel data (optimization).
      *
      * @remarks
      * Equivalent to Unity's `Texture2D.Apply()`.
@@ -326,7 +341,7 @@ export class Texture2D extends Texture {
 
     /**
      * Encodes the texture as a JPEG data URL.
-     * @param quality — compression quality (0.0–1.0).
+     * @param quality â€” compression quality (0.0â€“1.0).
      * @returns a data:image/jpeg;base64 string.
      */
     public encodeToJPG(quality: number = 0.92): string {
@@ -343,7 +358,7 @@ export class Texture2D extends Texture {
     /**
      * Loads a texture from a URL (async).
      *
-     * @param url — path to the image file.
+     * @param url â€” path to the image file.
      * @returns the loaded Texture2D.
      *
      * @remarks
@@ -360,14 +375,7 @@ export class Texture2D extends Texture {
                     const width = image.width;
                     const height = image.height;
 
-                    const texture = new Texture2D(width, height, TextureFormat.RGBA32, true);
-
-                    // Replace the canvas texture with the loaded one
-                    texture._internalThreeTexture.dispose();
-                    texture._setInternalThreeTexture(threeTexture);
-
-                    texture._width = width;
-                    texture._height = height;
+                    const texture = Texture2D._wrapThreeTexture(threeTexture, width, height);
                     texture.name = url.split("/").pop() || "Loaded Texture2D";
 
                     resolve(texture);
@@ -384,10 +392,10 @@ export class Texture2D extends Texture {
     /**
      * Creates a Texture2D from raw pixel data.
      *
-     * @param data — array of Color values (width × height).
-     * @param width — texture width.
-     * @param height — texture height.
-     * @param format — pixel format.
+     * @param data â€” array of Color values (width Ã— height).
+     * @param width â€” texture width.
+     * @param height â€” texture height.
+     * @param format â€” pixel format.
      * @returns the new Texture2D with data applied.
      */
     public static CreateFromData(
@@ -409,7 +417,7 @@ export class Texture2D extends Texture {
      * Used by asset loaders (GLTF, OBJ, etc.) that produce THREE.Texture
      * objects from external sources.
      *
-     * @param threeTexture — the Three.js texture to wrap.
+     * @param threeTexture â€” the Three.js texture to wrap.
      * @returns a new Texture2D wrapping the given handle.
      */
     public static override _fromThreeTexture(threeTexture: THREE.Texture): Texture2D {
@@ -417,13 +425,8 @@ export class Texture2D extends Texture {
         const width = image?.width || 1;
         const height = image?.height || 1;
 
-        const texture = new Texture2D(width, height, TextureFormat.RGBA32, true);
-
-        // Replace the default canvas texture
-        texture._internalThreeTexture.dispose();
-        texture._setInternalThreeTexture(threeTexture);
-        texture._width = width;
-        texture._height = height;
+        const texture = Texture2D._wrapThreeTexture(threeTexture, width, height);
+        texture.name = `Texture2D ${width}x${height}`;
 
         return texture;
     }
@@ -431,7 +434,7 @@ export class Texture2D extends Texture {
     /**
      * Creates a Texture2D from an ArrayBuffer (binary image data).
      *
-     * @param data — ArrayBuffer containing PNG, JPEG, etc.
+     * @param data â€” ArrayBuffer containing PNG, JPEG, etc.
      * @returns a Promise resolving to the loaded Texture2D.
      */
     public static fromArrayBuffer(data: ArrayBuffer): Promise<Texture2D> {
@@ -448,7 +451,9 @@ export class Texture2D extends Texture {
                 threeTexture.needsUpdate = true;
                 threeTexture.colorSpace = THREE.SRGBColorSpace;
 
-                const texture = Texture2D._fromThreeTexture(threeTexture);
+                const texture = Texture2D._wrapThreeTexture(
+                    threeTexture, img.width, img.height
+                );
                 texture.name = "Texture from ArrayBuffer";
 
                 resolve(texture);
@@ -470,7 +475,7 @@ export class Texture2D extends Texture {
     private static _grayTexture: Texture2D | null = null;
     private static _normalTexture: Texture2D | null = null;
 
-    /** 1×1 white texture. */
+    /** 1Ã—1 white texture. */
     public static get whiteTexture(): Texture2D {
         if (!Texture2D._whiteTexture) {
             Texture2D._whiteTexture = Texture2D._createSolidColor(Color.white, "White Texture");
@@ -478,7 +483,7 @@ export class Texture2D extends Texture {
         return Texture2D._whiteTexture;
     }
 
-    /** 1×1 black texture. */
+    /** 1Ã—1 black texture. */
     public static get blackTexture(): Texture2D {
         if (!Texture2D._blackTexture) {
             Texture2D._blackTexture = Texture2D._createSolidColor(Color.black, "Black Texture");
@@ -486,7 +491,7 @@ export class Texture2D extends Texture {
         return Texture2D._blackTexture;
     }
 
-    /** 1×1 gray texture. */
+    /** 1Ã—1 gray texture. */
     public static get grayTexture(): Texture2D {
         if (!Texture2D._grayTexture) {
             Texture2D._grayTexture = Texture2D._createSolidColor(Color.gray, "Gray Texture");
@@ -494,7 +499,7 @@ export class Texture2D extends Texture {
         return Texture2D._grayTexture;
     }
 
-    /** 1×1 default normal map (flat surface pointing up). */
+    /** 1Ã—1 default normal map (flat surface pointing up). */
     public static get normalTexture(): Texture2D {
         if (!Texture2D._normalTexture) {
             const normalColor = new Color(0.5, 0.5, 1.0, 1.0);
@@ -504,6 +509,43 @@ export class Texture2D extends Texture {
     }
 
     // ==================== PRIVATE HELPERS ====================
+
+    /**
+     * @internal
+     * Wraps an existing Three.js texture into a Texture2D without
+     * allocating an intermediate canvas.
+     *
+     * This is the core factory used by all asset-loading paths
+     * ({@link _fromThreeTexture}, {@link Load}, {@link fromArrayBuffer}).
+     * It avoids the canvas leak that occurs when the regular constructor
+     * creates a full-size Canvas only to immediately discard it.
+     *
+     * Asset-loaded textures are non-readable by default (no CPU pixel
+     * data). Call {@link _ensurePixelData} to make them readable if needed.
+     *
+     * @param threeTexture — the Three.js texture to wrap.
+     * @param width — width in pixels.
+     * @param height — height in pixels.
+     * @returns a new Texture2D wrapping the given handle.
+     */
+    private static _wrapThreeTexture(
+        threeTexture: THREE.Texture,
+        width: number,
+        height: number,
+    ): Texture2D {
+        Texture2D._skipCanvasAllocation = true;
+        const texture = new Texture2D(width, height, TextureFormat.RGBA32, true);
+        Texture2D._skipCanvasAllocation = false;
+
+        // Replace the default empty texture with the real one
+        texture._internalThreeTexture.dispose();
+        texture._setInternalThreeTexture(threeTexture);
+
+        // Asset-loaded textures start non-readable — no CPU pixel data kept
+        texture._isReadable = false;
+
+        return texture;
+    }
 
     /**
      * Lazily loads pixel data from the canvas into the _pixels array.
@@ -552,7 +594,7 @@ export class Texture2D extends Texture {
         return Math.floor(Math.log2(Math.max(width, height))) + 1;
     }
 
-    /** Creates a 1×1 solid-color texture. */
+    /** Creates a 1Ã—1 solid-color texture. */
     private static _createSolidColor(color: Color, name: string): Texture2D {
         const texture = new Texture2D(1, 1, TextureFormat.RGBA32, false);
         texture.setPixel(0, 0, color);

@@ -6,6 +6,7 @@ import { Vector3 } from "./math/Vector3.ts";
 import { Quaternion } from "./math/Quaternion.ts";
 import type { GameObject } from "./GameObject.ts";
 import { SceneManager } from "./SceneManager.ts";
+import { Bounds } from "./math/Bounds.ts";
 
 // ==================== MODULE-LEVEL CACHE ====================
 // Cached Three.js temporaries for zero-allocation internal math.
@@ -14,7 +15,8 @@ import { SceneManager } from "./SceneManager.ts";
 const _tvec3A = new THREE.Vector3();
 const _tquatA = new THREE.Quaternion();
 const _tquatB = new THREE.Quaternion();
-
+const _tBox3 = new THREE.Box3();
+const _tVec3B = new THREE.Vector3();
 // Cached engine-math temporary for direction vector calculations
 const _equatA = new Quaternion();
 
@@ -132,6 +134,33 @@ export class Transform extends Component {
      */
     public _removeInternalChild(obj: THREE.Object3D): void {
         this._object3D.remove(obj);
+    }
+
+    /**
+     * @internal
+     * Computes the world-space AABB of this Transform and ALL descendants.
+     * Uses Three.js `Box3.setFromObject()` which recursively traverses
+     * the scene graph, transforms each geometry's bounding box through
+     * its `matrixWorld`, and produces a combined world-space AABB.
+     * This correctly handles arbitrarily nested transforms, internal
+     * scales from GLTF models, rotations, and offset pivots.
+     * @returns world-space Bounds enclosing the entire hierarchy.
+     */
+    public _computeHierarchyBounds(): Bounds {
+        this._object3D.updateMatrixWorld(true);
+        _tBox3.setFromObject(this._object3D);
+
+        if (_tBox3.isEmpty()) {
+            return new Bounds();
+        }
+
+        _tBox3.getCenter(_tVec3B);
+        const center = new Vector3(_tVec3B.x, _tVec3B.y, _tVec3B.z);
+
+        _tBox3.getSize(_tVec3B);
+        const size = new Vector3(_tVec3B.x, _tVec3B.y, _tVec3B.z);
+
+        return new Bounds(center, size);
     }
 
     // ==================== I. HIERARCHY ====================

@@ -8,7 +8,8 @@ import { Behaviour } from "./Behaviour.ts";
 import { ScriptableBehaviour } from "./ScriptableBehaviour.ts";
 import { EngineSettings } from "./EngineSettings.ts";
 import type { Scene } from "./Scene.ts";
-
+import { Bounds } from "./math/Bounds.ts";
+import { Vector3 } from "./math/Vector3.ts";
 /**
  * The fundamental object in the engine — a container for {@link Component Components}.
  *
@@ -651,5 +652,38 @@ export class GameObject extends EngineObject {
                 childGO._collectComponentsInChildren(type, includeInactive, results);
             }
         }
+    }
+
+    // ==================== BOUNDS & NORMALIZATION ====================
+    /**
+     * Computes the world-space axis-aligned bounding box of this
+     * GameObject and ALL its descendants (children, grandchildren, etc.).
+     * Accounts for all transforms in the hierarchy — position, rotation,
+     * scale, including internal scales baked into imported GLTF models.
+     * @returns a Bounds in world-space enclosing every mesh in the hierarchy.
+     */
+    public getWorldBounds(): Bounds {
+            return this.transform._computeHierarchyBounds();
+    }
+
+    /**
+      * Scales this GameObject uniformly so its largest dimension
+      * equals `targetSize` in world units.
+      */
+    public normalizeToSize(targetSize: number): void {
+        // Reset scale to (1,1,1) so measurement reflects original model
+        this.transform.localScale = new Vector3(1, 1, 1);
+
+        const bounds = this.getWorldBounds();
+        const size = bounds.size;
+        const maxDimension = Math.max(size.x, size.y, size.z);
+
+        if (maxDimension < 0.0001) {
+            console.warn(`[GameObject] normalizeToSize: "${this.name}" has zero bounds`);
+            return;
+        }
+
+        const scale = targetSize / maxDimension;
+        this.transform.localScale = new Vector3(scale, scale, scale);
     }
 }
