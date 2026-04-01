@@ -96,6 +96,13 @@ export { LineRenderer, LineAlignment, LineTextureMode } from "./core/components/
 export type { GradientColorKey, CurveKey } from "./core/components/LineRenderer";
 export { SpriteRenderer, SpriteBillboardMode } from "./core/components/SpriteRenderer";
 
+
+// =====================
+// Diagnostic
+// =====================
+export { MemoryProfiler, type MemoryReport } from './core/diagnostics/MemoryProfiler';
+
+
 // =====================
 // COMPONENTS — Camera & Lights
 // =====================
@@ -139,7 +146,6 @@ export type {
     IScenarioContext,
     IAssetProvider,
 } from "./core/scenario/ScenarioTypes";
-
 
 // ============================================
 // DEFAULT NAMESPACE EXPORT

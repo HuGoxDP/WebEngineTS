@@ -3,6 +3,7 @@
 import * as THREE from "three";
 import { EngineObject } from "../EngineObject.ts";
 import { FilterMode } from "./Texture.ts";
+import { Texture2D } from "./Texture2D.ts";
 
 /**
  * A cube texture composed of six square images (one per face).
@@ -196,12 +197,74 @@ export class Cubemap extends EngineObject {
         return cubemap;
     }
 
+    // ==================== MEMORY MANAGEMENT ====================
+
+    /**
+     * Releases CPU-side source images from the underlying GPU texture,
+     * freeing significant memory.
+     *
+     * For an equirectangular skybox at 4096×2048, this frees ~32 MB.
+     * For a 6-face cubemap at 1024 per face, this frees ~24 MB.
+     *
+     * Call this after the cubemap has been rendered at least once
+     * (i.e. not in `awake()`, but in `start()` or later).
+     *
+     * After calling this method, the cubemap continues to render normally
+     * from GPU memory. However, it cannot be re-uploaded if a WebGL
+     * context loss occurs.
+     *
+     * @example
+     * ```ts
+     * // In start() — after first render:
+     * const skybox = RenderSettings.skybox;
+     * if (skybox) skybox.releaseSourceImage();
+     * ```
+     */
+    public releaseSourceImage(): void {
+        const tex = this._threeTexture;
+
+        if ((tex as THREE.CubeTexture).isCubeTexture) {
+            // 6-face CubeTexture — images are in .images array
+            const cube = tex as THREE.CubeTexture;
+            if (cube.images) {
+                for (let i = 0; i < cube.images.length; i++) {
+                    const img = cube.images[i];
+                    if (img && typeof img === "object" && "close" in img
+                        && typeof (img as ImageBitmap).close === "function") {
+                        (img as ImageBitmap).close();
+                    }
+                    cube.images[i] = null as any;
+                }
+            }
+        } else {
+            // Equirectangular — single image in .image
+            const image = (tex as THREE.Texture).image;
+            if (image != null && typeof image === "object" && "close" in image
+                && typeof (image as ImageBitmap).close === "function") {
+                (image as ImageBitmap).close();
+            }
+            (tex as THREE.Texture).image = null;
+        }
+
+        tex.needsUpdate = false;
+    }
+
     // ==================== CLEANUP ====================
 
     /**
      * Disposes the underlying GPU texture resources.
+     *
+     * Closes `ImageBitmap` source images if present (required because
+     * `ImageBitmap` is not garbage-collected through normal dereferencing).
      */
     public dispose(): void {
+        const image = (this._threeTexture as THREE.Texture).image;
+        if (image != null && typeof image === "object" && "close" in image
+            && typeof (image as ImageBitmap).close === "function") {
+            (image as ImageBitmap).close();
+        }
+        (this._threeTexture as THREE.Texture).image = null;
+
         this._threeTexture.dispose();
     }
 
@@ -217,14 +280,41 @@ export class Cubemap extends EngineObject {
     }
 
     /**
-     * Loads a single image from a URL as an HTMLImageElement.
+     * Loads a single image from a URL, optionally downscaling if it
+     * exceeds {@link Texture2D.maxSize}.
+     *
      * @internal
+     * @returns the loaded (and possibly downscaled) image source.
      */
-    private static _loadImage(url: string): Promise<HTMLImageElement> {
+    private static _loadImage(url: string): Promise<HTMLImageElement | HTMLCanvasElement> {
         return new Promise((resolve, reject) => {
             const img = new Image();
             img.crossOrigin = "anonymous";
-            img.onload = () => resolve(img);
+
+            img.onload = () => {
+                const maxSize = Texture2D.maxSize;
+                if (maxSize > 0 && (img.width > maxSize || img.height > maxSize)) {
+                    const scale = maxSize / Math.max(img.width, img.height);
+                    const dstW = Math.round(img.width * scale);
+                    const dstH = Math.round(img.height * scale);
+
+                    const canvas = document.createElement("canvas");
+                    canvas.width = dstW;
+                    canvas.height = dstH;
+                    const ctx = canvas.getContext("2d")!;
+                    ctx.drawImage(img, 0, 0, dstW, dstH);
+
+                    console.log(
+                        `[Cubemap] Downscaled ${img.width}x${img.height}` +
+                        ` -> ${dstW}x${dstH} (maxSize=${maxSize})`
+                    );
+
+                    resolve(canvas);
+                } else {
+                    resolve(img);
+                }
+            };
+
             img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
             img.src = url;
         });

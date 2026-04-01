@@ -40,8 +40,8 @@ import { Resources, type IAssetSource } from "../assets/Resources.ts";
 export class ScenarioAssets implements IAssetProvider, IAssetSource {
     // ==================== PRIVATE STATE ====================
 
-    /** In-memory ZIP archive reference. */
-    private _zip: JSZip;
+    /** In-memory ZIP archive reference. Null after {@link releaseArchive}. */
+    private _zip: JSZip | null;
 
     /** Cache: normalized asset path → loaded Texture2D. */
     private _textureCache: Map<string, Texture2D> = new Map();
@@ -89,8 +89,9 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      * @returns a Blob containing the raw file data.
      */
     public async getAsset(path: string): Promise<Blob> {
+        this._ensureArchive();
         const assetPath = `assets/${path}`;
-        const file = this._zip.file(assetPath);
+        const file = this._zip!.file(assetPath);
 
         if (!file) {
             throw new Error(`[ScenarioAssets] Asset not found: ${assetPath}`);
@@ -114,6 +115,21 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         return url;
     }
 
+    /**
+     * @deprecated Use {@link getAssetUrl} instead — this method always returns
+     * an empty string because JSZip cannot reliably decompress synchronously.
+     *
+     * @param path — path relative to `assets/`.
+     * @returns always returns empty string.
+     */
+    public getBlobUrlSync(path: string): string {
+        const assetPath = `assets/${path}`;
+        if (this._zip === null) return "";
+        const file = this._zip.file(assetPath);
+        if (!file) return "";
+        return "";
+    }
+
     // ==================== IAssetProvider: TEXTURES ====================
 
     /**
@@ -134,7 +150,8 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         if (cached) return cached;
 
         // Read raw bytes from ZIP
-        const file = this._zip.file(`assets/${normalizedPath}`);
+        this._ensureArchive();
+        const file = this._zip!.file(`assets/${normalizedPath}`);
         if (!file) {
             throw new Error(`[ScenarioAssets] Texture not found: assets/${normalizedPath}`);
         }
@@ -187,7 +204,8 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         if (cached) return cached;
 
         // Read raw bytes from ZIP
-        const file = this._zip.file(`assets/${normalizedPath}`);
+        this._ensureArchive();
+        const file = this._zip!.file(`assets/${normalizedPath}`);
         if (!file) {
             throw new Error(`[ScenarioAssets] Model not found: assets/${normalizedPath}`);
         }
@@ -200,6 +218,12 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         // Convert Three.js scene graph → engine GameObjects
         const root = this._convertGLTFScene(gltf, path);
 
+        // Dispose the original Three.js scene — engine now owns all data.
+        // Geometries are safe to dispose (data was copied into engine Mesh).
+        // Materials are safe to dispose (replaced by StandardMaterial).
+        // Textures are NOT disposed — they are shared with engine Texture2D.
+        ScenarioAssets._disposeThreeScene(gltf.scene);
+
         // Cache as prefab template
         this._modelCache.set(normalizedPath, root);
 
@@ -209,6 +233,63 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         );
 
         return root;
+    }
+
+    // ==================== MEMORY MANAGEMENT ====================
+
+    /**
+     * Releases the in-memory ZIP archive to free decompressed asset data.
+     *
+     * Call this after all assets have been loaded (typically at the end of
+     * `awake()` or `start()`). After calling this method, no further asset
+     * loading is possible — {@link loadTexture}, {@link loadModel},
+     * {@link getAsset}, and IAssetSource methods will throw.
+     *
+     * For a 28 MB compressed scenario archive, this can free ~50–100 MB
+     * of decompressed data that JSZip holds in memory.
+     *
+     * @remarks
+     * This is an optimization for scenarios that load all assets upfront.
+     * Scenarios that load assets lazily (e.g. on demand during gameplay)
+     * should not call this method.
+     *
+     * @example
+     * ```ts
+     * async awake() {
+     *     const [earth, mars] = await Resources.loadBatch([
+     *         [Texture2D, "textures/earth"],
+     *         [Texture2D, "textures/mars"],
+     *     ]).promise;
+     *
+     *     // Free the ZIP — no more loading needed
+     *     this.context.assets.releaseArchive();
+     * }
+     * ```
+     */
+    public releaseArchive(): void {
+        if (this._zip === null) return;
+        this._zip = null;
+        console.log("[ScenarioAssets] Archive released — no further asset loading possible.");
+    }
+
+    /**
+     * Whether the archive has been released via {@link releaseArchive}.
+     */
+    public get isArchiveReleased(): boolean {
+        return this._zip === null;
+    }
+
+    /**
+     * @internal
+     * Throws if the archive has been released.
+     */
+    private _ensureArchive(): void {
+        if (this._zip === null) {
+            throw new Error(
+                "[ScenarioAssets] Archive has been released via releaseArchive(). " +
+                "No further asset loading is possible."
+            );
+        }
     }
 
     // ==================== IAssetProvider: DISPOSE ====================
@@ -248,6 +329,9 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         }
         this._blobUrls = [];
 
+        // Release ZIP if not already released
+        this._zip = null;
+
         console.log("[ScenarioAssets] Disposed.");
     }
 
@@ -255,11 +339,13 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
 
     /** @internal */
     public has(path: string): boolean {
+        if (this._zip === null) return false;
         return this._zip.file(path) !== null;
     }
 
     /** @internal */
     public list(prefix?: string): string[] {
+        if (this._zip === null) return [];
         const paths: string[] = [];
         this._zip.forEach((relativePath) => {
             if (!prefix || relativePath.startsWith(prefix)) {
@@ -271,7 +357,8 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
 
     /** @internal */
     public async readBytes(path: string): Promise<Uint8Array> {
-        const file = this._zip.file(path);
+        this._ensureArchive();
+        const file = this._zip!.file(path);
         if (!file) throw new Error(`[ScenarioAssets] File not found: ${path}`);
         const ab = await file.async("arraybuffer");
         return new Uint8Array(ab);
@@ -279,14 +366,16 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
 
     /** @internal */
     public async readText(path: string): Promise<string> {
-        const file = this._zip.file(path);
+        this._ensureArchive();
+        const file = this._zip!.file(path);
         if (!file) throw new Error(`[ScenarioAssets] File not found: ${path}`);
         return file.async("text");
     }
 
     /** @internal */
     public async getBlobUrl(path: string): Promise<string> {
-        const file = this._zip.file(path);
+        this._ensureArchive();
+        const file = this._zip!.file(path);
         if (!file) throw new Error(`[ScenarioAssets] File not found: ${path}`);
         const data = await file.async("arraybuffer");
         const blob = new Blob([data], { type: ScenarioAssets._getMimeType(path) });
@@ -310,7 +399,9 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
             [".glb", ".gltf"],
             async (bytes: Uint8Array, path: string) => {
                 const gltf = await this._parseGLTF(bytes.buffer as ArrayBuffer, path);
-                return this._convertGLTFScene(gltf, path);
+                const root = this._convertGLTFScene(gltf, path);
+                ScenarioAssets._disposeThreeScene(gltf.scene);
+                return root;
             },
         );
 
@@ -344,7 +435,7 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
 
             // Resolve relative path within the ZIP
             const zipPath = basePath + url;
-            const zipFile = this._zip.file(zipPath);
+            const zipFile = this._zip?.file(zipPath) ?? null;
             if (!zipFile) {
                 console.warn(`[ScenarioAssets] External GLTF resource not found in ZIP: ${zipPath}`);
                 return url;
@@ -598,6 +689,63 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         }
 
         return material;
+    }
+
+    // ==================== PRIVATE: GLTF CLEANUP ====================
+
+    /**
+     * @internal
+     * Disposes the original Three.js scene graph after conversion to
+     * engine GameObjects is complete.
+     *
+     * Frees GPU resources (shader programs, buffer objects) that Three.js
+     * allocated during GLTF parsing but are no longer needed — the engine
+     * now owns all data through its own types.
+     *
+     * **What is disposed:**
+     * - BufferGeometry — vertex/index GPU buffers. Safe because
+     *   {@link Mesh.fromThreeGeometry} copies all data into engine arrays.
+     * - Materials — GPU shader programs. Safe because we created new
+     *   {@link StandardMaterial} instances.
+     *
+     * **What is NOT disposed:**
+     * - Textures — shared with engine {@link Texture2D} via
+     *   {@link Texture2D._fromThreeTexture}. Disposing would destroy
+     *   the engine's live GPU textures.
+     */
+    private static _disposeThreeScene(threeScene: THREE.Object3D): void {
+        let geometriesDisposed = 0;
+        let materialsDisposed = 0;
+
+        threeScene.traverse((node) => {
+            // Dispose geometry GPU buffers
+            if ((node as THREE.Mesh).isMesh) {
+                const mesh = node as THREE.Mesh;
+                if (mesh.geometry) {
+                    mesh.geometry.dispose();
+                    geometriesDisposed++;
+                }
+
+                // Dispose material shader programs (NOT their textures)
+                const materials = Array.isArray(mesh.material)
+                    ? mesh.material
+                    : [mesh.material];
+
+                for (const mat of materials) {
+                    if (mat) {
+                        mat.dispose();
+                        materialsDisposed++;
+                    }
+                }
+            }
+        });
+
+        if (geometriesDisposed > 0 || materialsDisposed > 0) {
+            console.log(
+                `[ScenarioAssets] GLTF cleanup: ${geometriesDisposed} geometries, ` +
+                `${materialsDisposed} materials disposed`
+            );
+        }
     }
 
     // ==================== PRIVATE: UTILITIES ====================

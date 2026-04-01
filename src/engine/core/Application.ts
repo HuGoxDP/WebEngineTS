@@ -150,6 +150,9 @@ export class Application {
 
         // Register as singleton
         Application._instance = this;
+
+        // Expose to diagnostics (MemoryProfiler) without circular imports
+        (globalThis as any).__webengine_application__ = this;
     }
 
     // ==================== PUBLIC: GAME LOOP ====================
@@ -298,6 +301,7 @@ export class Application {
         // Clear singleton
         if (Application._instance === this) {
             Application._instance = null;
+            (globalThis as any).__webengine_application__ = null;
         }
 
         console.log("[Application] Disposed.");
@@ -463,7 +467,7 @@ export class Application {
                     this._threeRenderer.setClearColor(_clearColor, bg.a);
                 }
 
-              this._threeRenderer.render(threeScene, threeCamera);
+                this._threeRenderer.render(threeScene, threeCamera);
             }
         } else {
             // No camera - render dark blue so the user knows the engine is alive

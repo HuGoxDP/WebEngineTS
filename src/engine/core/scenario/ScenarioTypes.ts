@@ -215,6 +215,43 @@ export interface IAssetProvider {
      * should not normally call this directly.
      */
     dispose(): void;
+
+    /**
+     * Releases the in-memory archive to free decompressed asset data.
+     *
+     * Call this after all assets have been loaded (typically at the end
+     * of `awake()` or `start()`). After calling this method, no further
+     * asset loading is possible — {@link loadTexture}, {@link loadModel},
+     * {@link getAsset}, and related methods will throw.
+     *
+     * For a typical scenario archive this can free tens to hundreds of
+     * megabytes of decompressed data held in memory by the ZIP library.
+     *
+     * @remarks
+     * This is an optimization for scenarios that load all assets upfront.
+     * Scenarios that load assets lazily during gameplay should not call this.
+     *
+     * @example
+     * ```ts
+     * async awake() {
+     *     const [earth, mars] = await Resources.loadBatch([
+     *         [Texture2D, "textures/earth"],
+     *         [Texture2D, "textures/mars"],
+     *     ]).promise;
+     *
+     *     // Free the archive — no more loading needed
+     *     this.context.assets.releaseArchive();
+     * }
+     * ```
+     */
+    releaseArchive(): void;
+
+    /**
+     * Whether the archive has been released via {@link releaseArchive}.
+     *
+     * When `true`, asset loading methods will throw if called.
+     */
+    readonly isArchiveReleased: boolean;
 }
 
 // ==================== SCENARIO CONTEXT ====================

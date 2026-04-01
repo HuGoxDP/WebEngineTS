@@ -69,6 +69,33 @@ export class Texture2D extends Texture {
      */
     private static _skipCanvasAllocation: boolean = false;
 
+    /**
+     * Maximum texture dimension (width or height) allowed at load time.
+     *
+     * Textures loaded via {@link fromArrayBuffer} that exceed this size
+     * are automatically downscaled proportionally before GPU upload.
+     * Set to `0` to disable the limit (default).
+     *
+     * This does not affect textures created via the constructor or
+     * {@link CreateFromData} — only asset-loaded textures.
+     *
+     * @remarks
+     * Equivalent to Unity's texture import "Max Size" setting combined
+     * with `QualitySettings.globalTextureMipmapLimit`. Downscaling
+     * happens on the CPU before GPU upload, reducing both CPU and GPU
+     * memory consumption.
+     *
+     * @example
+     * ```ts
+     * // Cap all loaded textures to 2048 max dimension
+     * Texture2D.maxSize = 2048;
+     *
+     * // Skybox at 8192×4096 will be loaded as 2048×1024
+     * const sky = await Resources.load(Texture2D, "textures/skybox");
+     * ```
+     */
+    public static maxSize: number = 0;
+
     // ==================== CONSTRUCTOR ====================
 
     /**
@@ -324,6 +351,77 @@ export class Texture2D extends Texture {
         }
     }
 
+    // ==================== MEMORY MANAGEMENT ====================
+
+    /**
+     * Releases the CPU-side source image from the underlying GPU texture,
+     * freeing significant memory.
+     *
+     * **Important:** Call this only after the texture has been rendered at
+     * least once (i.e. in `start()` or `update()`, not in `awake()`).
+     * Three.js needs the image data for the initial GPU upload via
+     * `texImage2D`. Calling before the first render produces a
+     * "Texture marked for update but no image data found" warning
+     * and the texture may appear black.
+     *
+     * After calling this method:
+     * - The texture continues to render normally (GPU data is unaffected).
+     * - {@link getPixel}, {@link setPixel}, {@link getPixels} will not work.
+     * - {@link encodeToPNG} / {@link encodeToJPG} will not work.
+     * - The texture becomes non-readable ({@link isReadable} returns `false`).
+     *
+     * For a 2048×1024 RGBA texture this frees ~8 MB of CPU memory.
+     * For a skybox at 8192×4096 this frees ~128 MB.
+     *
+     * @remarks
+     * Equivalent to Unity's `Texture2D.Apply(true, makeNoLongerReadable: true)`
+     * — but separated from Apply() since our GPU upload uses `needsUpdate`.
+     *
+     * We opt out of automatic WebGL context loss recovery at the texture
+     * level (matching Babylon.js `doNotHandleContextLost` pattern). If
+     * context is lost, textures must be reloaded from the asset source
+     * rather than recovered from cached CPU data.
+     *
+     * If the source image is an `ImageBitmap` (common with GLTF models),
+     * this method calls `.close()` which is required because `ImageBitmap`
+     * is not garbage-collected through normal dereferencing.
+     *
+     * @example
+     * ```ts
+     * // In start() — after the first render frame:
+     * const tex = await Resources.load(Texture2D, "textures/earth");
+     * material.albedoTexture = tex;
+     *
+     * // Later, in start() or update():
+     * tex.releaseSourceImage();
+     * ```
+     */
+    public releaseSourceImage(): void {
+        const threeTex = this._internalThreeTexture;
+        const image = threeTex.image;
+
+        // Close ImageBitmap explicitly — it is not garbage-collected
+        if (image != null && typeof image === "object" && "close" in image
+            && typeof (image as ImageBitmap).close === "function") {
+            (image as ImageBitmap).close();
+        }
+
+        // Null out the source image — Three.js keeps the WebGLTexture alive
+        // in its internal cache, rendering continues from VRAM
+        threeTex.image = null;
+
+        // Prevent Three.js from attempting to re-upload null data.
+        // If the texture was already uploaded (needsUpdate was consumed by
+        // the renderer), this is a no-op. If called before first render,
+        // this prevents the "no image data found" warning — but the texture
+        // will not have been uploaded and will appear blank.
+        threeTex.needsUpdate = false;
+
+        // Release any cached pixel data
+        this._pixels = null;
+        this._isReadable = false;
+    }
+
     // ==================== ENCODING ====================
 
     /**
@@ -434,7 +532,10 @@ export class Texture2D extends Texture {
     /**
      * Creates a Texture2D from an ArrayBuffer (binary image data).
      *
-     * @param data â€” ArrayBuffer containing PNG, JPEG, etc.
+     * If {@link Texture2D.maxSize} is set and the image exceeds it,
+     * the image is downscaled proportionally before GPU upload.
+     *
+     * @param data — ArrayBuffer containing PNG, JPEG, etc.
      * @returns a Promise resolving to the loaded Texture2D.
      */
     public static fromArrayBuffer(data: ArrayBuffer): Promise<Texture2D> {
@@ -447,16 +548,46 @@ export class Texture2D extends Texture {
             img.onload = () => {
                 URL.revokeObjectURL(url);
 
-                const threeTexture = new THREE.Texture(img);
-                threeTexture.needsUpdate = true;
-                threeTexture.colorSpace = THREE.SRGBColorSpace;
+                const maxSize = Texture2D.maxSize;
+                const needsDownscale = maxSize > 0
+                    && (img.width > maxSize || img.height > maxSize);
 
-                const texture = Texture2D._wrapThreeTexture(
-                    threeTexture, img.width, img.height
-                );
-                texture.name = "Texture from ArrayBuffer";
+                if (needsDownscale) {
+                    const scale = maxSize / Math.max(img.width, img.height);
+                    const dstW = Math.round(img.width * scale);
+                    const dstH = Math.round(img.height * scale);
 
-                resolve(texture);
+                    const canvas = document.createElement("canvas");
+                    canvas.width = dstW;
+                    canvas.height = dstH;
+                    const ctx = canvas.getContext("2d")!;
+                    ctx.drawImage(img, 0, 0, dstW, dstH);
+
+                    const canvasTex = new THREE.CanvasTexture(canvas);
+                    canvasTex.needsUpdate = true;
+                    canvasTex.colorSpace = THREE.SRGBColorSpace;
+
+                    const texture = Texture2D._wrapThreeTexture(canvasTex, dstW, dstH);
+                    texture.name = "Texture from ArrayBuffer";
+
+                    console.log(
+                        `[Texture2D] Downscaled ${img.width}x${img.height}` +
+                        ` -> ${dstW}x${dstH} (maxSize=${maxSize})`
+                    );
+
+                    resolve(texture);
+                } else {
+                    const threeTexture = new THREE.Texture(img);
+                    threeTexture.needsUpdate = true;
+                    threeTexture.colorSpace = THREE.SRGBColorSpace;
+
+                    const texture = Texture2D._wrapThreeTexture(
+                        threeTexture, img.width, img.height
+                    );
+                    texture.name = "Texture from ArrayBuffer";
+
+                    resolve(texture);
+                }
             };
 
             img.onerror = () => {
