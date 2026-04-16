@@ -172,22 +172,22 @@ export class Quaternion {
         }
 
         // Normalize forward
-        const fz = forward.x / forwardMag;
+        const fx = forward.x / forwardMag;
         const fy_temp = forward.y / forwardMag;
-        const fx = forward.z / forwardMag;
+        const fz = forward.z / forwardMag;
 
         // Right = up x forward
-        let rx = up.y * fx - up.z * fy_temp;
-        let ry = up.z * fz - up.x * fx;
-        let rz = up.x * fy_temp - up.y * fz;
+        let rx = up.y * fz - up.z * fy_temp;
+        let ry = up.z * fx - up.x * fz;
+        let rz = up.x * fy_temp - up.y * fx;
         let rMag = Math.sqrt(rx * rx + ry * ry + rz * rz);
 
         if (rMag < EngineSettings.Math.EPSILON) {
             // up and forward are parallel, pick different up
             const altUp = Math.abs(forward.y) < 0.9 ? Vector3.up : Vector3.right;
-            rx = altUp.y * fx - altUp.z * fy_temp;
-            ry = altUp.z * fz - altUp.x * fx;
-            rz = altUp.x * fy_temp - altUp.y * fz;
+            rx = altUp.y * fz - altUp.z * fy_temp;
+            ry = altUp.z * fx - altUp.x * fz;
+            rz = altUp.x * fy_temp - altUp.y * fx;
             rMag = Math.sqrt(rx * rx + ry * ry + rz * rz);
         }
 
@@ -196,14 +196,14 @@ export class Quaternion {
         rz /= rMag;
 
         // Recalculate up = forward x right
-        const ux = fy_temp * rz - fx * ry;
-        const uy = fx * rx - fz * rz;
-        const uz = fz * ry - fy_temp * rx;
+        const ux = fy_temp * rz - fz * ry;
+        const uy = fz * rx - fx * rz;
+        const uz = fx * ry - fy_temp * rx;
 
         // Build rotation matrix and convert to quaternion
-        const m00 = rx, m01 = ux, m02 = fz;
+        const m00 = rx, m01 = ux, m02 = fx;
         const m10 = ry, m11 = uy, m12 = fy_temp;
-        const m20 = rz, m21 = uz, m22 = fx;
+        const m20 = rz, m21 = uz, m22 = fz;
 
         const trace = m00 + m11 + m22;
 

@@ -20,6 +20,16 @@ const _tVec3B = new THREE.Vector3();
 // Cached engine-math temporary for direction vector calculations
 const _equatA = new Quaternion();
 
+// ==================== DIRTY-FLAG TRANSFORM OPTIMIZATION ====================
+// When enabled, setters mark transforms as dirty instead of immediately
+// syncing to Three.js. All dirty transforms are flushed once before render.
+
+/** Global toggle for dirty-flag transform optimization. */
+let _dirtyTransformsEnabled = false;
+
+/** Set of transforms that need syncing before render. */
+const _dirtySet: Set<Transform> = new Set();
+
 /**
  * Defines the position, rotation, and scale of a {@link GameObject}.
  *
@@ -94,6 +104,52 @@ export class Transform extends Component {
 
         // Back-reference for raycasting: Three.js object → engine GameObject
         this._object3D.userData = { gameObject };
+    }
+
+    // ==================== DIRTY-FLAG SYSTEM ====================
+
+    /** Whether this transform has pending changes not yet synced to Three.js. */
+    private _dirty = false;
+
+    /**
+     * @internal
+     * Enable or disable dirty-flag transform batching.
+     * When enabled, setters mark transforms dirty instead of syncing immediately.
+     * When disabled, clears the dirty set and reverts to immediate sync behavior.
+     */
+    public static _setDirtyTransformsEnabled(enabled: boolean): void {
+        _dirtyTransformsEnabled = enabled;
+        if (!enabled) _dirtySet.clear();
+    }
+
+    /**
+     * @internal
+     * Flushes all dirty transforms to Three.js. Called once before render.
+     */
+    public static _syncAllDirty(): void {
+        for (const t of _dirtySet) {
+            t._syncToThree();
+        }
+        _dirtySet.clear();
+    }
+
+    /**
+     * Copies all local TRS to the Three.js Object3D at once.
+     * @internal
+     */
+    private _syncToThree(): void {
+        this._localPosition._copyToThree(this._object3D.position);
+        this._localRotation._copyToThree(this._object3D.quaternion);
+        this._localScale._copyToThree(this._object3D.scale);
+        this._dirty = false;
+    }
+
+    /** Marks this transform as needing sync before next render. */
+    private _markDirty(): void {
+        if (!this._dirty) {
+            this._dirty = true;
+            _dirtySet.add(this);
+        }
     }
 
     // ==================== INTERNAL THREE.JS ACCESSORS ====================
@@ -198,6 +254,7 @@ export class Transform extends Component {
         worldPositionStays: boolean = true
     ): void {
         if (this._parent === newParent) return;
+        if (this._dirty) this._syncToThree();
 
         // Capture world state before reparenting (if preserving)
         let worldPos: Vector3 | null = null;
@@ -397,7 +454,11 @@ export class Transform extends Component {
 
     public set localPosition(value: Vector3) {
         this._localPosition.copy(value);
-        this._localPosition._copyToThree(this._object3D.position);
+        if (_dirtyTransformsEnabled) {
+            this._markDirty();
+        } else {
+            this._localPosition._copyToThree(this._object3D.position);
+        }
     }
 
     /**
@@ -414,7 +475,11 @@ export class Transform extends Component {
 
     public set localRotation(value: Quaternion) {
         this._localRotation.copy(value);
-        this._localRotation._copyToThree(this._object3D.quaternion);
+        if (_dirtyTransformsEnabled) {
+            this._markDirty();
+        } else {
+            this._localRotation._copyToThree(this._object3D.quaternion);
+        }
     }
 
     /**
@@ -431,7 +496,11 @@ export class Transform extends Component {
 
     public set localScale(value: Vector3) {
         this._localScale.copy(value);
-        this._localScale._copyToThree(this._object3D.scale);
+        if (_dirtyTransformsEnabled) {
+            this._markDirty();
+        } else {
+            this._localScale._copyToThree(this._object3D.scale);
+        }
     }
 
     /**
@@ -461,6 +530,7 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.position`.
      */
     public get position(): Vector3 {
+        if (this._dirty) this._syncToThree();
         this._object3D.getWorldPosition(_tvec3A);
         return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
     }
@@ -474,7 +544,11 @@ export class Transform extends Component {
         } else {
             this._localPosition.copy(value);
         }
-        this._localPosition._copyToThree(this._object3D.position);
+        if (_dirtyTransformsEnabled) {
+            this._markDirty();
+        } else {
+            this._localPosition._copyToThree(this._object3D.position);
+        }
     }
 
     /**
@@ -486,6 +560,7 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.rotation`.
      */
     public get rotation(): Quaternion {
+        if (this._dirty) this._syncToThree();
         this._object3D.getWorldQuaternion(_tquatA);
         return new Quaternion(_tquatA.x, _tquatA.y, _tquatA.z, _tquatA.w);
     }
@@ -501,7 +576,11 @@ export class Transform extends Component {
         } else {
             this._localRotation.copy(value);
         }
-        this._localRotation._copyToThree(this._object3D.quaternion);
+        if (_dirtyTransformsEnabled) {
+            this._markDirty();
+        } else {
+            this._localRotation._copyToThree(this._object3D.quaternion);
+        }
     }
 
     /**
@@ -529,6 +608,7 @@ export class Transform extends Component {
      * with non-uniform parent scaling or shear.
      */
     public get lossyScale(): Vector3 {
+        if (this._dirty) this._syncToThree();
         this._object3D.getWorldScale(_tvec3A);
         return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
     }
@@ -547,6 +627,7 @@ export class Transform extends Component {
     public get forward(): Vector3 {
         // Must use WORLD rotation, not local — a child with identity
         // localRotation still inherits its parent's orientation.
+        if (this._dirty) this._syncToThree();
         this._object3D.getWorldQuaternion(_tquatA);
         return new Vector3(0, 0, 1).applyQuaternion(
             _equatA.set(_tquatA.x, _tquatA.y, _tquatA.z, _tquatA.w)
@@ -560,6 +641,7 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.right`.
      */
     public get right(): Vector3 {
+        if (this._dirty) this._syncToThree();
         this._object3D.getWorldQuaternion(_tquatA);
         return new Vector3(1, 0, 0).applyQuaternion(
             _equatA.set(_tquatA.x, _tquatA.y, _tquatA.z, _tquatA.w)
@@ -573,6 +655,7 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.up`.
      */
     public get up(): Vector3 {
+        if (this._dirty) this._syncToThree();
         this._object3D.getWorldQuaternion(_tquatA);
         return new Vector3(0, 1, 0).applyQuaternion(
             _equatA.set(_tquatA.x, _tquatA.y, _tquatA.z, _tquatA.w)
@@ -593,6 +676,7 @@ export class Transform extends Component {
      */
     public translate(translation: Vector3): void {
         // Get current world position into cache (avoids allocation)
+        if (this._dirty) this._syncToThree();
         this._object3D.getWorldPosition(_tvec3A);
         _tvec3A.x += translation.x;
         _tvec3A.y += translation.y;
@@ -604,7 +688,11 @@ export class Transform extends Component {
         }
 
         this._localPosition.set(_tvec3A.x, _tvec3A.y, _tvec3A.z);
-        this._localPosition._copyToThree(this._object3D.position);
+        if (_dirtyTransformsEnabled) {
+            this._markDirty();
+        } else {
+            this._localPosition._copyToThree(this._object3D.position);
+        }
     }
 
     /**
@@ -623,7 +711,11 @@ export class Transform extends Component {
         // Apply in local space: newLocalRot = currentLocalRot * delta
         const newRot = Quaternion.multiply(this._localRotation, delta, _equatA);
         this._localRotation.copy(newRot);
-        this._localRotation._copyToThree(this._object3D.quaternion);
+        if (_dirtyTransformsEnabled) {
+            this._markDirty();
+        } else {
+            this._localRotation._copyToThree(this._object3D.quaternion);
+        }
     }
 
     /**
@@ -636,6 +728,7 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.LookAt(target)`.
      */
     public lookAt(target: Vector3, worldUp?: Vector3): void {
+        if (this._dirty) this._syncToThree();
         // Use Three.js lookAt for robust implementation
         target._copyToThree(_tvec3A);
         this._object3D.lookAt(_tvec3A);
@@ -683,9 +776,13 @@ export class Transform extends Component {
             this._localRotation.copy(rotation);
         }
 
-        // Single sync to Three.js
-        this._localPosition._copyToThree(this._object3D.position);
-        this._localRotation._copyToThree(this._object3D.quaternion);
+        // Sync to Three.js
+        if (_dirtyTransformsEnabled) {
+            this._markDirty();
+        } else {
+            this._localPosition._copyToThree(this._object3D.position);
+            this._localRotation._copyToThree(this._object3D.quaternion);
+        }
     }
 
     // ==================== VI. COORDINATE CONVERSION ====================
@@ -700,6 +797,7 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.TransformPoint(point)`.
      */
     public transformPoint(localPoint: Vector3): Vector3 {
+        if (this._dirty) this._syncToThree();
         localPoint._copyToThree(_tvec3A);
         this._object3D.localToWorld(_tvec3A);
         return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
@@ -715,6 +813,7 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.InverseTransformPoint(point)`.
      */
     public inverseTransformPoint(worldPoint: Vector3): Vector3 {
+        if (this._dirty) this._syncToThree();
         worldPoint._copyToThree(_tvec3A);
         this._object3D.worldToLocal(_tvec3A);
         return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
@@ -733,6 +832,7 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.TransformDirection(dir)`.
      */
     public transformDirection(localDirection: Vector3): Vector3 {
+        if (this._dirty) this._syncToThree();
         this._object3D.getWorldQuaternion(_tquatA);
         _tvec3A.set(localDirection.x, localDirection.y, localDirection.z);
         _tvec3A.applyQuaternion(_tquatA);
@@ -749,6 +849,7 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.InverseTransformDirection(dir)`.
      */
     public inverseTransformDirection(worldDirection: Vector3): Vector3 {
+        if (this._dirty) this._syncToThree();
         this._object3D.getWorldQuaternion(_tquatA);
         _tquatA.invert();
         _tvec3A.set(worldDirection.x, worldDirection.y, worldDirection.z);
@@ -763,6 +864,7 @@ export class Transform extends Component {
      * Cleans up Three.js objects on destruction.
      */
     protected override onDestroy(): void {
+        _dirtySet.delete(this);
         this._object3D.clear();
         this._object3D.removeFromParent();
     }

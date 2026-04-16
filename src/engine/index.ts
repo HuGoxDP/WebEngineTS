@@ -131,6 +131,8 @@ export { CinemachineHardLookAtAim } from "./core/cinemachine/CinemachineHardLook
 // =====================
 export { Physics } from "./physics/Physics";
 export { RaycastHit } from "./physics/RaycastHit";
+export { Collider } from "./physics/Collider";
+export { BoxCollider } from "./physics/BoxCollider";
 
 // =====================
 // SCENARIO
@@ -225,6 +227,8 @@ import { CinemachineHardLookAtAim } from "./core/cinemachine/CinemachineHardLook
 
 import { Physics } from "./physics/Physics";
 import { RaycastHit } from "./physics/RaycastHit";
+import { Collider } from "./physics/Collider";
+import { BoxCollider } from "./physics/BoxCollider";
 
 import { Scenario } from "./core/scenario/Scenario";
 import { ScenarioBehaviour } from "./core/scenario/ScenarioBehaviour";
@@ -289,7 +293,7 @@ const WebEngineTS = {
     CinemachineFollowBody, CinemachineHardLookAtAim,
 
     // Physics
-    Physics, RaycastHit,
+    Physics, RaycastHit, Collider, BoxCollider,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,

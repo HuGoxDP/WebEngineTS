@@ -3,27 +3,22 @@ import { Collider } from "./Collider";
 import { Vector3 } from "../core/math/Vector3";
 import { GameObject } from "../core/GameObject";
 
-/*
 export class BoxCollider extends Collider {
     private _center: Vector3 = new Vector3(0, 0, 0);
     private _size: Vector3 = new Vector3(1, 1, 1);
 
-    /!** @internal Невидимий меш для фізичних прорахунків *!/
+    /** @internal Invisible mesh for physics raycasting */
     private _shape: THREE.Mesh;
 
     constructor(gameObject: GameObject) {
         super(gameObject);
 
-        // Створюємо невидимий куб
         const geometry = new THREE.BoxGeometry(1, 1, 1);
-        // BasicMaterial дешевший для розрахунків, visible = false робить його невидимим,
-        // але Raycaster все ще може його перевіряти (якщо налаштовано).
         const material = new THREE.MeshBasicMaterial({ visible: false });
 
         this._shape = new THREE.Mesh(geometry, material);
-        this._shape.userData = { collider: this }; // Зв'язок назад
+        this._shape.userData = { collider: this };
 
-        // Приєднуємо до батька, щоб він рухався разом з ним
         this.transform._internalObject3D.add(this._shape);
     }
 
@@ -39,8 +34,8 @@ export class BoxCollider extends Collider {
         this._shape.scale.set(value.x, value.y, value.z);
     }
 
-    /!** @internal *!/
+    /** @internal */
     public _getPhysicsShape(): THREE.Object3D {
         return this._shape;
     }
-}*/
+}

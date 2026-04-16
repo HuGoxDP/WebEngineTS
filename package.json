@@ -21,6 +21,7 @@
     "dev": "rollup -c rollup.config.mjs --watch",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "clean": "rm -rf dist",
+    "test": "vitest run",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "peerDependencies": {
@@ -44,7 +45,8 @@
     "@types/three": "^0.182.0",
     "rollup": "^4.57.0",
     "rollup-plugin-dts": "^6.3.0",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.4"
   },
   "keywords": [
     "game-engine",

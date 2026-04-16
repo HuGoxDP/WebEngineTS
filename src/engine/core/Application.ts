@@ -10,6 +10,8 @@ import { Scenario } from "./scenario";
 import type { IScenarioLoadProgress } from "./scenario";
 import { RenderSettings } from "./RenderSettings.ts";
 import { CameraClearFlags } from "./components/Camera.ts";
+import { Transform } from "./Transform.ts";
+import { ShaderWarmup } from "./rendering/ShaderWarmup.ts";
 
 // Reusable THREE.Color to avoid per-frame allocation in _render().
 const _clearColor = new THREE.Color();
@@ -447,6 +449,9 @@ export class Application {
         const scene = SceneManager.activeScene;
         const threeScene = scene._internalThreeScene;
 
+        // Flush any dirty transforms before matrix recomputation
+        Transform._syncAllDirty();
+
         // Ensure all world matrices are up-to-date
         threeScene.updateMatrixWorld(true);
 
@@ -484,6 +489,32 @@ export class Application {
         if (this._firstRender) {
             this._firstRender = false;
         }
+    }
+
+    // ==================== SHADER WARMUP ====================
+
+    /**
+     * Pre-compiles all shaders for the active scene.
+     *
+     * Call after scene construction (`awake`) but before the first frame
+     * renders. Moves GPU shader compilation cost into a controlled phase,
+     * eliminating first-frame stalls.
+     *
+     * @remarks
+     * Equivalent to Unity's `ShaderVariantCollection.WarmUp()`.
+     */
+    public warmupShaders(): void {
+        const scene = SceneManager.activeScene;
+        const threeScene = scene._internalThreeScene;
+        const mainCamera = Camera.main;
+        if (!mainCamera) return;
+
+        const threeCamera = mainCamera._internalThreeCamera;
+        if (!threeCamera) return;
+
+        Transform._syncAllDirty();
+        threeScene.updateMatrixWorld(true);
+        ShaderWarmup.warmup(this._threeRenderer, threeScene, threeCamera);
     }
 
     // ==================== RESIZE (PRIVATE) ====================
