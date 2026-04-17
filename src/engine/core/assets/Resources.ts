@@ -3,6 +3,8 @@
 import { Texture2D } from "../graphics/Texture2D.ts";
 import { LoadHandle } from "./LoadHandle.ts";
 import { JsonAsset, TextAsset, BinaryAsset } from "./AssetTypes.ts";
+import { AudioClip } from "../audio/AudioClip.ts";
+import { AudioManager } from "../audio/AudioManager.ts";
 
 // ==================== ASSET SOURCE INTERFACE ====================
 
@@ -627,9 +629,21 @@ export class Resources {
             },
         );
 
+        // ── AudioClip ──
+        Resources.registerDecoder(
+            AudioClip,
+            [".mp3", ".ogg", ".wav", ".webm", ".flac"],
+            async (bytes: Uint8Array, path: string) => {
+                const ctx = AudioManager.context;
+                const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+                const buffer = await ctx.decodeAudioData(ab as ArrayBuffer);
+                const name = path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? path;
+                return new AudioClip(buffer, name);
+            },
+        );
+
         // NOTE: GameObject (model) decoder is registered by ScenarioAssets
         // because it requires Three.js GLTFLoader (engine-internal).
-        // AudioClip decoder will be added in Phase 7 (Audio System).
     }
 
     // ==================== PRIVATE CONSTRUCTOR ====================

@@ -14,6 +14,10 @@ import { Transform } from "./Transform.ts";
 import { ShaderWarmup } from "./rendering/ShaderWarmup.ts";
 import { Physics } from "../physics/Physics.ts";
 import { Animation } from "./animation/Animation.ts";
+import { AudioListener } from "./audio/AudioListener.ts";
+import { AudioSource } from "./audio/AudioSource.ts";
+import { Canvas } from "./ui/Canvas.ts";
+import { EventSystem } from "./ui/EventSystem.ts";
 
 // Reusable THREE.Color to avoid per-frame allocation in _render().
 const _clearColor = new THREE.Color();
@@ -435,10 +439,20 @@ export class Application {
             scenario!._onLateUpdate();
         }
 
+        // 7a. Audio spatial sync (after LateUpdate — uses final world positions)
+        AudioListener._updateAll();
+        AudioSource._updateAll();
+
+        // 7b. UI event processing (before UI render so button states are up-to-date)
+        EventSystem._update();
+
         // 7. Render
         this._render();
 
-        // 8. Reset per-frame input state
+        // 8. UI Canvas render (overlay, after 3D scene)
+        Canvas._renderAll();
+
+        // 9. Reset per-frame input state
         Input._resetFrame();
     };
 

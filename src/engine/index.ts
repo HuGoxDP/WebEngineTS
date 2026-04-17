@@ -147,6 +147,25 @@ export { Animation, AnimationWrapMode } from "./core/animation/Animation";
 export { Animator, AnimatorState, AnimatorTransition } from "./core/animation/Animator";
 
 // =====================
+// AUDIO
+// =====================
+export { AudioClip } from "./core/audio/AudioClip";
+export { AudioSource, AudioRolloffMode } from "./core/audio/AudioSource";
+export { AudioListener } from "./core/audio/AudioListener";
+export { AudioManager } from "./core/audio/AudioManager";
+
+// =====================
+// UI
+// =====================
+export { Canvas, CanvasRenderMode } from "./core/ui/Canvas";
+export { RectTransform } from "./core/ui/RectTransform";
+export { UIBehaviour } from "./core/ui/UIBehaviour";
+export { UIImage } from "./core/ui/UIImage";
+export { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
+export { Button, ButtonState } from "./core/ui/Button";
+export { EventSystem } from "./core/ui/EventSystem";
+
+// =====================
 // SCENARIO
 // =====================
 export { Scenario } from "./core/scenario/Scenario";
@@ -251,6 +270,19 @@ import { AnimationClip } from "./core/animation/AnimationClip";
 import { Animation, AnimationWrapMode } from "./core/animation/Animation";
 import { Animator, AnimatorState, AnimatorTransition } from "./core/animation/Animator";
 
+import { AudioClip } from "./core/audio/AudioClip";
+import { AudioSource, AudioRolloffMode } from "./core/audio/AudioSource";
+import { AudioListener } from "./core/audio/AudioListener";
+import { AudioManager } from "./core/audio/AudioManager";
+
+import { Canvas, CanvasRenderMode } from "./core/ui/Canvas";
+import { RectTransform } from "./core/ui/RectTransform";
+import { UIBehaviour } from "./core/ui/UIBehaviour";
+import { UIImage } from "./core/ui/UIImage";
+import { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
+import { Button, ButtonState } from "./core/ui/Button";
+import { EventSystem } from "./core/ui/EventSystem";
+
 import { Scenario } from "./core/scenario/Scenario";
 import { ScenarioBehaviour } from "./core/scenario/ScenarioBehaviour";
 import { ScenarioAssets } from "./core/scenario/ScenarioAssets";
@@ -322,6 +354,15 @@ const WebEngineTS = {
     // Animation
     AnimationClip, Animation, AnimationWrapMode,
     Animator, AnimatorState, AnimatorTransition,
+
+    // Audio
+    AudioClip, AudioSource, AudioRolloffMode,
+    AudioListener, AudioManager,
+
+    // UI
+    Canvas, CanvasRenderMode, RectTransform, UIBehaviour,
+    UIImage, UIText, TextAlignment, VerticalAlignment,
+    Button, ButtonState, EventSystem,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,
