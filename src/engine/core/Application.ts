@@ -12,6 +12,7 @@ import { RenderSettings } from "./RenderSettings.ts";
 import { CameraClearFlags } from "./components/Camera.ts";
 import { Transform } from "./Transform.ts";
 import { ShaderWarmup } from "./rendering/ShaderWarmup.ts";
+import { Physics } from "../physics/Physics.ts";
 
 // Reusable THREE.Color to avoid per-frame allocation in _render().
 const _clearColor = new THREE.Color();
@@ -407,13 +408,14 @@ export class Application {
         const scenario = Scenario.current;
         const scenarioRunning = scenario?.isRunning ?? false;
 
-        // 4. Fixed updates (physics timestep) - components then scenario
+        // 4. Fixed updates (physics timestep) - components then scenario then physics
         this._fixedUpdateAccumulator += frameDelta;
         while (this._fixedUpdateAccumulator >= EngineSettings.Time.FIXED_TIMESTEP) {
             scene._fixedUpdate();
             if (scenarioRunning) {
                 scenario!._onFixedUpdate();
             }
+            Physics._step(EngineSettings.Time.FIXED_TIMESTEP);
             this._fixedUpdateAccumulator -= EngineSettings.Time.FIXED_TIMESTEP;
         }
 

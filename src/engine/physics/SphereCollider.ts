@@ -5,16 +5,14 @@ import { Vector3 } from "../core/math/Vector3";
 import type { GameObject } from "../core/GameObject";
 
 /**
- * A box-shaped collider.
+ * A sphere-shaped collider.
  *
  * @remarks
- * Equivalent to Unity's `BoxCollider`.
- * The box is axis-aligned in local space, centered at {@link center}
- * with half-extents defined by {@link size}.
+ * Equivalent to Unity's `SphereCollider`.
  */
-export class BoxCollider extends Collider {
+export class SphereCollider extends Collider {
     private _center: Vector3 = new Vector3(0, 0, 0);
-    private _size: Vector3 = new Vector3(1, 1, 1);
+    private _radius: number = 0.5;
 
     /** @internal Invisible mesh for Three.js raycasting */
     private _shape: THREE.Mesh;
@@ -22,7 +20,7 @@ export class BoxCollider extends Collider {
     constructor(gameObject: GameObject) {
         super(gameObject);
 
-        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const geometry = new THREE.SphereGeometry(0.5, 16, 12);
         const material = new THREE.MeshBasicMaterial({ visible: false });
 
         this._shape = new THREE.Mesh(geometry, material);
@@ -31,7 +29,7 @@ export class BoxCollider extends Collider {
         this.transform._internalObject3D.add(this._shape);
     }
 
-    /** Local-space center of the box. */
+    /** Local-space center of the sphere. */
     public get center(): Vector3 { return this._center; }
     public set center(value: Vector3) {
         this._center.copy(value);
@@ -39,11 +37,12 @@ export class BoxCollider extends Collider {
         this._updateShapeTransform();
     }
 
-    /** Size of the box in local space (full extents, not half-extents). */
-    public get size(): Vector3 { return this._size; }
-    public set size(value: Vector3) {
-        this._size.copy(value);
-        this._shape.scale.set(value.x, value.y, value.z);
+    /** Radius of the sphere in local space. */
+    public get radius(): number { return this._radius; }
+    public set radius(value: number) {
+        this._radius = value;
+        const d = value * 2;
+        this._shape.scale.set(d, d, d);
         this._updateShapeTransform();
     }
 
@@ -54,18 +53,14 @@ export class BoxCollider extends Collider {
 
     /** @internal */
     protected _createCannonShape(): CANNON.Shape {
-        return new CANNON.Box(
-            new CANNON.Vec3(this._size.x / 2, this._size.y / 2, this._size.z / 2)
-        );
+        return new CANNON.Sphere(this._radius);
     }
 
     /** @internal */
     protected _updateShapeTransform(): void {
-        if (this._cannonShape && this._cannonShape instanceof CANNON.Box) {
-            this._cannonShape.halfExtents.set(
-                this._size.x / 2, this._size.y / 2, this._size.z / 2
-            );
-            this._cannonShape.updateConvexPolyhedronRepresentation();
+        if (this._cannonShape && this._cannonShape instanceof CANNON.Sphere) {
+            this._cannonShape.radius = this._radius;
+            this._cannonShape.updateBoundingSphereRadius();
         }
     }
 }

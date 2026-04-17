@@ -133,6 +133,11 @@ export { Physics } from "./physics/Physics";
 export { RaycastHit } from "./physics/RaycastHit";
 export { Collider } from "./physics/Collider";
 export { BoxCollider } from "./physics/BoxCollider";
+export { SphereCollider } from "./physics/SphereCollider";
+export { CapsuleCollider } from "./physics/CapsuleCollider";
+export { Rigidbody, ForceMode, RigidbodyConstraints } from "./physics/Rigidbody";
+export { PhysicMaterial } from "./physics/PhysicMaterial";
+export { Collision, ContactPoint } from "./physics/Collision";
 
 // =====================
 // SCENARIO
@@ -229,6 +234,11 @@ import { Physics } from "./physics/Physics";
 import { RaycastHit } from "./physics/RaycastHit";
 import { Collider } from "./physics/Collider";
 import { BoxCollider } from "./physics/BoxCollider";
+import { SphereCollider } from "./physics/SphereCollider";
+import { CapsuleCollider } from "./physics/CapsuleCollider";
+import { Rigidbody, ForceMode, RigidbodyConstraints } from "./physics/Rigidbody";
+import { PhysicMaterial } from "./physics/PhysicMaterial";
+import { Collision, ContactPoint } from "./physics/Collision";
 
 import { Scenario } from "./core/scenario/Scenario";
 import { ScenarioBehaviour } from "./core/scenario/ScenarioBehaviour";
@@ -294,6 +304,9 @@ const WebEngineTS = {
 
     // Physics
     Physics, RaycastHit, Collider, BoxCollider,
+    SphereCollider, CapsuleCollider,
+    Rigidbody, ForceMode, RigidbodyConstraints,
+    PhysicMaterial, Collision, ContactPoint,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,
