@@ -140,6 +140,13 @@ export { PhysicMaterial } from "./physics/PhysicMaterial";
 export { Collision, ContactPoint } from "./physics/Collision";
 
 // =====================
+// ANIMATION
+// =====================
+export { AnimationClip } from "./core/animation/AnimationClip";
+export { Animation, AnimationWrapMode } from "./core/animation/Animation";
+export { Animator, AnimatorState, AnimatorTransition } from "./core/animation/Animator";
+
+// =====================
 // SCENARIO
 // =====================
 export { Scenario } from "./core/scenario/Scenario";
@@ -240,6 +247,10 @@ import { Rigidbody, ForceMode, RigidbodyConstraints } from "./physics/Rigidbody"
 import { PhysicMaterial } from "./physics/PhysicMaterial";
 import { Collision, ContactPoint } from "./physics/Collision";
 
+import { AnimationClip } from "./core/animation/AnimationClip";
+import { Animation, AnimationWrapMode } from "./core/animation/Animation";
+import { Animator, AnimatorState, AnimatorTransition } from "./core/animation/Animator";
+
 import { Scenario } from "./core/scenario/Scenario";
 import { ScenarioBehaviour } from "./core/scenario/ScenarioBehaviour";
 import { ScenarioAssets } from "./core/scenario/ScenarioAssets";
@@ -307,6 +318,10 @@ const WebEngineTS = {
     SphereCollider, CapsuleCollider,
     Rigidbody, ForceMode, RigidbodyConstraints,
     PhysicMaterial, Collision, ContactPoint,
+
+    // Animation
+    AnimationClip, Animation, AnimationWrapMode,
+    Animator, AnimatorState, AnimatorTransition,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,

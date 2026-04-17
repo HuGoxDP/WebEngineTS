@@ -13,6 +13,7 @@ import { CameraClearFlags } from "./components/Camera.ts";
 import { Transform } from "./Transform.ts";
 import { ShaderWarmup } from "./rendering/ShaderWarmup.ts";
 import { Physics } from "../physics/Physics.ts";
+import { Animation } from "./animation/Animation.ts";
 
 // Reusable THREE.Color to avoid per-frame allocation in _render().
 const _clearColor = new THREE.Color();
@@ -425,7 +426,10 @@ export class Application {
             scenario!._onUpdate();
         }
 
-        // 6. Late updates - components then scenario
+        // 6. Animation mixer updates (after Update, before LateUpdate)
+        Animation._updateAll();
+
+        // 7. Late updates - components then scenario
         scene._lateUpdate();
         if (scenarioRunning) {
             scenario!._onLateUpdate();

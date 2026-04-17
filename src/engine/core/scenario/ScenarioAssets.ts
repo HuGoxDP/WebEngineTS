@@ -14,6 +14,8 @@ import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
 import type { IAssetProvider } from "./ScenarioTypes.ts";
 import { Resources, type IAssetSource } from "../assets/Resources.ts";
+import { Animation } from "../animation/Animation.ts";
+import { AnimationClip } from "../animation/AnimationClip.ts";
 
 /**
  * Runtime asset manager for a scenario.
@@ -218,10 +220,19 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         // Convert Three.js scene graph → engine GameObjects
         const root = this._convertGLTFScene(gltf, path);
 
+        // Attach animation clips from GLTF (if any)
+        if (gltf.animations.length > 0) {
+            const anim = root.addComponent(Animation);
+            for (const threeClip of gltf.animations) {
+                anim.addClip(new AnimationClip(threeClip));
+            }
+        }
+
         // Dispose the original Three.js scene — engine now owns all data.
         // Geometries are safe to dispose (data was copied into engine Mesh).
         // Materials are safe to dispose (replaced by StandardMaterial).
         // Textures are NOT disposed — they are shared with engine Texture2D.
+        // Animation clips are NOT disposed — they are referenced by the Animation component.
         ScenarioAssets._disposeThreeScene(gltf.scene);
 
         // Cache as prefab template
@@ -229,7 +240,7 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
 
         console.log(
             `[ScenarioAssets] Model loaded: "${path}" ` +
-            `(${this._countMeshes(root)} meshes)`
+            `(${this._countMeshes(root)} meshes, ${gltf.animations.length} animations)`
         );
 
         return root;
@@ -400,6 +411,12 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
             async (bytes: Uint8Array, path: string) => {
                 const gltf = await this._parseGLTF(bytes.buffer as ArrayBuffer, path);
                 const root = this._convertGLTFScene(gltf, path);
+                if (gltf.animations.length > 0) {
+                    const anim = root.addComponent(Animation);
+                    for (const threeClip of gltf.animations) {
+                        anim.addClip(new AnimationClip(threeClip));
+                    }
+                }
                 ScenarioAssets._disposeThreeScene(gltf.scene);
                 return root;
             },
@@ -484,7 +501,11 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
 
         // Recursive converter
         const convert = (threeNode: THREE.Object3D): GameObject => {
-            const go = new GameObject(threeNode.name || "Node");
+            const nodeName = threeNode.name || "Node";
+            const go = new GameObject(nodeName);
+
+            // Set Object3D name for AnimationMixer track resolution
+            go.transform._internalObject3D.name = nodeName;
 
             // --- Copy local transform ---
             go.transform.localPosition = new Vector3(
