@@ -484,7 +484,7 @@ export class Application {
             // No camera - render dark blue so the user knows the engine is alive
             if (this._firstRender) {
                 console.warn(
-                    "[Application] âš ï¸ No camera found. Add a Camera component to a GameObject."
+                    "[Application] No camera found. Add a Camera component to a GameObject."
                 );
                 this._firstRender = false;
             }

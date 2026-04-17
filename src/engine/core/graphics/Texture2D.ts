@@ -1,6 +1,7 @@
 // path: src/engine/core/graphics/Texture2D.ts
 
 import * as THREE from "three";
+import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { Texture } from "./Texture.ts";
 import { Color } from "../math/Color.ts";
 
@@ -95,6 +96,91 @@ export class Texture2D extends Texture {
      * ```
      */
     public static maxSize: number = 0;
+
+    /**
+     * Path to the folder containing `basis_transcoder.js` and
+     * `basis_transcoder.wasm`. Must end with a `/`.
+     *
+     * Copy these files from
+     * `node_modules/three/examples/jsm/libs/basis/` to your
+     * public/static directory and set this path accordingly.
+     *
+     * @example
+     * ```ts
+     * // Serve the WASM from /public/basis/ in your dev server
+     * Texture2D.ktx2TranscoderPath = "/basis/";
+     * ```
+     */
+    public static ktx2TranscoderPath: string = "/basis/";
+
+    /** @internal Lazy singleton KTX2Loader. */
+    private static _ktx2Loader: KTX2Loader | null = null;
+
+    /**
+     * @internal
+     * Returns the singleton KTX2Loader, creating and configuring it on
+     * first use. Reads `ktx2TranscoderPath` and detects GPU support via
+     * the active renderer.
+     */
+    private static _ensureKTX2Loader(): KTX2Loader {
+        if (Texture2D._ktx2Loader) return Texture2D._ktx2Loader;
+
+        const loader = new KTX2Loader();
+        loader.setTranscoderPath(Texture2D.ktx2TranscoderPath);
+
+        // Detect GPU compressed-texture support from the active renderer.
+        // Accessed via globalThis to avoid a circular import with Application.
+        const renderer = (globalThis as any).__webengine_application__?._threeRenderer as THREE.WebGLRenderer | undefined;
+        if (renderer) {
+            loader.detectSupport(renderer);
+        } else {
+            console.warn(
+                "[Texture2D] KTX2Loader: renderer not available — call" +
+                " Application.run() before loading KTX2 textures."
+            );
+        }
+
+        Texture2D._ktx2Loader = loader;
+        return loader;
+    }
+
+    /**
+     * Loads a KTX2 / Basis Universal compressed texture from an
+     * `ArrayBuffer` and returns a {@link Texture2D} wrapping the result.
+     *
+     * The GPU-native compressed format (ASTC, ETC2, S3TC, PVRTC, or BPTC)
+     * is selected automatically based on hardware support detected at
+     * first use.
+     *
+     * **Prerequisites:**
+     * - Set {@link ktx2TranscoderPath} to the folder containing
+     *   `basis_transcoder.js` / `.wasm` before calling this method.
+     * - The engine must be running (`Application.run()` called) so
+     *   the WebGL renderer is available for format detection.
+     *
+     * @param data — raw `.ktx2` file contents as an ArrayBuffer.
+     * @returns a Texture2D wrapping the decoded compressed texture.
+     *
+     * @remarks
+     * Analogous to {@link fromArrayBuffer} for standard image formats.
+     */
+    public static fromKTX2ArrayBuffer(data: ArrayBuffer): Promise<Texture2D> {
+        const loader = Texture2D._ensureKTX2Loader();
+
+        return new Promise<Texture2D>((resolve, reject) => {
+            loader.parse(
+                data,
+                (compressedTex) => {
+                    // CompressedTexture.image is { width, height } per Three.js spec
+                    const img = compressedTex.image as { width: number; height: number };
+                    const w = img?.width ?? 0;
+                    const h = img?.height ?? 0;
+                    resolve(Texture2D._wrapThreeTexture(compressedTex, w, h));
+                },
+                reject,
+            );
+        });
+    }
 
     // ==================== CONSTRUCTOR ====================
 

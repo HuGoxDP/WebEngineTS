@@ -581,9 +581,12 @@ export class Resources {
         // ── Texture2D ──
         Resources.registerDecoder(
             Texture2D,
-            [".png", ".jpg", ".jpeg", ".webp", ".gif"],
-            async (bytes: Uint8Array) => {
+            [".png", ".jpg", ".jpeg", ".webp", ".gif", ".ktx2"],
+            async (bytes: Uint8Array, path: string) => {
                 const ab = bytes.slice().buffer;
+                if (path.endsWith(".ktx2")) {
+                    return Texture2D.fromKTX2ArrayBuffer(ab);
+                }
                 return Texture2D.fromArrayBuffer(ab);
             },
         );
