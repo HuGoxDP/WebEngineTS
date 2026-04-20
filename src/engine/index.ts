@@ -45,6 +45,45 @@ export { Plugin } from "./core/plugins/Plugin";
 export { PluginManager } from "./core/plugins/PluginManager";
 
 // =====================
+// REFLECTION / SERIALIZATION
+// =====================
+export { FieldType } from "./core/reflection/Types";
+export type {
+    FieldMeta,
+    ClassMeta,
+    SerializableOptions,
+    SerializedFieldOptions,
+} from "./core/reflection/Types";
+export { TypeRegistry } from "./core/reflection/TypeRegistry";
+export type { AnyConstructor } from "./core/reflection/TypeRegistry";
+export {
+    Serializable,
+    SerializedField,
+    Range,
+    Header,
+    Tooltip,
+    HideInInspector,
+    getClassMeta,
+    getAllFields,
+} from "./core/reflection/Decorators";
+export { ValueSerializer } from "./core/serialization/ValueSerializer";
+export { SceneSerializer } from "./core/serialization/SceneSerializer";
+export type {
+    SerializedGameObject,
+    SerializedComponent,
+    SerializedScene,
+} from "./core/serialization/SceneSerializer";
+export { Prefab } from "./core/serialization/Prefab";
+
+// =====================
+// POST-PROCESSING
+// =====================
+export { PostProcessing } from "./core/postprocessing/PostProcessing";
+export { PostEffect } from "./core/postprocessing/PostEffect";
+export { BloomEffect } from "./core/postprocessing/BloomEffect";
+export { VignetteEffect } from "./core/postprocessing/VignetteEffect";
+
+// =====================
 // MATH
 // =====================
 export { Mathf } from "./core/math/Mathf";
@@ -237,6 +276,20 @@ import { Touch, TouchInfo, TouchPhase } from "./core/input/Touch";
 import { DeviceSensors } from "./core/input/DeviceSensors";
 import { Plugin } from "./core/plugins/Plugin";
 import { PluginManager } from "./core/plugins/PluginManager";
+import { FieldType } from "./core/reflection/Types";
+import { TypeRegistry } from "./core/reflection/TypeRegistry";
+import {
+    Serializable, SerializedField, Range, Header, Tooltip, HideInInspector,
+    getClassMeta, getAllFields,
+} from "./core/reflection/Decorators";
+import { ValueSerializer } from "./core/serialization/ValueSerializer";
+import { SceneSerializer } from "./core/serialization/SceneSerializer";
+import { Prefab } from "./core/serialization/Prefab";
+
+import { PostProcessing } from "./core/postprocessing/PostProcessing";
+import { PostEffect } from "./core/postprocessing/PostEffect";
+import { BloomEffect } from "./core/postprocessing/BloomEffect";
+import { VignetteEffect } from "./core/postprocessing/VignetteEffect";
 
 import { Mathf } from "./core/math/Mathf";
 import { AnimationCurve, Keyframe, WrapMode } from "./core/math/AnimationCurve";
@@ -358,6 +411,15 @@ const WebEngineTS = {
 
     // Plugins
     Plugin, PluginManager,
+
+    // Post-processing
+    PostProcessing, PostEffect, BloomEffect, VignetteEffect,
+
+    // Reflection / Serialization
+    FieldType, TypeRegistry,
+    Serializable, SerializedField, Range, Header, Tooltip, HideInInspector,
+    getClassMeta, getAllFields,
+    ValueSerializer, SceneSerializer, Prefab,
 
     // Math
     Mathf, AnimationCurve, Keyframe, WrapMode,

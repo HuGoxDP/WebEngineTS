@@ -1,0 +1,36 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/engine/index.ts"],
+  "out": "docs",
+  "name": "WebEngineTS API",
+  "readme": "none",
+  "tsconfig": "tsconfig.build.json",
+
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "excludeInternal": true,
+  "excludeExternals": true,
+
+  "categorizeByGroup": true,
+  "sort": ["source-order"],
+  "kindSortOrder": [
+    "Class",
+    "Interface",
+    "Enum",
+    "Function",
+    "Variable",
+    "TypeAlias"
+  ],
+
+  "navigationLinks": {
+    "GitHub": "https://github.com/HuGoxDP/WebEngineTS"
+  },
+
+  "githubPages": false,
+  "cleanOutputDir": true,
+  "hideGenerator": true,
+  "searchInComments": true,
+
+  "treatWarningsAsErrors": false,
+  "logLevel": "Warn"
+}

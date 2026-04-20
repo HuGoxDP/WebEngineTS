@@ -22,6 +22,7 @@ import { ParticleSystem } from "./particles/ParticleSystem.ts";
 import { Gamepad } from "./input/Gamepad.ts";
 import { Touch } from "./input/Touch.ts";
 import { PluginManager } from "./plugins/PluginManager.ts";
+import { PostProcessing } from "./postprocessing/PostProcessing.ts";
 
 // Reusable THREE.Color to avoid per-frame allocation in _render().
 const _clearColor = new THREE.Color();
@@ -507,7 +508,11 @@ export class Application {
                     this._threeRenderer.setClearColor(_clearColor, bg.a);
                 }
 
-                this._threeRenderer.render(threeScene, threeCamera);
+                if (PostProcessing.enabled) {
+                    PostProcessing._render(this._threeRenderer, threeScene, threeCamera);
+                } else {
+                    this._threeRenderer.render(threeScene, threeCamera);
+                }
             }
         } else {
             // No camera - render dark blue so the user knows the engine is alive
@@ -563,6 +568,7 @@ export class Application {
         const height = window.innerHeight;
 
         this._threeRenderer.setSize(width, height);
+        PostProcessing._setSize(width, height);
 
         // Update aspect ratio on all active cameras
         const aspect = width / height;

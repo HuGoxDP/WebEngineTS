@@ -12,6 +12,9 @@
     "forceConsistentCasingInFileNames": true,
     "verbatimModuleSyntax": false,
 
+    /* Decorators (legacy — works with esbuild and reflect-metadata) */
+    "experimentalDecorators": true,
+
     /* .ts extension imports — Rollup handles actual emit */
     "allowImportingTsExtensions": true,
     "noEmit": true,
