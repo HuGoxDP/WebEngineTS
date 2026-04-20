@@ -34,6 +34,15 @@ export { ScriptableBehaviour } from "./core/ScriptableBehaviour";
 export { EngineObject } from "./core/EngineObject";
 export { Input } from "./core/Input";
 export { KeyCode } from "./core/KeyCode";
+export { Gamepad, GamepadState, GamepadButton } from "./core/input/Gamepad";
+export { Touch, TouchInfo, TouchPhase } from "./core/input/Touch";
+export { DeviceSensors } from "./core/input/DeviceSensors";
+
+// =====================
+// PLUGINS
+// =====================
+export { Plugin } from "./core/plugins/Plugin";
+export { PluginManager } from "./core/plugins/PluginManager";
 
 // =====================
 // MATH
@@ -155,6 +164,25 @@ export { AudioListener } from "./core/audio/AudioListener";
 export { AudioManager } from "./core/audio/AudioManager";
 
 // =====================
+// POOL
+// =====================
+export { ObjectPool } from "./core/pool/ObjectPool";
+export type { ObjectPoolCallbacks } from "./core/pool/ObjectPool";
+
+// =====================
+// PARTICLES
+// =====================
+export { ParticleSystem, ParticleBurst } from "./core/particles/ParticleSystem";
+export { ParticleShape } from "./core/particles/ParticleShape";
+export { Gradient } from "./core/particles/Gradient";
+export {
+    ParticleSimulationSpace,
+    ParticleRenderMode,
+    ParticleShapeType,
+    GradientMode,
+} from "./core/particles/ParticleTypes";
+
+// =====================
 // UI
 // =====================
 export { Canvas, CanvasRenderMode } from "./core/ui/Canvas";
@@ -163,6 +191,7 @@ export { UIBehaviour } from "./core/ui/UIBehaviour";
 export { UIImage } from "./core/ui/UIImage";
 export { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
 export { Button, ButtonState } from "./core/ui/Button";
+export { VirtualJoystick } from "./core/ui/VirtualJoystick";
 export { EventSystem } from "./core/ui/EventSystem";
 
 // =====================
@@ -203,6 +232,11 @@ import { ScriptableBehaviour } from "./core/ScriptableBehaviour";
 import { EngineObject } from "./core/EngineObject";
 import { Input } from "./core/Input";
 import { KeyCode } from "./core/KeyCode";
+import { Gamepad, GamepadState, GamepadButton } from "./core/input/Gamepad";
+import { Touch, TouchInfo, TouchPhase } from "./core/input/Touch";
+import { DeviceSensors } from "./core/input/DeviceSensors";
+import { Plugin } from "./core/plugins/Plugin";
+import { PluginManager } from "./core/plugins/PluginManager";
 
 import { Mathf } from "./core/math/Mathf";
 import { AnimationCurve, Keyframe, WrapMode } from "./core/math/AnimationCurve";
@@ -275,12 +309,25 @@ import { AudioSource, AudioRolloffMode } from "./core/audio/AudioSource";
 import { AudioListener } from "./core/audio/AudioListener";
 import { AudioManager } from "./core/audio/AudioManager";
 
+import { ObjectPool } from "./core/pool/ObjectPool";
+
+import { ParticleSystem, ParticleBurst } from "./core/particles/ParticleSystem";
+import { ParticleShape } from "./core/particles/ParticleShape";
+import { Gradient } from "./core/particles/Gradient";
+import {
+    ParticleSimulationSpace,
+    ParticleRenderMode,
+    ParticleShapeType,
+    GradientMode,
+} from "./core/particles/ParticleTypes";
+
 import { Canvas, CanvasRenderMode } from "./core/ui/Canvas";
 import { RectTransform } from "./core/ui/RectTransform";
 import { UIBehaviour } from "./core/ui/UIBehaviour";
 import { UIImage } from "./core/ui/UIImage";
 import { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
 import { Button, ButtonState } from "./core/ui/Button";
+import { VirtualJoystick } from "./core/ui/VirtualJoystick";
 import { EventSystem } from "./core/ui/EventSystem";
 
 import { Scenario } from "./core/scenario/Scenario";
@@ -305,6 +352,12 @@ const WebEngineTS = {
     GameObject, Component, Transform, Scene, SceneManager,
     Application, Time, EngineSettings, Behaviour, ScriptableBehaviour,
     EngineObject, Input, KeyCode,
+    Gamepad, GamepadState, GamepadButton,
+    Touch, TouchInfo, TouchPhase,
+    DeviceSensors,
+
+    // Plugins
+    Plugin, PluginManager,
 
     // Math
     Mathf, AnimationCurve, Keyframe, WrapMode,
@@ -359,10 +412,17 @@ const WebEngineTS = {
     AudioClip, AudioSource, AudioRolloffMode,
     AudioListener, AudioManager,
 
+    // Pool
+    ObjectPool,
+
+    // Particles
+    ParticleSystem, ParticleBurst, ParticleShape, Gradient,
+    ParticleSimulationSpace, ParticleRenderMode, ParticleShapeType, GradientMode,
+
     // UI
     Canvas, CanvasRenderMode, RectTransform, UIBehaviour,
     UIImage, UIText, TextAlignment, VerticalAlignment,
-    Button, ButtonState, EventSystem,
+    Button, ButtonState, EventSystem, VirtualJoystick,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,

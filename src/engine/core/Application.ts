@@ -18,6 +18,10 @@ import { AudioListener } from "./audio/AudioListener.ts";
 import { AudioSource } from "./audio/AudioSource.ts";
 import { Canvas } from "./ui/Canvas.ts";
 import { EventSystem } from "./ui/EventSystem.ts";
+import { ParticleSystem } from "./particles/ParticleSystem.ts";
+import { Gamepad } from "./input/Gamepad.ts";
+import { Touch } from "./input/Touch.ts";
+import { PluginManager } from "./plugins/PluginManager.ts";
 
 // Reusable THREE.Color to avoid per-frame allocation in _render().
 const _clearColor = new THREE.Color();
@@ -150,6 +154,7 @@ export class Application {
 
         // Init input
         Input._init(this.canvas);
+        Touch._init(this.canvas);
 
         // Resize to fill window
         this._resizeHandler = () => this._resize();
@@ -408,6 +413,9 @@ export class Application {
         // 2. Update engine time
         Time._update(frameDelta);
 
+        // 2a. Poll gamepads (once per frame, before any Update sees input)
+        Gamepad._update();
+
         // 3. Get active scene and scenario
         const scene = SceneManager.activeScene;
         const scenario = Scenario.current;
@@ -416,6 +424,7 @@ export class Application {
         // 4. Fixed updates (physics timestep) - components then scenario then physics
         this._fixedUpdateAccumulator += frameDelta;
         while (this._fixedUpdateAccumulator >= EngineSettings.Time.FIXED_TIMESTEP) {
+            PluginManager._onFixedUpdate(EngineSettings.Time.FIXED_TIMESTEP);
             scene._fixedUpdate();
             if (scenarioRunning) {
                 scenario!._onFixedUpdate();
@@ -424,7 +433,8 @@ export class Application {
             this._fixedUpdateAccumulator -= EngineSettings.Time.FIXED_TIMESTEP;
         }
 
-        // 5. Per-frame updates - components then scenario
+        // 5. Per-frame updates - plugins, components, then scenario
+        PluginManager._onUpdate(frameDelta);
         scene._update();
         if (scenarioRunning) {
             scenario!._onUpdate();
@@ -433,11 +443,15 @@ export class Application {
         // 6. Animation mixer updates (after Update, before LateUpdate)
         Animation._updateAll();
 
-        // 7. Late updates - components then scenario
+        // 6a. Particle system simulation (after Update, before LateUpdate)
+        ParticleSystem._updateAll();
+
+        // 7. Late updates - components, scenario, then plugins
         scene._lateUpdate();
         if (scenarioRunning) {
             scenario!._onLateUpdate();
         }
+        PluginManager._onLateUpdate(frameDelta);
 
         // 7a. Audio spatial sync (after LateUpdate — uses final world positions)
         AudioListener._updateAll();
@@ -454,6 +468,7 @@ export class Application {
 
         // 9. Reset per-frame input state
         Input._resetFrame();
+        Touch._postUpdate();
     };
 
     // ==================== RENDERING (PRIVATE) ====================

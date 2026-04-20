@@ -2,6 +2,7 @@
 
 import * as THREE from "three";
 import { Behaviour } from "../Behaviour.ts";
+import { profilerHooks } from "../diagnostics/ProfilerHooks.ts";
 import { Color } from "../math/Color.ts";
 import { Rect } from "../math/Rect.ts";
 import { Matrix4x4 } from "../math/Matrix4x4.ts";
@@ -568,3 +569,5 @@ export class Camera extends Behaviour {
         cam.updateProjectionMatrix();
     }
 }
+
+profilerHooks.cameraCount = () => Camera.allCameras.length;

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Behaviour } from "../Behaviour";
+import { profilerHooks } from "../diagnostics/ProfilerHooks";
 import { AnimationClip } from "./AnimationClip";
 import type { GameObject } from "../GameObject";
 import { Time } from "../Time";
@@ -277,3 +278,5 @@ export class Animation extends Behaviour {
         this._actions.set(clip.name, action);
     }
 }
+
+profilerHooks.animationPlayingCount = () => (Animation as any)._activeInstances.size;

@@ -1,4 +1,5 @@
 import { Behaviour } from "../Behaviour";
+import { profilerHooks } from "../diagnostics/ProfilerHooks";
 import { AudioManager } from "./AudioManager";
 import type { GameObject } from "../GameObject";
 
@@ -72,3 +73,5 @@ export class AudioListener extends Behaviour {
         }
     }
 }
+
+profilerHooks.audioListenerCount = () => (AudioListener as any)._activeInstances.size;

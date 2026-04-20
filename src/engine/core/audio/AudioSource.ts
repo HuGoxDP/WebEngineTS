@@ -1,4 +1,5 @@
 import { Behaviour } from "../Behaviour";
+import { profilerHooks } from "../diagnostics/ProfilerHooks";
 import { AudioClip } from "./AudioClip";
 import { AudioManager } from "./AudioManager";
 import type { GameObject } from "../GameObject";
@@ -307,3 +308,5 @@ export class AudioSource extends Behaviour {
         this._pannerNode.positionZ.value = pos.z;
     }
 }
+
+profilerHooks.audioSourceCount = () => (AudioSource as any)._activeInstances.size;

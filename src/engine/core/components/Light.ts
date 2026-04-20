@@ -2,6 +2,7 @@
 
 import * as THREE from "three";
 import { Behaviour } from "../Behaviour.ts";
+import { profilerHooks } from "../diagnostics/ProfilerHooks.ts";
 import { Color } from "../math/Color.ts";
 import type { GameObject } from "../GameObject.ts";
 
@@ -62,6 +63,9 @@ export enum LightShadowResolution {
  * {@link _internalThreeLight}.
  */
 export abstract class Light extends Behaviour {
+
+    /** @internal Number of currently active Light components. */
+    public static _activeLightCount: number = 0;
 
     // ==================== INTERNAL THREE.JS STATE ====================
 
@@ -170,6 +174,7 @@ export abstract class Light extends Behaviour {
      * Makes the light visible when the component becomes active.
      */
     protected override onEnable(): void {
+        Light._activeLightCount++;
         if (this._threeLight !== null) {
             this._threeLight.visible = true;
         }
@@ -180,6 +185,7 @@ export abstract class Light extends Behaviour {
      * Hides the light when the component becomes inactive.
      */
     protected override onDisable(): void {
+        Light._activeLightCount--;
         if (this._threeLight !== null) {
             this._threeLight.visible = false;
         }
@@ -353,3 +359,5 @@ export abstract class Light extends Behaviour {
         }
     }
 }
+
+profilerHooks.lightCount = () => Light._activeLightCount;

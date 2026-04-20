@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
+import { profilerHooks } from "../core/diagnostics/ProfilerHooks";
 import { Ray } from "../core/math/Ray";
 import { Vector3 } from "../core/math/Vector3";
 import { RaycastHit } from "./RaycastHit";
@@ -266,3 +267,7 @@ export class Physics {
         PhysicsWorld._reset();
     }
 }
+
+profilerHooks.colliderCount = () => (Physics as any)._colliders.length;
+profilerHooks.rigidbodyCount = () => (PhysicsWorld as any)._instance?._rigidbodies?.length ?? 0;
+profilerHooks.physicsContactCount = () => (Physics as any)._activeCollisions.size;

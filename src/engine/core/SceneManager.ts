@@ -303,3 +303,6 @@ export class SceneManager {
         }
     }
 }
+
+// @internal Expose to MemoryProfiler without circular imports.
+(globalThis as any).__webengine_scene_manager__ = SceneManager;
