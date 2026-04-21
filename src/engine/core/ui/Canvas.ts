@@ -1,5 +1,6 @@
 import { Behaviour } from "../Behaviour";
 import { Application } from "../Application";
+import { RectTransform } from "./RectTransform";
 import type { UIBehaviour } from "./UIBehaviour";
 import type { GameObject } from "../GameObject";
 
@@ -172,3 +173,6 @@ export class Canvas extends Behaviour {
         }
     }
 }
+
+// Break the Canvas ↔ RectTransform circular import at module-load.
+RectTransform._registerCanvasCtor(Canvas as unknown as new (...args: any[]) => Canvas & { width: number; height: number });

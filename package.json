@@ -24,6 +24,9 @@
     "test": "vitest run",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
+    "editor": "cd editor && npm start",
+    "editor:build": "cd editor && npm run build",
+    "editor:install": "cd editor && npm install",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "peerDependencies": {

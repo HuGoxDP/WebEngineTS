@@ -2,7 +2,14 @@ import { Component } from "../Component";
 import { Vector2 } from "../math/Vector2";
 import { Rect } from "../math/Rect";
 import type { Canvas } from "./Canvas";
+import type { Component as ComponentType } from "../Component";
 import type { GameObject } from "../GameObject";
+
+/** @internal Canvas constructor type for lazy lookups. */
+type CanvasCtor = new (...args: any[]) => ComponentType & { width: number; height: number };
+
+/** @internal Registered by Canvas at module-load to avoid circular imports. */
+let _CanvasCtor: CanvasCtor | null = null;
 
 /**
  * Defines the 2D layout rectangle for a UI element.
@@ -58,16 +65,19 @@ export class RectTransform extends Component {
 
     /** The nearest Canvas ancestor, or null. */
     public get canvas(): Canvas | null {
-        // Lazy import to avoid circular dependency at module load time.
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { Canvas } = require("./Canvas") as typeof import("./Canvas");
+        if (!_CanvasCtor) return null;
         let go: GameObject | null = this.gameObject;
         while (go) {
-            const c = go.getComponent(Canvas);
+            const c = go.getComponent(_CanvasCtor) as Canvas | null;
             if (c) return c;
             go = go.transform.parent?.gameObject ?? null;
         }
         return null;
+    }
+
+    /** @internal Called once by Canvas.ts at module load to break the cycle. */
+    public static _registerCanvasCtor(ctor: CanvasCtor): void {
+        _CanvasCtor = ctor;
     }
 
     /**
@@ -104,9 +114,10 @@ export class RectTransform extends Component {
         const prt = this.parentRectTransform;
         if (prt) return prt.screenRect;
 
-        const { Canvas } = require("./Canvas") as typeof import("./Canvas");
-        const c = this.gameObject.getComponent(Canvas);
-        if (c) return new Rect(0, 0, c.width, c.height);
+        if (_CanvasCtor) {
+            const c = this.gameObject.getComponent(_CanvasCtor) as (Canvas | null);
+            if (c) return new Rect(0, 0, c.width, c.height);
+        }
 
         // Fallback: entire viewport
         return new Rect(0, 0,
