@@ -1,5 +1,10 @@
 import { Injectable, signal } from '@angular/core';
-import { GameObject, SceneManager } from 'WebEngineTS';
+import {
+    GameObject,
+    SceneManager,
+    SceneSerializer,
+    type SerializedScene,
+} from 'WebEngineTS';
 
 /**
  * Editor-side wrapper over the engine's scene.
@@ -42,6 +47,26 @@ export class SceneService {
 
     /** Call after external mutations so panels refresh. */
     public notify(): void {
+        this._refresh();
+    }
+
+    /** Removes every GameObject from the active scene. */
+    public clear(): void {
+        for (const go of [...SceneManager.activeScene.getRootGameObjects()]) {
+            go.destroy();
+        }
+        this._refresh();
+    }
+
+    /** Serializes the active scene to a JSON snapshot. */
+    public serialize(): SerializedScene {
+        return SceneSerializer.serializeScene(SceneManager.activeScene);
+    }
+
+    /** Replaces the active scene contents with the given snapshot. */
+    public loadFromJSON(json: SerializedScene): void {
+        this.clear();
+        SceneSerializer.deserializeScene(json);
         this._refresh();
     }
 

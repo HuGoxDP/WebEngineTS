@@ -1,7 +1,18 @@
-import { Injectable, NgZone } from '@angular/core';
+import { EffectRef, Injectable, Injector, NgZone, effect } from '@angular/core';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { SceneManager, Transform } from 'WebEngineTS';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import {
+    GameObject,
+    Quaternion,
+    SceneManager,
+    Transform,
+    Vector3,
+} from 'WebEngineTS';
+import { SelectionService } from './services/selection.service';
+
+/** Current mode of the transform gizmo. */
+export type GizmoMode = 'translate' | 'rotate' | 'scale';
 
 /**
  * Owns the Three.js renderer, the editor camera, and the animation loop.
@@ -19,16 +30,33 @@ export class ViewportService {
     private _overlay: THREE.Scene | null = null;
     private _rafId: number = 0;
     private _resizeObs: ResizeObserver | null = null;
+    private _canvas: HTMLCanvasElement | null = null;
+    private _raycaster: THREE.Raycaster = new THREE.Raycaster();
+    private _ndc: THREE.Vector2 = new THREE.Vector2();
+    private _pointerDown: { x: number; y: number } | null = null;
+    private _gizmo: TransformControls | null = null;
+    private _gizmoHelper: THREE.Object3D | null = null;
+    private _selectionEffect: EffectRef | null = null;
+    private _outline: THREE.BoxHelper | null = null;
 
-    constructor(private readonly _zone: NgZone) {}
+    constructor(
+        private readonly _zone: NgZone,
+        private readonly _selection: SelectionService,
+        private readonly _injector: Injector,
+    ) {}
 
     /** Initializes the viewport on the given canvas. Idempotent. */
     public attach(canvas: HTMLCanvasElement): void {
         if (this._renderer) return;
+        this._canvas = canvas;
 
         this._renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
         this._renderer.setPixelRatio(window.devicePixelRatio);
         this._renderer.autoClear = false;
+
+        // ── Pointer selection (click vs. drag detection) ──
+        canvas.addEventListener('pointerdown', this._onPointerDown);
+        canvas.addEventListener('pointerup',   this._onPointerUp);
 
         // ── Editor overlay (grid + axes) ──
         const overlay = new THREE.Scene();
@@ -58,6 +86,47 @@ export class ViewportService {
         dir.position.set(5, 10, 5);
         overlay.add(dir);
 
+        // ── Transform gizmo ──
+        const gizmo = new TransformControls(camera, canvas);
+        gizmo.setSize(0.8);
+        gizmo.addEventListener('dragging-changed', e => {
+            // Lock the orbit camera while dragging a gizmo handle.
+            controls.enabled = !(e as unknown as { value: boolean }).value;
+        });
+        gizmo.addEventListener('change', () => this._syncGizmoToEngine());
+        // Three.js r169+ uses getHelper(); older versions used the gizmo itself.
+        const helper: THREE.Object3D = (gizmo as unknown as { getHelper?: () => THREE.Object3D })
+            .getHelper?.() ?? (gizmo as unknown as THREE.Object3D);
+        overlay.add(helper);
+        this._gizmo = gizmo;
+        this._gizmoHelper = helper;
+
+        // Selection outline — a BoxHelper we re-attach on each selection change.
+        // Lives in the overlay so it always renders on top of the engine scene.
+        this._selectionEffect = effect(() => {
+            const go = this._selection.selected();
+            this._selection.revision();
+
+            // Gizmo
+            if (this._gizmo) {
+                if (go) this._gizmo.attach(go.transform._internalObject3D);
+                else    this._gizmo.detach();
+            }
+
+            // Outline
+            if (this._outline) {
+                overlay.remove(this._outline);
+                this._outline.dispose();
+                this._outline = null;
+            }
+            if (go) {
+                const helper = new THREE.BoxHelper(go.transform._internalObject3D, 0x4ade80);
+                // Recompute the box every frame in _loop so it tracks transform changes.
+                this._outline = helper;
+                overlay.add(helper);
+            }
+        }, { injector: this._injector });
+
         this._resize(canvas);
         this._resizeObs = new ResizeObserver(() => this._resize(canvas));
         this._resizeObs.observe(canvas);
@@ -71,12 +140,32 @@ export class ViewportService {
         this._rafId = 0;
         this._resizeObs?.disconnect();
         this._resizeObs = null;
+        if (this._canvas) {
+            this._canvas.removeEventListener('pointerdown', this._onPointerDown);
+            this._canvas.removeEventListener('pointerup',   this._onPointerUp);
+        }
+        this._canvas = null;
+        if (this._gizmo) {
+            this._gizmo.detach();
+            this._gizmo.dispose();
+            this._gizmo = null;
+        }
+        this._gizmoHelper = null;
+        this._selectionEffect?.destroy();
+        this._selectionEffect = null;
+        this._outline?.dispose();
+        this._outline = null;
         this._controls?.dispose();
         this._controls = null;
         this._renderer?.dispose();
         this._renderer = null;
         this._overlay = null;
         this._camera = null;
+    }
+
+    /** Sets the gizmo mode. Keyboard shortcuts: W translate, E rotate, R scale. */
+    public setGizmoMode(mode: GizmoMode): void {
+        this._gizmo?.setMode(mode);
     }
 
     /** The editor camera. Used by selection raycasting in later milestones. */
@@ -89,6 +178,9 @@ export class ViewportService {
 
         // Flush dirty engine transforms before we render the engine scene.
         Transform._syncAllDirty();
+
+        // Keep the selection outline in sync with the target's current bounds.
+        this._outline?.update();
 
         const engineScene = SceneManager.activeScene._internalThreeScene;
 
@@ -104,5 +196,90 @@ export class ViewportService {
         this._renderer.setSize(w, h, false);
         this._camera.aspect = w / h;
         this._camera.updateProjectionMatrix();
+    }
+
+    // ── Click-to-select ──────────────────────────────────────────────
+
+    private readonly _onPointerDown = (e: PointerEvent): void => {
+        if (e.button !== 0) return;
+        this._pointerDown = { x: e.clientX, y: e.clientY };
+    };
+
+    private readonly _onPointerUp = (e: PointerEvent): void => {
+        const down = this._pointerDown;
+        this._pointerDown = null;
+        if (!down || e.button !== 0) return;
+        // If the pointer moved more than a few pixels, treat as orbit, not click.
+        const dx = e.clientX - down.x;
+        const dy = e.clientY - down.y;
+        if (dx * dx + dy * dy > 16) return;
+        this._pickAt(e);
+    };
+
+    private _pickAt(e: PointerEvent): void {
+        if (!this._camera || !this._canvas) return;
+
+        const rect = this._canvas.getBoundingClientRect();
+        this._ndc.set(
+            ((e.clientX - rect.left) / rect.width)  * 2 - 1,
+            -((e.clientY - rect.top)  / rect.height) * 2 + 1,
+        );
+        this._raycaster.setFromCamera(this._ndc, this._camera);
+
+        Transform._syncAllDirty();
+        const scene = SceneManager.activeScene._internalThreeScene;
+        const hits = this._raycaster.intersectObjects(scene.children, true);
+
+        // Build Object3D → GameObject map across the current scene.
+        const o2g = ViewportService._buildObjectMap();
+
+        this._zone.run(() => {
+            for (const hit of hits) {
+                let obj: THREE.Object3D | null = hit.object;
+                while (obj) {
+                    const go = o2g.get(obj);
+                    if (go) {
+                        this._selection.select(go);
+                        return;
+                    }
+                    obj = obj.parent;
+                }
+            }
+            this._selection.clear();
+        });
+    }
+
+    /**
+     * @internal
+     * The gizmo mutates the Three.js Object3D directly. Write those values
+     * back into the engine's Transform via its setters, which updates its
+     * cached values and re-triggers dirty flagging. Also bumps the
+     * SelectionService revision so the Inspector reflects the new values.
+     */
+    private _syncGizmoToEngine(): void {
+        const go = this._selection.selected();
+        if (!go) return;
+        const obj = go.transform._internalObject3D;
+        go.transform.localPosition = new Vector3(obj.position.x, obj.position.y, obj.position.z);
+        go.transform.localRotation = new Quaternion(
+            obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w,
+        );
+        go.transform.localScale = new Vector3(obj.scale.x, obj.scale.y, obj.scale.z);
+        this._zone.run(() => this._selection.notifyChanged());
+    }
+
+    /** @internal Walks the engine scene once and maps each Object3D to its GameObject. */
+    private static _buildObjectMap(): Map<THREE.Object3D, GameObject> {
+        const map = new Map<THREE.Object3D, GameObject>();
+        const roots = SceneManager.activeScene.getRootGameObjects();
+        const walk = (go: GameObject): void => {
+            map.set(go.transform._internalObject3D, go);
+            const t = go.transform;
+            for (let i = 0; i < t.childCount; i++) {
+                walk(t.getChild(i).gameObject);
+            }
+        };
+        for (const r of roots) walk(r);
+        return map;
     }
 }
