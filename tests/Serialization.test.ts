@@ -35,6 +35,15 @@ class AnotherScript extends Behaviour {
     public value: number = 0;
 }
 
+@Serializable()
+class FollowTarget extends Behaviour {
+    @SerializedField({ type: FieldType.GameObject })
+    public target: GameObject | null = null;
+
+    @SerializedField()
+    public weight: number = 1;
+}
+
 function destroyScene(): void {
     // Crude cleanup: destroy every root so each test starts clean.
     const scene = SceneManager.activeScene;
@@ -227,6 +236,69 @@ describe("Prefab — instantiate multiple copies", () => {
         const go = new GameObject("Tree");
         const prefab = Prefab.fromGameObject(go);
         expect(prefab.name).toBe("Tree");
+    });
+});
+
+describe("SceneSerializer — GameObject cross-references (Phase 11b)", () => {
+    beforeEach(() => destroyScene());
+
+    test("scene round-trip preserves a sibling GameObject reference", () => {
+        const camera = new GameObject("Camera");
+        const player = new GameObject("Player");
+        const follow = player.addComponent(FollowTarget);
+        follow.target = camera;
+        follow.weight = 2.5;
+
+        const json = SceneSerializer.serializeScene(SceneManager.activeScene);
+        destroyScene();
+
+        const restored = SceneSerializer.deserializeScene(json);
+        const restoredCamera = restored.find(g => g.name === 'Camera')!;
+        const restoredPlayer = restored.find(g => g.name === 'Player')!;
+        const ft = restoredPlayer.getComponent(FollowTarget)!;
+        expect(ft.target).toBe(restoredCamera);
+        expect(ft.weight).toBe(2.5);
+    });
+
+    test("reference to a child GameObject round-trips", () => {
+        const root = new GameObject("Vehicle");
+        const wheel = new GameObject("Wheel");
+        wheel.transform.parent = root.transform;
+        const ft = root.addComponent(FollowTarget);
+        ft.target = wheel;
+
+        const json = SceneSerializer.serializeScene(SceneManager.activeScene);
+        destroyScene();
+
+        const restored = SceneSerializer.deserializeScene(json);
+        const restoredRoot  = restored[0];
+        const restoredWheel = restoredRoot.transform.getChild(0).gameObject;
+        expect(restoredRoot.getComponent(FollowTarget)!.target).toBe(restoredWheel);
+    });
+
+    test("null reference round-trips as null", () => {
+        const go = new GameObject("Empty");
+        const ft = go.addComponent(FollowTarget);
+        ft.target = null;
+
+        const json = SceneSerializer.serializeScene(SceneManager.activeScene);
+        destroyScene();
+
+        const restored = SceneSerializer.deserializeScene(json);
+        expect(restored[0].getComponent(FollowTarget)!.target).toBe(null);
+    });
+
+    test("reference outside the serialized subtree drops to null", () => {
+        // Serializing only a sub-tree means outside refs can't resolve.
+        const camera = new GameObject("Camera");
+        const player = new GameObject("Player");
+        player.addComponent(FollowTarget).target = camera;
+
+        const playerJson = SceneSerializer.serializeGameObject(player);
+        destroyScene();
+
+        const restored = SceneSerializer.deserializeGameObject(playerJson);
+        expect(restored.getComponent(FollowTarget)!.target).toBe(null);
     });
 });
 

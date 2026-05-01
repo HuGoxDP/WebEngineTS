@@ -83,13 +83,14 @@ type CtorOf<T> = new (...args: any[]) => T;
                 }
             </li>
 
-            @for (node of flat(); track node.go.getInstanceID()) {
+            @for (node of flat(); track node.go.getInstanceID(); let idx = $index) {
                 <li
-                    [class.selected]="selection.selected() === node.go"
+                    [class.selected]="selection.isSelected(node.go)"
+                    [class.primary]="selection.selected() === node.go"
                     [class.drop-target]="dragOverId() === node.go.getInstanceID()"
                     [style.padding-left.px]="22 + node.depth * 14"
                     [attr.draggable]="editingId() === node.go.getInstanceID() ? null : true"
-                    (click)="selection.select(node.go)"
+                    (click)="onRowClick($event, node.go, idx)"
                     (dblclick)="startRename(node.go)"
                     (contextmenu)="openMenuAt($event, node.go)"
                     (dragstart)="onDragStart($event, node.go)"
@@ -148,6 +149,9 @@ export class HierarchyComponent {
 
     /** GO currently being dragged. */
     private _dragSource: GameObject | null = null;
+
+    /** Last clicked row index — anchor for Shift+Click range selection. */
+    private _lastClickedIndex: number = -1;
 
     constructor() {
         const destroyRef = inject(DestroyRef);
@@ -335,6 +339,27 @@ export class HierarchyComponent {
         // Most callers should use openCreateMenu(MouseEvent).
         this._ctxTarget = null;
         this._createEmpty();
+    }
+
+    // ── Multi-select click handling ────────────────────────
+
+    public onRowClick(e: MouseEvent, go: GameObject, idx: number): void {
+        if (e.ctrlKey || e.metaKey) {
+            // Ctrl / ⌘ + Click — toggle in/out of selection.
+            this.selection.toggle(go);
+            this._lastClickedIndex = idx;
+        } else if (e.shiftKey && this._lastClickedIndex >= 0) {
+            // Shift + Click — extend selection to a range from the anchor.
+            const flat = this.flat();
+            const a = Math.min(this._lastClickedIndex, idx);
+            const b = Math.max(this._lastClickedIndex, idx);
+            const range = flat.slice(a, b + 1).map(n => n.go);
+            this.selection.addToSelection(range);
+        } else {
+            // Plain click — single-select.
+            this.selection.select(go);
+            this._lastClickedIndex = idx;
+        }
     }
 
     // ── Inline rename ──────────────────────────────────────

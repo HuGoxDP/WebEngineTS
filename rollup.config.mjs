@@ -26,6 +26,38 @@ const external = [
   /^three\//,       // three/addons/*, three/examples/*, etc.
 ];
 
+// ─── Known-benign warning suppressor ───
+// 1. TS5096 — `allowImportingTsExtensions` conflicts with the emit mode that
+//    @rollup/plugin-typescript forces on. Source code intentionally uses `.ts`
+//    in import specifiers, so the option must stay enabled.
+// 2. Three class-pair circular deps (Physics↔Collider, Application↔Canvas,
+//    EventSystem↔Button) — references are confined to method bodies; no
+//    top-level value access, so module init order is safe.
+const knownCircularPairs = [
+  ["src/engine/physics/Physics.ts", "src/engine/physics/Collider.ts"],
+  ["src/engine/core/Application.ts", "src/engine/core/ui/Canvas.ts"],
+  ["src/engine/core/ui/EventSystem.ts", "src/engine/core/ui/Button.ts"],
+];
+
+function onwarn(warning, defaultHandler) {
+  if (
+    warning.plugin === "typescript" &&
+    typeof warning.message === "string" &&
+    warning.message.includes("TS5096")
+  ) {
+    return;
+  }
+  if (warning.code === "CIRCULAR_DEPENDENCY") {
+    const ids = (warning.ids ?? []).map((p) => p.replace(/\\/g, "/"));
+    for (const [a, b] of knownCircularPairs) {
+      if (ids.some((id) => id.endsWith(a)) && ids.some((id) => id.endsWith(b))) {
+        return;
+      }
+    }
+  }
+  defaultHandler(warning);
+}
+
 // ─── Shared plugins ───
 function buildPlugins() {
   return [
@@ -38,6 +70,7 @@ function buildPlugins() {
     typescript({
       tsconfig: "./tsconfig.build.json",
       declaration: false,
+      declarationMap: false,
       declarationDir: undefined,
       sourceMap: true,
     }),
@@ -64,6 +97,7 @@ const jsBuild = {
 
   external,
   plugins: buildPlugins(),
+  onwarn,
 };
 
 // ─── Build 2: Standalone ESM — three BUNDLED (for import maps) ───
@@ -79,6 +113,7 @@ const standaloneBuild = {
   // No externals — everything is bundled (three, jszip, tslib)
   external: [],
   plugins: buildPlugins(),
+  onwarn,
 };
 
 // ─── Build 3: Bundled type declarations (.d.ts) ───
@@ -97,6 +132,7 @@ const dtsBuild = {
       tsconfig: "./tsconfig.build.json",
     }),
   ],
+  onwarn,
 };
 
 export default [jsBuild, standaloneBuild, dtsBuild];

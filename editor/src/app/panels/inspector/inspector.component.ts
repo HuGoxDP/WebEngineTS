@@ -29,6 +29,14 @@ interface EulerDeg { x: number; y: number; z: number; }
     template: `
         @if (!go()) {
             <div class="insp-empty">Select a GameObject to inspect.</div>
+        } @else if (multi()) {
+            <div class="insp-multi">
+                <strong>{{ selection.count() }} GameObjects selected</strong>
+                <div class="hint">
+                    Multi-edit isn't supported yet.
+                    Pick a single object to edit its properties.
+                </div>
+            </div>
         } @else {
             <!-- Head: enable · icon · name · static -->
             <div class="insp-head">
@@ -181,10 +189,16 @@ export class InspectorComponent {
     private readonly _selection = inject(SelectionService);
     private readonly _scene = inject(SceneService);
 
+    /** Public accessor used by the template's multi-select banner. */
+    public readonly selection = this._selection;
+
     public readonly go = computed<GameObject | null>(() => {
         this._selection.revision();
         return this._selection.selected();
     });
+
+    /** True when more than one GameObject is selected. */
+    public readonly multi = computed<boolean>(() => this._selection.count() > 1);
 
     public readonly pos = computed(() => {
         const g = this.go();
@@ -217,45 +231,53 @@ export class InspectorComponent {
     public onRename(name: string): void {
         const g = this.go();
         if (!g) return;
-        g.name = name;
-        this._scene.notify();
+        this._history.record('Rename', () => {
+            g.name = name;
+            this._scene.notify();
+        });
     }
 
     public onPos(axis: 'x' | 'y' | 'z', value: number): void {
         const g = this.go();
         if (!g) return;
-        const p = g.transform.localPosition;
-        g.transform.localPosition = new Vector3(
-            axis === 'x' ? value : p.x,
-            axis === 'y' ? value : p.y,
-            axis === 'z' ? value : p.z,
-        );
-        this._selection.notifyChanged();
+        this._history.record('Edit Position', () => {
+            const p = g.transform.localPosition;
+            g.transform.localPosition = new Vector3(
+                axis === 'x' ? value : p.x,
+                axis === 'y' ? value : p.y,
+                axis === 'z' ? value : p.z,
+            );
+            this._selection.notifyChanged();
+        });
     }
 
     public onRot(axis: 'x' | 'y' | 'z', value: number): void {
         const g = this.go();
         if (!g) return;
-        const cur = this.rot();
-        const e: EulerDeg = {
-            x: axis === 'x' ? value : cur.x,
-            y: axis === 'y' ? value : cur.y,
-            z: axis === 'z' ? value : cur.z,
-        };
-        g.transform.localRotation = InspectorComponent._eulerDegToQuat(e);
-        this._selection.notifyChanged();
+        this._history.record('Edit Rotation', () => {
+            const cur = this.rot();
+            const e: EulerDeg = {
+                x: axis === 'x' ? value : cur.x,
+                y: axis === 'y' ? value : cur.y,
+                z: axis === 'z' ? value : cur.z,
+            };
+            g.transform.localRotation = InspectorComponent._eulerDegToQuat(e);
+            this._selection.notifyChanged();
+        });
     }
 
     public onScl(axis: 'x' | 'y' | 'z', value: number): void {
         const g = this.go();
         if (!g) return;
-        const s = g.transform.localScale;
-        g.transform.localScale = new Vector3(
-            axis === 'x' ? value : s.x,
-            axis === 'y' ? value : s.y,
-            axis === 'z' ? value : s.z,
-        );
-        this._selection.notifyChanged();
+        this._history.record('Edit Scale', () => {
+            const s = g.transform.localScale;
+            g.transform.localScale = new Vector3(
+                axis === 'x' ? value : s.x,
+                axis === 'y' ? value : s.y,
+                axis === 'z' ? value : s.z,
+            );
+            this._selection.notifyChanged();
+        });
     }
 
     // ── Add Component menu ──────────────────────────────────────────

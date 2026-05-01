@@ -19,7 +19,11 @@ import {
     getAllFields,
 } from 'WebEngineTS';
 import { SelectionService } from '../../services/selection.service';
+import { HistoryService } from '../../services/history.service';
+import { SceneService } from '../../services/scene.service';
 import { IconComponent } from '../../icon.component';
+import { ContextMenuComponent, type CtxItem } from '../../context-menu/context-menu.component';
+import type { Component as EngineComponent, GameObject } from 'WebEngineTS';
 
 /**
  * Renders one `@Serializable` component as a `.comp` section using the
@@ -29,7 +33,7 @@ import { IconComponent } from '../../icon.component';
 @Component({
     selector: 'app-component-section',
     standalone: true,
-    imports: [FormsModule, IconComponent],
+    imports: [FormsModule, IconComponent, ContextMenuComponent],
     changeDetection: ChangeDetectionStrategy.OnPush,
     template: `
         <div class="comp">
@@ -42,15 +46,25 @@ import { IconComponent } from '../../icon.component';
                     <wets-icon [name]="iconName"></wets-icon>
                 </span>
                 <span class="title">{{ typeName }}</span>
-                <div class="actions">
-                    <span class="a-btn" title="Reset">
+                <div class="actions" (click)="$event.stopPropagation()">
+                    <span class="a-btn" title="Reset" (click)="onReset()">
                         <wets-icon name="reset"></wets-icon>
                     </span>
-                    <span class="a-btn">
+                    <span class="a-btn" title="Component menu" #kebab
+                        (click)="openCompMenu($event, kebab)">
                         <wets-icon name="more"></wets-icon>
                     </span>
                 </div>
             </div>
+
+            @if (menuOpen()) {
+                <ctx-menu
+                    [items]="menuItems()"
+                    [x]="menuX()"
+                    [y]="menuY()"
+                    (closed)="menuOpen.set(false)"
+                ></ctx-menu>
+            }
 
             @if (open()) {
                 <div class="comp-body">
@@ -265,8 +279,69 @@ export class ComponentSectionComponent {
     @Input({ required: true }) public component!: object;
 
     private readonly _selection = inject(SelectionService);
+    private readonly _history = inject(HistoryService);
+    private readonly _scene = inject(SceneService);
 
     public readonly open = signal(true);
+
+    // ── Component context menu (kebab button) ──
+    public readonly menuOpen = signal(false);
+    public readonly menuX = signal(0);
+    public readonly menuY = signal(0);
+    public readonly menuItems = signal<CtxItem[]>([]);
+
+    public openCompMenu(e: MouseEvent, anchor: HTMLElement): void {
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = anchor.getBoundingClientRect();
+        this.menuX.set(rect.left);
+        this.menuY.set(rect.bottom + 2);
+        this.menuItems.set([
+            { label: 'Reset',  action: () => this.onReset() },
+            { separator: true, label: null },
+            { label: 'Move Up',   disabled: true },
+            { label: 'Move Down', disabled: true },
+            { separator: true, label: null },
+            { label: 'Copy Component',          disabled: true },
+            { label: 'Paste Component Values', disabled: true },
+            { separator: true, label: null },
+            { label: 'Remove Component', action: () => this.onRemove() },
+        ]);
+        queueMicrotask(() => this.menuOpen.set(true));
+    }
+
+    public onReset(): void {
+        const typeName = this.typeName;
+        this._history.record(`Reset ${typeName}`, () => {
+            const ctor = (this.component as object).constructor as new (...args: any[]) => unknown;
+            // Recreate a fresh instance of the same component class on a temporary
+            // throw-away GO so we get the constructor defaults, then copy each
+            // serialized field back. Avoids needing per-class default exposure.
+            const fresh: any = new (ctor as any)((this.component as any).gameObject);
+            const allFields = (Reflect as any) // satisfy strict TS w/o import cycles
+                ? null : null;
+            // Reach into engine reflection via the same path the section uses.
+            const fields = this.visibleFields();
+            for (const f of fields) {
+                (this.component as any)[f.name] = (fresh as any)[f.name];
+            }
+            // Discard the temporary by removing it (the constructor may have
+            // created Three.js side-effects); safe-ish since this is editor-only.
+            const owner = (this.component as any).gameObject as GameObject | undefined;
+            if (owner) owner.removeComponent(fresh as EngineComponent);
+            this._selection.notifyChanged();
+        });
+    }
+
+    public onRemove(): void {
+        const owner = (this.component as any).gameObject as GameObject | undefined;
+        if (!owner) return;
+        const typeName = this.typeName;
+        this._history.record(`Remove ${typeName}`, () => {
+            owner.removeComponent(this.component as EngineComponent);
+            this._selection.notifyChanged();
+        });
+    }
 
     public get typeName(): string {
         return TypeRegistry.getTypeName(this.component) ?? 'Component';
@@ -338,8 +413,11 @@ export class ComponentSectionComponent {
     // ── Setters ──────────────────────────────────────────────────────
 
     public setRaw(f: FieldMeta, value: unknown): void {
-        (this.component as any)[f.name] = value;
-        this._selection.notifyChanged();
+        const label = `Edit ${this.typeName}.${f.name}`;
+        this._history.record(label, () => {
+            (this.component as any)[f.name] = value;
+            this._selection.notifyChanged();
+        });
     }
 
     public setNumber(f: FieldMeta, v: number): void { this.setRaw(f, Number(v)); }

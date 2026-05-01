@@ -89,7 +89,7 @@ export class EngineObject {
     constructor(name?: string) {
         // Assign unique IDs
         this._instanceID = EngineObject._nextInstanceID++;
-        this._uuid = crypto.randomUUID();
+        this._uuid = EngineObject._generateUUID();
 
         // Set name
         this._name = name ?? this.constructor.name;
@@ -97,6 +97,28 @@ export class EngineObject {
         // Register in global registry
         EngineObject._registry.set(this._instanceID, new WeakRef(this));
         EngineObject._scheduleCleanup();
+    }
+
+    /**
+     * Generates an RFC 4122 v4 UUID. Uses `crypto.randomUUID` when available,
+     * otherwise builds the UUID from `crypto.getRandomValues`.
+     *
+     * `crypto.randomUUID` is restricted to secure contexts (HTTPS or
+     * `localhost`); when the engine is served over plain HTTP from a LAN IP
+     * the call throws `TypeError: crypto.randomUUID is not a function`.
+     * `getRandomValues` has no such restriction, so it serves as the fallback.
+     */
+    private static _generateUUID(): string {
+        if (typeof crypto !== "undefined" && typeof (crypto as Crypto).randomUUID === "function") {
+            return crypto.randomUUID();
+        }
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+        bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 4122 variant
+        const h: string[] = new Array(16);
+        for (let i = 0; i < 16; i++) h[i] = bytes[i].toString(16).padStart(2, "0");
+        return `${h[0]}${h[1]}${h[2]}${h[3]}-${h[4]}${h[5]}-${h[6]}${h[7]}-${h[8]}${h[9]}-${h[10]}${h[11]}${h[12]}${h[13]}${h[14]}${h[15]}`;
     }
 
 // ==================== PUBLIC PROPERTIES ====================

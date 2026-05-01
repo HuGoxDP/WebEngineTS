@@ -249,6 +249,34 @@ export class GameObject extends EngineObject {
     }
 
     /**
+     * Removes a component from this GameObject and runs its destroy lifecycle.
+     *
+     * @param component — the exact component instance to remove.
+     * @returns `true` if the component was removed, `false` if not found or
+     *          the component was a Transform (Transforms are an inseparable
+     *          part of every GameObject).
+     *
+     * @remarks
+     * Equivalent to Unity's `Destroy(component)`. Cleans up Three.js side
+     * effects (e.g. lights, mesh visuals) via the component's
+     * `_destroyImmediate` lifecycle hook.
+     */
+    public removeComponent(component: Component): boolean {
+        if (component instanceof Transform) return false;
+        const idx = this._components.indexOf(component);
+        if (idx === -1) return false;
+
+        // Run lifecycle (Disable + Destroy) first so subsystems can unhook.
+        try {
+            component._destroyImmediate();
+        } catch (err) {
+            console.error("[GameObject.removeComponent] error during destroy:", err);
+        }
+        this._components.splice(idx, 1);
+        return true;
+    }
+
+    /**
      * Returns the first component of the given type, or `null`.
      *
      * @typeParam T — component subclass to search for.

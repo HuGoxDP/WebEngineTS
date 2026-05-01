@@ -1,4 +1,4 @@
-import { EffectRef, Injectable, Injector, NgZone, effect } from '@angular/core';
+import { EffectRef, Injectable, Injector, NgZone, effect, signal } from '@angular/core';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
@@ -38,6 +38,14 @@ export class ViewportService {
     private _gizmoHelper: THREE.Object3D | null = null;
     private _selectionEffect: EffectRef | null = null;
     private _outline: THREE.BoxHelper | null = null;
+
+    /** Rolling FPS sample, updated each second. */
+    public readonly fps = signal(0);
+    /** Last frame time in milliseconds. */
+    public readonly frameMs = signal(0);
+    private _frames: number = 0;
+    private _fpsLastT: number = 0;
+    private _lastT: number = 0;
 
     constructor(
         private readonly _zone: NgZone,
@@ -187,7 +195,52 @@ export class ViewportService {
         this._renderer.clear();
         this._renderer.render(this._overlay, this._camera);
         this._renderer.render(engineScene, this._camera);
+
+        // ── FPS / frame time bookkeeping (zone-free signal updates) ──
+        const now = performance.now();
+        if (this._lastT) this.frameMs.set(+(now - this._lastT).toFixed(1));
+        this._lastT = now;
+        this._frames++;
+        if (now - this._fpsLastT >= 1000) {
+            const elapsed = now - this._fpsLastT || 1;
+            this.fps.set(Math.round((this._frames / elapsed) * 1000));
+            this._frames = 0;
+            this._fpsLastT = now;
+        }
     };
+
+    /**
+     * Frames the orbit camera on the given GameObject — moves the orbit
+     * target to the object's bounding-box center and steps the camera
+     * back to a sensible distance so the whole object is visible.
+     */
+    public frameOnObject(obj3d: THREE.Object3D): void {
+        if (!this._camera || !this._controls) return;
+        const box = new THREE.Box3().setFromObject(obj3d);
+        if (box.isEmpty()) {
+            // Fallback to the object's local origin.
+            obj3d.updateMatrixWorld(true);
+            const p = new THREE.Vector3();
+            p.setFromMatrixPosition(obj3d.matrixWorld);
+            this._controls.target.copy(p);
+            this._controls.update();
+            return;
+        }
+        const center = new THREE.Vector3();
+        const size = new THREE.Vector3();
+        box.getCenter(center);
+        box.getSize(size);
+        const radius = Math.max(size.x, size.y, size.z) * 0.6 || 1;
+        // Distance fitted to vertical FOV with a small padding.
+        const fov = (this._camera.fov * Math.PI) / 180;
+        const dist = (radius / Math.tan(fov / 2)) * 1.2;
+
+        const dir = this._camera.position.clone().sub(this._controls.target).normalize();
+        if (dir.lengthSq() < 1e-6) dir.set(0.5, 0.5, 1).normalize();
+        this._camera.position.copy(center).addScaledVector(dir, dist);
+        this._controls.target.copy(center);
+        this._controls.update();
+    }
 
     private _resize(canvas: HTMLCanvasElement): void {
         const w = canvas.clientWidth;

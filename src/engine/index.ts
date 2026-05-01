@@ -67,6 +67,7 @@ export {
     getAllFields,
 } from "./core/reflection/Decorators";
 export { ValueSerializer } from "./core/serialization/ValueSerializer";
+export type { SerializeContext, DeserializeContext, PendingGORef } from "./core/serialization/ValueSerializer";
 export { SceneSerializer } from "./core/serialization/SceneSerializer";
 export type {
     SerializedGameObject,
