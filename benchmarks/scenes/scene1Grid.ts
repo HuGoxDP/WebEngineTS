@@ -1,8 +1,8 @@
 // path: benchmarks/scenes/scene1Grid.ts
 
 import {
-    GameObject, Mesh, MeshFilter, MeshRenderer,
-    StandardMaterial, Color, Vector3,
+    GameObject, Mesh, MeshFilter, MeshRenderer, InstancedMeshRenderer,
+    StandardMaterial, Color, Vector3, Quaternion,
 } from "WebEngineTS";
 import { Rotator } from "./Rotator.ts";
 import { addKeyLight, createMainCamera, mulberry32, type SceneInfo } from "./common.ts";
@@ -17,6 +17,12 @@ export interface GridOptions {
     spacing?: number;
     /** PRNG seed for spin speeds. Default `1337`. */
     seed?: number;
+    /**
+     * Render the whole grid through a single {@link InstancedMeshRenderer}
+     * (one draw call) instead of `N` individual MeshRenderers. Instances are
+     * static in this mode. Default `false`.
+     */
+    instanced?: boolean;
 }
 
 /**
@@ -44,6 +50,33 @@ export function buildProceduralGrid(opts: GridOptions = {}): SceneInfo {
 
     const side = Math.ceil(Math.sqrt(count));
     const half = ((side - 1) * spacing) / 2;
+    const dist = Math.max(12, side * spacing);
+
+    // Instanced path: the entire grid renders in a single draw call.
+    if (opts.instanced) {
+        const go = new GameObject("Instanced Grid");
+        const inst = go.addComponent(InstancedMeshRenderer);
+        inst.mesh = mesh;
+        inst.sharedMaterial = material;
+        inst.count = count;
+
+        const pos = new Vector3();
+        for (let i = 0; i < count; i++) {
+            const gx = i % side;
+            const gz = Math.floor(i / side);
+            pos.set(gx * spacing - half, 0, gz * spacing - half);
+            inst.setInstanceTransform(i, pos, Quaternion.identity, Vector3.one);
+        }
+
+        createMainCamera(new Vector3(0, dist * 0.8, -dist), new Vector3(0, 0, 0));
+        addKeyLight();
+
+        return {
+            label: `Scene 1 — grid N=${count} (instanced)`,
+            objects: 1,
+            extra: "1 draw call, static instances",
+        };
+    }
 
     let rotators = 0;
     for (let i = 0; i < count; i++) {
@@ -62,7 +95,6 @@ export function buildProceduralGrid(opts: GridOptions = {}): SceneInfo {
         }
     }
 
-    const dist = Math.max(12, side * spacing);
     createMainCamera(new Vector3(0, dist * 0.8, -dist), new Vector3(0, 0, 0));
     addKeyLight();
 

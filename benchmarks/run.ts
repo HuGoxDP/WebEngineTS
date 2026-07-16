@@ -77,7 +77,10 @@ async function main(): Promise<void> {
             info = buildSolarSystem();
             break;
         default:
-            info = buildProceduralGrid({ count: parseInt(qp("count", "1000"), 10) });
+            info = buildProceduralGrid({
+                count: parseInt(qp("count", "1000"), 10),
+                instanced: qp("instanced", "0") === "1",
+            });
             break;
     }
 

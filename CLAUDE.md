@@ -56,7 +56,7 @@ npm run benchmark:build # bundle benchmarks/run.ts → benchmarks/run.js (needs 
 - Core: `src/engine/core/` — Application, GameObject, Component, Transform, Behaviour, ScriptableBehaviour, Scene, SceneManager, Time, Input
 - Math: `src/engine/core/math/` — Vector2/3/4, Quaternion, Matrix4x4, Color, Bounds, Rect, Mathf, AnimationCurve
 - Graphics: `src/engine/core/graphics/` — Material system, Shader, Texture/Texture2D/Cubemap, Mesh
-- Rendering: `src/engine/core/rendering/` — MeshFilter, MeshRenderer, SpriteRenderer, LineRenderer
+- Rendering: `src/engine/core/rendering/` — MeshFilter, MeshRenderer, InstancedMeshRenderer, SpriteRenderer, LineRenderer
 - Components: `src/engine/core/components/` — Camera, Light types (Directional, Point, Spot, Ambient)
 - Physics: `src/engine/core/physics/` — Physics raycasting, Collider, BoxCollider
 - Cinemachine: `src/engine/core/cinemachine/` — CinemachineBrain, VirtualCamera, Body/Aim strategies
@@ -173,7 +173,12 @@ kept here so future sessions understand *why* each item exists.
    (ASTC/ETC2) work on Intel Iris Xe class hardware; run the harness there.
 
 ### P1 — Future-work features named in the paper
-4. Static geometry batching / GPU instancing (draw-call reduction).
+4. Static geometry batching / GPU instancing (draw-call reduction). *GPU instancing done
+   (2026-07-16):* `InstancedMeshRenderer` (`rendering/InstancedMeshRenderer.ts`) draws N
+   copies of one mesh+material in a single draw call via `THREE.InstancedMesh` (engine-typed
+   per-instance TRS/color API, Three.js hidden). Benchmark Scene 1 exposes it via
+   `?instanced=1`. *Remaining:* static mesh merging (`BufferGeometryUtils.mergeGeometries`)
+   and automatic batching of existing MeshRenderers.
 5. Level-of-detail (LOD) system.
 6. WebGPU backend.
 

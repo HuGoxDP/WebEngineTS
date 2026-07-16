@@ -141,6 +141,7 @@ export { RenderSettings, FogMode } from "./core/RenderSettings";
 export { MeshFilter } from "./core/rendering/MeshFilter";
 export { Renderer, ShadowCastingMode } from "./core/rendering/Renderer";
 export { MeshRenderer } from "./core/rendering/MeshRenderer";
+export { InstancedMeshRenderer } from "./core/rendering/InstancedMeshRenderer";
 export { LineRenderer, LineAlignment, LineTextureMode } from "./core/components/LineRenderer";
 export type { GradientColorKey, CurveKey } from "./core/components/LineRenderer";
 export { SpriteRenderer, SpriteBillboardMode } from "./core/components/SpriteRenderer";
@@ -330,6 +331,7 @@ import { RenderSettings, FogMode } from "./core/RenderSettings";
 import { MeshFilter } from "./core/rendering/MeshFilter";
 import { Renderer, ShadowCastingMode } from "./core/rendering/Renderer";
 import { MeshRenderer } from "./core/rendering/MeshRenderer";
+import { InstancedMeshRenderer } from "./core/rendering/InstancedMeshRenderer";
 import { LineRenderer, LineAlignment, LineTextureMode } from "./core/components/LineRenderer";
 import { SpriteRenderer, SpriteBillboardMode } from "./core/components/SpriteRenderer";
 
@@ -451,7 +453,7 @@ const WebEngineTS = {
     RenderSettings, FogMode,
 
     // Components — Rendering
-    MeshFilter, Renderer, ShadowCastingMode, MeshRenderer,
+    MeshFilter, Renderer, ShadowCastingMode, MeshRenderer, InstancedMeshRenderer,
     LineRenderer, LineAlignment, LineTextureMode,
     SpriteRenderer, SpriteBillboardMode,
 

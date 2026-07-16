@@ -34,6 +34,7 @@ accurate, and keep the tab focused.
 | --- | --- | --- | --- |
 | `scene` | — | `1` | Which scene: `1`, `2`, or `3` |
 | `count` | 1 | `1000` | Number of primitives (try `100`, `500`, `1000`, `5000`) |
+| `instanced` | 1 | `0` | Render the grid via one `InstancedMeshRenderer` (`1`) vs. N MeshRenderers (`0`) |
 | `tris` | 2 | `434000` | Target triangle count |
 | `warmup` | all | `120` | Warmup frames (discarded) |
 | `samples` | all | `600` | Sampled frames |
@@ -44,9 +45,15 @@ Examples:
 
 ```
 benchmarks/index.html?scene=1&count=5000
+benchmarks/index.html?scene=1&count=5000&instanced=1
 benchmarks/index.html?scene=2&tris=434000
 benchmarks/index.html?scene=3&warmup=120&samples=600
 ```
+
+**GPU instancing demo.** Compare `?scene=1&count=5000` (≈5000 draw calls) with
+`?scene=1&count=5000&instanced=1` — the instanced variant renders the whole grid in
+**one draw call** (watch the "Draw calls" figure in the overlay). Instances are static in
+this mode, so it isolates the draw-call cost rather than per-frame transform work.
 
 The overlay shows FPS, frame-time percentiles (mean/median/p95/p99/max/stdDev), JS heap,
 **estimated texture VRAM**, GPU resource counts, draw calls, and triangles. Use the
