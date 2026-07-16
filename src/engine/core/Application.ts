@@ -97,6 +97,20 @@ export class Application {
         return 60; // TODO: make configurable
     }
 
+    /**
+     * Main-thread (CPU) time in milliseconds spent processing the last frame —
+     * updates, rendering, UI, and input. This is the *busy* portion of the
+     * frame and excludes the idle wait until the next display refresh, so it
+     * distinguishes CPU-bound work from a frame rate capped by VSync.
+     *
+     * @remarks
+     * Browsers do not expose OS-level CPU usage; this measured frame time is the
+     * meaningful main-thread load metric. `0` until the loop has run once.
+     */
+    public get cpuFrameTime(): number {
+        return this._cpuFrameMs;
+    }
+
     // ==================== INSTANCE FIELDS ====================
 
     /** The HTML canvas we render into. */
@@ -119,6 +133,9 @@ export class Application {
 
     /** First-render flag for one-time diagnostics. */
     private _firstRender: boolean = true;
+
+    /** Main-thread time (ms) spent in the last frame's loop body. @internal */
+    public _cpuFrameMs: number = 0;
 
     /** Bound resize handler (stored so we can remove it on dispose). */
     private readonly _resizeHandler: () => void;
@@ -474,6 +491,10 @@ export class Application {
         // 9. Reset per-frame input state
         Input._resetFrame();
         Touch._postUpdate();
+
+        // 10. Record main-thread (CPU) time spent this frame — the busy portion
+        // of the frame, excluding idle/vsync wait. Used by diagnostics.
+        this._cpuFrameMs = performance.now() - now;
     };
 
     // ==================== RENDERING (PRIVATE) ====================

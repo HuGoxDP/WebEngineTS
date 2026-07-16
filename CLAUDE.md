@@ -163,6 +163,10 @@ kept here so future sessions understand *why* each item exists.
    its snapshot/CSV. Reviewers asked for a direct VRAM metric (KTX2's main benefit is VRAM
    reduction, invisible in the JS heap). Public API is free of `THREE.*` types.
    *Remaining (optional):* render-target VRAM (shadow maps, post-processing buffers).
+   The diagnostics also surface **measured main-thread CPU frame time** (`Application.cpuFrameTime`
+   = busy ms per loop, distinct from the VSync-capped frame interval) in `MemoryProfiler`
+   (report + overlay `% of frame`) and `Benchmark` (`cpuFrameMsMean` + CSV). Note: browsers
+   cannot report OS-level CPU%/RAM — JS heap + this CPU frame time are the available metrics.
 2. **Reproducible benchmark harness** *(done 2026-07-16)*. `Benchmark`
    (`diagnostics/Benchmark.ts`) does warmup + frame-time percentiles
    (mean/median/p95/p99/max/stdDev) + memory snapshot (heap, GPU counts, estimated

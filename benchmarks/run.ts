@@ -34,6 +34,7 @@ function formatResult(r: BenchmarkResult): string {
         ``,
         `── ${r.label} ──`,
         `FPS (avg):   ${r.fps.toFixed(1)}`,
+        `CPU main:    ${r.cpuFrameMsMean.toFixed(2)} ms/frame (mean)`,
         `Frame time:  mean ${ft.mean.toFixed(2)}  median ${ft.median.toFixed(2)}  p95 ${ft.p95.toFixed(2)}  p99 ${ft.p99.toFixed(2)}`,
         `             max ${ft.max.toFixed(2)}  min ${ft.min.toFixed(2)}  stdDev ${ft.stdDev.toFixed(2)}  (ms)`,
         `JS heap:     ${mb(r.memory.jsHeapUsedBytes)}`,

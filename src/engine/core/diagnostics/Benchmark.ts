@@ -48,6 +48,12 @@ export interface BenchmarkResult {
     frameTimeMs: FrameTimeStats;
     /** Average frames per second, derived from {@link FrameTimeStats.mean}. */
     fps: number;
+    /**
+     * Mean main-thread (CPU) time per frame in ms over the sample — the busy
+     * portion of the frame. Compare with {@link frameTimeMs}.mean to see whether
+     * the workload is CPU-bound or capped by VSync. `0` if no Application ran.
+     */
+    cpuFrameMsMean: number;
     /** Memory snapshot captured at the end of sampling (`null` fields if unavailable). */
     memory: {
         jsHeapUsedBytes: number | null;
@@ -112,6 +118,7 @@ export class Benchmark {
             const samples = new Float64Array(sampleFrames);
             let warmupLeft = warmupFrames;
             let sampleIndex = 0;
+            let cpuSum = 0;
             let prev = 0;
 
             const tick = (): void => {
@@ -126,13 +133,14 @@ export class Benchmark {
                 }
 
                 samples[sampleIndex++] = dt;
+                cpuSum += Benchmark._readCpuFrameMs();
                 if (sampleIndex < sampleFrames) {
                     requestAnimationFrame(tick);
                     return;
                 }
 
                 resolve(Benchmark._finalize(
-                    label, warmupFrames, sampleFrames, samples, captureMemory,
+                    label, warmupFrames, sampleFrames, samples, cpuSum / sampleFrames, captureMemory,
                 ));
             };
 
@@ -189,7 +197,7 @@ export class Benchmark {
         const header = [
             "label", "timestamp", "warmupFrames", "sampleFrames",
             "mean_ms", "median_ms", "p95_ms", "p99_ms", "min_ms", "max_ms", "stdDev_ms",
-            "fps", "jsHeapUsedBytes", "gpuTextures", "gpuGeometries",
+            "fps", "cpu_mean_ms", "jsHeapUsedBytes", "gpuTextures", "gpuGeometries",
             "estimatedTextureVramBytes", "estimatedGeometryVramBytes", "drawCalls", "triangles",
         ];
         const rows = arr.map((r) => [
@@ -205,6 +213,7 @@ export class Benchmark {
             Benchmark._num(r.frameTimeMs.max),
             Benchmark._num(r.frameTimeMs.stdDev),
             Benchmark._num(r.fps),
+            Benchmark._num(r.cpuFrameMsMean),
             r.memory.jsHeapUsedBytes ?? "",
             r.memory.gpuTextures ?? "",
             r.memory.gpuGeometries ?? "",
@@ -249,6 +258,7 @@ export class Benchmark {
         warmupFrames: number,
         sampleFrames: number,
         samples: Float64Array,
+        cpuFrameMsMean: number,
         captureMemory: boolean,
     ): BenchmarkResult {
         const stats = Benchmark._computeStats(samples);
@@ -283,8 +293,16 @@ export class Benchmark {
             sampleFrames,
             frameTimeMs: stats,
             fps: stats.mean > 0 ? 1000 / stats.mean : 0,
+            cpuFrameMsMean,
             memory,
         };
+    }
+
+    /** Reads the active Application's last main-thread frame time (ms), or 0. */
+    private static _readCpuFrameMs(): number {
+        const app = (globalThis as unknown as { __webengine_application__?: { _cpuFrameMs?: number } })
+            .__webengine_application__;
+        return app != null && typeof app._cpuFrameMs === "number" ? app._cpuFrameMs : 0;
     }
 
     private static _computeStats(samples: Float64Array): FrameTimeStats {

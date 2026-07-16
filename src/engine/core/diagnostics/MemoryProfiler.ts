@@ -62,6 +62,13 @@ export interface MemoryReport {
 
     /** Rough estimate of browser RAM available (navigator.deviceMemory). */
     deviceMemoryGB: number | null;
+
+    /**
+     * Main-thread (CPU) time in ms spent in the last frame's loop body (the busy
+     * portion, excluding idle/VSync wait). `null` when no Application is running.
+     * Browsers cannot report OS-level CPU%; this is the meaningful load metric.
+     */
+    cpuFrameMs: number | null;
 }
 
 // ==================== MINI-GRAPH ====================
@@ -235,7 +242,14 @@ export class MemoryProfiler {
                 estimatedBytes: Resources.estimatedMemory,
             },
             deviceMemoryGB: (navigator as any).deviceMemory ?? null,
+            cpuFrameMs: MemoryProfiler._getCpuFrameMs(),
         };
+    }
+
+    /** Main-thread frame time from the active Application, or null. */
+    private static _getCpuFrameMs(): number | null {
+        const app = (globalThis as any).__webengine_application__;
+        return app != null && typeof app._cpuFrameMs === "number" ? app._cpuFrameMs : null;
     }
 
     public static logReport(): void {
@@ -268,6 +282,7 @@ export class MemoryProfiler {
         console.log(`Resources cache: ${r.resources.cacheEntries} assets (~${f(r.resources.estimatedBytes)} raw)`);
 
         if (r.deviceMemoryGB !== null) console.log(`Device RAM: ~${r.deviceMemoryGB} GB`);
+        if (r.cpuFrameMs !== null) console.log(`CPU main-thread: ${r.cpuFrameMs.toFixed(1)} ms/frame`);
 
         // Subsystem counts
         const h = profilerHooks;
@@ -554,7 +569,14 @@ export class MemoryProfiler {
         const fps = _s.fps;
         const ms = fps > 0 ? 1000 / fps : 0;
         _L.push(`Graphics:      ${fps.toFixed(1)} FPS (${ms.toFixed(1)}ms)`);
-        _L.push(`CPU: main ${ms.toFixed(1)}ms`);
+
+        const cpu = MemoryProfiler._getCpuFrameMs();
+        if (cpu !== null) {
+            const load = ms > 0 ? Math.min(100, (cpu / ms) * 100) : 0;
+            _L.push(`CPU: main ${cpu.toFixed(1)}ms (${load.toFixed(0)}% of frame)`);
+        } else {
+            _L.push(`CPU: main —`);
+        }
 
         if (info) {
             const dc = info.render?.calls ?? 0;
