@@ -154,12 +154,15 @@ thesis paper (submission 76) and the paper's own "future work" section. Rational
 kept here so future sessions understand *why* each item exists.
 
 ### P0 — Paper-critical, pure engine work (address reviewers R1 & R3)
-1. **GPU/VRAM diagnostics** *(in progress — start here)*. Extend `MemoryProfiler` to
-   surface Three.js `renderer.info.memory` (geometries, textures) and estimate
-   per-texture VRAM bytes accounting for format (uncompressed RGBA8 vs. KTX2-transcoded
-   BC7/ASTC/ETC2). Reviewers asked for a direct VRAM metric — KTX2's main benefit is
-   VRAM reduction, which the JS-heap metric cannot show. Keep the public API free of
-   `THREE.*` types (return engine-side plain structs/numbers).
+1. **GPU/VRAM diagnostics** *(done 2026-07-16)*. `MemoryProfiler` surfaces
+   `renderer.info.memory` (geometries, textures) plus engine-side VRAM estimates:
+   per-texture bytes accounting for format (uncompressed RGBA8 vs. KTX2-transcoded
+   BC7/ASTC/ETC2, `Texture._estimateVramBytes` via `_TextureMemory.ts`) and per-mesh
+   vertex/index buffer bytes (`Mesh._estimateVramBytes`). `MemoryReport.renderer` exposes
+   `estimatedTextureVramBytes` + `estimatedGeometryVramBytes`; `Benchmark` includes both in
+   its snapshot/CSV. Reviewers asked for a direct VRAM metric (KTX2's main benefit is VRAM
+   reduction, invisible in the JS heap). Public API is free of `THREE.*` types.
+   *Remaining (optional):* render-target VRAM (shadow maps, post-processing buffers).
 2. **Reproducible benchmark harness** *(done 2026-07-16)*. `Benchmark`
    (`diagnostics/Benchmark.ts`) does warmup + frame-time percentiles
    (mean/median/p95/p99/max/stdDev) + memory snapshot (heap, GPU counts, estimated

@@ -134,6 +134,31 @@ export class Mesh extends EngineObject {
         return this._threeGeometry;
     }
 
+    /**
+     * @internal
+     * Estimates the GPU (VRAM) memory this mesh's vertex and index buffers
+     * occupy, in bytes. Computed from the engine-side attribute arrays (float32
+     * vertex data, 16- or 32-bit indices), matching what is uploaded to the GPU.
+     * Used by the diagnostics subsystem; does not trigger a geometry sync.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _estimateVramBytes(): number {
+        const vertexCount = this._vertices.length;
+        if (vertexCount === 0) return 0;
+
+        let bytes = 0;
+        bytes += this._vertices.length * 3 * 4;
+        bytes += this._normals.length * 3 * 4;
+        bytes += this._tangents.length * 4 * 4;
+        bytes += this._uv.length * 2 * 4;
+        bytes += this._uv2.length * 2 * 4;
+        bytes += this._colors.length * 4 * 4;
+        // Index buffer: Three.js uses Uint16 when it fits, otherwise Uint32.
+        bytes += this._triangles.length * (vertexCount < 65536 ? 2 : 4);
+        return bytes;
+    }
+
     /** Внутрішнє сховище для THREE.BufferGeometry */
     private _threeGeometry!: THREE.BufferGeometry;
 

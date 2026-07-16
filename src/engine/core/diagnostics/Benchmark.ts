@@ -54,6 +54,7 @@ export interface BenchmarkResult {
         gpuTextures: number | null;
         gpuGeometries: number | null;
         estimatedTextureVramBytes: number | null;
+        estimatedGeometryVramBytes: number | null;
         drawCalls: number | null;
         triangles: number | null;
     };
@@ -189,7 +190,7 @@ export class Benchmark {
             "label", "timestamp", "warmupFrames", "sampleFrames",
             "mean_ms", "median_ms", "p95_ms", "p99_ms", "min_ms", "max_ms", "stdDev_ms",
             "fps", "jsHeapUsedBytes", "gpuTextures", "gpuGeometries",
-            "estimatedTextureVramBytes", "drawCalls", "triangles",
+            "estimatedTextureVramBytes", "estimatedGeometryVramBytes", "drawCalls", "triangles",
         ];
         const rows = arr.map((r) => [
             Benchmark._csvCell(r.label),
@@ -208,6 +209,7 @@ export class Benchmark {
             r.memory.gpuTextures ?? "",
             r.memory.gpuGeometries ?? "",
             r.memory.estimatedTextureVramBytes ?? "",
+            r.memory.estimatedGeometryVramBytes ?? "",
             r.memory.drawCalls ?? "",
             r.memory.triangles ?? "",
         ].join(","));
@@ -256,6 +258,7 @@ export class Benchmark {
             gpuTextures: null,
             gpuGeometries: null,
             estimatedTextureVramBytes: null,
+            estimatedGeometryVramBytes: null,
             drawCalls: null,
             triangles: null,
         };
@@ -267,6 +270,7 @@ export class Benchmark {
                 gpuTextures: snap.renderer?.textures ?? null,
                 gpuGeometries: snap.renderer?.geometries ?? null,
                 estimatedTextureVramBytes: snap.renderer?.estimatedTextureVramBytes ?? null,
+                estimatedGeometryVramBytes: snap.renderer?.estimatedGeometryVramBytes ?? null,
                 drawCalls: snap.renderStats?.drawCalls ?? null,
                 triangles: snap.renderStats?.triangles ?? null,
             };

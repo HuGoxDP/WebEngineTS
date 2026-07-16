@@ -38,6 +38,7 @@ function formatResult(r: BenchmarkResult): string {
         `             max ${ft.max.toFixed(2)}  min ${ft.min.toFixed(2)}  stdDev ${ft.stdDev.toFixed(2)}  (ms)`,
         `JS heap:     ${mb(r.memory.jsHeapUsedBytes)}`,
         `Tex VRAM:    ${mb(r.memory.estimatedTextureVramBytes)}  (est.)`,
+        `Geo VRAM:    ${mb(r.memory.estimatedGeometryVramBytes)}  (est.)`,
         `GPU:         ${r.memory.gpuTextures ?? "—"} tex / ${r.memory.gpuGeometries ?? "—"} geo`,
         `Draw calls:  ${r.memory.drawCalls ?? "—"}   Triangles: ${(r.memory.triangles ?? 0).toLocaleString()}`,
     ].join("\n");

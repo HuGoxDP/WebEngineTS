@@ -4,6 +4,7 @@ import { Resources } from "../assets/Resources.ts";
 import { EngineObject, type EngineObjectConstructor } from "../EngineObject.ts";
 import { Texture } from "../graphics/Texture.ts";
 import { Cubemap } from "../graphics/Cubemap.ts";
+import { Mesh } from "../graphics/Mesh.ts";
 import { profilerHooks } from "./ProfilerHooks.ts";
 
 // ==================== TYPES ====================
@@ -39,6 +40,12 @@ export interface MemoryReport {
          * render targets (shadow maps, post-processing buffers).
          */
         estimatedTextureVramBytes: number;
+        /**
+         * Estimated VRAM occupied by all live mesh vertex + index buffers, in
+         * bytes. An estimate: counts every live engine {@link Mesh} whether or
+         * not it is currently uploaded to the GPU.
+         */
+        estimatedGeometryVramBytes: number;
     } | null;
 
     /** Three.js renderer draw call info (last frame). */
@@ -245,7 +252,11 @@ export class MemoryProfiler {
 
         if (r.renderer) {
             console.log(`GPU Textures: ${r.renderer.textures} | Geometries: ${r.renderer.geometries}`);
-            console.log(`Est. texture VRAM: ~${f(r.renderer.estimatedTextureVramBytes)}`);
+            console.log(
+                `Est. VRAM: ~${f(r.renderer.estimatedTextureVramBytes)} textures`
+                + ` + ~${f(r.renderer.estimatedGeometryVramBytes)} geometry`
+                + ` = ~${f(r.renderer.estimatedTextureVramBytes + r.renderer.estimatedGeometryVramBytes)}`
+            );
         } else {
             console.log("Renderer: N/A (no active Application)");
         }
@@ -431,7 +442,19 @@ export class MemoryProfiler {
             textures: info.memory.textures ?? 0,
             geometries: info.memory.geometries ?? 0,
             estimatedTextureVramBytes: MemoryProfiler._estimateTextureVram(),
+            estimatedGeometryVramBytes: MemoryProfiler._estimateGeometryVram(),
         };
+    }
+
+    /**
+     * Sums the estimated VRAM of every live engine mesh's vertex/index buffers.
+     */
+    private static _estimateGeometryVram(): number {
+        let total = 0;
+        for (const m of EngineObject.FindObjectsOfType(Mesh)) {
+            total += m._estimateVramBytes();
+        }
+        return total;
     }
 
     /**
@@ -604,7 +627,11 @@ export class MemoryProfiler {
         } else {
             _L.push(`N/A — no renderer`);
         }
-        _L.push(`Est. tex VRAM:   ${f(MemoryProfiler._estimateTextureVram())}`);
+        const texVram = MemoryProfiler._estimateTextureVram();
+        const geoVram = MemoryProfiler._estimateGeometryVram();
+        _L.push(`Est. tex VRAM:   ${f(texVram)}`);
+        _L.push(`Est. geo VRAM:   ${f(geoVram)}`);
+        _L.push(`Est. VRAM total: ${f(texVram + geoVram)}`);
         _L.push(`Shader programs: ${info?.programs?.length ?? "—"}`);
 
         _L.push(``);
