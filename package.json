@@ -22,11 +22,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "clean": "rm -rf dist",
     "test": "vitest run",
+    "benchmark:build": "rollup -c benchmarks/rollup.config.mjs",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
-    "editor": "cd editor && npm start",
-    "editor:build": "cd editor && npm run build",
-    "editor:install": "cd editor && npm install",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "peerDependencies": {

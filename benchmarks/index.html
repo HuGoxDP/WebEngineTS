@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebEngineTS — Benchmarks</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0d1117; color: #c9d1d9;
+      font: 12px/1.5 ui-monospace, "SF Mono", Consolas, monospace; }
+    #game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+    #panel { position: fixed; top: 10px; right: 10px; z-index: 10; max-width: 52ch;
+      background: rgba(13,17,23,0.92); border: 1px solid #30363d; border-radius: 6px;
+      padding: 10px 12px; backdrop-filter: blur(4px); }
+    #out { white-space: pre-wrap; margin: 0; }
+    .row { margin-top: 10px; }
+    button { font: inherit; color: #c9d1d9; background: #21262d; border: 1px solid #30363d;
+      border-radius: 5px; padding: 4px 10px; cursor: pointer; margin-right: 6px; }
+    button:disabled { opacity: 0.4; cursor: default; }
+  </style>
+  <!-- Resolve the bare "WebEngineTS" / "three" specifiers to the standalone build. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "WebEngineTS": "../dist/WebEngineTS.standalone.js",
+      "three": "../dist/WebEngineTS.standalone.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="panel">
+    <pre id="out"></pre>
+    <div class="row">
+      <button id="csv" disabled>Download CSV</button>
+      <button id="json" disabled>Download JSON</button>
+    </div>
+  </div>
+  <script type="module" src="./run.js"></script>
+</body>
+</html>
