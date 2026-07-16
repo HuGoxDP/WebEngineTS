@@ -56,7 +56,7 @@ npm run benchmark:build # bundle benchmarks/run.ts → benchmarks/run.js (needs 
 - Core: `src/engine/core/` — Application, GameObject, Component, Transform, Behaviour, ScriptableBehaviour, Scene, SceneManager, Time, Input
 - Math: `src/engine/core/math/` — Vector2/3/4, Quaternion, Matrix4x4, Color, Bounds, Rect, Mathf, AnimationCurve
 - Graphics: `src/engine/core/graphics/` — Material system, Shader, Texture/Texture2D/Cubemap, Mesh
-- Rendering: `src/engine/core/rendering/` — MeshFilter, MeshRenderer, InstancedMeshRenderer, SpriteRenderer, LineRenderer
+- Rendering: `src/engine/core/rendering/` — MeshFilter, MeshRenderer, InstancedMeshRenderer, StaticBatchingUtility, SpriteRenderer, LineRenderer
 - Components: `src/engine/core/components/` — Camera, Light types (Directional, Point, Spot, Ambient), LODGroup
 - Physics: `src/engine/core/physics/` — Physics raycasting, Collider, BoxCollider
 - Cinemachine: `src/engine/core/cinemachine/` — CinemachineBrain, VirtualCamera, Body/Aim strategies
@@ -179,8 +179,10 @@ kept here so future sessions understand *why* each item exists.
    TRS/color API, Three.js hidden); Benchmark Scene 1 exposes it via `?instanced=1`.
    (b) `Mesh.combine(instances)` (`graphics/Mesh.ts`) bakes transforms and merges several
    static meshes into one geometry (`BufferGeometryUtils.mergeGeometries`) — Unity-style
-   static batching, one draw call for many static objects. *Remaining:* automatic batching
-   that auto-detects existing MeshRenderers sharing (mesh, material).
+   static batching, one draw call for many static objects.
+   (c) `StaticBatchingUtility` (`rendering/StaticBatchingUtility.ts`) auto-detects existing
+   MeshRenderers sharing a material and batches each group into one mesh (via `Mesh.combine`),
+   disabling the originals — Unity-style `StaticBatchingUtility.Combine`. **P1.4 complete.**
 5. Level-of-detail (LOD) system. *Done (2026-07-16):* `LODGroup`
    (`components/LODGroup.ts`) picks a detail level from the object's on-screen size
    (`size / frustumHeightAtDistance`, Unity screen-relative-height semantics) against
