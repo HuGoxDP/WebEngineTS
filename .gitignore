@@ -13,6 +13,9 @@ dist-ssr
 docs
 *.local
 
+# Packed library artifact (consumers keep their own copy)
+*.tgz
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

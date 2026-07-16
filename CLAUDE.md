@@ -7,6 +7,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Unity-like 3D game engine in TypeScript wrapping Three.js as a hidden backend.
 Master's thesis project ("Unity for Web"). Scenario authors import only from `"WebEngineTS"` and never interact with Three.js directly.
 
+## Ecosystem / Related Projects
+
+This repo is **only the engine** — a consumable npm library. It must NOT contain scenario
+*content*, catalog/platform UI, or the scenario editor. Sibling projects (under
+`C:\Users\Work\WebstormProjects\`) consume the engine; the engine never imports from or
+depends on any of them.
+
+- **ScenarioCreator** — build pipeline compiling scenario source in `Scenarios/` into
+  distributable `.zip` archives (`ReleaseScenarios/`). Consumes the engine as a packed
+  tarball (`WebEngineTS-0.1.0.tgz`, a `file:` dependency). Scenario **content** lives here,
+  never in the engine repo.
+- **testv/virtual-lab** — the educational platform (own git repo): Angular `frontend`
+  ("university-mock") + `backend` + `db` + `nginx` + docker-compose. The frontend is the
+  scenario catalog + viewer; it downloads scenario ZIPs and runs them via
+  `Application.loadScenarioFromBuffer`, resolving `"WebEngineTS"` through an import map to
+  `WebEngineTS.standalone.js`. Consumes the engine tarball.
+- **WebEngineTSEditor** — the graphical scenario editor. `app/` is the Angular editor app
+  (extracted from this repo; consumes the engine via `file:../../WebEngineTS`); `design/` is
+  the JSX/CSS design mockup guiding its redesign. Consumes the engine like any other host.
+
+Data flow: **engine → tarball / standalone bundle → consumers**. The scenario *runtime*
+(`src/engine/core/scenario/`) stays in the engine; scenario *content* and the *authoring UI*
+do not. The Angular editor formerly under `editor/` has been moved to `WebEngineTSEditor/app/`
+— this repo no longer contains any editor code.
+
 ## Build & Dev
 
 ```bash
@@ -14,7 +39,11 @@ npm run build          # Rollup → dist/ (ESM, CJS, standalone, .d.ts)
 npm run dev            # Rollup watch mode
 npm run typecheck      # tsc --noEmit (strict mode)
 npm run clean          # rm -rf dist
+npm run benchmark:build # bundle benchmarks/run.ts → benchmarks/run.js (needs dist/ built first)
 ```
+
+- Reproducible benchmark suite lives in `benchmarks/` (deterministic paper scenes + `Benchmark`
+  harness, run from `benchmarks/index.html` over the standalone bundle). See `benchmarks/README.md`.
 
 - Entry point: `src/engine/index.ts`
 - Build config: `rollup.config.mjs` + `tsconfig.build.json`
@@ -131,12 +160,15 @@ kept here so future sessions understand *why* each item exists.
    BC7/ASTC/ETC2). Reviewers asked for a direct VRAM metric — KTX2's main benefit is
    VRAM reduction, which the JS-heap metric cannot show. Keep the public API free of
    `THREE.*` types (return engine-side plain structs/numbers).
-2. **Reproducible benchmark harness**. *Harness done (2026-07-16):* `Benchmark`
+2. **Reproducible benchmark harness** *(done 2026-07-16)*. `Benchmark`
    (`diagnostics/Benchmark.ts`) does warmup + frame-time percentiles
    (mean/median/p95/p99/max/stdDev) + memory snapshot (heap, GPU counts, estimated
-   texture VRAM, draw calls, triangles) via rAF, with JSON/CSV export. *Remaining:* the
-   three paper scenes (procedural grid, high-poly model, Solar System) as deterministic
-   in-repo code so the tables can be regenerated end-to-end. Closes R3's reproducibility gap.
+   texture VRAM, draw calls, triangles) via rAF, with JSON/CSV export. The three paper
+   scenes (procedural grid, high-poly model, Solar System) are deterministic in-repo code
+   under `benchmarks/` (seeded, asset-free), bundled via `npm run benchmark:build` and run
+   from `benchmarks/index.html` over the standalone bundle. Closes R3's reproducibility gap.
+   Scenes 2/3 use procedural geometry/materials instead of imported PBR assets (documented
+   in `benchmarks/README.md`).
 3. **Integrated-graphics readiness**. Verify `KTX2Loader` transcode targets and fallback
    (ASTC/ETC2) work on Intel Iris Xe class hardware; run the harness there.
 
