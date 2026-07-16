@@ -121,7 +121,7 @@ export type { YieldInstruction } from "./core/Coroutine";
 // =====================
 // GRAPHICS
 // =====================
-export { Mesh } from "./core/graphics/Mesh";
+export { Mesh, type MeshCombineInstance } from "./core/graphics/Mesh";
 export { Texture, FilterMode, TextureWrapMode } from "./core/graphics/Texture";
 export { Texture2D, TextureFormat } from "./core/graphics/Texture2D";
 export { Cubemap } from "./core/graphics/Cubemap";

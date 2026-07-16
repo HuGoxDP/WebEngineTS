@@ -173,12 +173,14 @@ kept here so future sessions understand *why* each item exists.
    (ASTC/ETC2) work on Intel Iris Xe class hardware; run the harness there.
 
 ### P1 — Future-work features named in the paper
-4. Static geometry batching / GPU instancing (draw-call reduction). *GPU instancing done
-   (2026-07-16):* `InstancedMeshRenderer` (`rendering/InstancedMeshRenderer.ts`) draws N
-   copies of one mesh+material in a single draw call via `THREE.InstancedMesh` (engine-typed
-   per-instance TRS/color API, Three.js hidden). Benchmark Scene 1 exposes it via
-   `?instanced=1`. *Remaining:* static mesh merging (`BufferGeometryUtils.mergeGeometries`)
-   and automatic batching of existing MeshRenderers.
+4. Static geometry batching / GPU instancing (draw-call reduction). *Done (2026-07-16):*
+   (a) `InstancedMeshRenderer` (`rendering/InstancedMeshRenderer.ts`) draws N copies of one
+   mesh+material in a single draw call via `THREE.InstancedMesh` (engine-typed per-instance
+   TRS/color API, Three.js hidden); Benchmark Scene 1 exposes it via `?instanced=1`.
+   (b) `Mesh.combine(instances)` (`graphics/Mesh.ts`) bakes transforms and merges several
+   static meshes into one geometry (`BufferGeometryUtils.mergeGeometries`) — Unity-style
+   static batching, one draw call for many static objects. *Remaining:* automatic batching
+   that auto-detects existing MeshRenderers sharing (mesh, material).
 5. Level-of-detail (LOD) system.
 6. WebGPU backend.
 

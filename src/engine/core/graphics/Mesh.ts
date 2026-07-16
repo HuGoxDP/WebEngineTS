@@ -4,7 +4,20 @@ import { Vector2 } from "../math/Vector2";
 import { Vector4 } from "../math/Vector4";
 import { Color } from "../math/Color";
 import { Bounds } from "../math/Bounds";
+import { Matrix4x4 } from "../math/Matrix4x4";
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+
+/**
+ * One entry for {@link Mesh.combine}: a source mesh and the transform that
+ * places it into the combined mesh's local space.
+ */
+export interface MeshCombineInstance {
+    /** The mesh to bake into the combined result. */
+    mesh: Mesh;
+    /** Local-to-combined transform. Defaults to identity if omitted. */
+    matrix?: Matrix4x4;
+}
 
 /**
  * Mesh.ts
@@ -1281,5 +1294,75 @@ export class Mesh extends EngineObject {
         mesh._needsUpdate = true;
 
         return mesh;
+    }
+
+    /**
+     * Combines several meshes into a single mesh (static batching).
+     *
+     * Each source mesh's geometry is baked by its transform and merged into one
+     * geometry, so many static objects sharing a material can be drawn in a
+     * **single draw call** via one {@link MeshRenderer}. Analogous to Unity's
+     * `Mesh.CombineMeshes` / `StaticBatchingUtility`.
+     *
+     * All inputs must share the same vertex-attribute set (e.g. position +
+     * normal + uv). Meshes produced by the `Mesh.create*` primitives and by
+     * model import are compatible. Use this only for **static** geometry — the
+     * combined mesh no longer tracks the source transforms.
+     *
+     * @param instances — the meshes and their local-to-combined transforms.
+     * @param name — name for the combined mesh.
+     * @returns a new combined {@link Mesh}.
+     * @throws if the source meshes have incompatible vertex attributes.
+     *
+     * @example
+     * ```ts
+     * const combined = Mesh.combine([
+     *     { mesh: wall, matrix: Matrix4x4.TRS(p0, r0, s0) },
+     *     { mesh: wall, matrix: Matrix4x4.TRS(p1, r1, s1) },
+     * ]);
+     * go.addComponent(MeshFilter).sharedMesh = combined;
+     * go.addComponent(MeshRenderer).sharedMaterial = wallMaterial;
+     * ```
+     */
+    public static combine(
+        instances: MeshCombineInstance[],
+        name: string = "Combined Mesh"
+    ): Mesh {
+        const geometries: THREE.BufferGeometry[] = [];
+        const tmp = new THREE.Matrix4();
+
+        for (const inst of instances) {
+            if (inst?.mesh == null) continue;
+
+            const baked = inst.mesh._internalGeometry.clone();
+
+            // Normals are required for correct lighting once transformed.
+            if (!baked.getAttribute("normal")) baked.computeVertexNormals();
+
+            if (inst.matrix) {
+                tmp.fromArray(inst.matrix.elements as unknown as number[]);
+                baked.applyMatrix4(tmp); // transforms position + normal + tangent
+            }
+
+            geometries.push(baked);
+        }
+
+        if (geometries.length === 0) return new Mesh(name);
+
+        const merged = mergeGeometries(geometries, false);
+        for (const g of geometries) g.dispose();
+
+        if (merged === null) {
+            throw new Error(
+                "Mesh.combine: source meshes have incompatible vertex attributes " +
+                "(all inputs must share the same attribute set, e.g. position/normal/uv)."
+            );
+        }
+
+        // fromThreeGeometry copies all data into engine arrays and keeps no
+        // reference to `merged`, so the temporary geometry can be disposed.
+        const result = Mesh.fromThreeGeometry(merged, name);
+        merged.dispose();
+        return result;
     }
 }
