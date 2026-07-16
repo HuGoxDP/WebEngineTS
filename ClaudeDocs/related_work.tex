@@ -1,0 +1,61 @@
+\section{Related Work}
+
+\subsection{Browser-based 3D engines and frameworks}
+The browser-based 3D rendering ecosystem has evolved through three generations. The first generation comprises low-level rendering libraries such as Three.js and Babylon.js, which wrap WebGL with a structured but minimal abstraction~\cite{Evans2014}. These libraries deliver small bundle sizes and excellent performance, but leave fundamental architectural decisions -- lifecycle management, component composition, asset pipelines, scene serialization -- to the application developer. For an educational platform team, building a scenario directly on Three.js requires an in-house investment in engine-style infrastructure that is not typically available.
+
+The second generation consists of native engine exports. Unity, Unreal, and Godot compile their full runtime to WebAssembly to enable browser deployment. While these provide a mature authoring experience, they produce large bundles with multi-second loading times unsuitable for classroom contexts. Recent research on game engine architecture~\cite{Ullmann2025} documents the high level of internal complexity and inter-subsystem coupling typical of mature commercial engines, which is precisely the complexity that WebAssembly-compiled bundles must carry into the browser. This complexity also extends to runtime concerns: Aung et al.~\cite{Aung2022} show that geometric model optimization at the engine level remains a non-trivial requirement even for AR scenarios where 3D scenes are comparatively simple.
+
+The third generation comprises TypeScript-native frameworks built on \\Three.js -- React Three Fiber, Needle Engine, A-Frame -- that add specific developer-experience improvements but do not provide a comprehensive engine model with component lifecycle, serialization, and editor integration. Pipeline-level work such as that of Zhou et al.~\cite{Zhou2018} and Saputra et al.~\cite{IMadeSuryaKumara2024} demonstrates how Three.js is commonly combined with domain-specific data formats (e.g., IFC for BIM) to deliver web 3D applications, but each such application reimplements engine-level scaffolding tailored to its domain. A review of the literature reveals no published academic work documenting a TypeScript-native engine that wraps Three.js with a full Unity-compatible component model while remaining a lightweight library for educational deployment.
+
+\subsection{Educational 3D platforms}
+A growing body of work demonstrates the educational effectiveness of browser-based 3D visualization. Rodríguez et al.~\cite{Rodrguez2021} present MolecularWebXR, a multi-user immersive WebXR platform for chemistry education. Hensen and Kühlem~\cite{Hensen2023} describe a WebXR collaboration module integrated with the Moodle LMS. Li et al.~\cite{Li2021} present a controlled experiment combining 3D printing with WebGL visualization for medical imaging education, showing significantly higher test scores for the 3D-interactive group. Kraitem et al.~\cite{Kraitem2025} present a Three.js-based interactive 3D Bohr atomic model for atomic physics education, illustrating direct use of WebGL for science learning. Zataraín-Cabada et al.~\cite{ZatarainCabada2022} report on a web-based extended reality learning environment for physics that uses VR and AR within the browser to teach kinematics and dynamics, evaluating student perceptions across a diverse user group.
+
+The cumulative effect of these individual studies has been quantified in two recent meta-analyses. Wang et al.~\cite{Wang2024} reviewed 3D visualization technology for human anatomy across multiple controlled studies, confirming statistically significant improvements in test scores compared to traditional teaching. Yang et al.~\cite{Yang2024} performed a meta-analysis of 37 empirical studies on virtual reality in science and engineering education, reporting a moderate positive effect on practical skills (Hedges's g = 0.477).
+
+These works establish the value of browser-based 3D in education, but treat the rendering substrate as a black box: they focus on pedagogical outcomes and content pipelines but do not analyze the engine architecture or the runtime performance characteristics on the constrained hardware typical of student deployments. The present work complements this body of literature by addressing the engineering substrate that scenario authors require to build such content efficiently.
+
+\subsection{Performance optimization for browser 3D rendering}
+Recent research has produced specific optimization techniques applicable to browser 3D rendering. Evans et al.~\cite{Evans2017} present an end-to-end pipeline for the creation of progressively rendered web 3D scenes, including a compression and decompression scheme for textured polygonal meshes that outperforms non-progressive alternatives as bandwidth increases. Li et al.~\cite{Li2020} propose model-animation data separation and an on-demand loading mechanism for mobile Web 3D, achieving up to 24.7\% reduction in rendering latency relative to baseline Three.js. Boutsi et al.~\cite{Boutsi2023} integrate the Nexus.js multi-resolution library with Three.js to support level-of-detail streaming for high-performance Web AR, reporting up to a 46\% speedup in rendering time compared to optimized glTF models. In the AR domain, Suwandi et al.~\cite{Suwandi2026} present a mobile augmented reality system for cultural heritage preservation based on photogrammetry-generated 3D assets. The system applies Draco mesh compression and KTX2 texture compression to reduce memory footprint while maintaining stable real-time performance (\(\approx\) 32.6 FPS) on mid-range smartphones (Snapdragon 720G). In addition to performance optimization, the study reports high usability scores (SUS = 81.4), indicating that efficient asset compression can be integrated into user-centered AR applications without degrading user experience.
+
+The present work draws on these techniques and integrates a relevant subset into the educational engine, evaluating their combined effect in an educational deployment context.
+
+\subsection{Gap analysis}
+Table~\ref{tab:gap-analysis} summarizes the positioning of the proposed engine relative to alternatives.
+
+\begin{table}[H]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Positioning of the proposed engine for educational deployment}
+\label{tab:gap-analysis}
+
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{2.5cm}X p{2.2cm} p{1.5cm} X@{}}
+\toprule
+\makecell[l]{Approach} &
+\makecell[l]{Authoring effort} &
+\makecell[l]{Bundle size} &
+\makecell[l]{Init time} &
+\makecell[l]{Educational fit} \\
+\midrule
+
+Raw Three.js / Babylon.js &
+High (engine-style infrastructure must be built in-house) &
+Small &
+Fast &
+Poor -- requires graphics engineers \\
+
+Unity WebGL export &
+Low (mature editor) &
+Large (3--10 MB) &
+Slow &
+Poor -- heavy bundles, slow load \\
+
+Proposed engine &
+Low (Unity-style API) &
+Small ($\sim$1 MB) &
+Fast &
+Designed for this case \\
+
+\bottomrule
+\end{tabularx}
+\end{table}

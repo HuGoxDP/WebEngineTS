@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { EngineObject } from "../EngineObject.ts";
 import { FilterMode } from "./Texture.ts";
 import { Texture2D } from "./Texture2D.ts";
+import { estimateThreeTextureVramBytes } from "./_TextureMemory.ts";
 
 /**
  * A cube texture composed of six square images (one per face).
@@ -48,6 +49,15 @@ export class Cubemap extends EngineObject {
 
     /** Face size in pixels (0 if equirectangular). */
     private _faceSize: number = 0;
+
+    /**
+     * Cached source width/height in pixels. Retained so VRAM can still be
+     * estimated after {@link releaseSourceImage} nulls the backing image.
+     * For a 6-face cube these equal {@link _faceSize}; for an equirectangular
+     * panorama they are the full panorama dimensions.
+     */
+    private _srcWidth: number = 0;
+    private _srcHeight: number = 0;
 
     // ==================== CONSTRUCTOR ====================
 
@@ -134,6 +144,8 @@ export class Cubemap extends EngineObject {
 
         const cubemap = new Cubemap(cubeTexture, "Cubemap (6-face)");
         cubemap._faceSize = images[0].width;
+        cubemap._srcWidth = images[0].width;
+        cubemap._srcHeight = images[0].height;
         return cubemap;
     }
 
@@ -166,6 +178,8 @@ export class Cubemap extends EngineObject {
 
         const cubemap = new Cubemap(texture, "Cubemap (equirectangular)");
         cubemap._isEquirectangular = true;
+        cubemap._srcWidth = image.width;
+        cubemap._srcHeight = image.height;
         return cubemap;
     }
 
@@ -194,6 +208,8 @@ export class Cubemap extends EngineObject {
 
         const cubemap = new Cubemap(cubeTexture, "Cubemap (solid color)");
         cubemap._faceSize = 1;
+        cubemap._srcWidth = 1;
+        cubemap._srcHeight = 1;
         return cubemap;
     }
 
@@ -277,6 +293,27 @@ export class Cubemap extends EngineObject {
      */
     public get _internalThreeTexture(): THREE.CubeTexture | THREE.Texture {
         return this._threeTexture;
+    }
+
+    /**
+     * @internal
+     * Estimates the GPU (VRAM) memory this cubemap occupies, in bytes.
+     *
+     * A 6-face cube counts all six faces; an equirectangular panorama counts
+     * as a single 2D texture. Uses cached source dimensions so the estimate
+     * survives {@link releaseSourceImage}.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _estimateVramBytes(): number {
+        if (this._isEquirectangular) {
+            return estimateThreeTextureVramBytes(
+                this._threeTexture, this._srcWidth, this._srcHeight, 1,
+            );
+        }
+        return estimateThreeTextureVramBytes(
+            this._threeTexture, this._srcWidth, this._srcHeight, 6,
+        );
     }
 
     /**

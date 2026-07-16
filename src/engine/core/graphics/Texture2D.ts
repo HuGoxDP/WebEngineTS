@@ -3,6 +3,7 @@
 import * as THREE from "three";
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { Texture } from "./Texture.ts";
+import { estimateThreeTextureVramBytes } from "./_TextureMemory.ts";
 import { Color } from "../math/Color.ts";
 
 /**
@@ -259,6 +260,22 @@ export class Texture2D extends Texture {
     /** Number of mipmap levels. */
     public get mipmapCount(): number {
         return this._mipmapCount;
+    }
+
+    /**
+     * @internal
+     * Estimates VRAM usage using the engine-side cached dimensions, which
+     * remain valid after {@link releaseSourceImage} nulls the source image.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public override _estimateVramBytes(): number {
+        return estimateThreeTextureVramBytes(
+            this._internalThreeTexture,
+            this._width,
+            this._height,
+            1,
+        );
     }
 
     // ==================== PIXEL ACCESS ====================

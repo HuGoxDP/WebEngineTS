@@ -1,6 +1,9 @@
 // path: src/engine/core/diagnostics/MemoryProfiler.ts
 
 import { Resources } from "../assets/Resources.ts";
+import { EngineObject, type EngineObjectConstructor } from "../EngineObject.ts";
+import { Texture } from "../graphics/Texture.ts";
+import { Cubemap } from "../graphics/Cubemap.ts";
 import { profilerHooks } from "./ProfilerHooks.ts";
 
 // ==================== TYPES ====================
@@ -27,6 +30,15 @@ export interface MemoryReport {
     renderer: {
         textures: number;
         geometries: number;
+        /**
+         * Estimated VRAM occupied by all live engine textures (2D + cubemaps),
+         * in bytes. Accounts for KTX2/Basis compression, so the compressed-vs-
+         * uncompressed difference is visible — unlike the JS-heap metric. This
+         * is an estimate and an upper bound: it counts every live engine texture
+         * whether or not it is currently uploaded to the GPU, and excludes
+         * render targets (shadow maps, post-processing buffers).
+         */
+        estimatedTextureVramBytes: number;
     } | null;
 
     /** Three.js renderer draw call info (last frame). */
@@ -233,6 +245,7 @@ export class MemoryProfiler {
 
         if (r.renderer) {
             console.log(`GPU Textures: ${r.renderer.textures} | Geometries: ${r.renderer.geometries}`);
+            console.log(`Est. texture VRAM: ~${f(r.renderer.estimatedTextureVramBytes)}`);
         } else {
             console.log("Renderer: N/A (no active Application)");
         }
@@ -414,7 +427,32 @@ export class MemoryProfiler {
     private static _getRendererMemory(): MemoryReport["renderer"] {
         const info = MemoryProfiler._info();
         if (!info?.memory) return null;
-        return { textures: info.memory.textures ?? 0, geometries: info.memory.geometries ?? 0 };
+        return {
+            textures: info.memory.textures ?? 0,
+            geometries: info.memory.geometries ?? 0,
+            estimatedTextureVramBytes: MemoryProfiler._estimateTextureVram(),
+        };
+    }
+
+    /**
+     * Sums the estimated VRAM of every live engine texture. Texture2D and any
+     * other {@link Texture} subclass are enumerated via the EngineObject
+     * registry; {@link Cubemap} extends EngineObject directly and is summed
+     * separately (the skybox is often the single largest texture in a scene).
+     */
+    private static _estimateTextureVram(): number {
+        let total = 0;
+        for (const t of EngineObject.FindObjectsOfType(Texture)) {
+            total += t._estimateVramBytes();
+        }
+        // Cubemap has a private constructor, so it does not satisfy the
+        // EngineObjectConstructor signature; FindObjectsOfType only uses it for
+        // a runtime `instanceof` check, which works regardless. Cast is safe.
+        const cubemapCtor = Cubemap as unknown as EngineObjectConstructor<Cubemap>;
+        for (const c of EngineObject.FindObjectsOfType(cubemapCtor)) {
+            total += c._estimateVramBytes();
+        }
+        return total;
     }
 
     private static _getRenderStats(): MemoryReport["renderStats"] {
@@ -566,6 +604,7 @@ export class MemoryProfiler {
         } else {
             _L.push(`N/A — no renderer`);
         }
+        _L.push(`Est. tex VRAM:   ${f(MemoryProfiler._estimateTextureVram())}`);
         _L.push(`Shader programs: ${info?.programs?.length ?? "—"}`);
 
         _L.push(``);

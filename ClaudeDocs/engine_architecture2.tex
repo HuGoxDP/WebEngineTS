@@ -1,0 +1,44 @@
+\section{Engine Architecture}
+\subsection{Design goals}
+The engine's design is governed by four constraints derived directly from educational deployment requirements. First, scenario authors must interact exclusively with high-level engine abstractions and never encounter Three.js types directly -- this lowers the graphics-programming threshold for course content teams. Second, the API must follow Unity conventions in naming, lifecycle, and semantics, leveraging the substantial pool of developers already familiar with that engine. Third, the engine must remain lightweight: bundle size and initialization time are first-class concerns for classroom hardware over institutional networks. Fourth, runtime performance -- particularly on integrated graphics typical of student laptops -- must be sufficient for stable interactive use.
+
+\subsection{High-level architecture}
+The engine is organized into five layers, each with a clear responsibility and well-defined interfaces. This decomposition draws on observations from recovered architectural models of mature open-source game engines, which consistently reveal subsystem stratification as a key driver of maintainability and impact-analysis tractability~\cite{Ullmann2025}. Figure~\ref{fig:architecture} presents the layered architecture.
+
+The Application class manages the engine's lifetime: WebGL context creation, the main render loop driven by \texttt{requestAnimationFrame}, and global subsystem initialization. SceneManager maintains the active scene graph and orchestrates lifecycle events. The Component model provides Unity-compatible base classes (\texttt{Component}, \texttt{Behaviour}, \texttt{ScriptableBehaviour}) that hook into the lifecycle phases (\texttt{awake}, \texttt{start}, \texttt{update}, \texttt{lateUpdate}, \texttt{fixedUpdate}, \texttt{onDestroy}). The Resource system handles asynchronous asset loading, decoding, and caching from a ZIP-based scenario archive. The Adapter layer is the engine's only contact surface with Three.js: every public type carries an internal sync method that translates engine state to the corresponding Three.js object on demand.
+
+\begin{figure}[!htb]
+\centering
+\fbox{\parbox{0.8\linewidth}{\centering
+\includegraphics[width=0.8\linewidth]{fig1_architecture.png}}}
+\caption{Engine layered architecture.}
+\label{fig:architecture}
+\end{figure}
+\FloatBarrier
+
+
+\subsection{Core subsystems}
+\textbf{Component model.} Game logic is composed from \texttt{Component} instances attached to \texttt{GameObject} containers, mirroring Unity's design. \\\texttt{ScriptableBehaviour} extends the base \texttt{Behaviour} class with serialization support, enabling components to be authored, instantiated from data, and persisted across scene reloads.
+
+\textbf{Scene graph and transforms.} Scene composition is built on a hierarchical \texttt{Transform} graph. Each \texttt{Transform} exposes the standard Unity properties (\texttt{localPosition}, \texttt{localRotation}, \texttt{localScale}, \texttt{position}, \texttt{rotation}, \texttt{forward}, \texttt{right}, \texttt{up}) and methods (\texttt{translate}, \texttt{rotate}, \texttt{lookAt}, \texttt{transformPoint}). The transform hierarchy is parallel to the underlying Three.js \texttt{Object3D} graph but conceptually independent. This separation of engine-side state from backend representation aligns with engine-level geometric optimization patterns reported for AR pipelines, where pre-processing of scene-graph elements is essential to maintain interactive performance on consumer devices~\cite{Aung2022}.
+
+\textbf{Material system.} Materials follow Unity's \texttt{sharedMaterial} versus \\\texttt{material} distinction: assignment of \texttt{sharedMaterial} produces a reference \\shared across all instances, while accessing \texttt{material} triggers an automatic clone for per-instance editing. Three material classes are provided: \texttt{StandardMaterial} (PBR), \texttt{UnlitMaterial}, and a low-level \texttt{Material} for custom shaders.
+
+\textbf{Resource system.} Assets are loaded asynchronously from the active scenario archive through the static \texttt{Resources} API. The primary entry point is \texttt{Resources.tryLoad<T>(type, path)}, with built-in decoders for textures, \\JSON, plain text, audio, and 3D models.
+
+\textbf{Scenario runtime.} Educational content is packaged as a ZIP archive containing a manifest, compiled scenario scripts, and asset folders. After all assets have been loaded, the scenario can release the archive to free the compressed payload from the JavaScript heap. This packaging strategy is informed by prior work on end-to-end pipelines for the creation of progressively rendered web 3D scenes~\cite{Evans2017}, which established that bundled and progressive delivery of compressed assets is critical for maintaining responsiveness on bandwidth-constrained networks.
+
+
+\subsection{Scenario lifecycle}
+
+\begin{figure}[!htb]
+\centering
+\fbox{\parbox{0.8\linewidth}{\centering
+\includegraphics[width=0.8\linewidth]{fig2_lifecycle.png}}}
+\caption{Per-frame lifecycle sequence.}
+\label{fig:lifecycle}
+\end{figure}
+\FloatBarrier
+
+Figure~\ref{fig:lifecycle} shows the per-frame sequence: input polling, fixed-timestep physics, game logic updates, late updates, transform synchronization, and rendering. The ordering matches Unity's convention.
+

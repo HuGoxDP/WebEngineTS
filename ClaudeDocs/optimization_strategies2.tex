@@ -1,0 +1,34 @@
+\section{Optimization Strategies}
+
+\subsection{GPU-compressed textures via KTX2/Basis Universal}
+\textbf{Problem.} When a browser 3D application loads a high-resolution texture (for example, a 4096$\times$2048 planet albedo), the image is first decoded into CPU memory, then uploaded to the GPU in uncompressed RGBA8 format consuming $\sim$32 MB of VRAM per texture. For an educational scene with multiple high-resolution textures -- a Solar System scenario typically uses 8--10 such textures plus a skybox -- this can consume hundreds of megabytes of GPU memory. Educational hardware frequently has only 1--2 GB of dedicated VRAM (or shared with system memory on integrated graphics), making this consumption problematic.
+
+\textbf{Solution.} The engine integrates the KTX2/Basis Universal compressed texture format, an approach that has been shown to deliver substantial performance benefits on memory-constrained consumer hardware in adjacent domains such as mobile augmented reality~\cite{Suwandi2026} and high-performance Web AR~\cite{Boutsi2023}. Textures are encoded offline using the \texttt{gltf-transform} command-line tool with the ETC1S codec for albedo and emissive maps and the UASTC codec for normal maps. At load time, the engine uses Three.js's \texttt{KTX2Loader} with the Basis WASM transcoder to decode the universal intermediate format into the GPU's native compressed format (BC7 on desktops, ASTC on mobile, ETC2 on older Android), which remains compressed in VRAM.
+
+\textbf{Implementation.} The \texttt{Texture2D} class exposes \\\texttt{fromKTX2ArrayBuffer(data)} as the public entry point. The \texttt{KTX2Loader} is created lazily on first use. The \texttt{Resources} decoder for \texttt{Texture2D} recognizes the \texttt{.ktx2} extension and routes through this path automatically.
+
+\textbf{Trade-off.} Encoding KTX2 textures is an offline pipeline step. The Basis transcoder adds approximately 25 MB to the JavaScript heap at runtime; the trade-off favors VRAM reduction over JS heap impact, which is the relevant axis for GPU-bound applications on integrated graphics.
+
+\subsection{Shader pre-compilation}
+\textbf{Problem.} WebGL shader compilation occurs on the GPU driver's first use of a shader program. For a scene with multiple unique materials, the first frame in which each material becomes visible incurs a synchronous compilation stall ranging from milliseconds to several hundred milliseconds. For an educational scenario, this manifests as a visible stutter -- the scene appears, then freezes, then resumes -- degrading the perceived quality.
+
+\textbf{Solution.} The engine exposes \texttt{Application.warmupShaders()}, which calls Three.js's
+\\
+\texttt{WebGLRenderer.compile(scene, camera)} to compile every shader program required by the current scene before the first rendered frame. When the browser supports the
+\\\texttt{KHR\_parallel\_shader\_compile} extension (modern Chrome and Edge), compilation occurs on background driver threads.
+
+\textbf{Implementation.} Scenario code calls \texttt{warmupShaders()} from \texttt{awake()}, after the scene has been constructed but before the first frame is rendered. The total compilation cost is concentrated in the loading phase, where stalls are expected and tolerated, rather than in the interactive phase.
+
+\textbf{Trade-off.} Warmup adds compilation time to scenario startup. The cost is recovered within the first few interactive frames, since the alternative is to pay the same cost during interaction with a visible stutter.
+
+\subsection{Dirty-flag transform propagation}
+\textbf{Problem.} The \texttt{Transform} class is the most frequently mutated object during gameplay: every animated \texttt{GameObject} updates its position, rotation, or scale at least once per frame. A naive implementation propagates each mutation to the underlying Three.js \texttt{Object3D} immediately, which involves a vector or quaternion copy and downstream recomputation of the world matrix. For a scene with thousands of objects of which only a small fraction move on a given frame, the dominant cost is the recursive \texttt{updateMatrixWorld} traversal that Three.js performs over the entire scene graph. Related work on mobile Web 3D rendering has established that decoupling animated transform data from static topology is one of the most effective levers for reducing per-frame rendering latency on resource-constrained browsers~\cite{Li2020}.
+
+\textbf{Solution.} When dirty-flag mode is enabled, transform mutations no longer propagate to Three.js immediately. Instead, the affected \texttt{Transform} is added to a global dirty set, with a Boolean flag preventing duplicate insertions. Once per frame, immediately before rendering, the engine flushes the dirty set: each transform is synchronized to its Three.js counterpart in a single batch operation copying position, rotation, and scale together.
+
+\textbf{Implementation.} A global flag controls every \texttt{Transform} setter. Setters update the cached engine-side state and call \texttt{\_markDirty()}. World-space getters invoke \texttt{\_syncToThree()} on demand if the local state is dirty, ensuring correctness when game logic reads back transform values within the same frame. The \texttt{Application.\_render()} method calls \texttt{Transform.\_syncAllDirty()} once before invoking \texttt{renderer.render()}.
+
+\textbf{Trade-off.} When most objects in a scene are animated every frame, the dirty set offers no advantage. The optimization specifically targets scenes where the moving subset is small relative to the total scene size, which is the common case in educational content.
+
+\subsection{Composability}
+The three optimizations are independent and can be enabled or disabled separately. KTX2 affects the asset pipeline. Shader warmup is invoked once during scenario loading. Dirty-flag transforms is a runtime mode toggle. The benchmark methodology described in Section~5 varies each independently to measure the contribution of each strategy in isolation.

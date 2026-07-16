@@ -150,6 +150,12 @@ export { SpriteRenderer, SpriteBillboardMode } from "./core/components/SpriteRen
 // Diagnostic
 // =====================
 export { MemoryProfiler, type MemoryReport } from './core/diagnostics/MemoryProfiler';
+export {
+    Benchmark,
+    type BenchmarkOptions,
+    type BenchmarkResult,
+    type FrameTimeStats,
+} from './core/diagnostics/Benchmark';
 
 
 // =====================

@@ -19,7 +19,7 @@ npm run clean          # rm -rf dist
 - Entry point: `src/engine/index.ts`
 - Build config: `rollup.config.mjs` + `tsconfig.build.json`
 - Output: `dist/WebEngineTS.esm.js`, `dist/WebEngineTS.cjs.js`, `dist/WebEngineTS.standalone.js` (Three.js bundled), `dist/WebEngineTS.d.ts`
-- No test runner configured yet — test files (`*_test.ts`) exist but are run manually
+- Tests: Vitest (`npm test` → `vitest run`); specs live in `tests/*.test.ts`
 
 ## Source Layout
 
@@ -117,6 +117,42 @@ Each step runs components first, then the active scenario.
 - **Batch loading**: `Resources.tryLoad()` wraps individual loads instead of `Promise.all` (which fails entire batch on single missing asset)
 - **Scenario script pre-linking**: All `.js` files in a scenario ZIP are topologically sorted by dependency, relative import specifiers are rewritten to Blob URLs, bare specifiers (e.g. `"WebEngineTS"`) are left for the host import map. Entry point brand-checked via `__scenarioBehaviour` marker (not `instanceof`, which breaks across bundle copies)
 - **Circular deps**: Use `import type` for engine asset types in interfaces
+
+## Roadmap / Next Steps
+
+Prioritized plan for continued engine work. Driven by peer-review feedback on the
+thesis paper (submission 76) and the paper's own "future work" section. Rationale is
+kept here so future sessions understand *why* each item exists.
+
+### P0 — Paper-critical, pure engine work (address reviewers R1 & R3)
+1. **GPU/VRAM diagnostics** *(in progress — start here)*. Extend `MemoryProfiler` to
+   surface Three.js `renderer.info.memory` (geometries, textures) and estimate
+   per-texture VRAM bytes accounting for format (uncompressed RGBA8 vs. KTX2-transcoded
+   BC7/ASTC/ETC2). Reviewers asked for a direct VRAM metric — KTX2's main benefit is
+   VRAM reduction, which the JS-heap metric cannot show. Keep the public API free of
+   `THREE.*` types (return engine-side plain structs/numbers).
+2. **Reproducible benchmark harness**. *Harness done (2026-07-16):* `Benchmark`
+   (`diagnostics/Benchmark.ts`) does warmup + frame-time percentiles
+   (mean/median/p95/p99/max/stdDev) + memory snapshot (heap, GPU counts, estimated
+   texture VRAM, draw calls, triangles) via rAF, with JSON/CSV export. *Remaining:* the
+   three paper scenes (procedural grid, high-poly model, Solar System) as deterministic
+   in-repo code so the tables can be regenerated end-to-end. Closes R3's reproducibility gap.
+3. **Integrated-graphics readiness**. Verify `KTX2Loader` transcode targets and fallback
+   (ASTC/ETC2) work on Intel Iris Xe class hardware; run the harness there.
+
+### P1 — Future-work features named in the paper
+4. Static geometry batching / GPU instancing (draw-call reduction).
+5. Level-of-detail (LOD) system.
+6. WebGPU backend.
+
+### P2 — Architecture enabling P1
+7. Generalize the Adapter layer (decouple from Three.js) — prerequisite for the WebGPU
+   backend; the un-generalized adapter is listed as a limitation in the paper.
+8. OffscreenCanvas-based rendering.
+
+Note: paper-text-only fixes (abstract tense, deployment scale, comparison with
+three-game-engine / Rogue Engine / Needle Engine, user study) are tracked separately and
+are **not** engine tasks.
 
 ## Dependencies
 

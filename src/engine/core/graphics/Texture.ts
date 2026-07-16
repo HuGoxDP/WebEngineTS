@@ -2,6 +2,7 @@
 
 import * as THREE from "three";
 import { EngineObject } from "../EngineObject.ts";
+import { estimateThreeTextureVramBytes } from "./_TextureMemory.ts";
 
 // ==================== ENUMS ====================
 
@@ -190,6 +191,30 @@ export class Texture extends EngineObject {
         tex._filterMode = threeMagToFilterMode(threeTexture.magFilter);
         tex._wrapMode = threeWrapToWrapMode(threeTexture.wrapS);
         return tex;
+    }
+
+    /**
+     * @internal
+     * Estimates the GPU (VRAM) memory this texture occupies, in bytes.
+     *
+     * Accounts for the backing format — a KTX2/Basis compressed texture stays
+     * compressed in VRAM (typically 8 bpp for BC7/ASTC), whereas an ordinary
+     * image is uploaded as RGBA8 at 32 bpp. Used by the diagnostics subsystem
+     * to report a VRAM figure that the JS-heap metric cannot reveal.
+     *
+     * Subclasses override to supply cached dimensions (which survive
+     * {@link Texture2D.releaseSourceImage}).
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _estimateVramBytes(): number {
+        const image = this._threeTexture.image as { width?: number; height?: number } | null;
+        return estimateThreeTextureVramBytes(
+            this._threeTexture,
+            image?.width ?? 0,
+            image?.height ?? 0,
+            1,
+        );
     }
 
     // ==================== PUBLIC PROPERTIES ====================
