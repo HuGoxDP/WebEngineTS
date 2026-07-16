@@ -168,6 +168,7 @@ export { DirectionalLight } from "./core/components/DirectionalLight";
 export { PointLight } from "./core/components/PointLight";
 export { SpotLight } from "./core/components/SpotLight";
 export { AmbientLight } from "./core/components/AmbientLight";
+export { LODGroup, type LOD } from "./core/components/LODGroup";
 
 // =====================
 // CINEMACHINE
@@ -341,6 +342,7 @@ import { DirectionalLight } from "./core/components/DirectionalLight";
 import { PointLight } from "./core/components/PointLight";
 import { SpotLight } from "./core/components/SpotLight";
 import { AmbientLight } from "./core/components/AmbientLight";
+import { LODGroup } from "./core/components/LODGroup";
 
 import { CameraState, CinemachineBlendStyle, CinemachineBody, CinemachineAim } from "./core/cinemachine/CinemachineCore";
 import { CinemachineVirtualCamera } from "./core/cinemachine/CinemachineVirtualCamera";
@@ -461,6 +463,7 @@ const WebEngineTS = {
     Camera, CameraClearFlags,
     Light, LightShadows, LightShadowResolution,
     DirectionalLight, PointLight, SpotLight, AmbientLight,
+    LODGroup,
 
     // Cinemachine
     CameraState, CinemachineBlendStyle, CinemachineBody, CinemachineAim,

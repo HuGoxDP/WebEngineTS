@@ -19,6 +19,7 @@ import { AudioSource } from "./audio/AudioSource.ts";
 import { Canvas } from "./ui/Canvas.ts";
 import { EventSystem } from "./ui/EventSystem.ts";
 import { ParticleSystem } from "./particles/ParticleSystem.ts";
+import { LODGroup } from "./components/LODGroup.ts";
 import { Gamepad } from "./input/Gamepad.ts";
 import { Touch } from "./input/Touch.ts";
 import { PluginManager } from "./plugins/PluginManager.ts";
@@ -460,6 +461,9 @@ export class Application {
 
         // 7b. UI event processing (before UI render so button states are up-to-date)
         EventSystem._update();
+
+        // 7c. Level-of-detail selection (uses final world transforms + Camera.main)
+        LODGroup._updateAll();
 
         // 7. Render
         this._render();

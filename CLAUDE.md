@@ -57,7 +57,7 @@ npm run benchmark:build # bundle benchmarks/run.ts → benchmarks/run.js (needs 
 - Math: `src/engine/core/math/` — Vector2/3/4, Quaternion, Matrix4x4, Color, Bounds, Rect, Mathf, AnimationCurve
 - Graphics: `src/engine/core/graphics/` — Material system, Shader, Texture/Texture2D/Cubemap, Mesh
 - Rendering: `src/engine/core/rendering/` — MeshFilter, MeshRenderer, InstancedMeshRenderer, SpriteRenderer, LineRenderer
-- Components: `src/engine/core/components/` — Camera, Light types (Directional, Point, Spot, Ambient)
+- Components: `src/engine/core/components/` — Camera, Light types (Directional, Point, Spot, Ambient), LODGroup
 - Physics: `src/engine/core/physics/` — Physics raycasting, Collider, BoxCollider
 - Cinemachine: `src/engine/core/cinemachine/` — CinemachineBrain, VirtualCamera, Body/Aim strategies
 - Scenario: `src/engine/core/scenario/` — ZIP-based content pipeline (Scenario, ScenarioAssets, ScenarioBehaviour)
@@ -181,7 +181,12 @@ kept here so future sessions understand *why* each item exists.
    static meshes into one geometry (`BufferGeometryUtils.mergeGeometries`) — Unity-style
    static batching, one draw call for many static objects. *Remaining:* automatic batching
    that auto-detects existing MeshRenderers sharing (mesh, material).
-5. Level-of-detail (LOD) system.
+5. Level-of-detail (LOD) system. *Done (2026-07-16):* `LODGroup`
+   (`components/LODGroup.ts`) picks a detail level from the object's on-screen size
+   (`size / frustumHeightAtDistance`, Unity screen-relative-height semantics) against
+   `Camera.main`, disabling other levels' renderers and culling below the smallest
+   threshold. Driven per-frame by `LODGroup._updateAll()` in `Application._loop` (same
+   registry pattern as Animation/ParticleSystem).
 6. WebGPU backend.
 
 ### P2 — Architecture enabling P1
