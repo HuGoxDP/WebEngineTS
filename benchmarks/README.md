@@ -17,16 +17,23 @@ on every run.
 
 ## Build & run
 
+Run all commands from the **repository root** (not from `benchmarks/`) — the page loads the
+engine from `../dist/`, which only resolves when the server root is the repo root.
+
 ```bash
+# from C:\...\WebEngineTS  (the repo root)
 npm run build            # 1. build the engine → dist/ (produces the standalone bundle)
 npm run benchmark:build  # 2. bundle the runner → benchmarks/run.js
-npx serve .              # 3. serve the repo root over http (any static server works)
+npx serve .              # 3. serve the REPO ROOT over http (any static server works)
 ```
 
-Then open `benchmarks/index.html` through the server (a `file://` URL will not work —
-import maps and ES modules require `http`). For stable numbers, use a Chromium-based
-browser (Chrome/Edge) started with `--enable-precise-memory-info` so the JS-heap figure is
-accurate, and keep the tab focused.
+Then open **`http://localhost:3000/benchmarks/index.html`** (note the `/benchmarks/` path —
+opening the bare host serves the repo root, not the harness). A `file://` URL will not work:
+import maps and ES modules require `http`. If `/dist/WebEngineTS.standalone.js` returns 404,
+you served `benchmarks/` instead of the repo root — `cd ..` and serve again.
+
+For stable numbers use a Chromium-based browser (Chrome/Edge) started with
+`--enable-precise-memory-info` so the JS-heap figure is accurate, and keep the tab focused.
 
 ## Configuration (URL query parameters)
 
