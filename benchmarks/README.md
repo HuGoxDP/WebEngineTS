@@ -40,6 +40,7 @@ accurate, and keep the tab focused.
 | `samples` | all | `600` | Sampled frames |
 | `dpr` | all | `1` | Device pixel ratio |
 | `shaderWarmup` | all | `1` | Call `Application.warmupShaders()` before sampling (`1`/`0`) |
+| `gpu` | all | `high-performance` | GPU hint: `high-performance` (discrete), `low-power` (integrated), `default` |
 
 Examples:
 
@@ -54,6 +55,31 @@ benchmarks/index.html?scene=3&warmup=120&samples=600
 `?scene=1&count=5000&instanced=1` — the instanced variant renders the whole grid in
 **one draw call** (watch the "Draw calls" figure in the overlay). Instances are static in
 this mode, so it isolates the draw-call cost rather than per-frame transform work.
+
+## Cross-GPU and mobile testing
+
+The overlay and the exported CSV/JSON record the **active GPU** (`gpu` column), so each run
+self-labels which device produced it.
+
+**Dual-GPU laptops (integrated vs. discrete).** The `gpu` query param sets the WebGL
+`powerPreference` hint before the renderer is created:
+
+```
+benchmarks/index.html?scene=3&gpu=high-performance   # discrete (e.g. NVIDIA)
+benchmarks/index.html?scene=3&gpu=low-power           # integrated (e.g. Intel UHD/Iris Xe)
+```
+
+Confirm which GPU is actually in use via the "GPU" line in the overlay. The hint alone is
+sometimes overridden by the OS — on **Windows**, also pin the browser to a GPU under
+*Settings → System → Display → Graphics → (add the browser) → Options*: choose **Power
+saving** (integrated) or **High performance** (discrete). Run the same URL under each
+setting and export the CSV.
+
+**Phones / tablets.** Serve the repo over your LAN (e.g. `npx serve` bound to `0.0.0.0`,
+then open `http://<your-ip>:<port>/benchmarks/index.html` on the device). ES modules and
+import maps require `http(s)`, not `file://`. Mobile GPUs transcode KTX2 to **ETC2/ASTC**
+rather than desktop BC7 — a good check of the compressed-texture fallback. Lower `count`
+for Scene 1 on phones (e.g. `?scene=1&count=1000`).
 
 The overlay shows FPS, frame-time percentiles (mean/median/p95/p99/max/stdDev), JS heap,
 **estimated texture VRAM**, GPU resource counts, draw calls, and triangles. Use the

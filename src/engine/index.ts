@@ -26,7 +26,7 @@ export { Component } from "./core/Component";
 export { Transform } from "./core/Transform";
 export { Scene } from "./core/Scene";
 export { SceneManager } from "./core/SceneManager";
-export { Application } from "./core/Application";
+export { Application, GraphicsPowerPreference } from "./core/Application";
 export { Time } from "./core/Time";
 export { EngineSettings } from "./core/EngineSettings";
 export { Behaviour } from "./core/Behaviour";
@@ -273,7 +273,7 @@ import { Component } from "./core/Component";
 import { Transform } from "./core/Transform";
 import { Scene } from "./core/Scene";
 import { SceneManager } from "./core/SceneManager";
-import { Application } from "./core/Application";
+import { Application, GraphicsPowerPreference } from "./core/Application";
 import { Time } from "./core/Time";
 import { EngineSettings } from "./core/EngineSettings";
 import { Behaviour } from "./core/Behaviour";
@@ -416,7 +416,7 @@ import { ScenarioCategory, ScenarioLoadState } from "./core/scenario/ScenarioTyp
 const WebEngineTS = {
     // Core
     GameObject, Component, Transform, Scene, SceneManager,
-    Application, Time, EngineSettings, Behaviour, ScriptableBehaviour,
+    Application, GraphicsPowerPreference, Time, EngineSettings, Behaviour, ScriptableBehaviour,
     EngineObject, Input, KeyCode,
     Gamepad, GamepadState, GamepadButton,
     Touch, TouchInfo, TouchPhase,

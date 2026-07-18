@@ -54,6 +54,11 @@ export interface BenchmarkResult {
      * the workload is CPU-bound or capped by VSync. `0` if no Application ran.
      */
     cpuFrameMsMean: number;
+    /**
+     * Unmasked GPU renderer string that served this run (e.g. discrete vs.
+     * integrated), or `null`. Records which GPU produced the numbers.
+     */
+    gpu: string | null;
     /** Memory snapshot captured at the end of sampling (`null` fields if unavailable). */
     memory: {
         jsHeapUsedBytes: number | null;
@@ -195,13 +200,14 @@ export class Benchmark {
     public static toCSV(results: BenchmarkResult | BenchmarkResult[]): string {
         const arr = Array.isArray(results) ? results : [results];
         const header = [
-            "label", "timestamp", "warmupFrames", "sampleFrames",
+            "label", "gpu", "timestamp", "warmupFrames", "sampleFrames",
             "mean_ms", "median_ms", "p95_ms", "p99_ms", "min_ms", "max_ms", "stdDev_ms",
             "fps", "cpu_mean_ms", "jsHeapUsedBytes", "gpuTextures", "gpuGeometries",
             "estimatedTextureVramBytes", "estimatedGeometryVramBytes", "drawCalls", "triangles",
         ];
         const rows = arr.map((r) => [
             Benchmark._csvCell(r.label),
+            Benchmark._csvCell(r.gpu ?? ""),
             r.timestamp,
             r.warmupFrames,
             r.sampleFrames,
@@ -263,6 +269,7 @@ export class Benchmark {
     ): BenchmarkResult {
         const stats = Benchmark._computeStats(samples);
 
+        let gpu: string | null = null;
         let memory: BenchmarkResult["memory"] = {
             jsHeapUsedBytes: null,
             gpuTextures: null,
@@ -275,6 +282,7 @@ export class Benchmark {
 
         if (captureMemory) {
             const snap = MemoryProfiler.snapshot();
+            gpu = snap.gpu;
             memory = {
                 jsHeapUsedBytes: snap.jsHeap?.used ?? null,
                 gpuTextures: snap.renderer?.textures ?? null,
@@ -294,6 +302,7 @@ export class Benchmark {
             frameTimeMs: stats,
             fps: stats.mean > 0 ? 1000 / stats.mean : 0,
             cpuFrameMsMean,
+            gpu,
             memory,
         };
     }

@@ -29,6 +29,24 @@ import { PostProcessing } from "./postprocessing/PostProcessing.ts";
 const _clearColor = new THREE.Color();
 
 /**
+ * GPU power-preference hint applied when the WebGL context is created.
+ *
+ * On dual-GPU laptops this influences whether the browser uses the integrated
+ * or the discrete GPU. Must be set on {@link Application.powerPreference} before
+ * the Application is constructed (the renderer reads it once, at construction).
+ *
+ * @remarks Maps to the standard WebGL `powerPreference` context attribute.
+ */
+export enum GraphicsPowerPreference {
+    /** Let the browser / operating system decide. */
+    Default = "default",
+    /** Prefer the discrete / high-performance GPU. */
+    HighPerformance = "high-performance",
+    /** Prefer the integrated / low-power GPU. */
+    LowPower = "low-power",
+}
+
+/**
  * The main engine entry point and game loop.
  *
  * Application owns the Three.js WebGLRenderer, drives the update/render
@@ -82,6 +100,25 @@ export class Application {
 
     /** Engine version string. */
     public static readonly version: string = "0.1.0";
+
+    /**
+     * GPU power-preference hint for the WebGL context. Set this **before**
+     * constructing the {@link Application} — the renderer reads it once, at
+     * construction, and it cannot change afterwards.
+     *
+     * Useful for benchmarking the integrated vs. discrete GPU on dual-GPU
+     * laptops. The browser/OS may still override the hint (see the OS graphics
+     * settings for the browser).
+     *
+     * @default GraphicsPowerPreference.HighPerformance
+     *
+     * @example
+     * ```ts
+     * Application.powerPreference = GraphicsPowerPreference.LowPower; // integrated GPU
+     * const app = new Application(canvas);
+     * ```
+     */
+    public static powerPreference: GraphicsPowerPreference = GraphicsPowerPreference.HighPerformance;
 
     /**
      * Whether the engine is currently running.
@@ -154,7 +191,7 @@ export class Application {
         this._threeRenderer = new THREE.WebGLRenderer({
             canvas: this.canvas,
             antialias: true,
-            powerPreference: "high-performance",
+            powerPreference: Application._toWebGLPowerPreference(Application.powerPreference),
         });
         this._threeRenderer.setPixelRatio(window.devicePixelRatio);
 
@@ -185,6 +222,15 @@ export class Application {
 
         // Expose to diagnostics (MemoryProfiler) without circular imports
         (globalThis as any).__webengine_application__ = this;
+    }
+
+    /** Maps the engine power-preference enum to the WebGL context attribute. */
+    private static _toWebGLPowerPreference(p: GraphicsPowerPreference): WebGLPowerPreference {
+        switch (p) {
+            case GraphicsPowerPreference.LowPower: return "low-power";
+            case GraphicsPowerPreference.Default: return "default";
+            default: return "high-performance";
+        }
     }
 
     // ==================== PUBLIC: GAME LOOP ====================

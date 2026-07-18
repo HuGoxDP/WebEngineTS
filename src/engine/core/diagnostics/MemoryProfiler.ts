@@ -69,6 +69,14 @@ export interface MemoryReport {
      * Browsers cannot report OS-level CPU%; this is the meaningful load metric.
      */
     cpuFrameMs: number | null;
+
+    /**
+     * Unmasked GPU renderer string (via `WEBGL_debug_renderer_info`), e.g.
+     * "NVIDIA GeForce RTX 3050..." or "Intel(R) UHD Graphics". `null` if no
+     * renderer or the extension is unavailable. Lets a run record which GPU
+     * served it — essential for cross-device benchmarking.
+     */
+    gpu: string | null;
 }
 
 // ==================== MINI-GRAPH ====================
@@ -243,6 +251,7 @@ export class MemoryProfiler {
             },
             deviceMemoryGB: (navigator as any).deviceMemory ?? null,
             cpuFrameMs: MemoryProfiler._getCpuFrameMs(),
+            gpu: MemoryProfiler._getGpuName(),
         };
     }
 
@@ -250,6 +259,16 @@ export class MemoryProfiler {
     private static _getCpuFrameMs(): number | null {
         const app = (globalThis as any).__webengine_application__;
         return app != null && typeof app._cpuFrameMs === "number" ? app._cpuFrameMs : null;
+    }
+
+    /** Unmasked GPU renderer string via WEBGL_debug_renderer_info, or null. */
+    private static _getGpuName(): string | null {
+        const r = MemoryProfiler._renderer();
+        const gl = r?.getContext?.() as WebGL2RenderingContext | null;
+        if (!gl) return null;
+        const ext = gl.getExtension("WEBGL_debug_renderer_info");
+        if (!ext) return null;
+        return (gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) as string) ?? null;
     }
 
     public static logReport(): void {
@@ -283,6 +302,7 @@ export class MemoryProfiler {
 
         if (r.deviceMemoryGB !== null) console.log(`Device RAM: ~${r.deviceMemoryGB} GB`);
         if (r.cpuFrameMs !== null) console.log(`CPU main-thread: ${r.cpuFrameMs.toFixed(1)} ms/frame`);
+        if (r.gpu !== null) console.log(`GPU: ${r.gpu}`);
 
         // Subsystem counts
         const h = profilerHooks;
@@ -662,18 +682,8 @@ export class MemoryProfiler {
         _L.push(`RAM:   ${devMem ? `~${devMem} GB` : "N/A"}`);
         _L.push(`Cores: ${navigator.hardwareConcurrency ?? "N/A"}`);
 
-        const r = MemoryProfiler._renderer();
-        if (r) {
-            const gl = r.getContext?.() as WebGL2RenderingContext | null;
-            if (gl) {
-                const ext = gl.getExtension("WEBGL_debug_renderer_info");
-                if (ext) {
-                    _L.push(`GPU:   ${gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)}`);
-                } else {
-                    _L.push(`GPU:   N/A (ext unavailable)`);
-                }
-            }
-        }
+        const gpu = MemoryProfiler._getGpuName();
+        _L.push(`GPU:   ${gpu ?? "N/A"}`);
 
         _s.memText.textContent = _L.join("\n");
     }

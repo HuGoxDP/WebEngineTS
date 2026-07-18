@@ -10,7 +10,9 @@
 //   index.html?scene=2&tris=434000
 //   index.html?scene=3
 
-import { Application, Benchmark, Texture2D, type BenchmarkResult } from "WebEngineTS";
+import {
+    Application, GraphicsPowerPreference, Benchmark, Texture2D, type BenchmarkResult,
+} from "WebEngineTS";
 import { buildProceduralGrid } from "./scenes/scene1Grid.ts";
 import { buildHighPolyModel } from "./scenes/scene2HighPoly.ts";
 import { buildSolarSystem } from "./scenes/scene3Solar.ts";
@@ -33,6 +35,7 @@ function formatResult(r: BenchmarkResult): string {
     return [
         ``,
         `── ${r.label} ──`,
+        `GPU:         ${r.gpu ?? "—"}`,
         `FPS (avg):   ${r.fps.toFixed(1)}`,
         `CPU main:    ${r.cpuFrameMsMean.toFixed(2)} ms/frame (mean)`,
         `Frame time:  mean ${ft.mean.toFixed(2)}  median ${ft.median.toFixed(2)}  p95 ${ft.p95.toFixed(2)}  p99 ${ft.p99.toFixed(2)}`,
@@ -57,6 +60,17 @@ function wireDownloads(result: BenchmarkResult): void {
 
 async function main(): Promise<void> {
     const canvas = document.getElementById("game") as HTMLCanvasElement;
+
+    // GPU selection for dual-GPU laptops. Set BEFORE constructing Application.
+    //   ?gpu=high-performance → discrete GPU (default)
+    //   ?gpu=low-power        → integrated GPU
+    //   ?gpu=default          → let the browser/OS decide
+    const gpuParam = qp("gpu", "high-performance");
+    Application.powerPreference =
+        gpuParam === "low-power" ? GraphicsPowerPreference.LowPower
+        : gpuParam === "default" ? GraphicsPowerPreference.Default
+        : GraphicsPowerPreference.HighPerformance;
+
     const app = new Application(canvas);
 
     // Fixed device-pixel-ratio for reproducibility (paper used dpr = 1.0).

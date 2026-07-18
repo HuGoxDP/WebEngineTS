@@ -176,8 +176,12 @@ kept here so future sessions understand *why* each item exists.
    from `benchmarks/index.html` over the standalone bundle. Closes R3's reproducibility gap.
    Scenes 2/3 use procedural geometry/materials instead of imported PBR assets (documented
    in `benchmarks/README.md`).
-3. **Integrated-graphics readiness**. Verify `KTX2Loader` transcode targets and fallback
-   (ASTC/ETC2) work on Intel Iris Xe class hardware; run the harness there.
+3. **Integrated-graphics readiness**. *Harness enabled (2026-07-18):* `Application.powerPreference`
+   (`GraphicsPowerPreference` enum) selects the WebGL GPU hint (discrete vs. integrated) at
+   context creation; the benchmark exposes it via `?gpu=high-performance|low-power|default`,
+   and the active GPU (unmasked renderer) is recorded in `MemoryReport.gpu` / `BenchmarkResult.gpu`
+   / CSV so runs self-label. *Remaining (needs hardware):* actually run the harness on the
+   integrated GPU (Intel UHD/Iris Xe) and a phone, and verify KTX2 transcodes to ASTC/ETC2 there.
 
 ### P1 — Future-work features named in the paper
 4. Static geometry batching / GPU instancing (draw-call reduction). *Done (2026-07-16):*
