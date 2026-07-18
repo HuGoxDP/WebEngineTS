@@ -78,7 +78,8 @@ async function main(): Promise<void> {
     app.pixelRatio = parseFloat(qp("dpr", "1"));
 
     // KTX2 transcoder path (only used if a scene loads .ktx2 assets).
-    Texture2D.ktx2TranscoderPath = "../public/basis/";
+    // Root-relative — served from the repo root at /public/basis/.
+    Texture2D.ktx2TranscoderPath = "/public/basis/";
 
     const sceneId = qp("scene", "1");
     const warmupFrames = parseInt(qp("warmup", "120"), 10);

@@ -18,11 +18,13 @@
     button:disabled { opacity: 0.4; cursor: default; }
   </style>
   <!-- Resolve the bare "WebEngineTS" / "three" specifiers to the standalone build. -->
+  <!-- Absolute (root-relative) paths so it works regardless of the static
+       server's clean-URL / trailing-slash behaviour. Serve the REPO ROOT. -->
   <script type="importmap">
   {
     "imports": {
-      "WebEngineTS": "../dist/WebEngineTS.standalone.js",
-      "three": "../dist/WebEngineTS.standalone.js"
+      "WebEngineTS": "/dist/WebEngineTS.standalone.js",
+      "three": "/dist/WebEngineTS.standalone.js"
     }
   }
   </script>
@@ -36,6 +38,6 @@
       <button id="json" disabled>Download JSON</button>
     </div>
   </div>
-  <script type="module" src="./run.js"></script>
+  <script type="module" src="/benchmarks/run.js"></script>
 </body>
 </html>

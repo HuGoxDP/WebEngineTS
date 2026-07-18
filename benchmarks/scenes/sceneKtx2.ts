@@ -15,7 +15,7 @@ import { addKeyLight, createMainCamera, type SceneInfo } from "./common.ts";
  * overlay's "Tex VRAM" and "GPU" lines confirm the compressed footprint and device.
  */
 export async function buildKtx2Test(): Promise<SceneInfo> {
-    const res = await fetch("./assets/ktx2-test.ktx2");
+    const res = await fetch("/benchmarks/assets/ktx2-test.ktx2");
     if (!res.ok) throw new Error(`KTX2 fetch failed: HTTP ${res.status}`);
     const tex = await Texture2D.fromKTX2ArrayBuffer(await res.arrayBuffer());
 
