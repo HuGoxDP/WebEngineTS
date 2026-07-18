@@ -5,6 +5,7 @@ import { EngineObject, type EngineObjectConstructor } from "../EngineObject.ts";
 import { Texture } from "../graphics/Texture.ts";
 import { Cubemap } from "../graphics/Cubemap.ts";
 import { Mesh } from "../graphics/Mesh.ts";
+import { PostProcessing } from "../postprocessing/PostProcessing.ts";
 import { profilerHooks } from "./ProfilerHooks.ts";
 
 // ==================== TYPES ====================
@@ -46,6 +47,12 @@ export interface MemoryReport {
          * not it is currently uploaded to the GPU.
          */
         estimatedGeometryVramBytes: number;
+        /**
+         * Estimated VRAM occupied by render targets — shadow maps (per
+         * shadow-casting light) and post-processing buffers — in bytes. These
+         * are not engine textures, so they are counted separately here.
+         */
+        estimatedRenderTargetVramBytes: number;
     } | null;
 
     /** Three.js renderer draw call info (last frame). */
@@ -285,10 +292,14 @@ export class MemoryProfiler {
 
         if (r.renderer) {
             console.log(`GPU Textures: ${r.renderer.textures} | Geometries: ${r.renderer.geometries}`);
+            const vramTotal = r.renderer.estimatedTextureVramBytes
+                + r.renderer.estimatedGeometryVramBytes
+                + r.renderer.estimatedRenderTargetVramBytes;
             console.log(
                 `Est. VRAM: ~${f(r.renderer.estimatedTextureVramBytes)} textures`
                 + ` + ~${f(r.renderer.estimatedGeometryVramBytes)} geometry`
-                + ` = ~${f(r.renderer.estimatedTextureVramBytes + r.renderer.estimatedGeometryVramBytes)}`
+                + ` + ~${f(r.renderer.estimatedRenderTargetVramBytes)} render targets`
+                + ` = ~${f(vramTotal)}`
             );
         } else {
             console.log("Renderer: N/A (no active Application)");
@@ -478,7 +489,43 @@ export class MemoryProfiler {
             geometries: info.memory.geometries ?? 0,
             estimatedTextureVramBytes: MemoryProfiler._estimateTextureVram(),
             estimatedGeometryVramBytes: MemoryProfiler._estimateGeometryVram(),
+            estimatedRenderTargetVramBytes: MemoryProfiler._estimateRenderTargetVram(),
         };
+    }
+
+    /**
+     * Sums estimated VRAM of render targets that are not engine textures:
+     * shadow maps (one per shadow-casting light) and post-processing buffers.
+     * These are what `renderer.info.memory.textures` counts but engine-texture
+     * iteration cannot see (e.g. a scene with no material textures still uses a
+     * shadow map).
+     */
+    private static _estimateRenderTargetVram(): number {
+        let total = 0;
+
+        // Shadow maps — traverse the active scene for shadow-casting lights.
+        // `any` because these are internal Three.js objects, never public.
+        const threeScene = MemoryProfiler._scene()?._internalThreeScene;
+        if (threeScene && typeof threeScene.traverse === "function") {
+            threeScene.traverse((obj: any) => {
+                const map = obj?.isLight ? obj.shadow?.map : null;
+                if (map && map.width > 0 && map.height > 0) {
+                    // RGBA8 depth/color target — an estimate; some backends add a
+                    // separate depth buffer, so this is a lower bound.
+                    total += map.width * map.height * 4;
+                }
+            });
+        }
+
+        // Post-processing composer — two full-screen ping-pong buffers.
+        if (PostProcessing.enabled) {
+            const gl = MemoryProfiler._renderer()?.getContext?.() as WebGL2RenderingContext | null;
+            if (gl) {
+                total += 2 * gl.drawingBufferWidth * gl.drawingBufferHeight * 4;
+            }
+        }
+
+        return total;
     }
 
     /**
@@ -671,9 +718,11 @@ export class MemoryProfiler {
         }
         const texVram = MemoryProfiler._estimateTextureVram();
         const geoVram = MemoryProfiler._estimateGeometryVram();
+        const rtVram = MemoryProfiler._estimateRenderTargetVram();
         _L.push(`Est. tex VRAM:   ${f(texVram)}`);
         _L.push(`Est. geo VRAM:   ${f(geoVram)}`);
-        _L.push(`Est. VRAM total: ${f(texVram + geoVram)}`);
+        _L.push(`Est. RT VRAM:    ${f(rtVram)}`);
+        _L.push(`Est. VRAM total: ${f(texVram + geoVram + rtVram)}`);
         _L.push(`Shader programs: ${info?.programs?.length ?? "—"}`);
 
         _L.push(``);

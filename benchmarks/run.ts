@@ -30,6 +30,12 @@ function log(line: string): void {
     out.textContent += line + "\n";
 }
 
+function vramTotal(r: BenchmarkResult): number {
+    return (r.memory.estimatedTextureVramBytes ?? 0)
+        + (r.memory.estimatedGeometryVramBytes ?? 0)
+        + (r.memory.estimatedRenderTargetVramBytes ?? 0);
+}
+
 function formatResult(r: BenchmarkResult): string {
     const ft = r.frameTimeMs;
     const mb = (bytes: number | null) => (bytes == null ? "—" : `${(bytes / 1048576).toFixed(1)} MB`);
@@ -44,6 +50,8 @@ function formatResult(r: BenchmarkResult): string {
         `JS heap:     ${mb(r.memory.jsHeapUsedBytes)}`,
         `Tex VRAM:    ${mb(r.memory.estimatedTextureVramBytes)}  (est.)`,
         `Geo VRAM:    ${mb(r.memory.estimatedGeometryVramBytes)}  (est.)`,
+        `RT VRAM:     ${mb(r.memory.estimatedRenderTargetVramBytes)}  (est. shadow/post)`,
+        `VRAM total:  ${mb(vramTotal(r))}  (est.)`,
         `GPU:         ${r.memory.gpuTextures ?? "—"} tex / ${r.memory.gpuGeometries ?? "—"} geo`,
         `Draw calls:  ${r.memory.drawCalls ?? "—"}   Triangles: ${(r.memory.triangles ?? 0).toLocaleString()}`,
     ].join("\n");

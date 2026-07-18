@@ -159,10 +159,11 @@ kept here so future sessions understand *why* each item exists.
    per-texture bytes accounting for format (uncompressed RGBA8 vs. KTX2-transcoded
    BC7/ASTC/ETC2, `Texture._estimateVramBytes` via `_TextureMemory.ts`) and per-mesh
    vertex/index buffer bytes (`Mesh._estimateVramBytes`). `MemoryReport.renderer` exposes
-   `estimatedTextureVramBytes` + `estimatedGeometryVramBytes`; `Benchmark` includes both in
-   its snapshot/CSV. Reviewers asked for a direct VRAM metric (KTX2's main benefit is VRAM
-   reduction, invisible in the JS heap). Public API is free of `THREE.*` types.
-   *Remaining (optional):* render-target VRAM (shadow maps, post-processing buffers).
+   `estimatedTextureVramBytes` + `estimatedGeometryVramBytes` + `estimatedRenderTargetVramBytes`
+   (shadow maps per shadow-casting light via scene traversal, plus post-processing ping-pong
+   buffers); `Benchmark` includes all three in its snapshot/CSV and the overlay shows a total.
+   Reviewers asked for a direct VRAM metric (KTX2's main benefit is VRAM reduction, invisible
+   in the JS heap). Public API is free of `THREE.*` types.
    The diagnostics also surface **measured main-thread CPU frame time** (`Application.cpuFrameTime`
    = busy ms per loop, distinct from the VSync-capped frame interval) in `MemoryProfiler`
    (report + overlay `% of frame`) and `Benchmark` (`cpuFrameMsMean` + CSV). Note: browsers
