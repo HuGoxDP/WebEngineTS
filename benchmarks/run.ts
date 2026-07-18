@@ -57,10 +57,39 @@ function formatResult(r: BenchmarkResult): string {
     ].join("\n");
 }
 
+/** Short vendor tag derived from the unmasked GPU renderer string. */
+function gpuTag(gpu: string | null): string {
+    if (!gpu) return "unknown-gpu";
+    const g = gpu.toLowerCase();
+    if (/(nvidia|geforce|rtx|gtx)/.test(g)) return "nvidia";
+    if (g.includes("intel")) return "intel";
+    if (/(amd|radeon)/.test(g)) return "amd";
+    if (g.includes("adreno")) return "adreno";
+    if (g.includes("mali")) return "mali";
+    if (g.includes("apple")) return "apple";
+    return (g.match(/[a-z0-9]+/)?.[0]) ?? "gpu";
+}
+
+/** Filename stem encoding the scene, its settings, the GPU, and a UTC time tag. */
+function downloadBaseName(result: BenchmarkResult): string {
+    const scene = qp("scene", "1");
+    const parts = [`scene${scene}`];
+    if (scene === "1") {
+        parts.push(`N${qp("count", "1000")}`);
+        if (qp("instanced", "0") === "1") parts.push("instanced");
+    } else if (scene === "2") {
+        parts.push(`tris${qp("tris", "434000")}`);
+    }
+    parts.push(gpuTag(result.gpu));
+    // UTC HHMMSS so repeated runs of the same config don't collide.
+    parts.push((result.timestamp.split("T")[1] ?? "").replace(/[:.]/g, "").slice(0, 6));
+    return parts.join("_");
+}
+
 function wireDownloads(result: BenchmarkResult): void {
     const csvBtn = document.getElementById("csv") as HTMLButtonElement;
     const jsonBtn = document.getElementById("json") as HTMLButtonElement;
-    const base = `scene${qp("scene", "1")}`;
+    const base = downloadBaseName(result);
     csvBtn.disabled = false;
     jsonBtn.disabled = false;
     csvBtn.onclick = () => Benchmark.downloadCSV(result, `${base}.csv`);
