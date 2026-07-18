@@ -16,6 +16,7 @@ import {
 import { buildProceduralGrid } from "./scenes/scene1Grid.ts";
 import { buildHighPolyModel } from "./scenes/scene2HighPoly.ts";
 import { buildSolarSystem } from "./scenes/scene3Solar.ts";
+import { buildKtx2Test } from "./scenes/sceneKtx2.ts";
 import type { SceneInfo } from "./scenes/common.ts";
 
 const params = new URLSearchParams(location.search);
@@ -86,6 +87,10 @@ async function main(): Promise<void> {
 
     let info: SceneInfo;
     switch (sceneId) {
+        case "ktx2":
+            // Async: fetches and transcodes the KTX2 texture on the active GPU.
+            info = await buildKtx2Test();
+            break;
         case "2":
             info = buildHighPolyModel({ targetTriangles: parseInt(qp("tris", "434000"), 10) });
             break;

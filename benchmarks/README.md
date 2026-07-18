@@ -32,7 +32,7 @@ accurate, and keep the tab focused.
 
 | Param | Scenes | Default | Meaning |
 | --- | --- | --- | --- |
-| `scene` | — | `1` | Which scene: `1`, `2`, or `3` |
+| `scene` | — | `1` | Which scene: `1`, `2`, `3`, or `ktx2` (KTX2 fallback test) |
 | `count` | 1 | `1000` | Number of primitives (try `100`, `500`, `1000`, `5000`) |
 | `instanced` | 1 | `0` | Render the grid via one `InstancedMeshRenderer` (`1`) vs. N MeshRenderers (`0`) |
 | `tris` | 2 | `434000` | Target triangle count |
@@ -80,6 +80,28 @@ then open `http://<your-ip>:<port>/benchmarks/index.html` on the device). ES mod
 import maps require `http(s)`, not `file://`. Mobile GPUs transcode KTX2 to **ETC2/ASTC**
 rather than desktop BC7 — a good check of the compressed-texture fallback. Lower `count`
 for Scene 1 on phones (e.g. `?scene=1&count=1000`).
+
+## KTX2 / Basis fallback verification
+
+`?scene=ktx2` loads a Basis-compressed `.ktx2` texture (`assets/ktx2-test.ktx2`) and shows
+it on a rotating cube. The `KTX2Loader` transcodes to the GPU's native format — **BC7** on
+desktop, **ASTC/ETC2** on integrated/mobile.
+
+```
+benchmarks/index.html?scene=ktx2                 # discrete GPU
+benchmarks/index.html?scene=ktx2&gpu=low-power   # integrated GPU
+benchmarks/index.html?scene=ktx2                 # (on a phone via the LAN URL)
+```
+
+- If the checker/gradient texture renders (not black or magenta), transcoding **succeeded**
+  on that GPU.
+- The overlay's **Tex VRAM** shows the *compressed* footprint (≪ the uncompressed RGBA8
+  size), and the **GPU** line records the device — both are also in the exported CSV.
+
+The `.ktx2` is regenerated from a procedural PNG (no binary art): run
+`python assets/gen-test-texture.py` then
+`toktx --encode etc1s --genmipmap --assign_oetf srgb assets/ktx2-test.ktx2 assets/ktx2-test.png`
+(needs [KTX-Software](https://github.com/KhronosGroup/KTX-Software)).
 
 The overlay shows FPS, frame-time percentiles (mean/median/p95/p99/max/stdDev), JS heap,
 **estimated texture VRAM**, GPU resource counts, draw calls, and triangles. Use the
