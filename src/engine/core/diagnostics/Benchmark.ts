@@ -120,7 +120,7 @@ export class Benchmark {
         const sampleFrames = Math.max(1, Math.floor(options.sampleFrames ?? 600));
         const captureMemory = options.captureMemory ?? true;
 
-        return new Promise<BenchmarkResult>((resolve) => {
+        return new Promise<BenchmarkResult>((resolve, reject) => {
             const samples = new Float64Array(sampleFrames);
             let warmupLeft = warmupFrames;
             let sampleIndex = 0;
@@ -145,9 +145,15 @@ export class Benchmark {
                     return;
                 }
 
-                resolve(Benchmark._finalize(
-                    label, warmupFrames, sampleFrames, samples, cpuSum / sampleFrames, captureMemory,
-                ));
+                // Surface any finalize error via promise rejection rather than
+                // throwing uncaught inside the rAF callback (which would hang).
+                try {
+                    resolve(Benchmark._finalize(
+                        label, warmupFrames, sampleFrames, samples, cpuSum / sampleFrames, captureMemory,
+                    ));
+                } catch (err) {
+                    reject(err instanceof Error ? err : new Error(String(err)));
+                }
             };
 
             // Prime `prev` on the first frame so the first measured delta is a
@@ -285,18 +291,23 @@ export class Benchmark {
         };
 
         if (captureMemory) {
-            const snap = MemoryProfiler.snapshot();
-            gpu = snap.gpu;
-            memory = {
-                jsHeapUsedBytes: snap.jsHeap?.used ?? null,
-                gpuTextures: snap.renderer?.textures ?? null,
-                gpuGeometries: snap.renderer?.geometries ?? null,
-                estimatedTextureVramBytes: snap.renderer?.estimatedTextureVramBytes ?? null,
-                estimatedGeometryVramBytes: snap.renderer?.estimatedGeometryVramBytes ?? null,
-                estimatedRenderTargetVramBytes: snap.renderer?.estimatedRenderTargetVramBytes ?? null,
-                drawCalls: snap.renderStats?.drawCalls ?? null,
-                triangles: snap.renderStats?.triangles ?? null,
-            };
+            // Diagnostics must never break a measurement — capture defensively.
+            try {
+                const snap = MemoryProfiler.snapshot();
+                gpu = snap.gpu;
+                memory = {
+                    jsHeapUsedBytes: snap.jsHeap?.used ?? null,
+                    gpuTextures: snap.renderer?.textures ?? null,
+                    gpuGeometries: snap.renderer?.geometries ?? null,
+                    estimatedTextureVramBytes: snap.renderer?.estimatedTextureVramBytes ?? null,
+                    estimatedGeometryVramBytes: snap.renderer?.estimatedGeometryVramBytes ?? null,
+                    estimatedRenderTargetVramBytes: snap.renderer?.estimatedRenderTargetVramBytes ?? null,
+                    drawCalls: snap.renderStats?.drawCalls ?? null,
+                    triangles: snap.renderStats?.triangles ?? null,
+                };
+            } catch (err) {
+                console.warn("[Benchmark] memory snapshot failed:", err);
+            }
         }
 
         return {

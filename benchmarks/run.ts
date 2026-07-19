@@ -165,6 +165,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-    log(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+    const detail = err instanceof Error ? (err.stack ?? `${err.name}: ${err.message}`) : String(err);
+    log(`\n=== ERROR ===\n${detail}`);
+    if (out) out.style.color = "#ff7b72";
     console.error(err);
 });
