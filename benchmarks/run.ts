@@ -75,6 +75,25 @@ function gpuTag(gpu: string | null): string {
     return (g.match(/[a-z0-9]+/)?.[0]) ?? "gpu";
 }
 
+/**
+ * Warns when the actual GPU doesn't match what `?gpu=` requested — the WebGL
+ * powerPreference hint is advisory and often overridden by the OS.
+ */
+function gpuMismatchWarning(requested: string, gpu: string | null): string | null {
+    if (!gpu) return null;
+    const isIntegrated = /intel|uhd|iris|adreno|mali|apple|vivante|videocore/i.test(gpu);
+    if (requested === "high-performance" && isIntegrated) {
+        return "WARNING: requested the discrete GPU but got an integrated one. "
+            + "In Windows: Settings > System > Display > Graphics > (add the browser) > "
+            + "'High performance', then FULLY quit and reopen the browser.";
+    }
+    if (requested === "low-power" && !isIntegrated) {
+        return "WARNING: requested the integrated GPU but got a discrete one. "
+            + "Set the browser to 'Power saving' in Windows Graphics settings and fully restart it.";
+    }
+    return null;
+}
+
 /** Filename stem encoding the scene, its settings, the GPU, and a UTC time tag. */
 function downloadBaseName(result: BenchmarkResult): string {
     const scene = qp("scene", "1");
@@ -163,6 +182,13 @@ async function main(): Promise<void> {
     });
 
     log(formatResult(result));
+
+    const gpuWarn = gpuMismatchWarning(gpuParam, result.gpu);
+    if (gpuWarn) {
+        log(`\n${gpuWarn}`);
+        if (out) out.style.color = "#e3b341";
+    }
+
     wireDownloads(result);
 
     // Expose for manual/console-driven multi-config runs.
