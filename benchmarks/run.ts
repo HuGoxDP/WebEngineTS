@@ -19,7 +19,12 @@ import { buildSolarSystem } from "./scenes/scene3Solar.ts";
 import { buildKtx2Test } from "./scenes/sceneKtx2.ts";
 import type { SceneInfo } from "./scenes/common.ts";
 
-const params = new URLSearchParams(location.search);
+// Read config from the query string, falling back to the URL hash. Some static
+// servers (notably `serve` with clean URLs) 301-redirect `/index.html` and drop
+// the query string; a hash fragment (`#scene=1&count=5000`) survives redirects
+// and is never sent to the server, so it always works.
+const rawParams = location.search.length > 1 ? location.search : location.hash.slice(1);
+const params = new URLSearchParams(rawParams);
 const out = document.getElementById("out") as HTMLDivElement;
 
 function qp(name: string, fallback: string): string {

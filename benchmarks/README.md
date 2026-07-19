@@ -36,6 +36,13 @@ opening the bare host serves the repo root, not the harness). A `file://` URL wi
 import maps and ES modules require `http`. If `/dist/WebEngineTS.standalone.js` returns 404,
 you served `benchmarks/` instead of the repo root — `cd ..` and serve again.
 
+> **Query parameters and `serve`.** `serve`'s default "clean URLs" 301-redirect
+> `/benchmarks/index.html?…` and **drop the `?…` query string**, so every run would use the
+> defaults. The committed `serve.json` disables this — but `serve` only reads it at startup,
+> so **restart `npx serve .`** after pulling. Alternatively, use a **`#` hash** instead of `?`
+> (it survives redirects and works on any server): `…/index.html#scene=1&count=5000`. The
+> harness reads params from the query string, falling back to the hash.
+
 For stable numbers use a Chromium-based browser (Chrome/Edge) started with
 `--enable-precise-memory-info` so the JS-heap figure is accurate, and keep the tab focused.
 
