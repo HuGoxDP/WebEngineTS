@@ -3,7 +3,11 @@
   "compilerOptions": {
     "rootDir": ".",
     "outDir": ".",
-    "noEmit": false
+    "noEmit": false,
+    "baseUrl": ".",
+    "paths": {
+      "WebEngineTS": ["../dist/WebEngineTS.d.ts"]
+    }
   },
   "include": ["**/*.ts"]
 }

@@ -27,6 +27,10 @@ npm run benchmark:build  # 2. bundle the runner → benchmarks/run.js
 npx serve .              # 3. serve the REPO ROOT over http (any static server works)
 ```
 
+> The benchmark sources type-check against the built `dist/WebEngineTS.d.ts` (they consume the
+> engine like any other package), so run `npm run build` first — otherwise the IDE/`tsc` will
+> report the `WebEngineTS` import as unresolved.
+
 Then open **`http://localhost:3000/benchmarks/index.html`** (note the `/benchmarks/` path —
 opening the bare host serves the repo root, not the harness). A `file://` URL will not work:
 import maps and ES modules require `http`. If `/dist/WebEngineTS.standalone.js` returns 404,
