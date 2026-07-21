@@ -32,6 +32,12 @@ Data flow: **engine → tarball / standalone bundle → consumers**. The scenari
 do not. The Angular editor formerly under `editor/` has been moved to `WebEngineTSEditor/app/`
 — this repo no longer contains any editor code.
 
+To push a new engine build to the local consumers, run `npm run release:local`
+(`scripts/release-local.mjs`): it builds, `npm pack`s, copies the tgz, and reinstalls each
+consumer's dependency **explicitly** (`npm install <tgz>`) — a plain `npm install` reuses the
+cached tarball because the version (`0.1.0`) is unchanged and would leave consumers on the old
+build. One-directional; the engine still imports from no consumer.
+
 ## Build & Dev
 
 ```bash
