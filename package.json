@@ -23,6 +23,7 @@
     "clean": "rm -rf dist",
     "test": "vitest run",
     "benchmark:build": "rollup -c benchmarks/rollup.config.mjs",
+    "release:local": "node scripts/release-local.mjs",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
     "prepublishOnly": "npm run clean && npm run build"
