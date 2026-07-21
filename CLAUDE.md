@@ -248,11 +248,18 @@ kept here so future sessions understand *why* each item exists.
    threshold. Driven per-frame by `LODGroup._updateAll()` in `Application._loop` (same
    registry pattern as Animation/ParticleSystem).
 6. WebGPU backend.
+7. **Manifest-driven asset streaming / LOD streaming / progressive loading.** The monolithic
+   scenario ZIP blocks LOD streaming, progressive first paint, preloading, cross-scenario
+   dedup, and partial updates. Move to a manifest + content-addressed, individually-fetchable
+   assets loaded through a streaming `IAssetSource` (the `Resources`/`ScenarioAssets` seam),
+   with `LODGroup` gating on streamed asset LODs and VRAM-budget eviction. Spans engine +
+   platform + editor; single-ZIP path stays. Full design + staged rollout (0–4) in
+   [`design/asset-streaming-proposal.md`](design/asset-streaming-proposal.md).
 
 ### P2 — Architecture enabling P1
-7. Generalize the Adapter layer (decouple from Three.js) — prerequisite for the WebGPU
+8. Generalize the Adapter layer (decouple from Three.js) — prerequisite for the WebGPU
    backend; the un-generalized adapter is listed as a limitation in the paper.
-8. OffscreenCanvas-based rendering.
+9. OffscreenCanvas-based rendering.
 
 Note: paper-text-only fixes (abstract tense, deployment scale, comparison with
 three-game-engine / Rogue Engine / Needle Engine, user study) are tracked separately and
