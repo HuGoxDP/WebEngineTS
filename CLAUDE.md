@@ -17,7 +17,10 @@ depends on any of them.
 - **ScenarioCreator** — build pipeline compiling scenario source in `Scenarios/` into
   distributable `.zip` archives (`ReleaseScenarios/`). Consumes the engine as a packed
   tarball (`WebEngineTS-0.1.0.tgz`, a `file:` dependency). Scenario **content** lives here,
-  never in the engine repo.
+  never in the engine repo. **Planned to be retired** once WebEngineTSEditor/app's authoring
+  + export pipeline replaces it — scenarios will then be created directly in the editor
+  instead of hand-written + built by this CLI pipeline. Until then it's kept in sync the
+  same way as the other consumers (see below).
 - **testv/virtual-lab** — the educational platform (own git repo): Angular `frontend`
   ("university-mock") + `backend` + `db` + `nginx` + docker-compose. The frontend is the
   scenario catalog + viewer; it downloads scenario ZIPs and runs them via
@@ -32,11 +35,35 @@ Data flow: **engine → tarball / standalone bundle → consumers**. The scenari
 do not. The Angular editor formerly under `editor/` has been moved to `WebEngineTSEditor/app/`
 — this repo no longer contains any editor code.
 
-To push a new engine build to the local consumers, run `npm run release:local`
-(`scripts/release-local.mjs`): it builds, `npm pack`s, copies the tgz, and reinstalls each
-consumer's dependency **explicitly** (`npm install <tgz>`) — a plain `npm install` reuses the
-cached tarball because the version (`0.1.0`) is unchanged and would leave consumers on the old
-build. One-directional; the engine still imports from no consumer.
+### Keeping consumers in sync
+
+Run `npm run release:local` (`scripts/release-local.mjs`) after any engine change meant to
+reach a consumer. It builds, packs, and pushes to all three consumers above in one step:
+
+1. Builds `dist/`.
+2. Packs the tarball with a **temporary unique version** (`0.1.0-local.<timestamp>`) stamped
+   into `package.json` just for `npm pack`, then immediately restores the committed
+   `package.json` — the engine's working tree and git history are never touched. This
+   guarantees every pack is genuinely new content, so a plain `npm install` (or a stale
+   lockfile) in a consumer can never silently reuse an old build.
+3. Renames the packed tarball to the stable `WebEngineTS-0.1.0.tgz` before copying it into
+   ScenarioCreator and `testv/virtual-lab/frontend`, so their `package.json` dependency specs
+   never need editing even though the *content* changes every run.
+4. Reinstalls the dependency **explicitly** in each already-set-up consumer (`npm install
+   <tgz-or-path>`) as defense in depth. `WebEngineTSEditor/app` uses `file:../../WebEngineTS`
+   (the dist folder directly, no tarball) and is skipped until it has a `node_modules/` (i.e.
+   until someone has run `npm install` there at least once).
+
+`--no-install` builds/packs/copies without reinstalling (useful to just refresh the tarball).
+One-directional; the engine still imports from no consumer.
+
+**Why not `npm link` / npm workspaces for live linking?** Rejected for this engine
+specifically — see "Local linking vs. packed tarballs" in Key Technical Decisions below.
+
+**`testv/virtual-lab` git hygiene:** `frontend/node_modules` and `frontend/.angular` were
+force-added before `.gitignore` covered them; they've since been untracked (`git rm --cached`,
+working tree untouched). `frontend/WebEngineTS-0.1.0.tgz` **is** intentionally committed there
+(no registry to fetch it from at deploy time) — don't gitignore it.
 
 ## Build & Dev
 
@@ -152,6 +179,16 @@ Each step runs components first, then the active scenario.
 - **Batch loading**: `Resources.tryLoad()` wraps individual loads instead of `Promise.all` (which fails entire batch on single missing asset)
 - **Scenario script pre-linking**: All `.js` files in a scenario ZIP are topologically sorted by dependency, relative import specifiers are rewritten to Blob URLs, bare specifiers (e.g. `"WebEngineTS"`) are left for the host import map. Entry point brand-checked via `__scenarioBehaviour` marker (not `instanceof`, which breaks across bundle copies)
 - **Circular deps**: Use `import type` for engine asset types in interfaces
+- **Local linking vs. packed tarballs**: consumers install the engine via packed `.tgz`
+  (`file:` dep) rather than `npm link` / npm workspaces symlinking. `three` is a
+  peerDependency and the engine's rendering code relies on `instanceof THREE.Mesh`-style
+  checks throughout (e.g. `Renderer._syncMaterialToThree`); a symlinked engine can resolve
+  its own `node_modules/three` instead of the consumer's hoisted copy depending on the
+  bundler, silently loading **two** THREE.js instances and breaking those checks. Packing
+  copies the engine's actual published shape (three external, resolved from the consumer's
+  own `node_modules`), so there is exactly one `three` instance — matching how a real npm
+  install would behave. Symlinks would also not survive into `testv/virtual-lab`'s Docker
+  build context. See `scripts/release-local.mjs` / the Ecosystem section above.
 
 ## Roadmap / Next Steps
 

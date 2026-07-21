@@ -12,21 +12,33 @@
 //   testv/virtual-lab/frontend file:WebEngineTS-0.1.0.tgz   (Angular auto-copies
 //                                the standalone bundle to /assets via angular.json)
 //   WebEngineTSEditor/app      file:../../WebEngineTS       (uses dist/ directly)
+//
+// Cache-busting: `package.json`'s version stays fixed (0.1.0) for the repo/thesis
+// — only bump it deliberately for a real release. To still guarantee every local
+// pack is genuinely new content (so a plain `npm install` in a consumer, or even a
+// stale lockfile, can never silently reuse an old tarball), this script stamps a
+// unique prerelease version (`0.1.0-local.<timestamp>`) into package.json ONLY for
+// the `npm pack` step, then immediately restores the original file — the engine's
+// working tree and git history are untouched. Every consumer still depends on the
+// stable filename `WebEngineTS-0.1.0.tgz` (renamed after packing), so their
+// package.json dependency specs never need editing.
 // ============================================================================
 
 import { execSync } from "node:child_process";
-import { existsSync, copyFileSync } from "node:fs";
+import { existsSync, copyFileSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 const ENGINE = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PARENT = resolve(ENGINE, "..");
+const PKG_PATH = join(ENGINE, "package.json");
 const TGZ = "WebEngineTS-0.1.0.tgz";
 const noInstall = process.argv.includes("--no-install");
 
-// `spec` is installed EXPLICITLY (`npm install <spec>`) — plain `npm install`
-// reuses the cached tarball because the version is unchanged, so the explicit
-// path/tarball is required to force npm to re-hash and pick up new content.
+// `spec` is installed EXPLICITLY (`npm install <spec>`) as defense in depth
+// alongside the unique-version stamp above — a plain `npm install` can still
+// skip re-resolving an unchanged dependency line in some npm versions/lockfile
+// states, so we always force it explicitly.
 /** @type {{name:string, dir:string, copyTgz:boolean, spec:string}[]} */
 const consumers = [
     { name: "ScenarioCreator", dir: join(PARENT, "ScenarioCreator"), copyTgz: true, spec: `./${TGZ}` },
@@ -35,12 +47,36 @@ const consumers = [
 ];
 
 const run = (cmd, cwd) => execSync(cmd, { cwd, stdio: "inherit" });
+const runJson = (cmd, cwd) => JSON.parse(execSync(cmd, { cwd }).toString());
 
 console.log("▶ Building engine…");
 run("npm run build", ENGINE);
 
-console.log("▶ Packing tarball…");
-run("npm pack", ENGINE);
+console.log("▶ Packing tarball (unique local version, then restoring package.json)…");
+const originalPkgText = readFileSync(PKG_PATH, "utf8");
+let packedFilename;
+try {
+    const pkg = JSON.parse(originalPkgText);
+    const stampedVersion = `${pkg.version}-local.${Date.now()}`;
+    writeFileSync(PKG_PATH, originalPkgText.replace(
+        `"version": "${pkg.version}"`,
+        `"version": "${stampedVersion}"`,
+    ));
+
+    const [result] = runJson("npm pack --json", ENGINE);
+    packedFilename = result.filename;
+} finally {
+    // Always restore, even if packing failed — the committed version must never
+    // be left mutated on disk.
+    writeFileSync(PKG_PATH, originalPkgText);
+}
+
+// Rename the uniquely-versioned tarball to the stable name every consumer's
+// package.json expects (e.g. WebEngineTS-0.1.0-local.1731000000000.tgz -> WebEngineTS-0.1.0.tgz).
+const stableTgzPath = join(ENGINE, TGZ);
+if (existsSync(stableTgzPath)) unlinkSync(stableTgzPath);
+renameSync(join(ENGINE, packedFilename), stableTgzPath);
+console.log(`  packed ${packedFilename} -> ${TGZ} (content is unique; filename is stable)`);
 
 for (const c of consumers) {
     console.log(`\n▶ ${c.name}`);
@@ -50,7 +86,7 @@ for (const c of consumers) {
     }
 
     if (c.copyTgz) {
-        copyFileSync(join(ENGINE, TGZ), join(c.dir, TGZ));
+        copyFileSync(stableTgzPath, join(c.dir, TGZ));
         console.log(`  copied ${TGZ}`);
     }
 
