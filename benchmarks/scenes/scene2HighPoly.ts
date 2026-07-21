@@ -15,15 +15,17 @@ export interface HighPolyOptions {
 
 /**
  * Scene 2 — a single high-polygon model. The paper used an imported 218k-vertex
- * GLB; to keep the benchmark self-contained and asset-free, this generates a
- * procedural high-subdivision sphere with a matching triangle budget, so the
+ * GLB (load the real one via `?scenario=`); this asset-free variant generates a
+ * procedural high-subdivision sphere with a matching triangle budget, so the raw
  * geometry workload is reproducible without shipping a large binary.
  *
- * A sphere of `S` segments yields ~2·S² triangles.
+ * `Mesh.createSphere(r, S)` uses widthSegments = S, heightSegments = S/2, so it
+ * yields ~S² triangles; segments are derived as `sqrt(target)` and the reported
+ * count is read back from the built mesh (never estimated).
  */
 export function buildHighPolyModel(opts: HighPolyOptions = {}): SceneInfo {
     const targetTriangles = Math.max(2, Math.floor(opts.targetTriangles ?? 434000));
-    const segments = Math.max(3, Math.round(Math.sqrt(targetTriangles / 2)));
+    const segments = Math.max(3, Math.round(Math.sqrt(targetTriangles)));
 
     const mesh = Mesh.createSphere(1, segments);
     const material = new StandardMaterial();
@@ -39,9 +41,9 @@ export function buildHighPolyModel(opts: HighPolyOptions = {}): SceneInfo {
     createMainCamera(new Vector3(0, 0, -3), new Vector3(0, 0, 0));
     addKeyLight();
 
-    const triangles = segments * segments * 2;
+    const triangles = Math.round(mesh.triangles.length / 3);
     return {
-        label: `Scene 2 — high-poly (~${triangles.toLocaleString()} tris)`,
+        label: `Scene 2 — high-poly (${triangles.toLocaleString()} tris)`,
         objects: 1,
         extra: `sphere segments=${segments}`,
     };

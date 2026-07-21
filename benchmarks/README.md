@@ -50,9 +50,11 @@ For stable numbers use a Chromium-based browser (Chrome/Edge) started with
 
 | Param | Scenes | Default | Meaning |
 | --- | --- | --- | --- |
+| `scenario` | — | — | URL of a real scenario `.zip` to load instead of a procedural scene (overrides `scene`) |
 | `scene` | — | `1` | Which scene: `1`, `2`, `3`, or `ktx2` (KTX2 fallback test) |
 | `count` | 1 | `1000` | Number of primitives (try `100`, `500`, `1000`, `5000`) |
 | `instanced` | 1 | `0` | Render the grid via one `InstancedMeshRenderer` (`1`) vs. N MeshRenderers (`0`) |
+| `dirty` | 1 | `1` | Dirty-flag transform batching on (`1`) / off (`0`) — the paper's Scene 1 optimization |
 | `tris` | 2 | `434000` | Target triangle count |
 | `warmup` | all | `120` | Warmup frames (discarded) |
 | `samples` | all | `600` | Sampled frames |
@@ -126,10 +128,26 @@ The overlay shows FPS, frame-time percentiles (mean/median/p95/p99/max/stdDev), 
 **Download CSV / JSON** buttons to export the result; the last result is also on
 `window.__lastBenchmark` for console-driven multi-config runs.
 
+## Faithful scenes — load the real scenario ZIPs (`?scenario=`)
+
+The procedural scenes above reproduce the *workload shape* but are **asset-free**: Scenes 2/3
+have no textures, so `estimatedTextureVramBytes` is 0 and they cannot show the KTX2 VRAM
+benefit. To benchmark the **actual paper scenes** (real models, textures, skybox), load the
+scenario ZIPs built by ScenarioCreator via `Application.loadScenarioFromUrl`:
+
+```
+#scenario=/benchmarks/scenarios/Benchscene3_solarsystem.zip     # real Solar System
+#scenario=/benchmarks/scenarios/Benchscene2_complexmodel.zip    # real high-poly GLB
+```
+
+Put the built `.zip`s in [`scenarios/`](./scenarios/) (git-ignored — scenario *content* lives
+in ScenarioCreator, not the engine repo). This runs the real scenario runtime, so the memory
+snapshot reflects real texture/geometry VRAM. See `scenarios/README.md`.
+
 ## Notes on fidelity
 
-These scenes reproduce the *workload shape* of the paper's scenes deterministically from
-code. Scenes 2 and 3 differ from the paper in using procedural geometry/materials instead
-of imported PBR assets, precisely so the benchmark is self-contained and reproducible. To
-measure the KTX2 VRAM benefit, load real `.ktx2` textures (the transcoder path is set to
-`../public/basis/`) and compare `estimatedTextureVramBytes` against uncompressed images.
+The procedural Scenes 1–3 exist for quick, deterministic, asset-free runs. Scene 1 isolates
+per-frame transform cost (toggle the optimization with `?dirty=0/1`); Scene 2 is a procedural
+sphere sized to a triangle budget (the reported count is read back from the mesh); Scene 3 is
+a procedural Solar System with no textures. For texture/VRAM-sensitive results — including the
+KTX2 comparison — use `?scenario=` with the real ZIPs, or the `?scene=ktx2` fallback test.

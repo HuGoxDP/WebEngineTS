@@ -175,8 +175,11 @@ kept here so future sessions understand *why* each item exists.
    scenes (procedural grid, high-poly model, Solar System) are deterministic in-repo code
    under `benchmarks/` (seeded, asset-free), bundled via `npm run benchmark:build` and run
    from `benchmarks/index.html` over the standalone bundle. Closes R3's reproducibility gap.
-   Scenes 2/3 use procedural geometry/materials instead of imported PBR assets (documented
-   in `benchmarks/README.md`).
+   The procedural Scenes 1–3 are asset-free (quick/deterministic); for faithful, texture/VRAM-
+   meaningful runs `?scenario=<zip-url>` loads the real ScenarioCreator ZIPs
+   (`Benchscene2/3`, models + textures + skybox) via `Application.loadScenarioFromUrl` — the
+   ZIPs stay in ScenarioCreator (git-ignored under `benchmarks/scenarios/`), keeping the engine
+   repo content-free. Scene 1 exposes the dirty-flag optimization via `?dirty=0/1`.
 3. **Integrated-graphics readiness**. *Harness enabled (2026-07-18):* `Application.powerPreference`
    (`GraphicsPowerPreference` enum) selects the WebGL GPU hint (discrete vs. integrated) at
    context creation; the benchmark exposes it via `?gpu=high-performance|low-power|default`,

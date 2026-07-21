@@ -11,12 +11,14 @@
 //   index.html?scene=3
 
 import {
-    Application, GraphicsPowerPreference, Benchmark, Texture2D, type BenchmarkResult,
+    Application, GraphicsPowerPreference, Benchmark, Texture2D, Transform,
+    type BenchmarkResult,
 } from "WebEngineTS";
 import { buildProceduralGrid } from "./scenes/scene1Grid.ts";
 import { buildHighPolyModel } from "./scenes/scene2HighPoly.ts";
 import { buildSolarSystem } from "./scenes/scene3Solar.ts";
 import { buildKtx2Test } from "./scenes/sceneKtx2.ts";
+import { buildScenario } from "./scenes/sceneScenario.ts";
 import type { SceneInfo } from "./scenes/common.ts";
 
 // Read config from the query string, falling back to the URL hash. Some static
@@ -96,14 +98,25 @@ function gpuMismatchWarning(requested: string, gpu: string | null): string | nul
 
 /** Filename stem encoding the scene, its settings, the GPU, and a UTC time tag. */
 function downloadBaseName(result: BenchmarkResult): string {
-    const scene = qp("scene", "1");
-    const parts = [`scene${scene}`];
-    if (scene === "1") {
-        parts.push(`N${qp("count", "1000")}`);
-        if (qp("instanced", "0") === "1") parts.push("instanced");
-    } else if (scene === "2") {
-        parts.push(`tris${qp("tris", "434000")}`);
+    const scenarioUrl = qp("scenario", "");
+    const parts: string[] = [];
+
+    if (scenarioUrl) {
+        const name = (scenarioUrl.split("/").pop() ?? "scenario")
+            .replace(/\.zip$/i, "").replace(/[^A-Za-z0-9]+/g, "-");
+        parts.push("scenario", name);
+    } else {
+        const scene = qp("scene", "1");
+        parts.push(`scene${scene}`);
+        if (scene === "1") {
+            parts.push(`N${qp("count", "1000")}`);
+            if (qp("instanced", "0") === "1") parts.push("instanced");
+            parts.push(qp("dirty", "1") === "1" ? "dirtyOn" : "dirtyOff");
+        } else if (scene === "2") {
+            parts.push(`tris${qp("tris", "434000")}`);
+        }
     }
+
     parts.push(gpuTag(result.gpu));
     // UTC HHMMSS so repeated runs of the same config don't collide.
     parts.push((result.timestamp.split("T")[1] ?? "").replace(/[:.]/g, "").slice(0, 6));
@@ -142,37 +155,48 @@ async function main(): Promise<void> {
     // Root-relative — served from the repo root at /public/basis/.
     Texture2D.ktx2TranscoderPath = "/public/basis/";
 
+    // Dirty-flag transform batching (paper's Scene 1 optimization). Global, so
+    // set before building the scene. ?dirty=0 reverts to immediate sync.
+    const dirty = qp("dirty", "1") === "1";
+    Transform._setDirtyTransformsEnabled(dirty);
+
+    const scenarioUrl = qp("scenario", "");
     const sceneId = qp("scene", "1");
     const warmupFrames = parseInt(qp("warmup", "120"), 10);
     const sampleFrames = parseInt(qp("samples", "600"), 10);
     const doShaderWarmup = qp("shaderWarmup", "1") === "1";
 
     let info: SceneInfo;
-    switch (sceneId) {
-        case "ktx2":
-            // Async: fetches and transcodes the KTX2 texture on the active GPU.
-            info = await buildKtx2Test();
-            break;
-        case "2":
-            info = buildHighPolyModel({ targetTriangles: parseInt(qp("tris", "434000"), 10) });
-            break;
-        case "3":
-            info = buildSolarSystem();
-            break;
-        default:
-            info = buildProceduralGrid({
-                count: parseInt(qp("count", "1000"), 10),
-                instanced: qp("instanced", "0") === "1",
-            });
-            break;
+    if (scenarioUrl) {
+        // Faithful path: load a real scenario ZIP (starts the engine internally).
+        info = await buildScenario(app, scenarioUrl);
+    } else {
+        switch (sceneId) {
+            case "ktx2":
+                // Async: fetches and transcodes the KTX2 texture on the active GPU.
+                info = await buildKtx2Test();
+                break;
+            case "2":
+                info = buildHighPolyModel({ targetTriangles: parseInt(qp("tris", "434000"), 10) });
+                break;
+            case "3":
+                info = buildSolarSystem();
+                break;
+            default:
+                info = buildProceduralGrid({
+                    count: parseInt(qp("count", "1000"), 10),
+                    instanced: qp("instanced", "0") === "1",
+                });
+                break;
+        }
     }
 
-    app.run();
+    app.run(); // idempotent — a scenario has already started the loop
     if (doShaderWarmup) app.warmupShaders();
 
     log(`${info.label}`);
     log(`objects=${info.objects}${info.extra ? `  (${info.extra})` : ""}`);
-    log(`warmup=${warmupFrames}  samples=${sampleFrames}  dpr=${app.pixelRatio}  shaderWarmup=${doShaderWarmup}`);
+    log(`warmup=${warmupFrames}  samples=${sampleFrames}  dpr=${app.pixelRatio}  shaderWarmup=${doShaderWarmup}  dirty=${dirty ? "on" : "off"}`);
     log(`measuring…`);
 
     const result = await Benchmark.run({
