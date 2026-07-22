@@ -175,15 +175,16 @@ async function main(): Promise<void> {
     Resources.preferExtension = qp("ktx2", "0") === "1" ? ".ktx2" : null;
 
     // Dirty-flag transform batching (paper's Scene 1 optimization). Global, so
-    // set before building the scene. ?dirty=0 reverts to immediate sync.
-    const dirty = qp("dirty", "1") === "1";
+    // set before building the scene. OFF by default for a clean baseline;
+    // ?dirty=1 enables it.
+    const dirty = qp("dirty", "0") === "1";
     Transform._setDirtyTransformsEnabled(dirty);
 
     const scenarioUrl = qp("scenario", "");
     const sceneId = qp("scene", "1");
     const warmupFrames = parseInt(qp("warmup", "120"), 10);
     const sampleFrames = parseInt(qp("samples", "600"), 10);
-    const doShaderWarmup = qp("shaderWarmup", "1") === "1";
+    const doShaderWarmup = qp("shaderWarmup", "0") === "1";
     // Cold-start: sample from frame 1 (no warmup) so the first frames' stutter is
     // captured in maxFirst10Ms. The shader-warmup metric (firstRenderCpuMs) comes
     // from the Application's first frame and does not require cold-start.

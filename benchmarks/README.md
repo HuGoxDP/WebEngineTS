@@ -54,7 +54,7 @@ For stable numbers use a Chromium-based browser (Chrome/Edge) started with
 | `scene` | — | `1` | Which scene: `1`, `2`, `3`, or `ktx2` (KTX2 fallback test) |
 | `count` | 1 | `1000` | Number of primitives (try `100`, `500`, `1000`, `5000`) |
 | `instanced` | 1 | `0` | Render the grid via one `InstancedMeshRenderer` (`1`) vs. N MeshRenderers (`0`) |
-| `dirty` | 1 | `1` | Dirty-flag transform batching on (`1`) / off (`0`) — the paper's Scene 1 optimization |
+| `dirty` | all | `0` | Dirty-flag transform batching on (`1`) / off (`0`) — off by default for a clean baseline |
 | `tris` | 2 | `434000` | Target triangle count |
 | `maxSize` | scenario | `0` | Cap every loaded texture's largest dimension (`Texture2D.maxSize`); `0` = off. The paper's `textureMaxSize` optimization. Applied before load (procedural scenes are texture-free) |
 | `relArc` | scenario | `0` | Free the ZIP from the JS heap after load (`releaseArchive`) — Scene 3 row 3.3 |
@@ -64,7 +64,7 @@ For stable numbers use a Chromium-based browser (Chrome/Edge) started with
 | `samples` | all | `600` | Sampled frames |
 | `cold` | all | `0` | Cold-start: force `warmup=0` and report the first-frame stall via `first_render_cpu_ms` (`1`/`0`) |
 | `dpr` | all | `1` | Device pixel ratio |
-| `shaderWarmup` | all | `1` | Pre-compile shaders **during load, before the first render** (`1`/`0`) so the compile stall is paid in the load phase; its effect shows in the `first_render_cpu_ms` column, not steady-state avg |
+| `shaderWarmup` | all | `0` | Pre-compile shaders **during load, before the first render** (`1`/`0`) so the compile stall is paid in the load phase; its effect shows in the `first_render_cpu_ms` column, not steady-state avg |
 | `gpu` | all | `high-performance` | GPU hint: `high-performance` (discrete), `low-power` (integrated), `default` |
 
 Examples:

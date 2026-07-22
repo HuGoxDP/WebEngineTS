@@ -39,7 +39,8 @@ Then open a link below. Preconditions for stable, comparable numbers:
   root — `cd ..` and serve again.
 
 Built-in per-load protocol (no need to set unless overriding): `warmup=120` frames discarded,
-`samples=600` frames measured, `dpr=1`, `shaderWarmup=1`, `gpu=high-performance`.
+`samples=600` frames measured, `dpr=1`, `dirty=0`, `shaderWarmup=0` (both off for a clean
+baseline — enable per row), `gpu=high-performance`.
 
 ---
 

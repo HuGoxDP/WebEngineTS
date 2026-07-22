@@ -185,6 +185,10 @@ Each step runs components first, then the active scenario.
 - **Batch loading**: `Resources.tryLoad()` wraps individual loads instead of `Promise.all` (which fails entire batch on single missing asset)
 - **Scenario script pre-linking**: All `.js` files in a scenario ZIP are topologically sorted by dependency, relative import specifiers are rewritten to Blob URLs, bare specifiers (e.g. `"WebEngineTS"`) are left for the host import map. Entry point brand-checked via `__scenarioBehaviour` marker (not `instanceof`, which breaks across bundle copies)
 - **Circular deps**: Use `import type` for engine asset types in interfaces
+- **Single profiling system**: performance/memory measurement lives ONLY in the engine
+  (`MemoryProfiler` + `Benchmark`, driven by `benchmarks/run.ts`). Scenario *content* must
+  never embed its own benchmark harness or optimization toggles — the harness drives the
+  optimizations via URL params and measures from the outside.
 - **Local linking vs. packed tarballs**: consumers install the engine via packed `.tgz`
   (`file:` dep) rather than `npm link` / npm workspaces symlinking. `three` is a
   peerDependency and the engine's rendering code relies on `instanceof THREE.Mesh`-style
