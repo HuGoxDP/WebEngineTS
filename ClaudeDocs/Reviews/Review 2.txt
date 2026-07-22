@@ -1,0 +1,28 @@
+Review 3
+Scores by Evaluation Criteria
+Relevance
+2: very good
+Novelty and Originality
+0: borderline
+Quality and Rigor
+0: borderline
+Soundness of Evaluation
+-2: poor
+Clarity, Correctness, Structure, and Language
+1: good
+Anticipated Value and Interest
+1: good
+Overall Review Score, Comments, and Suggestions for Authors
+Overall Review Score, Comments, and Suggestions
+0: borderline
+The paper presents a brief description of a prototype WebGL application designed for interactive learning. The motivation behind the work is well justified, as the authors emphasize the need for browser-based educational applications that can operate efficiently on low- and medium-performance computers. The overall idea is interesting and addresses a relevant problem in the field of web-based educational technologies.
+
+The proposed system architecture is outlined, providing the reader with a general understanding of the application's design. However, the technical description is rather superficial, but the architecture is understandable at a high level.
+
+An interesting aspect of the paper is that the authors openly discuss the limitations of their own approach. In fact, they provide a critical assessment of the proposed solution themselves, which demonstrates honesty and awareness of its current shortcomings.
+
+The weakest part of the paper is the evaluation section. Although the authors announce a series of performance measurements, the presented results are incomplete and poorly organized. The tables do not cover the proposed evaluation scenarios, hardware configurations, or all of the performance metrics mentioned in the text. Consequently, the experimental results do not provide convincing evidence supporting the claimed performance of the application.
+
+Another significant limitation is the lack of access to the application's source code or any reproducibility materials. Without these resources, it is impossible to verify the reported results or reproduce the experiments.
+
+Overall, the paper presents an interesting concept with potential practical value. However, if the paper is to be accepted for publication, Section 5 ("Evaluation") should be substantially revised and systematically reorganized. The experimental methodology should be clearly defined, the evaluation scenarios completed, and comprehensive performance results presented to support the authors' claims.
