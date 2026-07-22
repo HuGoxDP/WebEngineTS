@@ -56,10 +56,12 @@ For stable numbers use a Chromium-based browser (Chrome/Edge) started with
 | `instanced` | 1 | `0` | Render the grid via one `InstancedMeshRenderer` (`1`) vs. N MeshRenderers (`0`) |
 | `dirty` | 1 | `1` | Dirty-flag transform batching on (`1`) / off (`0`) — the paper's Scene 1 optimization |
 | `tris` | 2 | `434000` | Target triangle count |
+| `maxSize` | scenario | `0` | Cap every loaded texture's largest dimension (`Texture2D.maxSize`); `0` = off. The paper's `textureMaxSize` optimization. Applied before load (procedural scenes are texture-free) |
 | `warmup` | all | `120` | Warmup frames (discarded) |
 | `samples` | all | `600` | Sampled frames |
+| `cold` | all | `0` | Cold-start: force `warmup=0` and report the first-frame stall via `first_render_cpu_ms` (`1`/`0`) |
 | `dpr` | all | `1` | Device pixel ratio |
-| `shaderWarmup` | all | `1` | Call `Application.warmupShaders()` before sampling (`1`/`0`) |
+| `shaderWarmup` | all | `1` | Pre-compile shaders **during load, before the first render** (`1`/`0`) so the compile stall is paid in the load phase; its effect shows in the `first_render_cpu_ms` column, not steady-state avg |
 | `gpu` | all | `high-performance` | GPU hint: `high-performance` (discrete), `low-power` (integrated), `default` |
 
 Examples:

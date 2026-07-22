@@ -52,6 +52,7 @@ function formatResult(r: BenchmarkResult): string {
         `GPU:         ${r.gpu ?? "—"}`,
         `FPS (avg):   ${r.fps.toFixed(1)}`,
         `CPU main:    ${r.cpuFrameMsMean.toFixed(2)} ms/frame (mean)`,
+        `First render:${r.firstRenderCpuMs.toFixed(2)} ms CPU (shader-stall frame)   Max first 10: ${r.maxFirst10Ms.toFixed(2)} ms`,
         `Frame time:  mean ${ft.mean.toFixed(2)}  median ${ft.median.toFixed(2)}  p95 ${ft.p95.toFixed(2)}  p99 ${ft.p99.toFixed(2)}`,
         `             max ${ft.max.toFixed(2)}  min ${ft.min.toFixed(2)}  stdDev ${ft.stdDev.toFixed(2)}  (ms)`,
         `JS heap:     ${mb(r.memory.jsHeapUsedBytes)}`,
@@ -117,6 +118,10 @@ function downloadBaseName(result: BenchmarkResult): string {
         }
     }
 
+    if (qp("maxSize", "0") !== "0") parts.push(`max${qp("maxSize", "0")}`);
+    parts.push(qp("shaderWarmup", "1") === "1" ? "warm" : "nowarm");
+    if (qp("cold", "0") === "1") parts.push("cold");
+
     parts.push(gpuTag(result.gpu));
     // UTC HHMMSS so repeated runs of the same config don't collide.
     parts.push((result.timestamp.split("T")[1] ?? "").replace(/[:.]/g, "").slice(0, 6));
@@ -155,6 +160,11 @@ async function main(): Promise<void> {
     // Root-relative — served from the repo root at /public/basis/.
     Texture2D.ktx2TranscoderPath = "/public/basis/";
 
+    // Global texture downscale cap (paper's Scene 2/3 "textureMaxSize" optimization).
+    // 0 = off (no downscaling); ?maxSize=2048 caps every loaded texture's largest
+    // dimension. Global static, so set BEFORE the scene/scenario loads its textures.
+    Texture2D.maxSize = parseInt(qp("maxSize", "0"), 10);
+
     // Dirty-flag transform batching (paper's Scene 1 optimization). Global, so
     // set before building the scene. ?dirty=0 reverts to immediate sync.
     const dirty = qp("dirty", "1") === "1";
@@ -165,7 +175,18 @@ async function main(): Promise<void> {
     const warmupFrames = parseInt(qp("warmup", "120"), 10);
     const sampleFrames = parseInt(qp("samples", "600"), 10);
     const doShaderWarmup = qp("shaderWarmup", "1") === "1";
+    // Cold-start: sample from frame 1 (no warmup) so the shader-compilation stall
+    // is captured in firstFrameMs / maxFirst10Ms. Use with ?shaderWarmup=0/1 to
+    // measure the warmup optimization's effect on the first frames.
+    const coldStart = qp("cold", "0") === "1";
 
+    // Warm up shaders during LOAD (before the first render) when requested. The
+    // scenario loader renders its first frame synchronously as the loop starts,
+    // so warming up after loading would be too late; the engine reads this flag
+    // and compiles during the (tolerated) load phase instead.
+    app.warmupShadersOnLoad = doShaderWarmup;
+
+    const loadStart = performance.now();
     let info: SceneInfo;
     if (scenarioUrl) {
         // Faithful path: load a real scenario ZIP (starts the engine internally).
@@ -189,20 +210,24 @@ async function main(): Promise<void> {
                 });
                 break;
         }
+        // Procedural scenes are built synchronously above. run() renders the
+        // first frame synchronously, so warm up here — before run(), not after.
+        if (doShaderWarmup) app.warmupShaders();
     }
+    const loadMs = performance.now() - loadStart;
 
     app.run(); // idempotent — a scenario has already started the loop
-    if (doShaderWarmup) app.warmupShaders();
 
     log(`${info.label}`);
     log(`objects=${info.objects}${info.extra ? `  (${info.extra})` : ""}`);
-    log(`warmup=${warmupFrames}  samples=${sampleFrames}  dpr=${app.pixelRatio}  shaderWarmup=${doShaderWarmup}  dirty=${dirty ? "on" : "off"}`);
+    log(`load=${loadMs.toFixed(1)} ms  warmup=${coldStart ? 0 : warmupFrames}  samples=${sampleFrames}  dpr=${app.pixelRatio}  shaderWarmup=${doShaderWarmup}  dirty=${dirty ? "on" : "off"}  maxSize=${Texture2D.maxSize || "off"}  cold=${coldStart ? "on" : "off"}`);
     log(`measuring…`);
 
     const result = await Benchmark.run({
         label: info.label,
         warmupFrames,
         sampleFrames,
+        coldStart,
     });
 
     log(formatResult(result));

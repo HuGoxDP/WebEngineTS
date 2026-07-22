@@ -14,6 +14,13 @@ export interface BenchmarkOptions {
     sampleFrames?: number;
     /** Whether to capture a memory snapshot at the end. Default `true`. */
     captureMemory?: boolean;
+    /**
+     * Cold-start mode: forces `warmupFrames` to 0 so sampling begins on the very
+     * first rendered frame, capturing the shader-compilation / first-frame stall
+     * that a warmup would otherwise discard. See {@link BenchmarkResult.firstFrameMs}
+     * and {@link BenchmarkResult.maxFirst10Ms}. Default `false`.
+     */
+    coldStart?: boolean;
 }
 
 /** Statistical summary of a frame-time sample, in milliseconds. */
@@ -54,6 +61,18 @@ export interface BenchmarkResult {
      * the workload is CPU-bound or capped by VSync. `0` if no Application ran.
      */
     cpuFrameMsMean: number;
+    /**
+     * Main-thread (CPU) time in ms of the very first rendered frame, read from
+     * the active Application. This is where an un-warmed shader-compilation stall
+     * lands; with `Application.warmupShadersOnLoad` the compile is paid during
+     * loading and this frame is clean. `0` if no Application ran.
+     */
+    firstRenderCpuMs: number;
+    /**
+     * Maximum frame time over the first (up to) 10 sampled frames — a secondary
+     * startup-stutter indicator. Most meaningful with {@link BenchmarkOptions.coldStart}.
+     */
+    maxFirst10Ms: number;
     /**
      * Unmasked GPU renderer string that served this run (e.g. discrete vs.
      * integrated), or `null`. Records which GPU produced the numbers.
@@ -116,7 +135,8 @@ export class Benchmark {
      */
     public static run(options: BenchmarkOptions = {}): Promise<BenchmarkResult> {
         const label = options.label ?? "benchmark";
-        const warmupFrames = Math.max(0, Math.floor(options.warmupFrames ?? 120));
+        const coldStart = options.coldStart ?? false;
+        const warmupFrames = coldStart ? 0 : Math.max(0, Math.floor(options.warmupFrames ?? 120));
         const sampleFrames = Math.max(1, Math.floor(options.sampleFrames ?? 600));
         const captureMemory = options.captureMemory ?? true;
 
@@ -209,7 +229,8 @@ export class Benchmark {
         const header = [
             "label", "gpu", "timestamp", "warmupFrames", "sampleFrames",
             "mean_ms", "median_ms", "p95_ms", "p99_ms", "min_ms", "max_ms", "stdDev_ms",
-            "fps", "cpu_mean_ms", "jsHeapUsedBytes", "gpuTextures", "gpuGeometries",
+            "fps", "cpu_mean_ms", "first_render_cpu_ms", "max_first10_ms",
+            "jsHeapUsedBytes", "gpuTextures", "gpuGeometries",
             "estimatedTextureVramBytes", "estimatedGeometryVramBytes",
             "estimatedRenderTargetVramBytes", "drawCalls", "triangles",
         ];
@@ -228,6 +249,8 @@ export class Benchmark {
             Benchmark._num(r.frameTimeMs.stdDev),
             Benchmark._num(r.fps),
             Benchmark._num(r.cpuFrameMsMean),
+            Benchmark._num(r.firstRenderCpuMs),
+            Benchmark._num(r.maxFirst10Ms),
             r.memory.jsHeapUsedBytes ?? "",
             r.memory.gpuTextures ?? "",
             r.memory.gpuGeometries ?? "",
@@ -278,6 +301,13 @@ export class Benchmark {
     ): BenchmarkResult {
         const stats = Benchmark._computeStats(samples);
 
+        const firstRenderCpuMs = Benchmark._readFirstFrameCpuMs();
+        let maxFirst10Ms = 0;
+        const firstN = Math.min(10, samples.length);
+        for (let i = 0; i < firstN; i++) {
+            if (samples[i] > maxFirst10Ms) maxFirst10Ms = samples[i];
+        }
+
         let gpu: string | null = null;
         let memory: BenchmarkResult["memory"] = {
             jsHeapUsedBytes: null,
@@ -318,6 +348,8 @@ export class Benchmark {
             frameTimeMs: stats,
             fps: stats.mean > 0 ? 1000 / stats.mean : 0,
             cpuFrameMsMean,
+            firstRenderCpuMs,
+            maxFirst10Ms,
             gpu,
             memory,
         };
@@ -328,6 +360,13 @@ export class Benchmark {
         const app = (globalThis as unknown as { __webengine_application__?: { _cpuFrameMs?: number } })
             .__webengine_application__;
         return app != null && typeof app._cpuFrameMs === "number" ? app._cpuFrameMs : 0;
+    }
+
+    /** Reads the active Application's first-frame CPU time (ms), or 0. */
+    private static _readFirstFrameCpuMs(): number {
+        const app = (globalThis as unknown as { __webengine_application__?: { _firstFrameCpuMs?: number } })
+            .__webengine_application__;
+        return app != null && typeof app._firstFrameCpuMs === "number" ? app._firstFrameCpuMs : 0;
     }
 
     private static _computeStats(samples: Float64Array): FrameTimeStats {

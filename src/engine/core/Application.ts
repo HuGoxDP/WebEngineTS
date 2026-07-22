@@ -148,6 +148,15 @@ export class Application {
         return this._cpuFrameMs;
     }
 
+    /**
+     * Main-thread (CPU) time in ms of the very first rendered frame after the
+     * loop started. With shader warmup this is a clean frame; without it, this
+     * is where the shader-compilation stall appears. `0` until the first frame.
+     */
+    public get firstFrameCpuTime(): number {
+        return this._firstFrameCpuMs;
+    }
+
     // ==================== INSTANCE FIELDS ====================
 
     /** The HTML canvas we render into. */
@@ -155,6 +164,15 @@ export class Application {
 
     /** Whether the game loop is active. */
     public isPlaying: boolean = false;
+
+    /**
+     * When `true`, {@link loadScenarioFromBuffer} / {@link loadScenarioFromUrl}
+     * pre-compile all shaders (via {@link warmupShaders}) during loading, before
+     * the loop's first render — so the shader-compilation stall is paid in the
+     * (tolerated) load phase instead of on the first interactive frame. Set it
+     * before loading a scenario. Default `false`.
+     */
+    public warmupShadersOnLoad: boolean = false;
 
     /**
      * The underlying Three.js renderer.
@@ -173,6 +191,16 @@ export class Application {
 
     /** Main-thread time (ms) spent in the last frame's loop body. @internal */
     public _cpuFrameMs: number = 0;
+
+    /**
+     * Main-thread time (ms) of the very first rendered frame after the loop
+     * started — where an un-warmed shader-compilation stall lands. `0` until the
+     * first frame has run; reset by {@link run}. @internal
+     */
+    public _firstFrameCpuMs: number = 0;
+
+    /** Guards {@link _firstFrameCpuMs} so only the first frame is recorded. */
+    private _firstFrameCaptured: boolean = false;
 
     /** Bound resize handler (stored so we can remove it on dispose). */
     private readonly _resizeHandler: () => void;
@@ -245,6 +273,8 @@ export class Application {
         if (this.isPlaying) return;
         this.isPlaying = true;
         this._firstRender = true;
+        this._firstFrameCaptured = false;
+        this._firstFrameCpuMs = 0;
         this._lastFrameTime = performance.now();
         console.log("[Application] Engine started.");
         this._loop();
@@ -255,6 +285,16 @@ export class Application {
      */
     public stop(): void {
         this.isPlaying = false;
+    }
+
+    /**
+     * Shared tail of the scenario loaders: optionally warm up shaders (so the
+     * compile stall is paid during loading, before the first render), then start
+     * the loop if it is not already running.
+     */
+    private _autoStartAfterLoad(): void {
+        if (this.warmupShadersOnLoad) this.warmupShaders();
+        if (!this.isPlaying) this.run();
     }
 
     // ==================== PUBLIC: SCENARIO ====================
@@ -295,10 +335,8 @@ export class Application {
         await scenario.loadFromData(data);
         await scenario.run();
 
-        // Auto-start engine if not already running
-        if (!this.isPlaying) {
-            this.run();
-        }
+        // Warm up shaders during load (if requested), then start the loop.
+        this._autoStartAfterLoad();
 
         return scenario;
     }
@@ -329,10 +367,8 @@ export class Application {
         await scenario.loadFromUrl(url);
         await scenario.run();
 
-        // Auto-start engine if not already running
-        if (!this.isPlaying) {
-            this.run();
-        }
+        // Warm up shaders during load (if requested), then start the loop.
+        this._autoStartAfterLoad();
 
         return scenario;
     }
@@ -541,6 +577,13 @@ export class Application {
         // 10. Record main-thread (CPU) time spent this frame — the busy portion
         // of the frame, excluding idle/vsync wait. Used by diagnostics.
         this._cpuFrameMs = performance.now() - now;
+
+        // Capture the first frame's CPU time separately — an un-warmed
+        // shader-compilation stall lands here.
+        if (!this._firstFrameCaptured) {
+            this._firstFrameCpuMs = this._cpuFrameMs;
+            this._firstFrameCaptured = true;
+        }
     };
 
     // ==================== RENDERING (PRIVATE) ====================
