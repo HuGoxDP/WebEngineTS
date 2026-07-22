@@ -154,6 +154,12 @@ Each step runs components first, then the active scenario.
 
 ## Workflow
 
+### Plan → TODO → implement
+1. Start with a short plan (approach, files touched, order) before writing code.
+2. Turn the plan into an explicit TODO list; only then start implementing.
+3. If part of the plan cannot be implemented now, leave a `// TODO: <what's missing and why>`
+   (or a tracked TODO item) — never silently skip it or fake the behaviour.
+
 ### Before editing any file:
 1. List the target file's imports
 2. For each dependency — verify it is current; if it needs changes, patch it FIRST
