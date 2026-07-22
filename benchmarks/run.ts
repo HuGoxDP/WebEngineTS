@@ -11,7 +11,7 @@
 //   index.html?scene=3
 
 import {
-    Application, GraphicsPowerPreference, Benchmark, Resources, Texture2D, Transform,
+    Application, GraphicsPowerPreference, Benchmark, RenderSettings, Resources, Texture2D, Transform,
     type BenchmarkResult,
 } from "WebEngineTS";
 import { buildProceduralGrid } from "./scenes/scene1Grid.ts";
@@ -233,8 +233,11 @@ async function main(): Promise<void> {
         // Free decoded source images after load (paper's releaseSourceImages opt).
         // Safe post-load: releaseSourceImage() defers the actual free via a
         // two-frame GPU-upload countdown.
+        // The skybox Cubemap is created outside the Resources cache
+        // (Cubemap.fromEquirectangular), so release its source image explicitly.
         const releasedImages = Resources.releaseAllSourceImages();
-        log(`relSrc: released source images on ${releasedImages} texture(s)`);
+        RenderSettings.skybox?.releaseSourceImage();
+        log(`relSrc: released source images on ${releasedImages} texture(s) + skybox`);
     }
 
     app.run(); // idempotent — a scenario has already started the loop
