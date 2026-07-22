@@ -57,6 +57,8 @@ For stable numbers use a Chromium-based browser (Chrome/Edge) started with
 | `dirty` | 1 | `1` | Dirty-flag transform batching on (`1`) / off (`0`) — the paper's Scene 1 optimization |
 | `tris` | 2 | `434000` | Target triangle count |
 | `maxSize` | scenario | `0` | Cap every loaded texture's largest dimension (`Texture2D.maxSize`); `0` = off. The paper's `textureMaxSize` optimization. Applied before load (procedural scenes are texture-free) |
+| `relArc` | scenario | `0` | Free the ZIP from the JS heap after load (`releaseArchive`) — Scene 3 row 3.3 |
+| `relSrc` | scenario | `0` | `releaseSourceImages` — **not yet supported by the harness** (see `run.ts` TODO); needs an engine texture-walk helper |
 | `warmup` | all | `120` | Warmup frames (discarded) |
 | `samples` | all | `600` | Sampled frames |
 | `cold` | all | `0` | Cold-start: force `warmup=0` and report the first-frame stall via `first_render_cpu_ms` (`1`/`0`) |

@@ -50,6 +50,7 @@ function formatResult(r: BenchmarkResult): string {
         ``,
         `── ${r.label} ──`,
         `GPU:         ${r.gpu ?? "—"}`,
+        `Load:        ${r.loadTimeMs.toFixed(1)} ms`,
         `FPS (avg):   ${r.fps.toFixed(1)}`,
         `CPU main:    ${r.cpuFrameMsMean.toFixed(2)} ms/frame (mean)`,
         `First render:${r.firstRenderCpuMs.toFixed(2)} ms CPU (shader-stall frame)   Max first 10: ${r.maxFirst10Ms.toFixed(2)} ms`,
@@ -119,6 +120,7 @@ function downloadBaseName(result: BenchmarkResult): string {
     }
 
     if (qp("maxSize", "0") !== "0") parts.push(`max${qp("maxSize", "0")}`);
+    if (qp("relArc", "0") === "1") parts.push("relArc");
     parts.push(qp("shaderWarmup", "1") === "1" ? "warm" : "nowarm");
     if (qp("cold", "0") === "1") parts.push("cold");
 
@@ -175,10 +177,13 @@ async function main(): Promise<void> {
     const warmupFrames = parseInt(qp("warmup", "120"), 10);
     const sampleFrames = parseInt(qp("samples", "600"), 10);
     const doShaderWarmup = qp("shaderWarmup", "1") === "1";
-    // Cold-start: sample from frame 1 (no warmup) so the shader-compilation stall
-    // is captured in firstFrameMs / maxFirst10Ms. Use with ?shaderWarmup=0/1 to
-    // measure the warmup optimization's effect on the first frames.
+    // Cold-start: sample from frame 1 (no warmup) so the first frames' stutter is
+    // captured in maxFirst10Ms. The shader-warmup metric (firstRenderCpuMs) comes
+    // from the Application's first frame and does not require cold-start.
     const coldStart = qp("cold", "0") === "1";
+    // Scene 3 archive / source-image release optimizations (scenario path only).
+    const relArc = qp("relArc", "0") === "1";
+    const relSrc = qp("relSrc", "0") === "1";
 
     // Warm up shaders during LOAD (before the first render) when requested. The
     // scenario loader renders its first frame synchronously as the loop starts,
@@ -190,7 +195,7 @@ async function main(): Promise<void> {
     let info: SceneInfo;
     if (scenarioUrl) {
         // Faithful path: load a real scenario ZIP (starts the engine internally).
-        info = await buildScenario(app, scenarioUrl);
+        info = await buildScenario(app, scenarioUrl, { releaseArchive: relArc });
     } else {
         switch (sceneId) {
             case "ktx2":
@@ -216,6 +221,16 @@ async function main(): Promise<void> {
     }
     const loadMs = performance.now() - loadStart;
 
+    if (relSrc) {
+        // TODO: releaseSourceImages is not URL-drivable yet. Resources keeps no
+        // registry of loaded textures to walk, and releaseSourceImage() is
+        // per-Texture2D / per-Cubemap. Needs an engine helper (e.g.
+        // Resources.releaseAllSourceImages() or a scene-graph texture walk) before
+        // this row can be toggled here. Until then, measure it with a scenario
+        // build that calls releaseSourceImage() in its own code.
+        log("NOTE: relSrc is not yet supported by the harness (see TODO in run.ts).");
+    }
+
     app.run(); // idempotent — a scenario has already started the loop
 
     log(`${info.label}`);
@@ -228,6 +243,7 @@ async function main(): Promise<void> {
         warmupFrames,
         sampleFrames,
         coldStart,
+        loadTimeMs: loadMs,
     });
 
     log(formatResult(result));

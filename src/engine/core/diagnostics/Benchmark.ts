@@ -17,10 +17,16 @@ export interface BenchmarkOptions {
     /**
      * Cold-start mode: forces `warmupFrames` to 0 so sampling begins on the very
      * first rendered frame, capturing the shader-compilation / first-frame stall
-     * that a warmup would otherwise discard. See {@link BenchmarkResult.firstFrameMs}
+     * that a warmup would otherwise discard. See {@link BenchmarkResult.firstRenderCpuMs}
      * and {@link BenchmarkResult.maxFirst10Ms}. Default `false`.
      */
     coldStart?: boolean;
+    /**
+     * Scenario/scene load time in ms, measured by the caller (e.g. around
+     * `loadScenarioFromUrl`). Recorded verbatim into {@link BenchmarkResult.loadTimeMs}
+     * and the CSV so exported runs carry the paper's "Load" column. Default `0`.
+     */
+    loadTimeMs?: number;
 }
 
 /** Statistical summary of a frame-time sample, in milliseconds. */
@@ -51,6 +57,8 @@ export interface BenchmarkResult {
     warmupFrames: number;
     /** Sample frame count used. */
     sampleFrames: number;
+    /** Caller-measured load time in ms (`0` if not provided). */
+    loadTimeMs: number;
     /** Frame-time statistics in milliseconds. */
     frameTimeMs: FrameTimeStats;
     /** Average frames per second, derived from {@link FrameTimeStats.mean}. */
@@ -139,6 +147,7 @@ export class Benchmark {
         const warmupFrames = coldStart ? 0 : Math.max(0, Math.floor(options.warmupFrames ?? 120));
         const sampleFrames = Math.max(1, Math.floor(options.sampleFrames ?? 600));
         const captureMemory = options.captureMemory ?? true;
+        const loadTimeMs = Math.max(0, options.loadTimeMs ?? 0);
 
         return new Promise<BenchmarkResult>((resolve, reject) => {
             const samples = new Float64Array(sampleFrames);
@@ -169,7 +178,7 @@ export class Benchmark {
                 // throwing uncaught inside the rAF callback (which would hang).
                 try {
                     resolve(Benchmark._finalize(
-                        label, warmupFrames, sampleFrames, samples, cpuSum / sampleFrames, captureMemory,
+                        label, warmupFrames, sampleFrames, samples, cpuSum / sampleFrames, captureMemory, loadTimeMs,
                     ));
                 } catch (err) {
                     reject(err instanceof Error ? err : new Error(String(err)));
@@ -227,7 +236,7 @@ export class Benchmark {
     public static toCSV(results: BenchmarkResult | BenchmarkResult[]): string {
         const arr = Array.isArray(results) ? results : [results];
         const header = [
-            "label", "gpu", "timestamp", "warmupFrames", "sampleFrames",
+            "label", "gpu", "timestamp", "warmupFrames", "sampleFrames", "load_ms",
             "mean_ms", "median_ms", "p95_ms", "p99_ms", "min_ms", "max_ms", "stdDev_ms",
             "fps", "cpu_mean_ms", "first_render_cpu_ms", "max_first10_ms",
             "jsHeapUsedBytes", "gpuTextures", "gpuGeometries",
@@ -240,6 +249,7 @@ export class Benchmark {
             r.timestamp,
             r.warmupFrames,
             r.sampleFrames,
+            Benchmark._num(r.loadTimeMs),
             Benchmark._num(r.frameTimeMs.mean),
             Benchmark._num(r.frameTimeMs.median),
             Benchmark._num(r.frameTimeMs.p95),
@@ -298,6 +308,7 @@ export class Benchmark {
         samples: Float64Array,
         cpuFrameMsMean: number,
         captureMemory: boolean,
+        loadTimeMs: number,
     ): BenchmarkResult {
         const stats = Benchmark._computeStats(samples);
 
@@ -345,6 +356,7 @@ export class Benchmark {
             timestamp: new Date().toISOString(),
             warmupFrames,
             sampleFrames,
+            loadTimeMs,
             frameTimeMs: stats,
             fps: stats.mean > 0 ? 1000 / stats.mean : 0,
             cpuFrameMsMean,

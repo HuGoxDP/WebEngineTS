@@ -17,13 +17,24 @@ import type { SceneInfo } from "./common.ts";
  *
  * @param app - the running Application.
  * @param url - URL of the scenario `.zip` (e.g. `/benchmarks/scenarios/scene3.zip`).
+ * @param opts - `releaseArchive`: free the ZIP from the heap after load (paper's Scene 3 opt).
  */
-export async function buildScenario(app: Application, url: string): Promise<SceneInfo> {
-    await app.loadScenarioFromUrl(url);
+export async function buildScenario(
+    app: Application,
+    url: string,
+    opts: { releaseArchive?: boolean } = {},
+): Promise<SceneInfo> {
+    const scenario = await app.loadScenarioFromUrl(url);
+    if (opts.releaseArchive) {
+        // Free the compressed ZIP from the JS heap now that all assets are loaded
+        // (the paper's releaseArchive optimization). No further asset loading is
+        // possible after this.
+        scenario.assets?.releaseArchive();
+    }
     const name = decodeURIComponent(url.split("/").pop() ?? url);
     return {
         label: `Scenario: ${name}`,
         objects: 0,
-        extra: "real scenario ZIP (models + textures)",
+        extra: `real scenario ZIP (models + textures)${opts.releaseArchive ? ", archive released" : ""}`,
     };
 }
