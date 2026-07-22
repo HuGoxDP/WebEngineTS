@@ -677,6 +677,14 @@ export class MemoryProfiler {
             _L.push(`CPU: main —`);
         }
 
+        const ph = MemoryProfiler._getCpuPhasesMs();
+        if (ph !== null) {
+            _L.push(
+                `  fix ${ph.fixedUpdate.toFixed(1)}  upd ${ph.update.toFixed(1)}`
+                + `  late ${ph.lateUpdate.toFixed(1)}  rnd ${ph.render.toFixed(1)} ms`
+            );
+        }
+
         if (info) {
             const dc = info.render?.calls ?? 0;
             _L.push(`Batches: ${dc}`);
