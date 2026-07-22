@@ -157,6 +157,26 @@ export class Application {
         return this._firstFrameCpuMs;
     }
 
+    /** Main-thread (CPU) ms spent in the FixedUpdate phase last frame. */
+    public get fixedUpdateTime(): number {
+        return this._fixedUpdateMs;
+    }
+
+    /** Main-thread (CPU) ms spent in the Update phase last frame (incl. animation, particles). */
+    public get updateTime(): number {
+        return this._updateMs;
+    }
+
+    /** Main-thread (CPU) ms spent in the LateUpdate phase last frame (incl. audio, events, LOD). */
+    public get lateUpdateTime(): number {
+        return this._lateUpdateMs;
+    }
+
+    /** Main-thread (CPU) ms spent rendering last frame (3D scene + UI canvas). */
+    public get renderTime(): number {
+        return this._renderMs;
+    }
+
     // ==================== INSTANCE FIELDS ====================
 
     /** The HTML canvas we render into. */
@@ -201,6 +221,18 @@ export class Application {
 
     /** Guards {@link _firstFrameCpuMs} so only the first frame is recorded. */
     private _firstFrameCaptured: boolean = false;
+
+    /** Main-thread ms spent in FixedUpdate (summed over sub-steps) last frame. @internal */
+    public _fixedUpdateMs: number = 0;
+
+    /** Main-thread ms spent in Update (incl. animation/particles) last frame. @internal */
+    public _updateMs: number = 0;
+
+    /** Main-thread ms spent in LateUpdate (incl. audio/events/LOD) last frame. @internal */
+    public _lateUpdateMs: number = 0;
+
+    /** Main-thread ms spent rendering (3D scene + UI canvas) last frame. @internal */
+    public _renderMs: number = 0;
 
     /** Bound resize handler (stored so we can remove it on dispose). */
     private readonly _resizeHandler: () => void;
@@ -523,6 +555,7 @@ export class Application {
         const scenarioRunning = scenario?.isRunning ?? false;
 
         // 4. Fixed updates (physics timestep) - components then scenario then physics
+        const tFixedStart = performance.now();
         this._fixedUpdateAccumulator += frameDelta;
         while (this._fixedUpdateAccumulator >= EngineSettings.Time.FIXED_TIMESTEP) {
             PluginManager._onFixedUpdate(EngineSettings.Time.FIXED_TIMESTEP);
@@ -533,6 +566,9 @@ export class Application {
             Physics._step(EngineSettings.Time.FIXED_TIMESTEP);
             this._fixedUpdateAccumulator -= EngineSettings.Time.FIXED_TIMESTEP;
         }
+
+        const tUpdateStart = performance.now();
+        this._fixedUpdateMs = tUpdateStart - tFixedStart;
 
         // 5. Per-frame updates - plugins, components, then scenario
         PluginManager._onUpdate(frameDelta);
@@ -546,6 +582,9 @@ export class Application {
 
         // 6a. Particle system simulation (after Update, before LateUpdate)
         ParticleSystem._updateAll();
+
+        const tLateStart = performance.now();
+        this._updateMs = tLateStart - tUpdateStart;
 
         // 7. Late updates - components, scenario, then plugins
         scene._lateUpdate();
@@ -564,11 +603,16 @@ export class Application {
         // 7c. Level-of-detail selection (uses final world transforms + Camera.main)
         LODGroup._updateAll();
 
+        const tRenderStart = performance.now();
+        this._lateUpdateMs = tRenderStart - tLateStart;
+
         // 7. Render
         this._render();
 
         // 8. UI Canvas render (overlay, after 3D scene)
         Canvas._renderAll();
+
+        this._renderMs = performance.now() - tRenderStart;
 
         // 9. Reset per-frame input state
         Input._resetFrame();

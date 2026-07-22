@@ -53,6 +53,7 @@ function formatResult(r: BenchmarkResult): string {
         `Load:        ${r.loadTimeMs.toFixed(1)} ms`,
         `FPS (avg):   ${r.fps.toFixed(1)}`,
         `CPU main:    ${r.cpuFrameMsMean.toFixed(2)} ms/frame (mean)`,
+        `CPU phases:  fix ${r.phaseMsMean.fixedUpdate.toFixed(2)}  upd ${r.phaseMsMean.update.toFixed(2)}  late ${r.phaseMsMean.lateUpdate.toFixed(2)}  render ${r.phaseMsMean.render.toFixed(2)}  (ms)`,
         `First render:${r.firstRenderCpuMs.toFixed(2)} ms CPU (shader-stall frame)   Max first 10: ${r.maxFirst10Ms.toFixed(2)} ms`,
         `Frame time:  mean ${ft.mean.toFixed(2)}  median ${ft.median.toFixed(2)}  p95 ${ft.p95.toFixed(2)}  p99 ${ft.p99.toFixed(2)}`,
         `             max ${ft.max.toFixed(2)}  min ${ft.min.toFixed(2)}  stdDev ${ft.stdDev.toFixed(2)}  (ms)`,

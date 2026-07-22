@@ -2,6 +2,16 @@
 
 import { MemoryProfiler } from "./MemoryProfiler.ts";
 
+/** Engine-side per-frame timings read from the active Application (diagnostics global). */
+interface AppTimings {
+    _cpuFrameMs?: number;
+    _firstFrameCpuMs?: number;
+    _fixedUpdateMs?: number;
+    _updateMs?: number;
+    _lateUpdateMs?: number;
+    _renderMs?: number;
+}
+
 // ==================== TYPES ====================
 
 /** Configuration for a {@link Benchmark.run} measurement session. */
@@ -69,6 +79,17 @@ export interface BenchmarkResult {
      * the workload is CPU-bound or capped by VSync. `0` if no Application ran.
      */
     cpuFrameMsMean: number;
+    /**
+     * Mean main-thread ms per frame in each loop phase (the profiler breakdown):
+     * FixedUpdate, Update (incl. animation/particles), LateUpdate (incl.
+     * audio/events/LOD) and Render. Roughly sums to {@link cpuFrameMsMean}.
+     */
+    phaseMsMean: {
+        fixedUpdate: number;
+        update: number;
+        lateUpdate: number;
+        render: number;
+    };
     /**
      * Main-thread (CPU) time in ms of the very first rendered frame, read from
      * the active Application. This is where an un-warmed shader-compilation stall
@@ -154,6 +175,10 @@ export class Benchmark {
             let warmupLeft = warmupFrames;
             let sampleIndex = 0;
             let cpuSum = 0;
+            let fixedSum = 0;
+            let updateSum = 0;
+            let lateSum = 0;
+            let renderSum = 0;
             let prev = 0;
 
             const tick = (): void => {
@@ -168,7 +193,14 @@ export class Benchmark {
                 }
 
                 samples[sampleIndex++] = dt;
-                cpuSum += Benchmark._readCpuFrameMs();
+                const t = Benchmark._appTimings();
+                if (t) {
+                    cpuSum += t._cpuFrameMs ?? 0;
+                    fixedSum += t._fixedUpdateMs ?? 0;
+                    updateSum += t._updateMs ?? 0;
+                    lateSum += t._lateUpdateMs ?? 0;
+                    renderSum += t._renderMs ?? 0;
+                }
                 if (sampleIndex < sampleFrames) {
                     requestAnimationFrame(tick);
                     return;
@@ -178,7 +210,14 @@ export class Benchmark {
                 // throwing uncaught inside the rAF callback (which would hang).
                 try {
                     resolve(Benchmark._finalize(
-                        label, warmupFrames, sampleFrames, samples, cpuSum / sampleFrames, captureMemory, loadTimeMs,
+                        label, warmupFrames, sampleFrames, samples, cpuSum / sampleFrames,
+                        {
+                            fixedUpdate: fixedSum / sampleFrames,
+                            update: updateSum / sampleFrames,
+                            lateUpdate: lateSum / sampleFrames,
+                            render: renderSum / sampleFrames,
+                        },
+                        captureMemory, loadTimeMs,
                     ));
                 } catch (err) {
                     reject(err instanceof Error ? err : new Error(String(err)));
@@ -307,12 +346,13 @@ export class Benchmark {
         sampleFrames: number,
         samples: Float64Array,
         cpuFrameMsMean: number,
+        phaseMsMean: BenchmarkResult["phaseMsMean"],
         captureMemory: boolean,
         loadTimeMs: number,
     ): BenchmarkResult {
         const stats = Benchmark._computeStats(samples);
 
-        const firstRenderCpuMs = Benchmark._readFirstFrameCpuMs();
+        const firstRenderCpuMs = Benchmark._appTimings()?._firstFrameCpuMs ?? 0;
         let maxFirst10Ms = 0;
         const firstN = Math.min(10, samples.length);
         for (let i = 0; i < firstN; i++) {
@@ -360,6 +400,7 @@ export class Benchmark {
             frameTimeMs: stats,
             fps: stats.mean > 0 ? 1000 / stats.mean : 0,
             cpuFrameMsMean,
+            phaseMsMean,
             firstRenderCpuMs,
             maxFirst10Ms,
             gpu,
@@ -367,18 +408,10 @@ export class Benchmark {
         };
     }
 
-    /** Reads the active Application's last main-thread frame time (ms), or 0. */
-    private static _readCpuFrameMs(): number {
-        const app = (globalThis as unknown as { __webengine_application__?: { _cpuFrameMs?: number } })
-            .__webengine_application__;
-        return app != null && typeof app._cpuFrameMs === "number" ? app._cpuFrameMs : 0;
-    }
-
-    /** Reads the active Application's first-frame CPU time (ms), or 0. */
-    private static _readFirstFrameCpuMs(): number {
-        const app = (globalThis as unknown as { __webengine_application__?: { _firstFrameCpuMs?: number } })
-            .__webengine_application__;
-        return app != null && typeof app._firstFrameCpuMs === "number" ? app._firstFrameCpuMs : 0;
+    /** Reads engine-side per-frame timings from the active Application, or null. */
+    private static _appTimings(): AppTimings | null {
+        return (globalThis as unknown as { __webengine_application__?: AppTimings })
+            .__webengine_application__ ?? null;
     }
 
     private static _computeStats(samples: Float64Array): FrameTimeStats {
