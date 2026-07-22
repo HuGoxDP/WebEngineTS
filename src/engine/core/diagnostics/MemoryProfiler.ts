@@ -78,6 +78,18 @@ export interface MemoryReport {
     cpuFrameMs: number | null;
 
     /**
+     * Per-phase main-thread CPU ms of the last frame (the profiler breakdown):
+     * FixedUpdate, Update, LateUpdate and Render. `null` when no Application is
+     * running. Roughly sums to {@link cpuFrameMs}.
+     */
+    cpuPhasesMs: {
+        fixedUpdate: number;
+        update: number;
+        lateUpdate: number;
+        render: number;
+    } | null;
+
+    /**
      * Unmasked GPU renderer string (via `WEBGL_debug_renderer_info`), e.g.
      * "NVIDIA GeForce RTX 3050..." or "Intel(R) UHD Graphics". `null` if no
      * renderer or the extension is unavailable. Lets a run record which GPU
@@ -258,6 +270,7 @@ export class MemoryProfiler {
             },
             deviceMemoryGB: (navigator as any).deviceMemory ?? null,
             cpuFrameMs: MemoryProfiler._getCpuFrameMs(),
+            cpuPhasesMs: MemoryProfiler._getCpuPhasesMs(),
             gpu: MemoryProfiler._getGpuName(),
         };
     }
@@ -266,6 +279,18 @@ export class MemoryProfiler {
     private static _getCpuFrameMs(): number | null {
         const app = (globalThis as any).__webengine_application__;
         return app != null && typeof app._cpuFrameMs === "number" ? app._cpuFrameMs : null;
+    }
+
+    /** Per-phase main-thread CPU ms from the active Application, or null. */
+    private static _getCpuPhasesMs(): MemoryReport["cpuPhasesMs"] {
+        const app = (globalThis as any).__webengine_application__;
+        if (app == null || typeof app._cpuFrameMs !== "number") return null;
+        return {
+            fixedUpdate: app._fixedUpdateMs ?? 0,
+            update: app._updateMs ?? 0,
+            lateUpdate: app._lateUpdateMs ?? 0,
+            render: app._renderMs ?? 0,
+        };
     }
 
     /** Unmasked GPU renderer string via WEBGL_debug_renderer_info, or null. */
@@ -313,6 +338,13 @@ export class MemoryProfiler {
 
         if (r.deviceMemoryGB !== null) console.log(`Device RAM: ~${r.deviceMemoryGB} GB`);
         if (r.cpuFrameMs !== null) console.log(`CPU main-thread: ${r.cpuFrameMs.toFixed(1)} ms/frame`);
+        if (r.cpuPhasesMs !== null) {
+            const p = r.cpuPhasesMs;
+            console.log(
+                `CPU phases: fixed ${p.fixedUpdate.toFixed(2)} | update ${p.update.toFixed(2)}`
+                + ` | late ${p.lateUpdate.toFixed(2)} | render ${p.render.toFixed(2)} ms`
+            );
+        }
         if (r.gpu !== null) console.log(`GPU: ${r.gpu}`);
 
         // Subsystem counts
