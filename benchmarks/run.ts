@@ -122,6 +122,7 @@ function downloadBaseName(result: BenchmarkResult): string {
     if (qp("maxSize", "0") !== "0") parts.push(`max${qp("maxSize", "0")}`);
     if (qp("relArc", "0") === "1") parts.push("relArc");
     if (qp("relSrc", "0") === "1") parts.push("relSrc");
+    if (qp("ktx2", "0") === "1") parts.push("ktx2");
     parts.push(qp("shaderWarmup", "1") === "1" ? "warm" : "nowarm");
     if (qp("cold", "0") === "1") parts.push("cold");
 
@@ -167,6 +168,11 @@ async function main(): Promise<void> {
     // 0 = off (no downscaling); ?maxSize=2048 caps every loaded texture's largest
     // dimension. Global static, so set BEFORE the scene/scenario loads its textures.
     Texture2D.maxSize = parseInt(qp("maxSize", "0"), 10);
+
+    // KTX2: prefer compressed .ktx2 texture variants when present in the archive
+    // (paper's Scene 3 KTX2 row). ?ktx2=1 makes Resources resolve foo.ktx2 before
+    // foo.jpg from a dual-format ZIP — set BEFORE the scene/scenario loads.
+    Resources.preferExtension = qp("ktx2", "0") === "1" ? ".ktx2" : null;
 
     // Dirty-flag transform batching (paper's Scene 1 optimization). Global, so
     // set before building the scene. ?dirty=0 reverts to immediate sync.
@@ -234,7 +240,7 @@ async function main(): Promise<void> {
 
     log(`${info.label}`);
     log(`objects=${info.objects}${info.extra ? `  (${info.extra})` : ""}`);
-    log(`load=${loadMs.toFixed(1)} ms  warmup=${coldStart ? 0 : warmupFrames}  samples=${sampleFrames}  dpr=${app.pixelRatio}  shaderWarmup=${doShaderWarmup}  dirty=${dirty ? "on" : "off"}  maxSize=${Texture2D.maxSize || "off"}  cold=${coldStart ? "on" : "off"}`);
+    log(`load=${loadMs.toFixed(1)} ms  warmup=${coldStart ? 0 : warmupFrames}  samples=${sampleFrames}  dpr=${app.pixelRatio}  shaderWarmup=${doShaderWarmup}  dirty=${dirty ? "on" : "off"}  maxSize=${Texture2D.maxSize || "off"}  ktx2=${Resources.preferExtension ? "on" : "off"}  cold=${coldStart ? "on" : "off"}`);
     log(`measuring…`);
 
     const result = await Benchmark.run({

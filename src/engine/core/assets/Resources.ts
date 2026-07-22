@@ -134,6 +134,17 @@ export class Resources {
     /** Whether built-in decoders have been registered. */
     private static _initialized: boolean = false;
 
+    /**
+     * When set to a registered extension (e.g. `".ktx2"`), path resolution tries
+     * this extension first, before the default order — so a scenario that ships
+     * both `foo.jpg` and `foo.ktx2` can switch to the compressed variant at load
+     * time without changing any asset paths. `null` = default order.
+     *
+     * Set before loading. Used e.g. by the benchmark harness's `ktx2` toggle to
+     * A/B compressed vs. uncompressed textures from a single archive.
+     */
+    public static preferExtension: string | null = null;
+
     // ==================== LIFECYCLE (INTERNAL) ====================
 
     /**
@@ -573,6 +584,14 @@ export class Resources {
         const currentExt = Resources._extname(basePath).toLowerCase();
         if (extensions.some(e => e.toLowerCase() === currentExt)) {
             if (Resources._source!.has(basePath)) return basePath;
+        }
+
+        // Preferred-extension override (e.g. ".ktx2"): try it first if registered
+        // and present, so a dual-format archive can switch variants at load time.
+        const prefer = Resources.preferExtension;
+        if (prefer && extensions.some(e => e.toLowerCase() === prefer.toLowerCase())) {
+            const preferred = basePath + prefer;
+            if (Resources._source!.has(preferred)) return preferred;
         }
 
         // Try each registered extension (no-extension convention)
