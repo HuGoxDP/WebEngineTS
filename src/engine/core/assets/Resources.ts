@@ -473,6 +473,31 @@ export class Resources {
     }
 
     /**
+     * Releases the CPU-side source image of every cached texture (`Texture2D`,
+     * `Cubemap`), freeing decoded pixel data once it has been uploaded to the GPU.
+     * The per-texture two-frame upload countdown still applies, so this is safe to
+     * call right after loading.
+     *
+     * @returns the number of textures whose source image was released.
+     *
+     * @remarks
+     * Frees heap/native memory held by decoded images without touching VRAM —
+     * useful once a scenario has finished loading and no texture needs re-reading
+     * on the CPU.
+     */
+    public static releaseAllSourceImages(): number {
+        let released = 0;
+        for (const entry of Resources._cache.values()) {
+            const asset = entry.asset as { releaseSourceImage?: () => void };
+            if (typeof asset?.releaseSourceImage === "function") {
+                asset.releaseSourceImage();
+                released++;
+            }
+        }
+        return released;
+    }
+
+    /**
      * Checks if an asset path exists in the active source.
      *
      * @param path — path relative to `assets/`.

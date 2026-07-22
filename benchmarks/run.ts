@@ -11,7 +11,7 @@
 //   index.html?scene=3
 
 import {
-    Application, GraphicsPowerPreference, Benchmark, Texture2D, Transform,
+    Application, GraphicsPowerPreference, Benchmark, Resources, Texture2D, Transform,
     type BenchmarkResult,
 } from "WebEngineTS";
 import { buildProceduralGrid } from "./scenes/scene1Grid.ts";
@@ -121,6 +121,7 @@ function downloadBaseName(result: BenchmarkResult): string {
 
     if (qp("maxSize", "0") !== "0") parts.push(`max${qp("maxSize", "0")}`);
     if (qp("relArc", "0") === "1") parts.push("relArc");
+    if (qp("relSrc", "0") === "1") parts.push("relSrc");
     parts.push(qp("shaderWarmup", "1") === "1" ? "warm" : "nowarm");
     if (qp("cold", "0") === "1") parts.push("cold");
 
@@ -222,13 +223,11 @@ async function main(): Promise<void> {
     const loadMs = performance.now() - loadStart;
 
     if (relSrc) {
-        // TODO: releaseSourceImages is not URL-drivable yet. Resources keeps no
-        // registry of loaded textures to walk, and releaseSourceImage() is
-        // per-Texture2D / per-Cubemap. Needs an engine helper (e.g.
-        // Resources.releaseAllSourceImages() or a scene-graph texture walk) before
-        // this row can be toggled here. Until then, measure it with a scenario
-        // build that calls releaseSourceImage() in its own code.
-        log("NOTE: relSrc is not yet supported by the harness (see TODO in run.ts).");
+        // Free decoded source images after load (paper's releaseSourceImages opt).
+        // Safe post-load: releaseSourceImage() defers the actual free via a
+        // two-frame GPU-upload countdown.
+        const releasedImages = Resources.releaseAllSourceImages();
+        log(`relSrc: released source images on ${releasedImages} texture(s)`);
     }
 
     app.run(); // idempotent — a scenario has already started the loop
