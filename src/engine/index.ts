@@ -158,6 +158,7 @@ export {
     type BenchmarkResult,
     type FrameTimeStats,
 } from './core/diagnostics/Benchmark';
+export { Profiler, type ProfilerSample } from './core/diagnostics/Profiler';
 
 
 // =====================

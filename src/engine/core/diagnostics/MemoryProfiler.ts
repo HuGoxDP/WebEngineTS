@@ -7,6 +7,7 @@ import { Cubemap } from "../graphics/Cubemap.ts";
 import { Mesh } from "../graphics/Mesh.ts";
 import { PostProcessing } from "../postprocessing/PostProcessing.ts";
 import { profilerHooks } from "./ProfilerHooks.ts";
+import { Profiler } from "./Profiler.ts";
 
 // ==================== TYPES ====================
 
@@ -344,6 +345,15 @@ export class MemoryProfiler {
                 `CPU phases: fixed ${p.fixedUpdate.toFixed(2)} | update ${p.update.toFixed(2)}`
                 + ` | late ${p.lateUpdate.toFixed(2)} | render ${p.render.toFixed(2)} ms`
             );
+        }
+
+        const samples = Profiler.getFrameSamples();
+        if (samples.size > 0) {
+            console.log("Profiler samples (top by ms):");
+            const top = [...samples.entries()].sort((a, b) => b[1].totalMs - a[1].totalMs).slice(0, 8);
+            for (const [name, s] of top) {
+                console.log(`  ${name}: ${s.totalMs.toFixed(2)} ms (${s.calls}x)`);
+            }
         }
         if (r.gpu !== null) console.log(`GPU: ${r.gpu}`);
 

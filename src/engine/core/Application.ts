@@ -24,6 +24,7 @@ import { Gamepad } from "./input/Gamepad.ts";
 import { Touch } from "./input/Touch.ts";
 import { PluginManager } from "./plugins/PluginManager.ts";
 import { PostProcessing } from "./postprocessing/PostProcessing.ts";
+import { Profiler } from "./diagnostics/Profiler.ts";
 
 // Reusable THREE.Color to avoid per-frame allocation in _render().
 const _clearColor = new THREE.Color();
@@ -532,6 +533,9 @@ export class Application {
     private _loop = (): void => {
         if (!this.isPlaying) return;
         requestAnimationFrame(this._loop);
+
+        // Roll the marker profiler to a new frame (no-op unless Profiler.enabled).
+        Profiler._beginFrame();
 
         // 1. Compute delta time
         const now = performance.now();
