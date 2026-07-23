@@ -732,6 +732,19 @@ export class MemoryProfiler {
         _L.push(`Audio:`);
         _L.push(`  Sources: ${srcCount}   Listeners: ${lisCount}`);
 
+        // ── Profiler markers (only when Profiler.enabled has produced samples) ──
+        const psamples = Profiler.getFrameSamples();
+        if (psamples.size > 0) {
+            _L.push(``);
+            _L.push(`Profiler (top ms):`);
+            const top = [...psamples.entries()]
+                .sort((a, b) => b[1].totalMs - a[1].totalMs)
+                .slice(0, 6);
+            for (const [name, s] of top) {
+                _L.push(`  ${name}: ${s.totalMs.toFixed(2)} (${s.calls}x)`);
+            }
+        }
+
         _s.statsText.textContent = _L.join("\n");
     }
 
