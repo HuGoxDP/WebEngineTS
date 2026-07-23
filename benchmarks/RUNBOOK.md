@@ -31,11 +31,14 @@ npm run benchmark:build  # runner  → benchmarks/run.js
 npx serve .              # serve the REPO ROOT over http
 ```
 
-### Scenario ZIPs (in the sibling ScenarioCreator, **PowerShell**)
+### Scenario ZIPs (in the sibling **ScenarioCreator** repo, **PowerShell**)
 
-Build in **PowerShell**, not Git Bash — Git Bash's `tar.exe` mishandles `C:\` archive paths.
+⚠️ This is a **different repo** — `cd` into it first. Running the command in `WebEngineTS`
+invokes Rollup (the engine build), which ignores `--scenario`/`--ktx2` ("Unknown CLI flags").
+Use PowerShell, not Git Bash (Git Bash's `tar.exe` mishandles `C:\` archive paths).
 
 ```powershell
+cd C:\Users\Work\WebstormProjects\ScenarioCreator
 npm run build -- --scenario Benchscene2_complexmodel,Benchscene3_solarsystem
 ```
 
@@ -43,6 +46,7 @@ For the **KTX2 dual-format** Scene 3 (needs [KTX-Software](https://github.com/Kh
 on PATH — auto-detected at `C:\Program Files\KTX-Software\bin`):
 
 ```powershell
+cd C:\Users\Work\WebstormProjects\ScenarioCreator
 $env:INCLUDE_SKYBOX = "1"   # also compress the skybox panorama
 npm run build -- --scenario Benchscene3_solarsystem --ktx2
 ```
@@ -50,14 +54,22 @@ npm run build -- --scenario Benchscene3_solarsystem --ktx2
 `--ktx2` runs the scene's `convert_to_ktx2.sh` and packs **both** `.jpg` and `.ktx2` into the
 one ZIP, so `&ktx2=0` uses the originals and `&ktx2=1` uses the compressed variants.
 
-Then copy the ZIPs from `ScenarioCreator/ReleaseScenarios/` into
-`WebEngineTS/benchmarks/scenarios/` (git-ignored). Ensure the **Basis transcoder** is served at
-repo-root `/public/basis/` (required for `&ktx2` and the `scene=ktx2` sanity check).
+Then copy the ZIPs into `WebEngineTS/benchmarks/scenarios/` (git-ignored):
+
+```powershell
+Copy-Item C:\Users\Work\WebstormProjects\ScenarioCreator\ReleaseScenarios\Benchscene*.zip C:\Users\Work\WebstormProjects\WebEngineTS\benchmarks\scenarios\
+```
+
+Ensure the **Basis transcoder** is served at repo-root `/public/basis/` (required for `&ktx2`
+and the `scene=ktx2` sanity check).
 
 ### Browser / environment
 
-- Chromium (Chrome/Edge) launched with `--enable-precise-memory-info`, else the JS-heap figure
-  is quantised.
+- Chromium-based browser (Chrome / Edge / **Opera / Opera GX**) launched with
+  `--enable-precise-memory-info` (affects only the JS-heap column; VRAM/CPU don't need it).
+  **Opera GX:** first disable the **GX Control** CPU/RAM/Network limiters — they throttle the
+  tab and skew CPU-bound numbers. Fully quit the browser, then launch the exe with the flag
+  (or append it to the shortcut target).
 - **Keep the tab focused** (rAF throttles background tabs); fixed window size; `dpr=1`; laptop
   on AC / max-performance; close other GPU/CPU-heavy apps; idle a few seconds before measuring.
 - If `/dist/WebEngineTS.standalone.js` 404s, you served `benchmarks/` instead of the repo root.
