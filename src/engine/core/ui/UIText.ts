@@ -1,5 +1,7 @@
 import { UIBehaviour } from "./UIBehaviour";
 import { Color } from "../math/Color";
+import { HASH_SEED, cssColor, fontGeneration, hashColor, hashNumber, hashString } from "./UIUtils";
+import type { Rect } from "../math/Rect";
 import type { GameObject } from "../GameObject";
 
 /** Horizontal text alignment options. */
@@ -22,12 +24,17 @@ export enum VerticalAlignment {
  * @remarks
  * Equivalent to Unity's `UnityEngine.UI.Text` (legacy) component.
  *
+ * Word wrapping is measured once and reused until the text, font or rect width
+ * changes — `measureText` is among the most expensive 2D-context calls, and a
+ * label re-measured every frame is pure waste.
+ *
  * ```ts
  * const label = go.addComponent(UIText);
  * label.text = "Score: 0";
  * label.fontSize = 24;
  * label.color = Color.white;
  * label.alignment = TextAlignment.Center;
+ * label.outlineWidth = 2;   // readable over a bright 3D scene
  * ```
  */
 export class UIText extends UIBehaviour {
@@ -35,7 +42,7 @@ export class UIText extends UIBehaviour {
     /** The string to display. Supports `\n` for line breaks. */
     public text: string = "Text";
 
-    /** Font size in pixels. */
+    /** Font size in canvas units. */
     public fontSize: number = 16;
 
     /** Font family (CSS font-family syntax). */
@@ -59,39 +66,100 @@ export class UIText extends UIBehaviour {
     /** Line height multiplier (1 = normal). */
     public lineHeight: number = 1.2;
 
+    /**
+     * Width of the outline stroked behind the glyphs, in canvas units.
+     * `0` disables it.
+     */
+    public outlineWidth: number = 0;
+
+    /** Outline color, used when {@link outlineWidth} is greater than zero. */
+    public outlineColor: Color = new Color(0, 0, 0, 1);
+
+    /** Cached wrap result, keyed by the inputs that can change it. */
+    private _lines: string[] = [];
+    private _cacheText: string | null = null;
+    private _cacheFont: string = "";
+    private _cacheWidth: number = -1;
+    private _cacheWrap: boolean = true;
+    private _cacheFontGeneration: number = -1;
+
     constructor(gameObject: GameObject) {
         super(gameObject);
     }
 
-    public override _draw(ctx: CanvasRenderingContext2D): void {
-        const rect = this.rectTransform.screenRect;
+    public override _draw(ctx: CanvasRenderingContext2D, rect: Rect): void {
         if (rect.width <= 0 || rect.height <= 0 || !this.text) return;
 
-        ctx.font = `${this.fontStyle} ${this.fontSize}px ${this.fontFamily}`;
-        ctx.fillStyle = this._toCSSColor(this.color);
+        const font = this._font();
+        ctx.font = font;
         ctx.textAlign = this.alignment as CanvasTextAlign;
         ctx.textBaseline = "top";
 
-        const x = this._textX(rect);
+        const lines = this._resolveLines(ctx, font, rect.width);
         const lineH = this.fontSize * this.lineHeight;
+        const x = this._textX(rect);
+        let y = this._textStartY(rect, lines.length * lineH);
 
-        const lines = this.wordWrap
-            ? this._wrapText(ctx, this.text, rect.width)
-            : this.text.split("\n");
+        const stroke = this.outlineWidth > 0 && this.outlineColor.a > 0;
+        if (stroke) {
+            ctx.strokeStyle = cssColor(this.outlineColor);
+            ctx.lineWidth = this.outlineWidth;
+            ctx.lineJoin = "round";
+        }
+        ctx.fillStyle = cssColor(this.color);
 
-        const totalH = lines.length * lineH;
-        let y = this._textStartY(rect, totalH);
-
-        for (const line of lines) {
+        for (let i = 0; i < lines.length; i++) {
             if (y + lineH > rect.y + rect.height) break;
-            ctx.fillText(line, x, y);
+            if (stroke) ctx.strokeText(lines[i], x, y);
+            ctx.fillText(lines[i], x, y);
             y += lineH;
         }
     }
 
+    public override _visualHash(): number {
+        let h = hashString(HASH_SEED, this.text);
+        h = hashNumber(h, this.fontSize);
+        h = hashString(h, this.fontFamily);
+        h = hashString(h, this.fontStyle);
+        h = hashColor(h, this.color);
+        h = hashString(h, this.alignment);
+        h = hashString(h, this.verticalAlignment);
+        h = hashNumber(h, this.wordWrap ? 1 : 0);
+        h = hashNumber(h, this.lineHeight);
+        h = hashNumber(h, this.outlineWidth);
+        h = hashColor(h, this.outlineColor);
+        return hashNumber(h, fontGeneration());
+    }
+
     // ── private ──────────────────────────────────────────────────────
 
-    private _textX(rect: { x: number; width: number }): number {
+    private _font(): string {
+        return `${this.fontStyle} ${this.fontSize}px ${this.fontFamily}`;
+    }
+
+    /** Returns the wrapped lines, re-measuring only when an input changed. */
+    private _resolveLines(ctx: CanvasRenderingContext2D, font: string, maxWidth: number): string[] {
+        if (this._cacheText === this.text
+            && this._cacheFont === font
+            && this._cacheWrap === this.wordWrap
+            && this._cacheFontGeneration === fontGeneration()
+            && (!this.wordWrap || this._cacheWidth === maxWidth)) {
+            return this._lines;
+        }
+
+        this._lines = this.wordWrap
+            ? this._wrapText(ctx, this.text, maxWidth)
+            : this.text.split("\n");
+
+        this._cacheText = this.text;
+        this._cacheFont = font;
+        this._cacheWidth = maxWidth;
+        this._cacheWrap = this.wordWrap;
+        this._cacheFontGeneration = fontGeneration();
+        return this._lines;
+    }
+
+    private _textX(rect: Rect): number {
         switch (this.alignment) {
             case TextAlignment.Center: return rect.x + rect.width * 0.5;
             case TextAlignment.Right:  return rect.x + rect.width;
@@ -99,7 +167,7 @@ export class UIText extends UIBehaviour {
         }
     }
 
-    private _textStartY(rect: { y: number; height: number }, totalH: number): number {
+    private _textStartY(rect: Rect, totalH: number): number {
         switch (this.verticalAlignment) {
             case VerticalAlignment.Middle: return rect.y + (rect.height - totalH) * 0.5;
             case VerticalAlignment.Bottom: return rect.y + rect.height - totalH;
@@ -124,9 +192,5 @@ export class UIText extends UIBehaviour {
             result.push(line);
         }
         return result;
-    }
-
-    private _toCSSColor(c: Color): string {
-        return `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${c.a})`;
     }
 }

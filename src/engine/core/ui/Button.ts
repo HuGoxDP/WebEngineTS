@@ -1,6 +1,8 @@
 import { UIBehaviour } from "./UIBehaviour";
 import { Color } from "../math/Color";
 import { EventSystem } from "./EventSystem";
+import { HASH_SEED, cssColor, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
+import type { Rect } from "../math/Rect";
 import type { GameObject } from "../GameObject";
 
 /** Visual state of the button. */
@@ -16,7 +18,9 @@ export enum ButtonState {
  *
  * @remarks
  * Equivalent to Unity's `UnityEngine.UI.Button`.
- * Uses {@link EventSystem} (called from Application._loop) for hit-testing.
+ * Uses {@link EventSystem} (called from Application._loop) for hit-testing, which
+ * resolves the topmost button under the pointer — overlapping buttons no longer
+ * all react to the same click.
  *
  * ```ts
  * const btn = go.addComponent(Button);
@@ -38,7 +42,7 @@ export class Button extends UIBehaviour {
     /** Background color when `interactable` is false. */
     public disabledColor: Color   = new Color(0.20, 0.20, 0.20, 0.5);
 
-    /** Corner radius in pixels. */
+    /** Corner radius in canvas units. */
     public borderRadius: number = 4;
 
     /** Label text drawn centred on the button. */
@@ -56,7 +60,7 @@ export class Button extends UIBehaviour {
     /** Whether the button responds to pointer input. */
     public interactable: boolean = true;
 
-    /** Fired once per click (pointer-down inside rect while interactable). */
+    /** Fired once per click (pointer released inside the rect while interactable). */
     public onClick: (() => void) | null = null;
 
     /** @internal Current visual state. Updated by EventSystem each frame. */
@@ -84,36 +88,15 @@ export class Button extends UIBehaviour {
         EventSystem._unregisterButton(this);
     }
 
-    public override _draw(ctx: CanvasRenderingContext2D): void {
-        const rect = this.rectTransform.screenRect;
+    public override _draw(ctx: CanvasRenderingContext2D, rect: Rect): void {
         if (rect.width <= 0 || rect.height <= 0) return;
 
-        const bgColor = this._stateColor();
-        const r = Math.min(this.borderRadius, rect.width / 2, rect.height / 2);
-
-        // Background
-        ctx.fillStyle = this._toCSSColor(bgColor);
-        ctx.beginPath();
-        if (r > 0) {
-            const { x, y, width: w, height: h } = rect;
-            ctx.moveTo(x + r, y);
-            ctx.lineTo(x + w - r, y);
-            ctx.arcTo(x + w, y,     x + w, y + r,     r);
-            ctx.lineTo(x + w, y + h - r);
-            ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-            ctx.lineTo(x + r, y + h);
-            ctx.arcTo(x,     y + h, x,     y + h - r, r);
-            ctx.lineTo(x, y + r);
-            ctx.arcTo(x,     y,     x + r, y,         r);
-            ctx.closePath();
-        } else {
-            ctx.rect(rect.x, rect.y, rect.width, rect.height);
-        }
+        ctx.fillStyle = cssColor(this._stateColor());
+        roundedRectPath(ctx, rect.x, rect.y, rect.width, rect.height, this.borderRadius);
         ctx.fill();
 
-        // Label
         if (this.text) {
-            ctx.fillStyle = this._toCSSColor(this.textColor);
+            ctx.fillStyle = cssColor(this.textColor);
             ctx.font = `${this.fontSize}px ${this.fontFamily}`;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
@@ -125,6 +108,15 @@ export class Button extends UIBehaviour {
         }
     }
 
+    public override _visualHash(): number {
+        let h = hashColor(HASH_SEED, this._stateColor());
+        h = hashNumber(h, this.borderRadius);
+        h = hashString(h, this.text);
+        h = hashNumber(h, this.fontSize);
+        h = hashString(h, this.fontFamily);
+        return hashColor(h, this.textColor);
+    }
+
     // ── private ──────────────────────────────────────────────────────
 
     private _stateColor(): Color {
@@ -134,9 +126,5 @@ export class Button extends UIBehaviour {
             case ButtonState.Pressed:     return this.pressedColor;
             default:                      return this.normalColor;
         }
-    }
-
-    private _toCSSColor(c: Color): string {
-        return `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${c.a})`;
     }
 }

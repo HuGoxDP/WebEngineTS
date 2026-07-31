@@ -235,10 +235,16 @@ export {
 // =====================
 // UI
 // =====================
-export { Canvas, CanvasRenderMode } from "./core/ui/Canvas";
+export { Canvas, CanvasRenderMode, CanvasRepaintMode } from "./core/ui/Canvas";
+export {
+    CanvasScaler,
+    CanvasScaleMode,
+    ScreenMatchMode,
+    CanvasPhysicalUnit,
+} from "./core/ui/CanvasScaler";
 export { RectTransform } from "./core/ui/RectTransform";
 export { UIBehaviour } from "./core/ui/UIBehaviour";
-export { UIImage } from "./core/ui/UIImage";
+export { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
 export { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
 export { Button, ButtonState } from "./core/ui/Button";
 export { VirtualJoystick } from "./core/ui/VirtualJoystick";
@@ -388,10 +394,16 @@ import {
     GradientMode,
 } from "./core/particles/ParticleTypes";
 
-import { Canvas, CanvasRenderMode } from "./core/ui/Canvas";
+import { Canvas, CanvasRenderMode, CanvasRepaintMode } from "./core/ui/Canvas";
+import {
+    CanvasScaler,
+    CanvasScaleMode,
+    ScreenMatchMode,
+    CanvasPhysicalUnit,
+} from "./core/ui/CanvasScaler";
 import { RectTransform } from "./core/ui/RectTransform";
 import { UIBehaviour } from "./core/ui/UIBehaviour";
-import { UIImage } from "./core/ui/UIImage";
+import { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
 import { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
 import { Button, ButtonState } from "./core/ui/Button";
 import { VirtualJoystick } from "./core/ui/VirtualJoystick";
@@ -498,8 +510,10 @@ const WebEngineTS = {
     ParticleSimulationSpace, ParticleRenderMode, ParticleShapeType, GradientMode,
 
     // UI
-    Canvas, CanvasRenderMode, RectTransform, UIBehaviour,
-    UIImage, UIText, TextAlignment, VerticalAlignment,
+    Canvas, CanvasRenderMode, CanvasRepaintMode, RectTransform, UIBehaviour,
+    CanvasScaler, CanvasScaleMode, ScreenMatchMode, CanvasPhysicalUnit,
+    UIImage, ImageFillMethod, ImageFillOrigin,
+    UIText, TextAlignment, VerticalAlignment,
     Button, ButtonState, EventSystem, VirtualJoystick,
 
     // Scenario

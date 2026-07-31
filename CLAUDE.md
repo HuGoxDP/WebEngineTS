@@ -96,6 +96,13 @@ npm run benchmark:build # bundle benchmarks/run.ts → benchmarks/run.js (needs 
 - Scenario: `src/engine/core/scenario/` — ZIP-based content pipeline (Scenario, ScenarioAssets, ScenarioBehaviour)
 - Assets: `src/engine/core/assets/` — Resources API, LoadHandle
 - Diagnostics: `src/engine/core/diagnostics/` — MemoryProfiler
+- UI: `src/engine/core/ui/` — Canvas (2D overlay), CanvasScaler, RectTransform, UIImage,
+  UIText, Button, VirtualJoystick, EventSystem. Drawn through the 2D context, not Three.js:
+  the overlay is a separate `<canvas>` sized at the device pixel ratio and transformed once
+  per repaint, so components draw in canvas units. `Canvas.repaintMode` defaults to
+  `OnDemand` — the canvas hashes each graphic's rect plus its `_visualHash()` and skips the
+  repaint when nothing changed. A `UIBehaviour` subclass that does not override
+  `_visualHash()` returns `NaN` and is treated as always-changed, so opting out is safe.
 
 ## Architecture — Critical Rules
 
