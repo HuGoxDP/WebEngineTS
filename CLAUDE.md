@@ -213,6 +213,12 @@ Prioritized plan for continued engine work. Driven by peer-review feedback on th
 thesis paper (submission 76) and the paper's own "future work" section. Rationale is
 kept here so future sessions understand *why* each item exists.
 
+**Execution plan** (sequencing, effort, resources, per-item success metrics, risks):
+[`design/roadmap-2026H2.md`](design/roadmap-2026H2.md). The critical path is the paper's
+Section 5 evaluation data — the engine-side measurement tooling exists, the runs do not.
+The first item there (**P0-A**, batch/matrix mode for the harness) is the only task that
+*shortens* that path; everything else waits behind it.
+
 ### P0 — Paper-critical, pure engine work (address reviewers R1 & R3)
 1. **GPU/VRAM diagnostics** *(done 2026-07-16)*. `MemoryProfiler` surfaces
    `renderer.info.memory` (geometries, textures) plus engine-side VRAM estimates:
