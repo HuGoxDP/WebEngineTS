@@ -146,7 +146,7 @@ export class Application {
      * meaningful main-thread load metric. `0` until the loop has run once.
      */
     public get cpuFrameTime(): number {
-        return this._cpuFrameMs;
+        return Profiler.frameCpuMs;
     }
 
     /**
@@ -155,27 +155,27 @@ export class Application {
      * is where the shader-compilation stall appears. `0` until the first frame.
      */
     public get firstFrameCpuTime(): number {
-        return this._firstFrameCpuMs;
+        return Profiler.firstFrameCpuMs;
     }
 
     /** Main-thread (CPU) ms spent in the FixedUpdate phase last frame. */
     public get fixedUpdateTime(): number {
-        return this._fixedUpdateMs;
+        return Profiler.phases.fixedUpdate;
     }
 
     /** Main-thread (CPU) ms spent in the Update phase last frame (incl. animation, particles). */
     public get updateTime(): number {
-        return this._updateMs;
+        return Profiler.phases.update;
     }
 
     /** Main-thread (CPU) ms spent in the LateUpdate phase last frame (incl. audio, events, LOD). */
     public get lateUpdateTime(): number {
-        return this._lateUpdateMs;
+        return Profiler.phases.lateUpdate;
     }
 
     /** Main-thread (CPU) ms spent rendering last frame (3D scene + UI canvas). */
     public get renderTime(): number {
-        return this._renderMs;
+        return Profiler.phases.render;
     }
 
     // ==================== INSTANCE FIELDS ====================
@@ -209,31 +209,6 @@ export class Application {
 
     /** First-render flag for one-time diagnostics. */
     private _firstRender: boolean = true;
-
-    /** Main-thread time (ms) spent in the last frame's loop body. @internal */
-    public _cpuFrameMs: number = 0;
-
-    /**
-     * Main-thread time (ms) of the very first rendered frame after the loop
-     * started — where an un-warmed shader-compilation stall lands. `0` until the
-     * first frame has run; reset by {@link run}. @internal
-     */
-    public _firstFrameCpuMs: number = 0;
-
-    /** Guards {@link _firstFrameCpuMs} so only the first frame is recorded. */
-    private _firstFrameCaptured: boolean = false;
-
-    /** Main-thread ms spent in FixedUpdate (summed over sub-steps) last frame. @internal */
-    public _fixedUpdateMs: number = 0;
-
-    /** Main-thread ms spent in Update (incl. animation/particles) last frame. @internal */
-    public _updateMs: number = 0;
-
-    /** Main-thread ms spent in LateUpdate (incl. audio/events/LOD) last frame. @internal */
-    public _lateUpdateMs: number = 0;
-
-    /** Main-thread ms spent rendering (3D scene + UI canvas) last frame. @internal */
-    public _renderMs: number = 0;
 
     /** Bound resize handler (stored so we can remove it on dispose). */
     private readonly _resizeHandler: () => void;
@@ -306,8 +281,7 @@ export class Application {
         if (this.isPlaying) return;
         this.isPlaying = true;
         this._firstRender = true;
-        this._firstFrameCaptured = false;
-        this._firstFrameCpuMs = 0;
+        Profiler._reset();
         this._lastFrameTime = performance.now();
         console.log("[Application] Engine started.");
         this._loop();
@@ -572,7 +546,7 @@ export class Application {
         }
 
         const tUpdateStart = performance.now();
-        this._fixedUpdateMs = tUpdateStart - tFixedStart;
+        const fixedUpdateMs = tUpdateStart - tFixedStart;
 
         // 5. Per-frame updates - plugins, components, then scenario
         PluginManager._onUpdate(frameDelta);
@@ -588,7 +562,7 @@ export class Application {
         ParticleSystem._updateAll();
 
         const tLateStart = performance.now();
-        this._updateMs = tLateStart - tUpdateStart;
+        const updateMs = tLateStart - tUpdateStart;
 
         // 7. Late updates - components, scenario, then plugins
         scene._lateUpdate();
@@ -608,7 +582,7 @@ export class Application {
         LODGroup._updateAll();
 
         const tRenderStart = performance.now();
-        this._lateUpdateMs = tRenderStart - tLateStart;
+        const lateUpdateMs = tRenderStart - tLateStart;
 
         // 7. Render
         this._render();
@@ -616,22 +590,18 @@ export class Application {
         // 8. UI Canvas render (overlay, after 3D scene)
         Canvas._renderAll();
 
-        this._renderMs = performance.now() - tRenderStart;
+        const renderMs = performance.now() - tRenderStart;
 
         // 9. Reset per-frame input state
         Input._resetFrame();
         Touch._postUpdate();
 
-        // 10. Record main-thread (CPU) time spent this frame — the busy portion
-        // of the frame, excluding idle/vsync wait. Used by diagnostics.
-        this._cpuFrameMs = performance.now() - now;
-
-        // Capture the first frame's CPU time separately — an un-warmed
-        // shader-compilation stall lands here.
-        if (!this._firstFrameCaptured) {
-            this._firstFrameCpuMs = this._cpuFrameMs;
-            this._firstFrameCaptured = true;
-        }
+        // 10. Report this frame's main-thread cost and phase split to the
+        // profiler — the single source of timing data for diagnostics.
+        Profiler._recordFrame(
+            performance.now() - now,
+            fixedUpdateMs, updateMs, lateUpdateMs, renderMs,
+        );
     };
 
     // ==================== RENDERING (PRIVATE) ====================

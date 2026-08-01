@@ -1,16 +1,11 @@
 // path: src/engine/core/diagnostics/Benchmark.ts
 
 import { MemoryProfiler } from "./MemoryProfiler.ts";
+import { Profiler, type FramePhaseTimings, type FrameTimeStats } from "./Profiler.ts";
 
-/** Engine-side per-frame timings read from the active Application (diagnostics global). */
-interface AppTimings {
-    _cpuFrameMs?: number;
-    _firstFrameCpuMs?: number;
-    _fixedUpdateMs?: number;
-    _updateMs?: number;
-    _lateUpdateMs?: number;
-    _renderMs?: number;
-}
+// Frame-time statistics live in Profiler (the shared timing core) so live and
+// benchmark numbers are computed identically; re-exported here for API stability.
+export type { FrameTimeStats } from "./Profiler.ts";
 
 // ==================== TYPES ====================
 
@@ -37,24 +32,6 @@ export interface BenchmarkOptions {
      * and the CSV so exported runs carry the paper's "Load" column. Default `0`.
      */
     loadTimeMs?: number;
-}
-
-/** Statistical summary of a frame-time sample, in milliseconds. */
-export interface FrameTimeStats {
-    /** Arithmetic mean frame time. */
-    mean: number;
-    /** 50th percentile (median). */
-    median: number;
-    /** 95th percentile. */
-    p95: number;
-    /** 99th percentile. */
-    p99: number;
-    /** Fastest frame. */
-    min: number;
-    /** Slowest frame — the metric most sensitive to stutter. */
-    max: number;
-    /** Population standard deviation (frame-time variability). */
-    stdDev: number;
 }
 
 /** The result of one {@link Benchmark.run} measurement session. */
@@ -84,12 +61,7 @@ export interface BenchmarkResult {
      * FixedUpdate, Update (incl. animation/particles), LateUpdate (incl.
      * audio/events/LOD) and Render. Roughly sums to {@link cpuFrameMsMean}.
      */
-    phaseMsMean: {
-        fixedUpdate: number;
-        update: number;
-        lateUpdate: number;
-        render: number;
-    };
+    phaseMsMean: FramePhaseTimings;
     /**
      * Main-thread (CPU) time in ms of the very first rendered frame, read from
      * the active Application. This is where an un-warmed shader-compilation stall
@@ -193,14 +165,12 @@ export class Benchmark {
                 }
 
                 samples[sampleIndex++] = dt;
-                const t = Benchmark._appTimings();
-                if (t) {
-                    cpuSum += t._cpuFrameMs ?? 0;
-                    fixedSum += t._fixedUpdateMs ?? 0;
-                    updateSum += t._updateMs ?? 0;
-                    lateSum += t._lateUpdateMs ?? 0;
-                    renderSum += t._renderMs ?? 0;
-                }
+                const phases = Profiler.phases;
+                cpuSum += Profiler.frameCpuMs;
+                fixedSum += phases.fixedUpdate;
+                updateSum += phases.update;
+                lateSum += phases.lateUpdate;
+                renderSum += phases.render;
                 if (sampleIndex < sampleFrames) {
                     requestAnimationFrame(tick);
                     return;
@@ -277,7 +247,8 @@ export class Benchmark {
         const header = [
             "label", "gpu", "timestamp", "warmupFrames", "sampleFrames", "load_ms",
             "mean_ms", "median_ms", "p95_ms", "p99_ms", "min_ms", "max_ms", "stdDev_ms",
-            "fps", "cpu_mean_ms", "first_render_cpu_ms", "max_first10_ms",
+            "fps", "cpu_mean_ms", "fixed_ms", "update_ms", "late_ms", "render_ms",
+            "first_render_cpu_ms", "max_first10_ms",
             "jsHeapUsedBytes", "gpuTextures", "gpuGeometries",
             "estimatedTextureVramBytes", "estimatedGeometryVramBytes",
             "estimatedRenderTargetVramBytes", "drawCalls", "triangles",
@@ -298,6 +269,10 @@ export class Benchmark {
             Benchmark._num(r.frameTimeMs.stdDev),
             Benchmark._num(r.fps),
             Benchmark._num(r.cpuFrameMsMean),
+            Benchmark._num(r.phaseMsMean.fixedUpdate),
+            Benchmark._num(r.phaseMsMean.update),
+            Benchmark._num(r.phaseMsMean.lateUpdate),
+            Benchmark._num(r.phaseMsMean.render),
             Benchmark._num(r.firstRenderCpuMs),
             Benchmark._num(r.maxFirst10Ms),
             r.memory.jsHeapUsedBytes ?? "",
@@ -350,9 +325,9 @@ export class Benchmark {
         captureMemory: boolean,
         loadTimeMs: number,
     ): BenchmarkResult {
-        const stats = Benchmark._computeStats(samples);
+        const stats = Profiler.computeStats(samples);
 
-        const firstRenderCpuMs = Benchmark._appTimings()?._firstFrameCpuMs ?? 0;
+        const firstRenderCpuMs = Profiler.firstFrameCpuMs;
         let maxFirst10Ms = 0;
         const firstN = Math.min(10, samples.length);
         for (let i = 0; i < firstN; i++) {
@@ -406,47 +381,6 @@ export class Benchmark {
             gpu,
             memory,
         };
-    }
-
-    /** Reads engine-side per-frame timings from the active Application, or null. */
-    private static _appTimings(): AppTimings | null {
-        return (globalThis as unknown as { __webengine_application__?: AppTimings })
-            .__webengine_application__ ?? null;
-    }
-
-    private static _computeStats(samples: Float64Array): FrameTimeStats {
-        const n = samples.length;
-        const sorted = Float64Array.from(samples).sort();
-
-        let sum = 0;
-        for (let i = 0; i < n; i++) sum += samples[i];
-        const mean = sum / n;
-
-        let varSum = 0;
-        for (let i = 0; i < n; i++) {
-            const d = samples[i] - mean;
-            varSum += d * d;
-        }
-        const stdDev = Math.sqrt(varSum / n);
-
-        return {
-            mean,
-            median: Benchmark._percentile(sorted, 50),
-            p95: Benchmark._percentile(sorted, 95),
-            p99: Benchmark._percentile(sorted, 99),
-            min: sorted[0],
-            max: sorted[n - 1],
-            stdDev,
-        };
-    }
-
-    /** Nearest-rank percentile over an already-sorted array. */
-    private static _percentile(sorted: Float64Array, p: number): number {
-        const n = sorted.length;
-        if (n === 0) return 0;
-        const rank = Math.ceil((p / 100) * n) - 1;
-        const idx = Math.min(n - 1, Math.max(0, rank));
-        return sorted[idx];
     }
 
     private static _num(value: number): string {

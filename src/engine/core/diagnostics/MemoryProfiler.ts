@@ -7,7 +7,7 @@ import { Cubemap } from "../graphics/Cubemap.ts";
 import { Mesh } from "../graphics/Mesh.ts";
 import { PostProcessing } from "../postprocessing/PostProcessing.ts";
 import { profilerHooks } from "./ProfilerHooks.ts";
-import { Profiler } from "./Profiler.ts";
+import { Profiler, type FrameTimeStats } from "./Profiler.ts";
 
 // ==================== TYPES ====================
 
@@ -202,9 +202,8 @@ interface OverlayState {
     memGraph: MiniGraph;
     rafId: number;
     prevTime: number;
-    frames: number;
-    fpsUpdateTime: number;
-    fps: number;
+    /** Latest rolling frame-time stats from the Profiler (refreshed at text cadence). */
+    stats: FrameTimeStats | null;
     textUpdateTime: number;
 }
 
@@ -270,27 +269,11 @@ export class MemoryProfiler {
                 estimatedBytes: Resources.estimatedMemory,
             },
             deviceMemoryGB: (navigator as any).deviceMemory ?? null,
-            cpuFrameMs: MemoryProfiler._getCpuFrameMs(),
-            cpuPhasesMs: MemoryProfiler._getCpuPhasesMs(),
+            cpuFrameMs: Profiler.hasFrameData ? Profiler.frameCpuMs : null,
+            // Copied: Profiler reuses its phase record every frame, and a
+            // snapshot must not alias it.
+            cpuPhasesMs: Profiler.hasFrameData ? { ...Profiler.phases } : null,
             gpu: MemoryProfiler._getGpuName(),
-        };
-    }
-
-    /** Main-thread frame time from the active Application, or null. */
-    private static _getCpuFrameMs(): number | null {
-        const app = (globalThis as any).__webengine_application__;
-        return app != null && typeof app._cpuFrameMs === "number" ? app._cpuFrameMs : null;
-    }
-
-    /** Per-phase main-thread CPU ms from the active Application, or null. */
-    private static _getCpuPhasesMs(): MemoryReport["cpuPhasesMs"] {
-        const app = (globalThis as any).__webengine_application__;
-        if (app == null || typeof app._cpuFrameMs !== "number") return null;
-        return {
-            fixedUpdate: app._fixedUpdateMs ?? 0,
-            update: app._updateMs ?? 0,
-            lateUpdate: app._lateUpdateMs ?? 0,
-            render: app._renderMs ?? 0,
         };
     }
 
@@ -457,9 +440,7 @@ export class MemoryProfiler {
             memGraph: hG,
             rafId: 0,
             prevTime: now,
-            frames: 0,
-            fpsUpdateTime: now,
-            fps: 0,
+            stats: null,
             textUpdateTime: 0,
         };
 
@@ -633,16 +614,9 @@ export class MemoryProfiler {
         const dt = now - _s.prevTime;
         _s.prevTime = now;
 
-        _s.frames++;
-        const fpsElapsed = now - _s.fpsUpdateTime;
-        if (fpsElapsed >= 500) {
-            _s.fps = (_s.frames / fpsElapsed) * 1000;
-            _s.frames = 0;
-            _s.fpsUpdateTime = now;
-        }
-
         if (_s.activeTab === 0) {
-            _s.fpsGraph.update(_s.fps, 120);
+            const st = _s.stats;
+            _s.fpsGraph.update(st && st.mean > 0 ? 1000 / st.mean : 0, 120);
             _s.msGraph.update(dt, 50);
             const m = (performance as any).memory;
             if (m) {
@@ -652,6 +626,8 @@ export class MemoryProfiler {
 
         if (now - _s.textUpdateTime >= 500) {
             _s.textUpdateTime = now;
+            // Same statistics Benchmark reports, over the Profiler's rolling window.
+            _s.stats = Profiler.getFrameStats();
             switch (_s.activeTab) {
                 case 0: MemoryProfiler._statsTab(); break;
                 case 1: MemoryProfiler._memTab(); break;
@@ -674,25 +650,30 @@ export class MemoryProfiler {
 
         _L.length = 0;
 
-        // ── Graphics ──
-        const fps = _s.fps;
-        const ms = fps > 0 ? 1000 / fps : 0;
+        // ── Graphics (same statistics Benchmark reports, live) ──
+        const st = _s.stats;
+        const ms = st?.mean ?? 0;
+        const fps = ms > 0 ? 1000 / ms : 0;
         _L.push(`Graphics:      ${fps.toFixed(1)} FPS (${ms.toFixed(1)}ms)`);
-
-        const cpu = MemoryProfiler._getCpuFrameMs();
-        if (cpu !== null) {
-            const load = ms > 0 ? Math.min(100, (cpu / ms) * 100) : 0;
-            _L.push(`CPU: main ${cpu.toFixed(1)}ms (${load.toFixed(0)}% of frame)`);
-        } else {
-            _L.push(`CPU: main —`);
+        if (st) {
+            _L.push(
+                `  p95 ${st.p95.toFixed(1)}  p99 ${st.p99.toFixed(1)}`
+                + `  max ${st.max.toFixed(1)}  σ ${st.stdDev.toFixed(2)} ms`
+            );
         }
 
-        const ph = MemoryProfiler._getCpuPhasesMs();
-        if (ph !== null) {
+        if (Profiler.hasFrameData) {
+            const cpu = Profiler.frameCpuMs;
+            const load = ms > 0 ? Math.min(100, (cpu / ms) * 100) : 0;
+            _L.push(`CPU: main ${cpu.toFixed(1)}ms (${load.toFixed(0)}% of frame)`);
+
+            const ph = Profiler.phases;
             _L.push(
                 `  fix ${ph.fixedUpdate.toFixed(1)}  upd ${ph.update.toFixed(1)}`
                 + `  late ${ph.lateUpdate.toFixed(1)}  rnd ${ph.render.toFixed(1)} ms`
             );
+        } else {
+            _L.push(`CPU: main —`);
         }
 
         if (info) {
