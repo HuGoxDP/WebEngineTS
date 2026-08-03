@@ -10,7 +10,7 @@ Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see �
 2D affine pipeline (rotation/scale), the full layout API, the `UIEvent` + pointer/drag
 surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout groups with
 `ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup`. Next: §5.1b
-`Dropdown` (§5.0g), radial fill (§5.0h), then `Selectable` transition modes.
+`Dropdown` (§5.0g), then `Selectable` transition modes (now possible — `Sprite` exists).
 
 ---
 
@@ -22,7 +22,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 |---|---|---|
 | Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate), **`CanvasGroup`** | `WorldSpace` render mode |
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter` | anchor presets, `AspectRatioFitter` |
-| Graphics | `UIImage` (solid/sprite/fill/radius, **atlas sub-rects, 9-slice, tiled**), **`Sprite`**, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | radial fill, auto-size, rich text |
+| Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, **linear + radial fill**), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | auto-size, rich text |
 | Interaction | `Selectable` base under `Button`/`Slider`/`Toggle`/**`Scrollbar`**, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem` (multi-pointer), `UIEvent`, pointer + drag events | `Dropdown`, `InputField`, keyboard nav, transition modes |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
 | Repaint | `OnDemand` + `_visualHash`, **event-driven surface sync** | layout dirty flags, dirty-rect partial repaint |
@@ -553,7 +553,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | 3.5 | Unity-import layout compat helper | P2 | M | 3.1–3.3 |
 | ~~5.0f~~ | ~~`ScrollRect` + `Scrollbar`~~ | **done** | L | — |
 | 5.0g | `Dropdown` | P2 | M | 5.0f |
-| 5.0h | Radial fill methods | P2 | S | — |
+| ~~5.0h~~ | ~~Radial fill methods~~ | **done** | S | — |
 | 5.2 | Compose `Button` from Image + Text | P2 | M | 5.1, 5.0a |
 | 5.3 | Keyboard / gamepad navigation | P2 | M | 5.1 |
 | 6.1 | Dirty-rect partial repaint | P2 | M | 4.1 |

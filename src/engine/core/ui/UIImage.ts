@@ -6,23 +6,49 @@ import { Sprite } from "../graphics/Sprite";
 import type { Texture2D } from "../graphics/Texture2D";
 import type { GameObject } from "../GameObject";
 
-/** Axis along which {@link UIImage.fillAmount} clips the image. */
+/** How {@link UIImage.fillAmount} clips the image. */
 export enum ImageFillMethod {
+    /** Clips along X. */
     Horizontal = "Horizontal",
+    /** Clips along Y. */
     Vertical = "Vertical",
+    /** A quarter-circle wedge anchored at a corner. */
+    Radial90 = "Radial90",
+    /** A half-circle wedge anchored at an edge. */
+    Radial180 = "Radial180",
+    /** A full circular sweep — a cooldown dial. */
+    Radial360 = "Radial360",
 }
 
-/** Edge {@link UIImage.fillAmount} grows from. */
+/**
+ * Where {@link UIImage.fillAmount} grows from.
+ *
+ * @remarks
+ * Linear fills use the four edges. Radial fills use them as the direction the
+ * sweep starts in; {@link ImageFillMethod.Radial90} uses the corners instead,
+ * since a quarter wedge is anchored at one.
+ */
 export enum ImageFillOrigin {
-    /** Horizontal fill grows left → right. */
+    /** Horizontal fill grows left → right; radial sweeps start pointing left. */
     Left = "Left",
-    /** Horizontal fill grows right → left. */
+    /** Horizontal fill grows right → left; radial sweeps start pointing right. */
     Right = "Right",
-    /** Vertical fill grows top → bottom. */
+    /** Vertical fill grows top → bottom; radial sweeps start pointing up. */
     Top = "Top",
-    /** Vertical fill grows bottom → top. */
+    /** Vertical fill grows bottom → top; radial sweeps start pointing down. */
     Bottom = "Bottom",
+    /** Radial90 only: the wedge is anchored at the top-left corner. */
+    TopLeft = "TopLeft",
+    /** Radial90 only: anchored at the top-right corner. */
+    TopRight = "TopRight",
+    /** Radial90 only: anchored at the bottom-right corner. */
+    BottomRight = "BottomRight",
+    /** Radial90 only: anchored at the bottom-left corner. */
+    BottomLeft = "BottomLeft",
 }
+
+/** Half a turn in radians, used by the radial sweeps. */
+const HALF_TURN = Math.PI;
 
 /** How a sprite is fitted to the element's rect. */
 export enum ImageType {
@@ -121,8 +147,18 @@ export class UIImage extends UIBehaviour {
     /** Axis the fill is clipped along. */
     public fillMethod: ImageFillMethod = ImageFillMethod.Horizontal;
 
-    /** Edge the fill grows from. */
+    /** Edge or corner the fill grows from. */
     public fillOrigin: ImageFillOrigin = ImageFillOrigin.Left;
+
+    /**
+     * Whether a radial fill sweeps clockwise.
+     *
+     * @remarks
+     * Clockwise on screen, which in this Y-down system means increasing angle —
+     * the same direction the 2D context measures in. Ignored by the linear
+     * fill methods.
+     */
+    public fillClockwise: boolean = true;
 
     /** Corner radius in canvas units. 0 = sharp corners. */
     public borderRadius: number = 0;
@@ -165,7 +201,12 @@ export class UIImage extends UIBehaviour {
         }
 
         if (fill < 1) {
-            this._clipToFill(ctx, rect, fill);
+            if (this.fillMethod === ImageFillMethod.Horizontal
+                || this.fillMethod === ImageFillMethod.Vertical) {
+                this._clipToFill(ctx, rect, fill);
+            } else {
+                this._clipToRadialFill(ctx, rect, fill);
+            }
         }
 
         const source = this._resolveSource();
@@ -185,6 +226,7 @@ export class UIImage extends UIBehaviour {
         h = hashNumber(h, this.fillAmount);
         h = hashString(h, this.fillMethod);
         h = hashString(h, this.fillOrigin);
+        h = hashBool(h, this.fillClockwise);
         h = hashNumber(h, this.borderRadius);
         h = hashBool(h, this.preserveAspect);
         h = hashBool(h, this.imageSmoothing);
@@ -237,6 +279,85 @@ export class UIImage extends UIBehaviour {
         ctx.beginPath();
         ctx.rect(x, y, w, h);
         ctx.clip();
+    }
+
+    /**
+     * Narrows the clip region to a wedge for the radial fill methods.
+     *
+     * @remarks
+     * The wedge is a pie slice from the anchor point, cut with a radius long
+     * enough to reach past any corner of the rect, so the visible shape is the
+     * intersection of the slice with the rect — which is what a cooldown dial
+     * or a quarter meter looks like.
+     */
+    private _clipToRadialFill(ctx: CanvasRenderingContext2D, rect: Rect, fill: number): void {
+        const quarter = this.fillMethod === ImageFillMethod.Radial90;
+        const sweep = quarter
+            ? HALF_TURN * 0.5
+            : this.fillMethod === ImageFillMethod.Radial180 ? HALF_TURN : HALF_TURN * 2;
+
+        let cx: number;
+        let cy: number;
+        let start: number;
+
+        if (quarter) {
+            cx = UIImage._cornerX(this.fillOrigin, rect);
+            cy = UIImage._cornerY(this.fillOrigin, rect);
+            start = UIImage._cornerAngle(this.fillOrigin);
+        } else {
+            cx = rect.x + rect.width * 0.5;
+            cy = rect.y + rect.height * 0.5;
+            start = UIImage._edgeAngle(this.fillOrigin);
+        }
+
+        // The diagonal reaches every corner from any point inside the rect, and
+        // from a corner anchor too.
+        const radius = Math.sqrt(rect.width * rect.width + rect.height * rect.height);
+        const delta = sweep * fill * (this.fillClockwise ? 1 : -1);
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, radius, start, start + delta, !this.fillClockwise);
+        ctx.closePath();
+        ctx.clip();
+    }
+
+    /**
+     * Direction an edge origin points, in radians.
+     *
+     * @remarks
+     * Angle `0` is +X and grows clockwise on screen, because Y points down —
+     * so "up" is negative, not positive as it would be in a Y-up system.
+     */
+    private static _edgeAngle(origin: ImageFillOrigin): number {
+        switch (origin) {
+            case ImageFillOrigin.Top:    return -HALF_TURN * 0.5;
+            case ImageFillOrigin.Right:  return 0;
+            case ImageFillOrigin.Bottom: return HALF_TURN * 0.5;
+            default:                     return HALF_TURN;
+        }
+    }
+
+    /** Angle a corner-anchored quarter wedge starts sweeping from. */
+    private static _cornerAngle(origin: ImageFillOrigin): number {
+        switch (origin) {
+            case ImageFillOrigin.TopRight:    return HALF_TURN * 0.5;
+            case ImageFillOrigin.BottomRight: return HALF_TURN;
+            case ImageFillOrigin.BottomLeft:  return -HALF_TURN * 0.5;
+            default:                          return 0;   // TopLeft
+        }
+    }
+
+    private static _cornerX(origin: ImageFillOrigin, rect: Rect): number {
+        return origin === ImageFillOrigin.TopRight || origin === ImageFillOrigin.BottomRight
+            ? rect.x + rect.width
+            : rect.x;
+    }
+
+    private static _cornerY(origin: ImageFillOrigin, rect: Rect): number {
+        return origin === ImageFillOrigin.BottomLeft || origin === ImageFillOrigin.BottomRight
+            ? rect.y + rect.height
+            : rect.y;
     }
 
     private _drawSprite(ctx: CanvasRenderingContext2D, source: DrawableSource, rect: Rect): void {

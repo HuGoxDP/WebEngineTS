@@ -57,6 +57,8 @@ interface MockContext {
     rects: number[][];
     texts: string[];
     draws: number[][];
+    arcs: number[][];
+    moves: number[][];
     measureCount: number;
     ctx: CanvasRenderingContext2D;
 }
@@ -66,6 +68,8 @@ function makeContext(): MockContext {
     const rects: number[][] = [];
     const texts: string[] = [];
     const draws: number[][] = [];
+    const arcs: number[][] = [];
+    const moves: number[][] = [];
     const state = { measureCount: 0 };
 
     const ctx = {
@@ -73,10 +77,13 @@ function makeContext(): MockContext {
         lineWidth: 0, lineJoin: "", globalAlpha: 1, imageSmoothingEnabled: true,
         beginPath: () => { ops.push("beginPath"); },
         closePath: () => { ops.push("closePath"); },
-        moveTo: () => { ops.push("moveTo"); },
+        moveTo: (x: number, y: number) => { ops.push("moveTo"); moves.push([x, y]); },
         lineTo: () => { ops.push("lineTo"); },
         arcTo:  () => { ops.push("arcTo"); },
-        arc:    () => { ops.push("arc"); },
+        arc: (cx: number, cy: number, r: number, a0: number, a1: number, ccw?: boolean) => {
+            ops.push("arc");
+            arcs.push([cx, cy, r, a0, a1, ccw ? 1 : 0]);
+        },
         clip:   () => { ops.push("clip"); },
         fill:   () => { ops.push("fill"); },
         stroke: () => { ops.push("stroke"); },
@@ -106,7 +113,7 @@ function makeContext(): MockContext {
     };
 
     return {
-        ops, rects, texts, draws,
+        ops, rects, texts, draws, arcs, moves,
         get measureCount() { return state.measureCount; },
         ctx: ctx as unknown as CanvasRenderingContext2D,
     };
@@ -4217,5 +4224,161 @@ describe("Scrollbar", () => {
 
         expect(barUpdates).toBe(0);
         expect(bar.value).toBeCloseTo(0.5);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Radial fill
+// ---------------------------------------------------------------------------
+
+describe("UIImage radial fill", () => {
+    const PI = Math.PI;
+
+    function makeImage(): UIImage {
+        const img = new GameObject("Dial").addComponent(UIImage);
+        img.color = Color.white.clone();
+        return img;
+    }
+
+    test("Radial360 sweeps a full turn scaled by fillAmount", () => {
+        const img = makeImage();
+        img.fillMethod = ImageFillMethod.Radial360;
+        img.fillOrigin = ImageFillOrigin.Top;
+        img.fillAmount = 0.5;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 100, 100));
+
+        expect(m.arcs.length).toBe(1);
+        const [cx, cy, , a0, a1] = m.arcs[0];
+
+        // Anchored at the centre for the non-quarter methods.
+        expect(cx).toBeCloseTo(50);
+        expect(cy).toBeCloseTo(50);
+
+        // Top is "up", which is a negative angle in this Y-down system.
+        expect(a0).toBeCloseTo(-PI / 2);
+        expect(a1 - a0).toBeCloseTo(PI);
+    });
+
+    test("a full fill needs no wedge at all", () => {
+        const img = makeImage();
+        img.fillMethod = ImageFillMethod.Radial360;
+        img.fillAmount = 1;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 100, 100));
+
+        expect(m.arcs.length).toBe(0);
+    });
+
+    test("Radial180 sweeps half a turn", () => {
+        const img = makeImage();
+        img.fillMethod = ImageFillMethod.Radial180;
+        img.fillOrigin = ImageFillOrigin.Right;
+        img.fillAmount = 1 / 2;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 100, 100));
+
+        const [, , , a0, a1] = m.arcs[0];
+        expect(a0).toBeCloseTo(0);
+        expect(a1 - a0).toBeCloseTo(PI / 2);
+    });
+
+    test("Radial90 anchors the wedge at its corner", () => {
+        const img = makeImage();
+        img.fillMethod = ImageFillMethod.Radial90;
+        img.fillOrigin = ImageFillOrigin.BottomRight;
+        img.fillAmount = 1;
+
+        // fillAmount 1 skips the wedge, so use a partial fill to see it.
+        img.fillAmount = 0.5;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 100, 60));
+
+        const [cx, cy, , a0, a1] = m.arcs[0];
+        expect(cx).toBeCloseTo(100);
+        expect(cy).toBeCloseTo(60);
+        expect(a0).toBeCloseTo(PI);
+        expect(a1 - a0).toBeCloseTo(PI / 4);
+    });
+
+    test("each Radial90 corner anchors where its name says", () => {
+        const cases: Array<[ImageFillOrigin, number, number]> = [
+            [ImageFillOrigin.TopLeft, 0, 0],
+            [ImageFillOrigin.TopRight, 100, 0],
+            [ImageFillOrigin.BottomRight, 100, 60],
+            [ImageFillOrigin.BottomLeft, 0, 60],
+        ];
+
+        for (const [origin, x, y] of cases) {
+            const img = makeImage();
+            img.fillMethod = ImageFillMethod.Radial90;
+            img.fillOrigin = origin;
+            img.fillAmount = 0.5;
+
+            const m = makeContext();
+            img._draw(m.ctx, new Rect(0, 0, 100, 60));
+
+            expect(m.arcs[0][0]).toBeCloseTo(x);
+            expect(m.arcs[0][1]).toBeCloseTo(y);
+            // The wedge starts from its anchor, not from the rect origin.
+            expect(m.moves[0]).toEqual([x, y]);
+        }
+    });
+
+    test("fillClockwise reverses the sweep", () => {
+        const img = makeImage();
+        img.fillMethod = ImageFillMethod.Radial360;
+        img.fillOrigin = ImageFillOrigin.Top;
+        img.fillAmount = 0.25;
+
+        const cw = makeContext();
+        img._draw(cw.ctx, new Rect(0, 0, 100, 100));
+
+        img.fillClockwise = false;
+        const ccw = makeContext();
+        img._draw(ccw.ctx, new Rect(0, 0, 100, 100));
+
+        expect(cw.arcs[0][4] - cw.arcs[0][3]).toBeCloseTo(PI / 2);
+        expect(ccw.arcs[0][4] - ccw.arcs[0][3]).toBeCloseTo(-PI / 2);
+        expect(ccw.arcs[0][5]).toBe(1);   // counterclockwise flag
+    });
+
+    test("the wedge radius reaches past every corner", () => {
+        const img = makeImage();
+        img.fillMethod = ImageFillMethod.Radial360;
+        img.fillAmount = 0.5;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 300, 400));
+
+        // The diagonal is the shortest radius that covers a corner-anchored wedge.
+        expect(m.arcs[0][2]).toBeCloseTo(500);
+    });
+
+    test("the linear methods still clip with a rect, not a wedge", () => {
+        const img = makeImage();
+        img.fillMethod = ImageFillMethod.Vertical;
+        img.fillOrigin = ImageFillOrigin.Bottom;
+        img.fillAmount = 0.5;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 100, 80));
+
+        expect(m.arcs.length).toBe(0);
+        expect(m.rects[0]).toEqual([0, 40, 100, 40]);
+    });
+
+    test("the visual hash tracks the sweep direction", () => {
+        const img = makeImage();
+        img.fillMethod = ImageFillMethod.Radial360;
+        img.fillAmount = 0.5;
+
+        const before = img._visualHash();
+        img.fillClockwise = false;
+        expect(img._visualHash()).not.toBe(before);
     });
 });
