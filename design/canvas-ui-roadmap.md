@@ -10,7 +10,7 @@ Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see �
 2D affine pipeline (rotation/scale), the full layout API, the `UIEvent` + pointer/drag
 surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout groups with
 `ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup`. Next: §5.1b
-`Selectable` transition modes (now possible — `Sprite` exists), then §5.3 keyboard navigation.
+§5.3 keyboard navigation (focus now exists), then §6.4 `WorldSpace` render mode.
 
 ---
 
@@ -23,7 +23,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate), **`CanvasGroup`** | `WorldSpace` render mode |
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter` | anchor presets, `AspectRatioFitter` |
 | Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, **linear + radial fill**), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | auto-size, rich text |
-| Interaction | `Selectable` base under `Button`/`Slider`/`Toggle`/`Scrollbar`/**`Dropdown`**, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem` (multi-pointer), `UIEvent`, pointer + drag events | `InputField`, keyboard nav, transition modes |
+| Interaction | `Selectable` base (**+ ColorTint/SpriteSwap transitions, focus**) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | `InputField`, keyboard nav |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
 | Repaint | `OnDemand` + `_visualHash`, **event-driven surface sync** | layout dirty flags, dirty-rect partial repaint |
 | Draw order | **hierarchy-ordered**, `sortingOrder` first | — |
@@ -547,7 +547,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~5.0d~~ | ~~`Toggle`~~ + `ToggleGroup` (radio behaviour) | **done** | S | — |
 | ~~5.0e~~ | ~~`RectMask2D`~~ | **done** | M | — |
 | 5.1a | ~~Multi-listener `UIEvent` + pointer/drag events~~ | **done** | M | — |
-| ~~5.1b~~ | ~~`Selectable` base~~ (transition modes still open) | **done** | M | — |
+| ~~5.1b~~ | ~~`Selectable` base + transition modes + focus~~ | **done** | M | — |
 | ~~6.3a~~ | ~~`UIText` preferred sizes + overflow/ellipsis + word breaking~~ | **done** | S | — |
 | ~~2.6~~ | ~~Warn on compressed-texture sprites~~ | **done** | XS | — |
 | 3.5 | Unity-import layout compat helper | P2 | M | 3.1–3.3 |

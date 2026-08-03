@@ -24,7 +24,8 @@ import {
 import { Input } from "../src/engine/core/Input";
 import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
-import { SelectableState } from "../src/engine/core/ui/Selectable";
+import { Selectable, SelectableState } from "../src/engine/core/ui/Selectable";
+import { SelectableTransition } from "../src/engine/core/ui/SelectableTransition";
 import { TextAlignment, TextOverflow, UIText, VerticalAlignment } from "../src/engine/core/ui/UIText";
 import { ImageFillMethod, ImageFillOrigin, ImageType, UIImage } from "../src/engine/core/ui/UIImage";
 import { Sprite } from "../src/engine/core/graphics/Sprite";
@@ -4626,5 +4627,307 @@ describe("Dropdown", () => {
 
         dd.open();
         expect(dd._visualHash()).not.toBe(picked);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Selectable transitions and focus
+// ---------------------------------------------------------------------------
+
+describe("Selectable transitions", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    /** A button with a separate UIImage as its transition target. */
+    function makeStyled() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const btnGO = child("Btn", canvasGO);
+        const btn = btnGO.addComponent(Button);
+        const rt = btn.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(0, 0);
+        rt.sizeDelta.set(100, 50);
+
+        const bg = child("Bg", btnGO).addComponent(UIImage);
+        btn.targetGraphic = bg;
+        return { canvas, btn, bg };
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        Selectable._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+        vi.spyOn(Input, "mousePosition", "get").mockReturnValue(new Vector2(700, 500));
+        vi.spyOn(Time, "deltaTime", "get").mockReturnValue(1 / 60);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Selectable._reset();
+        Canvas._reset();
+    });
+
+    test("None leaves the target graphic alone", () => {
+        const { btn, bg } = makeStyled();
+        btn.transition = SelectableTransition.None;
+        bg.color = new Color(0.1, 0.2, 0.3, 1);
+
+        Selectable._updateAll();
+
+        expect(bg.color.r).toBeCloseTo(0.1);
+    });
+
+    test("a transition with no target graphic is inert", () => {
+        const { btn } = makeStyled();
+        btn.targetGraphic = null;
+        btn.transition = SelectableTransition.ColorTint;
+
+        expect(() => Selectable._updateAll()).not.toThrow();
+    });
+
+    test("ColorTint fades toward the state color rather than snapping", () => {
+        const { btn, bg } = makeStyled();
+        btn.transition = SelectableTransition.ColorTint;
+        btn.colors.normalColor = new Color(1, 1, 1, 1);
+        btn.colors.disabledColor = new Color(0, 0, 0, 1);
+        btn.colors.fadeDuration = 0.5;
+
+        Selectable._updateAll();
+        expect(bg.color.r).toBeCloseTo(1, 1);
+
+        btn.interactable = false;
+        Selectable._updateAll();
+
+        // One 1/60s step of a 0.5s fade: moved, but nowhere near arrived.
+        expect(bg.color.r).toBeLessThan(1);
+        expect(bg.color.r).toBeGreaterThan(0.9);
+    });
+
+    test("a fade eventually reaches the target color", () => {
+        const { btn, bg } = makeStyled();
+        btn.transition = SelectableTransition.ColorTint;
+        btn.colors.normalColor = new Color(1, 1, 1, 1);
+        btn.colors.disabledColor = new Color(0, 0, 0, 1);
+        btn.colors.fadeDuration = 0.1;
+
+        btn.interactable = false;
+        for (let i = 0; i < 120; i++) Selectable._updateAll();
+
+        expect(bg.color.r).toBeCloseTo(0, 2);
+    });
+
+    test("a zero fade duration snaps in one step", () => {
+        const { btn, bg } = makeStyled();
+        btn.transition = SelectableTransition.ColorTint;
+        btn.colors.normalColor = new Color(1, 1, 1, 1);
+        btn.colors.disabledColor = new Color(0.25, 0.25, 0.25, 1);
+        btn.colors.fadeDuration = 0;
+
+        btn.interactable = false;
+        Selectable._updateAll();
+
+        expect(bg.color.r).toBeCloseTo(0.25);
+    });
+
+    test("colorMultiplier scales the applied tint", () => {
+        const { btn, bg } = makeStyled();
+        btn.transition = SelectableTransition.ColorTint;
+        btn.colors.normalColor = new Color(0.5, 0.5, 0.5, 1);
+        btn.colors.fadeDuration = 0;
+        btn.colors.colorMultiplier = 2;
+
+        Selectable._updateAll();
+
+        expect(bg.color.r).toBeCloseTo(1);
+    });
+
+    test("pressing drives the tint through the pressed color", () => {
+        const { btn, bg } = makeStyled();
+        btn.transition = SelectableTransition.ColorTint;
+        btn.colors.normalColor = new Color(1, 1, 1, 1);
+        btn.colors.pressedColor = new Color(0.2, 0.2, 0.2, 1);
+        btn.colors.fadeDuration = 0;
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+        Selectable._updateAll();
+
+        expect(bg.color.r).toBeCloseTo(0.2);
+    });
+
+    test("SpriteSwap restores the original sprite for the normal state", () => {
+        const { btn, bg } = makeStyled();
+        const tex = { getInstanceID: () => 1, name: "t", width: 4, height: 4,
+            _internalThreeTexture: { image: null, version: 1 } };
+        const normal = Sprite.fromTexture(tex as unknown as Texture2D);
+        const pressed = Sprite.fromTexture(tex as unknown as Texture2D);
+
+        bg.sprite = normal;
+        btn.transition = SelectableTransition.SpriteSwap;
+        btn.spriteState.pressedSprite = pressed;
+
+        Selectable._updateAll();
+        expect(bg.sprite).toBe(normal);
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+        Selectable._updateAll();
+        expect(bg.sprite).toBe(pressed);
+
+        touches = [touch(1, 50, 25, TouchPhase.Ended)];
+        EventSystem._update();
+        Selectable._updateAll();
+        expect(bg.sprite).toBe(normal);
+    });
+
+    test("a state with no sprite falls back to the normal one", () => {
+        const { btn, bg } = makeStyled();
+        const tex = { getInstanceID: () => 1, name: "t", width: 4, height: 4,
+            _internalThreeTexture: { image: null, version: 1 } };
+        const normal = Sprite.fromTexture(tex as unknown as Texture2D);
+
+        bg.sprite = normal;
+        btn.transition = SelectableTransition.SpriteSwap;
+        btn.interactable = false;   // no disabledSprite configured
+
+        Selectable._updateAll();
+
+        expect(bg.sprite).toBe(normal);
+    });
+});
+
+describe("Selectable focus", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    function makeButton(x: number): Button {
+        const btn = new GameObject("Btn").addComponent(Button);
+        const rt = btn.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(x, 0);
+        rt.sizeDelta.set(100, 50);
+        return btn;
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        Selectable._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+        vi.spyOn(Input, "mousePosition", "get").mockReturnValue(new Vector2(700, 500));
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Selectable._reset();
+        Canvas._reset();
+    });
+
+    test("nothing holds focus to begin with", () => {
+        makeButton(0);
+        expect(EventSystem.currentSelected).toBeNull();
+    });
+
+    test("pressing a control focuses it", () => {
+        const a = makeButton(0);
+        const b = makeButton(200);
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+        expect(EventSystem.currentSelected).toBe(a);
+        expect(a.isSelected).toBe(true);
+
+        touches = [touch(2, 250, 25, TouchPhase.Began)];
+        EventSystem._update();
+        expect(EventSystem.currentSelected).toBe(b);
+        expect(a.isSelected).toBe(false);
+    });
+
+    test("select() moves focus explicitly", () => {
+        const a = makeButton(0);
+        a.select();
+        expect(a.isSelected).toBe(true);
+    });
+
+    test("a non-interactable control cannot take focus", () => {
+        const a = makeButton(0);
+        a.interactable = false;
+
+        a.select();
+
+        expect(EventSystem.currentSelected).toBeNull();
+    });
+
+    test("disabling the focused control drops the focus", () => {
+        const a = makeButton(0);
+        a.select();
+        expect(a.isSelected).toBe(true);
+
+        a.enabled = false;
+
+        expect(EventSystem.currentSelected).toBeNull();
+    });
+
+    test("the selected color is used once a control holds focus", () => {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const btnGO = child("Btn", canvasGO);
+        const btn = btnGO.addComponent(Button);
+        const bg = child("Bg", btnGO).addComponent(UIImage);
+
+        btn.targetGraphic = bg;
+        btn.transition = SelectableTransition.ColorTint;
+        btn.colors.normalColor = new Color(1, 1, 1, 1);
+        btn.colors.selectedColor = new Color(0, 0.5, 1, 1);
+        btn.colors.fadeDuration = 0;
+
+        Selectable._updateAll();
+        expect(bg.color.b).toBeCloseTo(1);
+
+        btn.select();
+        Selectable._updateAll();
+
+        expect(bg.color.r).toBeCloseTo(0);
+        expect(bg.color.g).toBeCloseTo(0.5);
     });
 });

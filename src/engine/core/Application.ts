@@ -21,6 +21,7 @@ import { EventSystem } from "./ui/EventSystem.ts";
 import { LayoutGroup } from "./ui/LayoutGroup.ts";
 import { ContentSizeFitter } from "./ui/ContentSizeFitter.ts";
 import { ScrollRect } from "./ui/ScrollRect.ts";
+import { Selectable } from "./ui/Selectable.ts";
 import { ParticleSystem } from "./particles/ParticleSystem.ts";
 import { LODGroup } from "./components/LODGroup.ts";
 import { Gamepad } from "./input/Gamepad.ts";
@@ -590,6 +591,9 @@ export class Application {
 
         // 7c. UI event processing (before UI render so button states are up-to-date)
         EventSystem._update();
+
+        // 7c-bis. Control transitions, after the states they read have settled.
+        Selectable._updateAll();
 
         // 7d. Level-of-detail selection (uses final world transforms + Camera.main)
         LODGroup._updateAll();

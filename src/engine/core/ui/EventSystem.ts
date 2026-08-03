@@ -83,6 +83,7 @@ export class EventSystem {
     public static dragThreshold: number = 5;
 
     private static _selectables: Set<Selectable> = new Set();
+    private static _selected: Selectable | null = null;
     private static _joysticks: Set<IPointerSampler> = new Set();
     private static _pointerOverUI: boolean = false;
 
@@ -146,6 +147,23 @@ export class EventSystem {
     /** @internal Called automatically by Selectable.onDisable / onDestroy. */
     public static _unregisterSelectable(control: Selectable): void {
         EventSystem._selectables.delete(control);
+        if (EventSystem._selected === control) EventSystem._selected = null;
+    }
+
+    /**
+     * The control that currently holds focus, or null.
+     *
+     * @remarks
+     * Equivalent to Unity EventSystem.currentSelectedGameObject. Set by
+     * pressing a control, or explicitly through Selectable.select().
+     */
+    public static get currentSelected(): Selectable | null {
+        return EventSystem._selected;
+    }
+
+    /** @internal Moves focus. Called by Selectable.select(). */
+    public static _setSelected(control: Selectable | null): void {
+        EventSystem._selected = control;
     }
 
     /** @internal Registers an on-screen stick for per-frame pointer sampling. */
@@ -203,6 +221,7 @@ export class EventSystem {
     /** @internal */
     public static _reset(): void {
         EventSystem._selectables.clear();
+        EventSystem._selected = null;
         EventSystem._joysticks.clear();
         EventSystem._pointers.clear();
         EventSystem._stale.length = 0;
