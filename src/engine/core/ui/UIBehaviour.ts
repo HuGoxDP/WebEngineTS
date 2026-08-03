@@ -363,6 +363,20 @@ export abstract class UIBehaviour extends Behaviour {
 
     /**
      * @internal
+     * Whether this element's interactive area can reach outside its own rect.
+     *
+     * The EventSystem rejects pointers against the resolved bounds before
+     * inverting the transform, which is a large saving across a HUD but wrong
+     * for a control that draws beyond itself — an open dropdown list, say.
+     * Returning `true` skips that shortcut and goes straight to
+     * {@link _hitTest}, which is then the only thing defining the hit area.
+     */
+    public get _expandsHitArea(): boolean {
+        return false;
+    }
+
+    /**
+     * @internal
      * Tests a point against this element's interactive shape.
      *
      * Both the point and the rect are in the element's local space, the same

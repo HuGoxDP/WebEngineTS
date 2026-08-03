@@ -445,8 +445,9 @@ export class EventSystem {
                 const p = EventSystem._canvasPoint;
 
                 // Bounds first: a cheap reject for the many elements the pointer
-                // is nowhere near, before inverting the transform.
-                if (!rt._resolvedBounds.contains(p)) continue;
+                // is nowhere near, before inverting the transform. Controls that
+                // reach outside their own rect opt out and rely on _hitTest.
+                if (!g._expandsHitArea && !rt._resolvedBounds.contains(p)) continue;
 
                 // The pointer moves into the element's own space, so a rotated
                 // or scaled element is hit exactly where it is drawn.
@@ -476,7 +477,7 @@ export class EventSystem {
             if (!control._groupBlocksRaycasts()) continue;
 
             const rt = control.rectTransform;
-            if (!rt._resolvedBounds.contains(screen)) continue;
+            if (!control._expandsHitArea && !rt._resolvedBounds.contains(screen)) continue;
 
             const local = EventSystem._localPoint;
             if (!rt.canvasToLocalPoint(screen.x, screen.y, local)) continue;

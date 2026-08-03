@@ -16,6 +16,7 @@ import { CanvasGroup } from "../src/engine/core/ui/CanvasGroup";
 import { RectMask2D } from "../src/engine/core/ui/RectMask2D";
 import { ScrollRect, ScrollMovementType } from "../src/engine/core/ui/ScrollRect";
 import { Scrollbar, ScrollbarDirection } from "../src/engine/core/ui/Scrollbar";
+import { Dropdown } from "../src/engine/core/ui/Dropdown";
 import { Time } from "../src/engine/core/Time";
 import {
     GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
@@ -4380,5 +4381,250 @@ describe("UIImage radial fill", () => {
         const before = img._visualHash();
         img.fillClockwise = false;
         expect(img._visualHash()).not.toBe(before);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Dropdown
+// ---------------------------------------------------------------------------
+
+describe("Dropdown", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    /** A 160-wide dropdown at the canvas origin, 28-unit rows. */
+    function makeDropdown(options: string[]) {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const dd = child("Dropdown", canvasGO).addComponent(Dropdown);
+        const rt = dd.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(0, 0);
+        rt.sizeDelta.set(160, 28);
+        dd.options = options;
+        return { canvas, dd };
+    }
+
+    /** Presses and releases at a point, which is what produces a click. */
+    function tap(x: number, y: number, id: number): void {
+        touches = [touch(id, x, y, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(id, x, y, TouchPhase.Ended)];
+        EventSystem._update();
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+        vi.spyOn(Input, "mousePosition", "get").mockReturnValue(new Vector2(700, 500));
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Canvas._reset();
+    });
+
+    test("a fresh dropdown has nothing selected", () => {
+        const { dd } = makeDropdown(["A", "B"]);
+        expect(dd.value).toBe(-1);
+        expect(dd.selectedText).toBe("");
+        expect(dd.isOpen).toBe(false);
+    });
+
+    test("selecting reports the index and the text", () => {
+        const { dd } = makeDropdown(["Nitrogen", "Oxygen", "Argon"]);
+        const seen: number[] = [];
+        dd.onValueChanged.addListener(i => seen.push(i));
+
+        dd.value = 1;
+
+        expect(dd.selectedText).toBe("Oxygen");
+        expect(seen).toEqual([1]);
+    });
+
+    test("an out-of-range index selects nothing rather than throwing", () => {
+        const { dd } = makeDropdown(["A", "B"]);
+        dd.value = 1;
+
+        dd.value = 99;
+        expect(dd.value).toBe(-1);
+
+        dd.value = 0;
+        dd.value = -5;
+        expect(dd.value).toBe(-1);
+    });
+
+    test("shortening the options clears a selection past the end", () => {
+        const { dd } = makeDropdown(["A", "B", "C"]);
+        dd.value = 2;
+
+        dd.options = ["A"];
+
+        expect(dd.value).toBe(-1);
+    });
+
+    test("setValueWithoutNotify stays silent", () => {
+        const { dd } = makeDropdown(["A", "B"]);
+        let calls = 0;
+        dd.onValueChanged.addListener(() => { calls++; });
+
+        dd.setValueWithoutNotify(1);
+
+        expect(dd.value).toBe(1);
+        expect(calls).toBe(0);
+    });
+
+    test("assigning the same value notifies nobody", () => {
+        const { dd } = makeDropdown(["A", "B"]);
+        dd.value = 1;
+
+        let calls = 0;
+        dd.onValueChanged.addListener(() => { calls++; });
+        dd.value = 1;
+
+        expect(calls).toBe(0);
+    });
+
+    test("clicking the field opens the list", () => {
+        const { dd } = makeDropdown(["A", "B", "C"]);
+
+        tap(80, 14, 1);
+
+        expect(dd.isOpen).toBe(true);
+    });
+
+    test("clicking an option selects it and closes", () => {
+        const { dd } = makeDropdown(["A", "B", "C"]);
+        dd.open();
+
+        // Rows start below the 28-unit field: row 1 spans y 56..84.
+        tap(80, 70, 1);
+
+        expect(dd.value).toBe(1);
+        expect(dd.selectedText).toBe("B");
+        expect(dd.isOpen).toBe(false);
+    });
+
+    test("clicking the field again closes without selecting", () => {
+        const { dd } = makeDropdown(["A", "B", "C"]);
+        dd.open();
+
+        tap(80, 14, 1);
+
+        expect(dd.isOpen).toBe(false);
+        expect(dd.value).toBe(-1);
+    });
+
+    test("the open list is hit-testable below the closed field", () => {
+        const { dd } = makeDropdown(["A", "B", "C"]);
+
+        // Closed: a point below the field is not on the control.
+        tap(80, 70, 1);
+        expect(dd.isOpen).toBe(false);
+
+        // Open: the same point now lands on a row.
+        dd.open();
+        tap(80, 70, 2);
+        expect(dd.value).toBe(1);
+    });
+
+    test("an empty dropdown cannot be opened", () => {
+        const { dd } = makeDropdown([]);
+        dd.open();
+        expect(dd.isOpen).toBe(false);
+    });
+
+    test("a non-interactable dropdown ignores clicks", () => {
+        const { dd } = makeDropdown(["A", "B"]);
+        dd.interactable = false;
+
+        tap(80, 14, 1);
+
+        expect(dd.isOpen).toBe(false);
+    });
+
+    test("disabling the control closes the list", () => {
+        const { dd } = makeDropdown(["A", "B"]);
+        dd.open();
+        expect(dd.isOpen).toBe(true);
+
+        dd.enabled = false;
+
+        expect(dd.isOpen).toBe(false);
+    });
+
+    test("opening scrolls a selection below the fold into view", () => {
+        const { dd } = makeDropdown(["0", "1", "2", "3", "4", "5", "6", "7"]);
+        dd.maxVisibleItems = 3;
+        dd.setValueWithoutNotify(7);
+
+        dd.open();
+
+        // The last option has to be on screen, so the window ends at it.
+        tap(80, 28 + 70, 1);
+        expect(dd.value).toBe(7);
+    });
+
+    test("the drawn height covers the list only while open", () => {
+        const { dd } = makeDropdown(["A", "B", "C"]);
+
+        const closed = makeContext();
+        dd._draw(closed.ctx, new Rect(0, 0, 160, 28));
+        const closedFills = closed.ops.filter(o => o === "fill").length;
+
+        dd.open();
+        const open = makeContext();
+        dd._draw(open.ctx, new Rect(0, 0, 160, 28));
+
+        expect(open.ops.filter(o => o === "fill").length).toBeGreaterThan(closedFills);
+        expect(open.texts).toContain("A");
+        expect(open.texts).toContain("C");
+    });
+
+    test("the closed field shows the placeholder until something is picked", () => {
+        const { dd } = makeDropdown(["A", "B"]);
+        dd.placeholder = "Pick a gas";
+
+        const m = makeContext();
+        dd._draw(m.ctx, new Rect(0, 0, 160, 28));
+        expect(m.texts).toContain("Pick a gas");
+
+        dd.value = 0;
+        const m2 = makeContext();
+        dd._draw(m2.ctx, new Rect(0, 0, 160, 28));
+        expect(m2.texts).toContain("A");
+        expect(m2.texts).not.toContain("Pick a gas");
+    });
+
+    test("the visual hash tracks selection and open state", () => {
+        const { dd } = makeDropdown(["A", "B"]);
+        const base = dd._visualHash();
+
+        dd.value = 1;
+        const picked = dd._visualHash();
+        expect(picked).not.toBe(base);
+
+        dd.open();
+        expect(dd._visualHash()).not.toBe(picked);
     });
 });
