@@ -6,10 +6,10 @@ document covers what round 2+ should be.
 
 Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see §8.
 
-**Status:** Everything through §4.6 landed 2026-08-03 — Stage 0, the rect cache, the
+**Status:** Everything through §4.7 landed 2026-08-03 — Stage 0, the rect cache, the
 2D affine pipeline (rotation/scale), the full layout API, the `UIEvent` + pointer/drag
-surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, and the layout groups
-with `ContentSizeFitter`. Next: `GridLayoutGroup`, §4.7 `CanvasGroup`, §5.1b
+surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout groups with
+`ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup`. Next: §5.1b
 `Selectable`, then §5.0e `RectMask2D` toward `ScrollRect`.
 
 ---
@@ -20,8 +20,8 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 
 | Area | Present | Missing |
 |---|---|---|
-| Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate) | `WorldSpace` render mode, `CanvasGroup` |
-| Layout | `RectTransform` (anchors, pivot, sizeDelta, rotation, scale, corners, offsets, insets, sizing), **`LayoutElement`, Horizontal/Vertical groups, `ContentSizeFitter`** | anchor presets, `GridLayoutGroup`, `AspectRatioFitter` |
+| Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate), **`CanvasGroup`** | `WorldSpace` render mode |
+| Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter` | anchor presets, `AspectRatioFitter` |
 | Graphics | `UIImage` (solid/sprite/fill/radius), `UIText` (wrap, outline, align, **preferred sizes, overflow, word breaking**) | `Sprite` type, 9-slice, tiled, radial fill, auto-size, rich text |
 | Interaction | `Button`, **`Slider`, `Toggle`, `ToggleGroup`**, `VirtualJoystick`, `EventSystem` (multi-pointer), `UIEvent`, pointer + drag events | `Selectable`, `ScrollRect`, `InputField`, keyboard nav |
 | Clipping | — | `RectMask2D` (nothing clips to parent bounds today) |
@@ -538,8 +538,8 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~4.3~~ | ~~Share resolved rects with `EventSystem`~~ (both read the RectTransform cache) | **done** | XS | — |
 | ~~4.4~~ | ~~RectTransform rotation + scale~~ | **done** | L | — |
 | ~~4.5~~ | ~~Full RectTransform API surface~~ + anchor-reference fix | **done** | M | — |
-| ~~4.6~~ | ~~Layout groups + size protocol~~ (Grid still open) | **done** | L | — |
-| 4.7 | `CanvasGroup` | P1 | S | 4.4 |
+| ~~4.6~~ | ~~Layout groups + size protocol + `GridLayoutGroup`~~ | **done** | L | — |
+| ~~4.7~~ | ~~`CanvasGroup`~~ | **done** | S | — |
 | 4.8 | Overlay canvas memory in `MemoryProfiler` ⚑ | P1 | S | — |
 | 5.0a | `Sprite` asset type | P1 | M | — |
 | 5.0b | 9-slice / tiled image | P1 | M | 5.0a |

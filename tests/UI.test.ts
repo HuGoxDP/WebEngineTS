@@ -12,6 +12,9 @@ import {
 } from "../src/engine/core/ui/LayoutGroup";
 import { ContentSizeFitter, FitMode } from "../src/engine/core/ui/ContentSizeFitter";
 import { CanvasGroup } from "../src/engine/core/ui/CanvasGroup";
+import {
+    GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
+} from "../src/engine/core/ui/GridLayoutGroup";
 import { Input } from "../src/engine/core/Input";
 import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
@@ -2883,5 +2886,194 @@ describe("CanvasGroup", () => {
 
         group.alpha = 0.5;
         expect(canvas._prepare()).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// GridLayoutGroup
+// ---------------------------------------------------------------------------
+
+describe("GridLayoutGroup", () => {
+    beforeEach(() => {
+        Canvas._reset();
+        LayoutGroup._reset();
+        ContentSizeFitter._reset();
+    });
+    afterEach(() => {
+        vi.restoreAllMocks();
+        Canvas._reset();
+        LayoutGroup._reset();
+        ContentSizeFitter._reset();
+    });
+
+    /** A 400x300 panel with a grid on it, cells 100x50, no spacing. */
+    function makeGrid(cellCount: number) {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const panelGO = child("Panel", canvasGO);
+        const prt = panelGO.addComponent(RectTransform);
+        prt.anchorMin.set(0, 0);
+        prt.anchorMax.set(0, 0);
+        prt.pivot.set(0, 0);
+        prt.anchoredPosition.set(0, 0);
+        prt.sizeDelta.set(400, 300);
+
+        const grid = panelGO.addComponent(GridLayoutGroup);
+        grid.cellSize.set(100, 50);
+
+        const cells: RectTransform[] = [];
+        for (let i = 0; i < cellCount; i++) {
+            cells.push(child(`C${i}`, panelGO).addComponent(RectTransform));
+        }
+        return { grid, cells, prt };
+    }
+
+    test("every cell takes the grid cell size, not its own", () => {
+        const { grid, cells } = makeGrid(2);
+        cells[0].sizeDelta.set(7, 7);
+
+        LayoutGroup._updateAll();
+
+        const r = cells[0].getScreenRect(new Rect());
+        expect(r.width).toBeCloseTo(100);
+        expect(r.height).toBeCloseTo(50);
+        expect(grid.cellSize.x).toBe(100);
+    });
+
+    test("FixedColumnCount wraps after the given column count", () => {
+        const { grid, cells } = makeGrid(5);
+        grid.constraint = GridConstraint.FixedColumnCount;
+        grid.constraintCount = 2;
+
+        LayoutGroup._updateAll();
+
+        expect(cells[0].getScreenRect(new Rect()).x).toBeCloseTo(0);
+        expect(cells[1].getScreenRect(new Rect()).x).toBeCloseTo(100);
+        // Third cell wraps to the next row.
+        expect(cells[2].getScreenRect(new Rect()).x).toBeCloseTo(0);
+        expect(cells[2].getScreenRect(new Rect()).y).toBeCloseTo(50);
+        expect(cells[4].getScreenRect(new Rect()).y).toBeCloseTo(100);
+    });
+
+    test("FixedRowCount derives the column count instead", () => {
+        const { grid, cells } = makeGrid(6);
+        grid.constraint = GridConstraint.FixedRowCount;
+        grid.constraintCount = 2;
+
+        LayoutGroup._updateAll();
+
+        // Six cells in two rows means three columns.
+        expect(cells[2].getScreenRect(new Rect()).x).toBeCloseTo(200);
+        expect(cells[3].getScreenRect(new Rect()).y).toBeCloseTo(50);
+    });
+
+    test("Flexible fits as many columns as the width allows", () => {
+        const { cells } = makeGrid(6);
+
+        LayoutGroup._updateAll();
+
+        // 400 wide with 100-wide cells: four columns, so the fifth wraps.
+        expect(cells[3].getScreenRect(new Rect()).y).toBeCloseTo(0);
+        expect(cells[4].getScreenRect(new Rect()).y).toBeCloseTo(50);
+        expect(cells[4].getScreenRect(new Rect()).x).toBeCloseTo(0);
+    });
+
+    test("spacing separates the cells on both axes", () => {
+        const { grid, cells } = makeGrid(4);
+        grid.constraint = GridConstraint.FixedColumnCount;
+        grid.constraintCount = 2;
+        grid.spacing.set(10, 20);
+
+        LayoutGroup._updateAll();
+
+        expect(cells[1].getScreenRect(new Rect()).x).toBeCloseTo(110);
+        expect(cells[2].getScreenRect(new Rect()).y).toBeCloseTo(70);
+    });
+
+    test("padding insets the grid", () => {
+        const { grid, cells } = makeGrid(1);
+        grid.padding.set(15, 0, 25, 0);
+
+        LayoutGroup._updateAll();
+
+        const r = cells[0].getScreenRect(new Rect());
+        expect(r.x).toBeCloseTo(15);
+        expect(r.y).toBeCloseTo(25);
+    });
+
+    test("startAxis Vertical fills a column before moving across", () => {
+        const { grid, cells } = makeGrid(4);
+        grid.constraint = GridConstraint.FixedRowCount;
+        grid.constraintCount = 2;
+        grid.startAxis = GridStartAxis.Vertical;
+
+        LayoutGroup._updateAll();
+
+        expect(cells[0].getScreenRect(new Rect()).y).toBeCloseTo(0);
+        expect(cells[1].getScreenRect(new Rect()).y).toBeCloseTo(50);
+        expect(cells[1].getScreenRect(new Rect()).x).toBeCloseTo(0);
+        expect(cells[2].getScreenRect(new Rect()).x).toBeCloseTo(100);
+    });
+
+    test("UpperRight fills leftward from the right edge", () => {
+        const { grid, cells } = makeGrid(2);
+        grid.constraint = GridConstraint.FixedColumnCount;
+        grid.constraintCount = 2;
+        grid.startCorner = GridStartCorner.UpperRight;
+
+        LayoutGroup._updateAll();
+
+        expect(cells[0].getScreenRect(new Rect()).x).toBeCloseTo(100);
+        expect(cells[1].getScreenRect(new Rect()).x).toBeCloseTo(0);
+    });
+
+    test("LowerLeft fills upward, which is decreasing Y here", () => {
+        const { grid, cells } = makeGrid(3);
+        grid.constraint = GridConstraint.FixedColumnCount;
+        grid.constraintCount = 1;
+        grid.startCorner = GridStartCorner.LowerLeft;
+
+        LayoutGroup._updateAll();
+
+        // Three rows of 50; the first cell lands on the bottom one.
+        expect(cells[0].getScreenRect(new Rect()).y).toBeCloseTo(100);
+        expect(cells[2].getScreenRect(new Rect()).y).toBeCloseTo(0);
+    });
+
+    test("a narrow grid still keeps one column rather than none", () => {
+        const { grid, cells, prt } = makeGrid(3);
+        prt.sizeDelta.set(10, 300);
+        grid.constraint = GridConstraint.Flexible;
+
+        LayoutGroup._updateAll();
+
+        expect(cells[1].getScreenRect(new Rect()).y).toBeCloseTo(50);
+    });
+
+    test("preferredHeight reports the rows a fitter should allow for", () => {
+        const { grid } = makeGrid(5);
+        grid.constraint = GridConstraint.FixedColumnCount;
+        grid.constraintCount = 2;
+        grid.spacing.set(0, 10);
+
+        // Three rows of 50 with two 10-unit gaps.
+        expect(grid.preferredHeight).toBeCloseTo(170);
+    });
+
+    test("an ignored child is left out of the grid", () => {
+        const { grid, cells } = makeGrid(3);
+        grid.constraint = GridConstraint.FixedColumnCount;
+        grid.constraintCount = 1;
+
+        const el = cells[0].gameObject.addComponent(LayoutElement);
+        el.ignoreLayout = true;
+
+        LayoutGroup._updateAll();
+
+        // The second child is now the first cell.
+        expect(cells[1].getScreenRect(new Rect()).y).toBeCloseTo(0);
     });
 });

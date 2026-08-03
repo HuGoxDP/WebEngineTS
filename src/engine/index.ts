@@ -262,9 +262,12 @@ export { ToggleGroup } from "./core/ui/ToggleGroup";
 export { LayoutElement, LayoutUtility } from "./core/ui/LayoutElement";
 export type { ILayoutSize } from "./core/ui/LayoutElement";
 export {
-    LayoutGroup, LayoutPadding, LayoutAnchor,
+    LayoutGroup, LinearLayoutGroup, LayoutPadding, LayoutAnchor,
     HorizontalLayoutGroup, VerticalLayoutGroup,
 } from "./core/ui/LayoutGroup";
+export {
+    GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
+} from "./core/ui/GridLayoutGroup";
 export { ContentSizeFitter, FitMode } from "./core/ui/ContentSizeFitter";
 export { CanvasGroup } from "./core/ui/CanvasGroup";
 export { EventSystem } from "./core/ui/EventSystem";
@@ -437,9 +440,12 @@ import { Toggle } from "./core/ui/Toggle";
 import { ToggleGroup } from "./core/ui/ToggleGroup";
 import { LayoutElement } from "./core/ui/LayoutElement";
 import {
-    LayoutGroup, LayoutPadding, LayoutAnchor,
+    LayoutGroup, LinearLayoutGroup, LayoutPadding, LayoutAnchor,
     HorizontalLayoutGroup, VerticalLayoutGroup,
 } from "./core/ui/LayoutGroup";
+import {
+    GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
+} from "./core/ui/GridLayoutGroup";
 import { ContentSizeFitter, FitMode } from "./core/ui/ContentSizeFitter";
 import { CanvasGroup } from "./core/ui/CanvasGroup";
 import { EventSystem } from "./core/ui/EventSystem";
@@ -555,7 +561,8 @@ const WebEngineTS = {
     Button, ButtonState, EventSystem, VirtualJoystick,
     UIEvent, PointerEventData,
     Slider, SliderDirection, Toggle, ToggleGroup,
-    LayoutElement, LayoutGroup, LayoutPadding, LayoutAnchor,
+    LayoutElement, LayoutGroup, LinearLayoutGroup, LayoutPadding, LayoutAnchor,
+    GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
     HorizontalLayoutGroup, VerticalLayoutGroup, ContentSizeFitter, FitMode,
     CanvasGroup,
 
