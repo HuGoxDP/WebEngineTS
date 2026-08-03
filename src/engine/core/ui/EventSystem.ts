@@ -1,4 +1,6 @@
 import { Input } from "../Input";
+import { KeyCode } from "../KeyCode";
+import { NavigationDirection } from "./Navigation";
 import { Vector2 } from "../math/Vector2";
 import { Touch, TouchPhase } from "../input/Touch";
 import { Canvas } from "./Canvas";
@@ -81,6 +83,16 @@ export class EventSystem {
      * touch-heavy scenarios where a tap tends to smear.
      */
     public static dragThreshold: number = 5;
+
+    /**
+     * Whether the arrow keys, Tab and the submit keys move and activate focus.
+     *
+     * @remarks
+     * On by default: it costs a handful of key checks per frame and is what
+     * makes the UI usable without a pointer. Turn it off in a scenario that
+     * binds those keys to gameplay.
+     */
+    public static keyboardNavigation: boolean = true;
 
     private static _selectables: Set<Selectable> = new Set();
     private static _selected: Selectable | null = null;
@@ -166,6 +178,11 @@ export class EventSystem {
         EventSystem._selected = control;
     }
 
+    /** @internal Every registered control, for the navigation search. */
+    public static _allSelectables(): ReadonlySet<Selectable> {
+        return EventSystem._selectables;
+    }
+
     /** @internal Registers an on-screen stick for per-frame pointer sampling. */
     public static _registerJoystick(stick: IPointerSampler): void {
         EventSystem._joysticks.add(stick);
@@ -216,6 +233,57 @@ export class EventSystem {
         }
 
         EventSystem._retireVanishedPointers();
+        if (EventSystem.keyboardNavigation) EventSystem._processKeyboard();
+    }
+
+    /**
+     * Moves and activates focus from the keyboard.
+     *
+     * @remarks
+     * Tab walks the controls in registration order, which is the closest thing
+     * to document order here; the arrows use each control's own navigation
+     * rules. Both are no-ops when nothing holds focus and nothing is
+     * registered.
+     */
+    private static _processKeyboard(): void {
+        const selected = EventSystem._selected;
+
+        if (Input.getKeyDown(KeyCode.Tab)) {
+            EventSystem._focusNext();
+            return;
+        }
+
+        if (!selected) return;
+
+        if (Input.getKeyDown(KeyCode.Enter)
+            || Input.getKeyDown(KeyCode.NumpadEnter)
+            || Input.getKeyDown(KeyCode.Space)) {
+            selected._submit();
+            return;
+        }
+
+        if (Input.getKeyDown(KeyCode.Escape)) {
+            EventSystem._setSelected(null);
+            return;
+        }
+
+        if (Input.getKeyDown(KeyCode.ArrowLeft)) selected.navigate(NavigationDirection.Left);
+        else if (Input.getKeyDown(KeyCode.ArrowRight)) selected.navigate(NavigationDirection.Right);
+        else if (Input.getKeyDown(KeyCode.ArrowUp)) selected.navigate(NavigationDirection.Up);
+        else if (Input.getKeyDown(KeyCode.ArrowDown)) selected.navigate(NavigationDirection.Down);
+    }
+
+    /** Advances focus to the next registered control, wrapping at the end. */
+    private static _focusNext(): void {
+        const usable: Selectable[] = [];
+        for (const control of EventSystem._selectables) {
+            if (control.isInteractable()) usable.push(control);
+        }
+        if (usable.length === 0) return;
+
+        const current = EventSystem._selected;
+        const index = current ? usable.indexOf(current) : -1;
+        usable[(index + 1) % usable.length].select();
     }
 
     /** @internal */

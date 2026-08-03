@@ -98,6 +98,9 @@ export class Button extends Selectable {
         this.onPointerClick.addListener(() => {
             if (this.isInteractable()) this._onClick.invoke(undefined);
         });
+
+        // Keyboard activation is a click as far as a button is concerned.
+        this.onSubmit.addListener(() => { this._onClick.invoke(undefined); });
     }
 
     public override _draw(ctx: CanvasRenderingContext2D, rect: Rect): void {

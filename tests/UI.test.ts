@@ -26,6 +26,8 @@ import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
 import { Selectable, SelectableState } from "../src/engine/core/ui/Selectable";
 import { SelectableTransition } from "../src/engine/core/ui/SelectableTransition";
+import { NavigationDirection, NavigationMode } from "../src/engine/core/ui/Navigation";
+import { KeyCode } from "../src/engine/core/KeyCode";
 import { TextAlignment, TextOverflow, UIText, VerticalAlignment } from "../src/engine/core/ui/UIText";
 import { ImageFillMethod, ImageFillOrigin, ImageType, UIImage } from "../src/engine/core/ui/UIImage";
 import { Sprite } from "../src/engine/core/graphics/Sprite";
@@ -4929,5 +4931,224 @@ describe("Selectable focus", () => {
 
         expect(bg.color.r).toBeCloseTo(0);
         expect(bg.color.g).toBeCloseTo(0.5);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Keyboard navigation
+// ---------------------------------------------------------------------------
+
+describe("Keyboard navigation", () => {
+    let downKeys: Set<string>;
+
+    /** A button at a position, sized 100x50, with automatic navigation. */
+    function makeButton(name: string, x: number, y: number): Button {
+        const btn = new GameObject(name).addComponent(Button);
+        const rt = btn.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(x, y);
+        rt.sizeDelta.set(100, 50);
+        return btn;
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        Selectable._reset();
+        downKeys = new Set();
+
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockReturnValue([]);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+        vi.spyOn(Input, "mousePosition", "get").mockReturnValue(new Vector2(700, 500));
+        vi.spyOn(Input, "getKeyDown").mockImplementation(k => downKeys.has(k as string));
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Selectable._reset();
+        Canvas._reset();
+        EventSystem.keyboardNavigation = true;
+    });
+
+    /** Presses a key for exactly one EventSystem pass. */
+    function press(key: KeyCode): void {
+        downKeys.add(key);
+        EventSystem._update();
+        downKeys.clear();
+    }
+
+    test("an arrow moves focus to the neighbour in that direction", () => {
+        const left = makeButton("L", 0, 0);
+        const right = makeButton("R", 200, 0);
+        left.select();
+
+        press(KeyCode.ArrowRight);
+
+        expect(EventSystem.currentSelected).toBe(right);
+    });
+
+    test("nothing is behind the last control in a direction", () => {
+        const left = makeButton("L", 0, 0);
+        makeButton("R", 200, 0);
+        left.select();
+
+        press(KeyCode.ArrowLeft);
+
+        expect(EventSystem.currentSelected).toBe(left);
+    });
+
+    test("Down is toward larger Y, matching the coordinate system", () => {
+        const top = makeButton("T", 0, 0);
+        const bottom = makeButton("B", 0, 200);
+        top.select();
+
+        press(KeyCode.ArrowDown);
+
+        expect(EventSystem.currentSelected).toBe(bottom);
+    });
+
+    test("a control in line wins over a nearer one off to the side", () => {
+        const origin = makeButton("O", 0, 0);          // centre (50, 25)
+        const inLine = makeButton("InLine", 300, 0);   // 300 ahead, 0 aside
+        makeButton("Diagonal", 100, 120);              // 100 ahead, 120 aside
+        origin.select();
+
+        press(KeyCode.ArrowRight);
+
+        // By raw distance the diagonal is closer; the sideways weighting is the
+        // only thing that makes the aligned one win, which is what an arrow key
+        // is expected to do.
+        expect(EventSystem.currentSelected).toBe(inLine);
+    });
+
+    test("Explicit mode follows the configured link instead", () => {
+        const a = makeButton("A", 0, 0);
+        makeButton("Near", 200, 0);
+        const far = makeButton("Far", 600, 0);
+
+        a.navigation.mode = NavigationMode.Explicit;
+        a.navigation.selectOnRight = far;
+        a.select();
+
+        press(KeyCode.ArrowRight);
+
+        expect(EventSystem.currentSelected).toBe(far);
+    });
+
+    test("None mode pins focus in place", () => {
+        const a = makeButton("A", 0, 0);
+        makeButton("B", 200, 0);
+        a.navigation.mode = NavigationMode.None;
+        a.select();
+
+        press(KeyCode.ArrowRight);
+
+        expect(EventSystem.currentSelected).toBe(a);
+    });
+
+    test("a non-interactable control is skipped", () => {
+        const a = makeButton("A", 0, 0);
+        const blocked = makeButton("B", 200, 0);
+        const reachable = makeButton("C", 400, 0);
+        blocked.interactable = false;
+        a.select();
+
+        press(KeyCode.ArrowRight);
+
+        expect(EventSystem.currentSelected).toBe(reachable);
+    });
+
+    test("Tab walks the controls and wraps at the end", () => {
+        const a = makeButton("A", 0, 0);
+        const b = makeButton("B", 200, 0);
+
+        press(KeyCode.Tab);
+        expect(EventSystem.currentSelected).toBe(a);
+
+        press(KeyCode.Tab);
+        expect(EventSystem.currentSelected).toBe(b);
+
+        press(KeyCode.Tab);
+        expect(EventSystem.currentSelected).toBe(a);
+    });
+
+    test("Enter activates the focused button", () => {
+        const a = makeButton("A", 0, 0);
+        let clicks = 0;
+        a.onClick.addListener(() => { clicks++; });
+        a.select();
+
+        press(KeyCode.Enter);
+
+        expect(clicks).toBe(1);
+    });
+
+    test("Space activates it too", () => {
+        const a = makeButton("A", 0, 0);
+        let clicks = 0;
+        a.onClick.addListener(() => { clicks++; });
+        a.select();
+
+        press(KeyCode.Space);
+
+        expect(clicks).toBe(1);
+    });
+
+    test("submit on a non-interactable control does nothing", () => {
+        const a = makeButton("A", 0, 0);
+        let clicks = 0;
+        a.onClick.addListener(() => { clicks++; });
+        a.select();
+        a.interactable = false;
+
+        press(KeyCode.Enter);
+
+        expect(clicks).toBe(0);
+    });
+
+    test("Escape drops focus", () => {
+        const a = makeButton("A", 0, 0);
+        a.select();
+
+        press(KeyCode.Escape);
+
+        expect(EventSystem.currentSelected).toBeNull();
+    });
+
+    test("arrows do nothing while nothing holds focus", () => {
+        makeButton("A", 0, 0);
+
+        press(KeyCode.ArrowRight);
+
+        expect(EventSystem.currentSelected).toBeNull();
+    });
+
+    test("turning navigation off leaves the keys to the scenario", () => {
+        const a = makeButton("A", 0, 0);
+        const b = makeButton("B", 200, 0);
+        a.select();
+        EventSystem.keyboardNavigation = false;
+
+        press(KeyCode.ArrowRight);
+
+        expect(EventSystem.currentSelected).toBe(a);
+        expect(b.isSelected).toBe(false);
+    });
+
+    test("navigate() reports whether focus actually moved", () => {
+        const a = makeButton("A", 0, 0);
+        makeButton("B", 200, 0);
+        a.select();
+
+        expect(a.navigate(NavigationDirection.Right)).toBe(true);
+        expect(a.navigate(NavigationDirection.Left)).toBe(false);
     });
 });

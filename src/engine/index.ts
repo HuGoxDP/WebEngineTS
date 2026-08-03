@@ -258,6 +258,7 @@ export { UIText, TextAlignment, VerticalAlignment, TextOverflow } from "./core/u
 export { Button, ButtonState } from "./core/ui/Button";
 export { Selectable, SelectableState } from "./core/ui/Selectable";
 export { SelectableTransition, ColorBlock, SpriteState } from "./core/ui/SelectableTransition";
+export { Navigation, NavigationMode, NavigationDirection } from "./core/ui/Navigation";
 export { VirtualJoystick } from "./core/ui/VirtualJoystick";
 export { Slider, SliderDirection } from "./core/ui/Slider";
 export { Toggle } from "./core/ui/Toggle";
@@ -444,6 +445,7 @@ import { UIText, TextAlignment, VerticalAlignment, TextOverflow } from "./core/u
 import { Button, ButtonState } from "./core/ui/Button";
 import { Selectable, SelectableState } from "./core/ui/Selectable";
 import { SelectableTransition, ColorBlock, SpriteState } from "./core/ui/SelectableTransition";
+import { Navigation, NavigationMode, NavigationDirection } from "./core/ui/Navigation";
 import { VirtualJoystick } from "./core/ui/VirtualJoystick";
 import { Slider, SliderDirection } from "./core/ui/Slider";
 import { Toggle } from "./core/ui/Toggle";
@@ -575,6 +577,7 @@ const WebEngineTS = {
     UIText, TextAlignment, VerticalAlignment, TextOverflow,
     Button, ButtonState, Selectable, SelectableState, EventSystem, VirtualJoystick,
     SelectableTransition, ColorBlock, SpriteState,
+    Navigation, NavigationMode, NavigationDirection,
     UIEvent, PointerEventData,
     Slider, SliderDirection, Toggle, ToggleGroup,
     LayoutElement, LayoutGroup, LinearLayoutGroup, LayoutPadding, LayoutAnchor,

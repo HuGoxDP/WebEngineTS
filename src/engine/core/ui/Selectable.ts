@@ -1,9 +1,13 @@
 import { UIBehaviour } from "./UIBehaviour";
+import { UIEvent } from "./UIEvent";
 import { EventSystem } from "./EventSystem";
 import { Color } from "../math/Color";
 import { Mathf } from "../math/Mathf";
 import { Time } from "../Time";
 import { ColorBlock, SelectableTransition, SpriteState } from "./SelectableTransition";
+import { Navigation, NavigationDirection, NavigationMode, directionVector } from "./Navigation";
+import { Rect } from "../math/Rect";
+import { Vector2 } from "../math/Vector2";
 import type { UIImage } from "./UIImage";
 import type { Sprite } from "../graphics/Sprite";
 import type { GameObject } from "../GameObject";
@@ -69,6 +73,19 @@ export abstract class Selectable extends UIBehaviour {
 
     /** Sprites used by {@link SelectableTransition.SpriteSwap}. */
     public readonly spriteState: SpriteState = new SpriteState();
+
+    /** Where keyboard focus goes from this control. */
+    public readonly navigation: Navigation = new Navigation();
+
+    /**
+     * Fired when this control is activated from the keyboard.
+     *
+     * @remarks
+     * Raised by the EventSystem on the focused control when the submit key is
+     * pressed. {@link Button} turns it into a click; other controls decide for
+     * themselves what activation means.
+     */
+    public readonly onSubmit: UIEvent<void> = new UIEvent<void>();
 
     /**
      * The graphic a transition drives.
@@ -157,6 +174,84 @@ export abstract class Selectable extends UIBehaviour {
     public get isSelected(): boolean {
         return EventSystem.currentSelected === this;
     }
+
+    /**
+     * The control focus should move to in `direction`, or null to stay put.
+     *
+     * @remarks
+     * Equivalent to Unity's `Selectable.FindSelectable`. Automatic mode scores
+     * candidates by how far along the direction they sit versus how far off to
+     * the side, so a control directly below wins over one further away
+     * diagonally — which is what makes arrow keys feel predictable in a grid.
+     *
+     * @param direction - the direction focus is moving in.
+     * @returns the next control, or null.
+     */
+    public findSelectable(direction: NavigationDirection): Selectable | null {
+        if (this.navigation.mode === NavigationMode.None) return null;
+        if (this.navigation.mode === NavigationMode.Explicit) {
+            const linked = this.navigation.get(direction);
+            return linked && linked.isInteractable() ? linked : null;
+        }
+
+        const dir = directionVector(direction, Selectable._dirScratch);
+        const from = this.rectTransform.getScreenRect(Selectable._rectScratch);
+        const fx = from.x + from.width * 0.5;
+        const fy = from.y + from.height * 0.5;
+
+        let best: Selectable | null = null;
+        let bestScore = Number.POSITIVE_INFINITY;
+
+        for (const candidate of EventSystem._allSelectables()) {
+            if (candidate === this || !candidate.isInteractable()) continue;
+            if (candidate.navigation.mode === NavigationMode.None) continue;
+
+            const to = candidate.rectTransform.getScreenRect(Selectable._otherScratch);
+            const dx = (to.x + to.width * 0.5) - fx;
+            const dy = (to.y + to.height * 0.5) - fy;
+
+            const along = dx * dir.x + dy * dir.y;
+            // Strictly ahead: a control level with this one is not "below" it.
+            if (along <= 0) continue;
+
+            const aside = Math.abs(dx * dir.y - dy * dir.x);
+
+            // Sideways distance is weighted heavily so the search prefers a
+            // control in line over a nearer one off to the side.
+            const score = along + aside * 3;
+            if (score < bestScore) {
+                bestScore = score;
+                best = candidate;
+            }
+        }
+
+        return best;
+    }
+
+    /**
+     * Moves focus one step in `direction`, if there is anywhere to go.
+     *
+     * @param direction - the direction focus is moving in.
+     * @returns whether focus actually moved.
+     */
+    public navigate(direction: NavigationDirection): boolean {
+        const next = this.findSelectable(direction);
+        if (!next) return false;
+        next.select();
+        return true;
+    }
+
+    /**
+     * @internal
+     * Activates this control from the keyboard. Raises {@link onSubmit}.
+     */
+    public _submit(): void {
+        if (this.isInteractable()) this.onSubmit.invoke(undefined);
+    }
+
+    private static readonly _dirScratch: Vector2 = new Vector2();
+    private static readonly _rectScratch: Rect = new Rect();
+    private static readonly _otherScratch: Rect = new Rect();
 
     protected override onEnable(): void {
         super.onEnable();

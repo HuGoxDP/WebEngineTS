@@ -10,7 +10,7 @@ Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see �
 2D affine pipeline (rotation/scale), the full layout API, the `UIEvent` + pointer/drag
 surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout groups with
 `ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup`. Next: §5.1b
-§5.3 keyboard navigation (focus now exists), then §6.4 `WorldSpace` render mode.
+§6.4 `WorldSpace` render mode, or §6.1 dirty-rect partial repaint.
 
 ---
 
@@ -23,7 +23,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate), **`CanvasGroup`** | `WorldSpace` render mode |
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter` | anchor presets, `AspectRatioFitter` |
 | Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, **linear + radial fill**), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | auto-size, rich text |
-| Interaction | `Selectable` base (**+ ColorTint/SpriteSwap transitions, focus**) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | `InputField`, keyboard nav |
+| Interaction | `Selectable` base (+ transitions, focus, **keyboard navigation**) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | `InputField`, gamepad nav |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
 | Repaint | `OnDemand` + `_visualHash`, **event-driven surface sync** | layout dirty flags, dirty-rect partial repaint |
 | Draw order | **hierarchy-ordered**, `sortingOrder` first | — |
@@ -555,7 +555,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~5.0g~~ | ~~`Dropdown`~~ | **done** | M | — |
 | ~~5.0h~~ | ~~Radial fill methods~~ | **done** | S | — |
 | 5.2 | Compose `Button` from Image + Text | P2 | M | 5.1, 5.0a |
-| 5.3 | Keyboard / gamepad navigation | P2 | M | 5.1 |
+| ~~5.3~~ | ~~Keyboard navigation + focus~~ (gamepad still open) | **done** | M | — |
 | 6.1 | Dirty-rect partial repaint | P2 | M | 4.1 |
 | 6.2 | Shared tint cache | P2 | M | — |
 | 6.4 | `WorldSpace` render mode (projected) | P2 | L | 4.4 |
