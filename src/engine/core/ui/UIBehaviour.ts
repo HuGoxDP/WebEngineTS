@@ -42,6 +42,16 @@ export abstract class UIBehaviour extends Behaviour {
     /** @internal Parent transform observed at the last canvas re-validation. */
     public _lastParent: Transform | null = null;
 
+    /**
+     * @internal
+     * Depth-first position of this graphic's GameObject within the owning
+     * canvas's hierarchy. Assigned by the Canvas whenever its graphic set or
+     * hierarchy changes, and used as the tiebreaker when {@link sortingOrder}
+     * is equal — so draw order follows the hierarchy, as it does in Unity,
+     * rather than the order components happened to be enabled in.
+     */
+    public _hierarchyIndex: number = 0;
+
     constructor(gameObject: GameObject) {
         super(gameObject);
     }

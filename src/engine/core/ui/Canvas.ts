@@ -2,10 +2,11 @@ import { Behaviour } from "../Behaviour";
 import { Application } from "../Application";
 import { RectTransform } from "./RectTransform";
 import { CanvasScaler } from "./CanvasScaler";
+import { UIBehaviour } from "./UIBehaviour";
 import { Rect } from "../math/Rect";
 import { HASH_SEED, hashBool, hashNumber } from "./UIUtils";
-import type { UIBehaviour } from "./UIBehaviour";
 import type { GameObject } from "../GameObject";
+import type { Transform } from "../Transform";
 import type { Vector2 } from "../math/Vector2";
 
 /**
@@ -36,6 +37,27 @@ export enum CanvasRepaintMode {
 
 /** Lowest z-index used by canvas overlays; `sortingOrder` offsets from here. */
 const BASE_Z_INDEX = 1000;
+
+/** Node cap for the hierarchy-order walk — guards against pathological trees. */
+const MAX_HIERARCHY_NODES = 100000;
+
+/**
+ * How often the overlay re-measures the render canvas when no resize or scroll
+ * event has fired, in milliseconds.
+ *
+ * @remarks
+ * `getBoundingClientRect` forces a style recalculation, so it must not run every
+ * frame. Observers cover every case the browser reports; this backstop catches
+ * the ones it does not (a host animating its own layout with transforms, for
+ * instance) without putting a synchronous layout in the frame loop.
+ */
+const SURFACE_REVALIDATE_MS = 500;
+
+/**
+ * `getComponentsInChildren` takes a construct signature and `UIBehaviour` is
+ * abstract, so the query needs a concrete-looking view of it.
+ */
+const UI_BEHAVIOUR_TYPE = UIBehaviour as unknown as new (...args: never[]) => UIBehaviour;
 
 /**
  * Root container for all UI elements.
@@ -112,10 +134,15 @@ export class Canvas extends Behaviour {
     private _graphics: UIBehaviour[] = [];
     private _resizeObserver: ResizeObserver | null = null;
     private _scrollHandler: (() => void) | null = null;
+    private _viewport: VisualViewport | null = null;
 
     /** Scratch layout rects, one slot per entry in {@link _graphics}. */
     private _rects: Rect[] = [];
     private readonly _canvasRect: Rect = new Rect();
+
+    /** Reusable scratch for the hierarchy-order walk; never live across calls. */
+    private readonly _orderScratch: Map<GameObject, number> = new Map();
+    private readonly _walkStack: Transform[] = [];
 
     private _cssWidth: number = 0;
     private _cssHeight: number = 0;
@@ -126,6 +153,8 @@ export class Canvas extends Behaviour {
 
     private _sortDirty: boolean = false;
     private _dirty: boolean = true;
+    private _surfaceDirty: boolean = true;
+    private _lastSurfaceCheckMs: number = 0;
     private _lastHash: number = 0;
     private _drawnGraphicCount: number = 0;
     private _repaintedLastFrame: boolean = false;
@@ -248,14 +277,24 @@ export class Canvas extends Behaviour {
 
         this._syncSurface();
 
+        // Observers only flag the surface; the re-measure itself happens in the
+        // frame loop, so a burst of resize events costs one layout, not one each.
+        const invalidate = () => { this._surfaceDirty = true; };
+
         if (typeof ResizeObserver !== "undefined") {
-            this._resizeObserver = new ResizeObserver(() => this._syncSurface());
+            this._resizeObserver = new ResizeObserver(invalidate);
             this._resizeObserver.observe(glCanvas ?? document.documentElement);
         }
 
         if (typeof window !== "undefined") {
-            this._scrollHandler = () => this._syncSurface();
+            this._scrollHandler = invalidate;
             window.addEventListener("scroll", this._scrollHandler, { passive: true });
+
+            // Pinch-zoom and the mobile keyboard move the canvas without firing
+            // either of the above.
+            this._viewport = window.visualViewport ?? null;
+            this._viewport?.addEventListener("resize", this._scrollHandler);
+            this._viewport?.addEventListener("scroll", this._scrollHandler);
         }
     }
 
@@ -265,7 +304,10 @@ export class Canvas extends Behaviour {
             Canvas._orderDirty = true;
         }
         this._dirty = true;
+        this._surfaceDirty = true;
         if (this._htmlCanvas) this._htmlCanvas.style.display = "";
+
+        this._adoptSubtree();
     }
 
     protected override onDisable(): void {
@@ -283,8 +325,11 @@ export class Canvas extends Behaviour {
 
         if (this._scrollHandler && typeof window !== "undefined") {
             window.removeEventListener("scroll", this._scrollHandler);
+            this._viewport?.removeEventListener("resize", this._scrollHandler);
+            this._viewport?.removeEventListener("scroll", this._scrollHandler);
         }
         this._scrollHandler = null;
+        this._viewport = null;
 
         this._htmlCanvas?.parentElement?.removeChild(this._htmlCanvas);
         this._htmlCanvas = null;
@@ -448,25 +493,60 @@ export class Canvas extends Behaviour {
     private _renderFrame(): void {
         if (!this._ctx2d || !this._htmlCanvas) return;
 
-        this._syncSurface();
+        this._maybeSyncSurface();
+
+        // Cheap and not a layout read, so it stays per-frame: a scaler property
+        // assigned from script must take effect on the very next repaint.
+        this._updateScaleFactor();
+        this._canvasRect.set(0, 0, this.width, this.height);
 
         this._repaintedLastFrame = this._prepare();
         if (this._repaintedLastFrame) this._paint();
     }
 
     /**
-     * Refreshes layout rects and decides whether a repaint is required.
-     * @returns true when the surface must be redrawn this frame.
+     * Re-measures the render canvas, but only when something may have moved it.
+     *
+     * @remarks
+     * `_syncSurface` calls `getBoundingClientRect`, which forces a synchronous
+     * style recalculation. Running that every frame would put a layout in the
+     * frame loop of a subsystem whose whole point is to do nothing when nothing
+     * changed, so it is driven by the resize/scroll observers plus a slow
+     * backstop poll.
      */
-    private _prepare(): boolean {
-        if (this._sortDirty) {
-            // Array.prototype.sort is stable, so equal orders keep registration
-            // order — which follows the hierarchy for a normally-built UI.
-            this._graphics.sort((a, b) => a.sortingOrder - b.sortingOrder);
-            this._sortDirty = false;
+    private _maybeSyncSurface(): void {
+        const now = performance.now();
+
+        if (!this._surfaceDirty && now - this._lastSurfaceCheckMs < SURFACE_REVALIDATE_MS) {
+            return;
         }
 
+        this._surfaceDirty = false;
+        this._lastSurfaceCheckMs = now;
+        this._syncSurface();
+    }
+
+    /**
+     * @internal
+     * Refreshes draw order and layout rects, and decides whether a repaint is
+     * required. Runs every frame; `_paint` is what it gates.
+     *
+     * @returns true when the surface must be redrawn this frame.
+     */
+    public _prepare(): boolean {
+        // Re-parenting is resolved before sorting, so an element that moved this
+        // frame is drawn in its new hierarchy position on this frame.
         this._revalidateParents();
+
+        if (this._sortDirty) {
+            this._assignHierarchyOrder();
+            // Array.prototype.sort is stable, so several graphics on one
+            // GameObject (an Image and a Text, say) keep registration order.
+            this._graphics.sort((a, b) => a.sortingOrder !== b.sortingOrder
+                ? a.sortingOrder - b.sortingOrder
+                : a._hierarchyIndex - b._hierarchyIndex);
+            this._sortDirty = false;
+        }
 
         const onDemand = this._repaintMode === CanvasRepaintMode.OnDemand;
         let hash = HASH_SEED;
@@ -527,6 +607,67 @@ export class Canvas extends Behaviour {
             g._lastParent = parent;
             g.rectTransform.invalidateLayoutCache();
             g._revalidateCanvas();
+
+            // A moved element sits somewhere else in the hierarchy, so the draw
+            // order it implies is stale.
+            this._sortDirty = true;
+            this._dirty = true;
+        }
+    }
+
+    /**
+     * Numbers this canvas's subtree depth-first and stamps each registered
+     * graphic with its GameObject's position.
+     *
+     * @remarks
+     * Runs only when the graphic set or the hierarchy changed, never per frame.
+     * Graphics whose GameObject is not reached by the walk (possible for one
+     * frame while a re-parent is being resolved) sort last rather than at an
+     * arbitrary position.
+     */
+    private _assignHierarchyOrder(): void {
+        const order = this._orderScratch;
+        const stack = this._walkStack;
+        order.clear();
+        stack.length = 0;
+
+        let next = 0;
+        stack.push(this.gameObject.transform);
+
+        while (stack.length > 0 && next < MAX_HIERARCHY_NODES) {
+            const t = stack.pop()!;
+            order.set(t.gameObject, next++);
+            // Pushed in reverse so the pop order is first child first.
+            for (let i = t.childCount - 1; i >= 0; i--) stack.push(t.getChild(i));
+        }
+
+        stack.length = 0;
+
+        for (let i = 0; i < this._graphics.length; i++) {
+            const g = this._graphics[i];
+            const idx = order.get(g.gameObject);
+            g._hierarchyIndex = idx === undefined ? Number.MAX_SAFE_INTEGER : idx;
+        }
+
+        order.clear();
+    }
+
+    /**
+     * Registers graphics that already existed in this canvas's subtree when the
+     * canvas itself came online.
+     *
+     * @remarks
+     * A graphic resolves its canvas in `onEnable`. Adding a Canvas component to
+     * an ancestor afterwards changes no parent pointer, so `_revalidateParents`
+     * never fires and those descendants would stay unregistered — invisible and
+     * un-clickable — forever. Unity solves the same problem with
+     * `OnCanvasHierarchyChanged`.
+     */
+    private _adoptSubtree(): void {
+        const graphics = this.gameObject.getComponentsInChildren(UI_BEHAVIOUR_TYPE, true);
+        for (let i = 0; i < graphics.length; i++) {
+            graphics[i].rectTransform.invalidateLayoutCache();
+            graphics[i]._revalidateCanvas();
         }
     }
 

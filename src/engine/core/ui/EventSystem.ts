@@ -25,27 +25,47 @@ export interface IPointerSampler {
  * attachment required. {@link _update} is called once per frame from
  * `Application._loop` before the UI render pass.
  *
- * **Pointer sources:** the primary pointer is the first active finger when the
- * device reports touches, otherwise the mouse. Buttons therefore work on phones
- * without relying on the browser's synthetic mouse events.
+ * **Pointer sources:** every active finger is routed independently, and the
+ * mouse is treated as one more pointer when no finger is down. Two thumbs can
+ * therefore press two buttons at once — the layout every mobile scenario uses,
+ * with a stick under one thumb and actions under the other. Buttons work on
+ * phones without relying on the browser's synthetic mouse events.
  *
  * **Hit-testing:** canvases are walked front-to-back (by `Canvas.sortingOrder`)
- * and their graphics likewise, so only the topmost element under the pointer
+ * and their graphics likewise, so only the topmost element under a pointer
  * reacts. The hit element's Button — or the nearest Button above it in the
  * hierarchy, which is how a label forwards clicks to its button — receives the
- * event. A click fires only when press and release land on the same button.
+ * event. A click fires only when press and release land on the same button with
+ * the same pointer.
+ *
+ * A graphic with `raycastTarget` set blocks pointers from whatever is behind it
+ * even when it is not itself interactive, matching Unity. Clear `raycastTarget`
+ * on decorative elements that should let clicks through.
  */
 export class EventSystem {
 
+    /** Pointer id standing in for the mouse, which carries no touch identifier. */
+    private static readonly MOUSE_POINTER_ID = -1;
+
     private static _buttons: Set<Button> = new Set();
     private static _joysticks: Set<IPointerSampler> = new Set();
-    private static _wasDown: boolean = false;
-    private static _pressedButton: Button | null = null;
     private static _pointerOverUI: boolean = false;
+
+    /** The button each currently-pressed pointer went down on. */
+    private static readonly _pressedByPointer: Map<number, Button> = new Map();
+
+    /** Pointer ids that were down at the end of the previous frame. */
+    private static readonly _downLastFrame: Set<number> = new Set();
+
+    // Per-frame scratch. Cleared rather than reallocated — this runs every frame.
+    private static readonly _downThisFrame: Set<number> = new Set();
+    private static readonly _hovered: Set<Button> = new Set();
+    private static readonly _held: Set<Button> = new Set();
 
     private static readonly _scratchRect: Rect = new Rect();
     private static readonly _canvasPoint: Vector2 = new Vector2();
     private static readonly _screenPoint: Vector2 = new Vector2();
+    private static readonly _pointerPoint: Vector2 = new Vector2();
 
     /**
      * Whether the pointer is currently over a UI element that blocks raycasts.
@@ -65,9 +85,24 @@ export class EventSystem {
         return EventSystem._pointerOverUI;
     }
 
-    /** Screen position (CSS pixels, canvas-relative) of the primary pointer. */
+    /**
+     * Screen position (CSS pixels, canvas-relative) of the primary pointer —
+     * the first active finger, or the mouse when no finger is down.
+     *
+     * WARNING: allocates. Use {@link getPointerPosition} in hot paths.
+     */
     public static get pointerPosition(): Vector2 {
         return EventSystem._screenPoint.clone();
+    }
+
+    /**
+     * Writes the primary pointer position into `out` without allocating.
+     *
+     * @param out - vector to receive the result.
+     * @returns `out` for chaining.
+     */
+    public static getPointerPosition(out: Vector2): Vector2 {
+        return out.copy(EventSystem._screenPoint);
     }
 
     /**
@@ -86,7 +121,10 @@ export class EventSystem {
      */
     public static _unregisterButton(btn: Button): void {
         EventSystem._buttons.delete(btn);
-        if (EventSystem._pressedButton === btn) EventSystem._pressedButton = null;
+
+        for (const [id, pressed] of EventSystem._pressedByPointer) {
+            if (pressed === btn) EventSystem._pressedByPointer.delete(id);
+        }
     }
 
     /** @internal Registers an on-screen stick for per-frame pointer sampling. */
@@ -107,42 +145,52 @@ export class EventSystem {
     public static _update(): void {
         if (typeof window === "undefined") return;
 
-        const isDown = EventSystem._resolvePointer(EventSystem._screenPoint);
-        const wasDown = EventSystem._wasDown;
-        const justDown = isDown && !wasDown;
-        const justUp   = !isDown && wasDown;
-        EventSystem._wasDown = isDown;
-
         for (const stick of EventSystem._joysticks) {
             if (stick.isActiveAndEnabled) stick._pollPointer();
         }
 
-        const hit = EventSystem._hitTest(EventSystem._screenPoint);
+        EventSystem._downThisFrame.clear();
+        EventSystem._hovered.clear();
+        EventSystem._held.clear();
+        EventSystem._pointerOverUI = false;
 
-        if (justDown) {
-            EventSystem._pressedButton = hit && hit.interactable ? hit : null;
+        const touches = Touch.touches;
+        for (let i = 0; i < touches.length; i++) {
+            const t = touches[i];
+            // A finger lifted this frame still reports its last position, which
+            // is what the release must be hit-tested against.
+            const isDown = t.phase !== TouchPhase.Ended && t.phase !== TouchPhase.Canceled;
+            if (i === 0) EventSystem._screenPoint.copy(t.position);
+            EventSystem._processPointer(t.id, t.position, isDown);
         }
+
+        // The browser also synthesizes mouse events from touches; handling the
+        // mouse only when no finger is present keeps one tap from counting twice.
+        if (touches.length === 0) {
+            const mouse = Input.mousePosition;
+            EventSystem._screenPoint.set(mouse.x, mouse.y);
+            EventSystem._pointerPoint.set(mouse.x, mouse.y);
+            EventSystem._processPointer(
+                EventSystem.MOUSE_POINTER_ID,
+                EventSystem._pointerPoint,
+                Input.getMouseButton(0),
+            );
+        }
+
+        // A pointer can vanish without ever reporting a release (a canceled
+        // touch, a mouse leaving the window); its press must not survive.
+        for (const id of EventSystem._downLastFrame) {
+            if (!EventSystem._downThisFrame.has(id)) EventSystem._pressedByPointer.delete(id);
+        }
+        EventSystem._downLastFrame.clear();
+        for (const id of EventSystem._downThisFrame) EventSystem._downLastFrame.add(id);
 
         for (const btn of EventSystem._buttons) {
-            if (!btn.isActiveAndEnabled) {
-                btn._state = ButtonState.Normal;
-            } else if (!btn.interactable) {
-                btn._state = ButtonState.Disabled;
-            } else if (btn !== hit) {
-                btn._state = ButtonState.Normal;
-            } else {
-                btn._state = isDown && EventSystem._pressedButton === btn
-                    ? ButtonState.Pressed
-                    : ButtonState.Highlighted;
-            }
-        }
-
-        if (justUp) {
-            const pressed = EventSystem._pressedButton;
-            EventSystem._pressedButton = null;
-            if (pressed && pressed === hit && pressed.interactable && pressed.onClick) {
-                pressed.onClick();
-            }
+            if (!btn.isActiveAndEnabled)        btn._state = ButtonState.Normal;
+            else if (!btn.interactable)         btn._state = ButtonState.Disabled;
+            else if (EventSystem._held.has(btn)) btn._state = ButtonState.Pressed;
+            else if (EventSystem._hovered.has(btn)) btn._state = ButtonState.Highlighted;
+            else                                btn._state = ButtonState.Normal;
         }
     }
 
@@ -150,8 +198,11 @@ export class EventSystem {
     public static _reset(): void {
         EventSystem._buttons.clear();
         EventSystem._joysticks.clear();
-        EventSystem._wasDown = false;
-        EventSystem._pressedButton = null;
+        EventSystem._pressedByPointer.clear();
+        EventSystem._downLastFrame.clear();
+        EventSystem._downThisFrame.clear();
+        EventSystem._hovered.clear();
+        EventSystem._held.clear();
         EventSystem._pointerOverUI = false;
     }
 
@@ -160,31 +211,49 @@ export class EventSystem {
     // ── private ──────────────────────────────────────────────────────
 
     /**
-     * Writes the primary pointer position into `out`.
-     * @returns whether the pointer is pressed this frame.
+     * Routes one pointer for this frame: resolves what it is over, tracks its
+     * press across frames, and fires the click when it releases on the button it
+     * pressed.
+     *
+     * @param id - stable pointer identity (touch id, or the mouse sentinel).
+     * @param position - pointer position in CSS pixels, canvas-relative.
+     * @param isDown - whether this pointer is pressed this frame.
      */
-    private static _resolvePointer(out: Vector2): boolean {
-        const touches = Touch.touches;
-        if (touches.length > 0) {
-            // A finger lifted this frame still reports its last position, which
-            // is what the release must be hit-tested against.
-            const t = touches[0];
-            out.copy(t.position);
-            return t.phase !== TouchPhase.Ended && t.phase !== TouchPhase.Canceled;
+    private static _processPointer(id: number, position: Vector2, isDown: boolean): void {
+        const hit = EventSystem._hitTest(position);
+        const wasDown = EventSystem._downLastFrame.has(id);
+
+        if (isDown) EventSystem._downThisFrame.add(id);
+
+        if (isDown && !wasDown) {
+            if (hit && hit.interactable) EventSystem._pressedByPointer.set(id, hit);
+            else EventSystem._pressedByPointer.delete(id);
         }
 
-        const mouse = Input.mousePosition;
-        out.set(mouse.x, mouse.y);
-        return Input.getMouseButton(0);
+        const pressed = EventSystem._pressedByPointer.get(id) ?? null;
+
+        if (hit && hit.interactable) {
+            // Held wins over hover, and both are unions across pointers: a button
+            // under two fingers reads as pressed, not as pressed-and-hovered.
+            if (isDown && pressed === hit) EventSystem._held.add(hit);
+            else EventSystem._hovered.add(hit);
+        }
+
+        if (!isDown && wasDown) {
+            EventSystem._pressedByPointer.delete(id);
+            if (pressed && pressed === hit && pressed.interactable && pressed.onClick) {
+                pressed.onClick();
+            }
+        }
     }
 
     /**
      * Finds the topmost UI element under the pointer and the Button that should
-     * receive its events. Also refreshes {@link isPointerOverUI}.
+     * receive its events. Sets {@link isPointerOverUI} when this pointer is over
+     * a raycast target — never clears it, since it is a union across pointers
+     * that `_update` resets once per frame.
      */
     private static _hitTest(screen: Vector2): Button | null {
-        EventSystem._pointerOverUI = false;
-
         const canvases = Canvas._sortedInstances();
         for (let ci = canvases.length - 1; ci >= 0; ci--) {
             const canvas = canvases[ci];

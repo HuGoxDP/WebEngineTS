@@ -24,9 +24,18 @@ const MAX_RECT_DEPTH = 64;
  * Adding an Image/Text/Button component to a GameObject automatically
  * adds a RectTransform sibling if one does not already exist.
  *
- * **Coordinate system:** origin at top-left, X right, Y down (CSS convention).
- * This differs from Unity's bottom-left origin for the purpose of direct
- * mapping to the browser 2D canvas.
+ * **Coordinate system — Y points DOWN.** Origin is the top-left corner, X grows
+ * right, Y grows down (the CSS / 2D-canvas convention). This is a deliberate,
+ * permanent deviation from Unity, whose UI origin is bottom-left with Y up: it
+ * removes a coordinate flip from every draw call and every pointer event, since
+ * the browser 2D context and DOM pointer events are already Y-down.
+ *
+ * Consequences to keep in mind — each is the *opposite* of Unity:
+ * - `anchorMin` is the **top**-left corner of the anchor rect, `anchorMax` the
+ *   **bottom**-right one.
+ * - `pivot` `(0, 0)` is the **top**-left of the element, `(1, 1)` the bottom-right.
+ * - A larger Y in {@link anchoredPosition} moves an element **down**.
+ * - On the resulting {@link Rect}, `yMin` is the top edge and `yMax` the bottom.
  *
  * **Units:** layout is expressed in *canvas units*, not device pixels. Without a
  * `CanvasScaler` one canvas unit is one CSS pixel; with one, the canvas reports a
@@ -38,6 +47,14 @@ const MAX_RECT_DEPTH = 64;
  * - When they are equal (default `(0.5, 0.5)`) the anchor is a single point.
  * - `anchoredPosition` is the pixel offset of the pivot from the anchor center.
  * - `sizeDelta` is added on top of the stretched anchor area to get the final size.
+ *
+ * ```ts
+ * // Pin to the bottom-right corner, 10 units in from each edge.
+ * rt.anchorMin.set(1, 1);   // Y=1 is the BOTTOM edge in this system
+ * rt.anchorMax.set(1, 1);
+ * rt.pivot.set(1, 1);       // (1,1) is the element's bottom-right
+ * rt.anchoredPosition.set(-10, -10);
+ * ```
  */
 export class RectTransform extends Component {
 
@@ -51,15 +68,30 @@ export class RectTransform extends Component {
      */
     public sizeDelta: Vector2 = new Vector2(100, 100);
 
-    /** Normalized lower-left anchor corner (0–1 of parent rect). */
+    /**
+     * Normalized anchor corner with the *lower* coordinates (0–1 of parent rect).
+     *
+     * @remarks
+     * Because Y points down, this is the **top**-left corner of the anchor
+     * rectangle — the opposite of Unity, where `anchorMin` is bottom-left.
+     */
     public anchorMin: Vector2 = new Vector2(0.5, 0.5);
 
-    /** Normalized upper-right anchor corner (0–1 of parent rect). */
+    /**
+     * Normalized anchor corner with the *upper* coordinates (0–1 of parent rect).
+     *
+     * @remarks
+     * Because Y points down, this is the **bottom**-right corner of the anchor
+     * rectangle — the opposite of Unity, where `anchorMax` is top-right.
+     */
     public anchorMax: Vector2 = new Vector2(0.5, 0.5);
 
     /**
-     * The pivot point (0–1).
+     * The pivot point (0–1), the point the element is positioned and sized about.
+     *
+     * @remarks
      * `(0.5, 0.5)` = center, `(0, 0)` = top-left, `(1, 1)` = bottom-right.
+     * The Y axis is inverted relative to Unity, where `(0, 0)` is bottom-left.
      */
     public pivot: Vector2 = new Vector2(0.5, 0.5);
 
@@ -77,6 +109,7 @@ export class RectTransform extends Component {
 
     private _cachedCanvas: Canvas | null = null;
     private _canvasLookupFrame: number = -1;
+    private _canvasResolved: boolean = false;
 
     /** Scratch rects for the ancestor walk, one per hierarchy depth. */
     private static readonly _scratch: Rect[] = [];
@@ -102,11 +135,20 @@ export class RectTransform extends Component {
         return this._cachedParentRect;
     }
 
-    /** The nearest Canvas ancestor, or null. */
+    /**
+     * The nearest Canvas ancestor, or null.
+     *
+     * @remarks
+     * "No canvas" is cached for the rest of the frame just like a hit is —
+     * otherwise every access re-walks the whole ancestor chain, and this is read
+     * once per element per ancestor per frame. A Canvas appearing on an ancestor
+     * later invalidates the cache through {@link invalidateLayoutCache}, which
+     * `Canvas.onEnable` drives across its subtree.
+     */
     public get canvas(): Canvas | null {
         if (!_CanvasCtor) return null;
 
-        if (this._canvasLookupFrame === Time.frameCount && this._cachedCanvas !== null) {
+        if (this._canvasResolved && this._canvasLookupFrame === Time.frameCount) {
             return this._cachedCanvas;
         }
 
@@ -120,6 +162,7 @@ export class RectTransform extends Component {
 
         this._cachedCanvas = found;
         this._canvasLookupFrame = Time.frameCount;
+        this._canvasResolved = true;
         return found;
     }
 
@@ -158,6 +201,7 @@ export class RectTransform extends Component {
     public invalidateLayoutCache(): void {
         this._parentLookupFrame = -1;
         this._canvasLookupFrame = -1;
+        this._canvasResolved = false;
         this._cachedParentRect = null;
         this._cachedCanvas = null;
     }

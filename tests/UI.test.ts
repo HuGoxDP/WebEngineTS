@@ -1,5 +1,8 @@
-import { describe, test, expect } from "vitest";
-import { CanvasRenderMode, CanvasRepaintMode } from "../src/engine/core/ui/Canvas";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { Canvas, CanvasRenderMode, CanvasRepaintMode } from "../src/engine/core/ui/Canvas";
+import { EventSystem } from "../src/engine/core/ui/EventSystem";
+import { Input } from "../src/engine/core/Input";
+import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
 import { TextAlignment, UIText, VerticalAlignment } from "../src/engine/core/ui/UIText";
 import { ImageFillMethod, ImageFillOrigin, UIImage } from "../src/engine/core/ui/UIImage";
@@ -76,41 +79,32 @@ function makeContext(): MockContext {
 }
 
 // ---------------------------------------------------------------------------
-// Minimal RectTransform screen-rect math (tested in isolation via plain math)
+// RectTransform anchor math — exercised through real components.
+//
+// With no Canvas ancestor the root rect falls back to an 800x600 viewport, which
+// is what every case below is expressed against.
 // ---------------------------------------------------------------------------
 
-function computeScreenRect(
-    parentRect: Rect,
-    anchorMin: Vector2,
-    anchorMax: Vector2,
-    anchoredPosition: Vector2,
-    sizeDelta: Vector2,
-    pivot: Vector2,
+/** Builds a live root RectTransform with the given anchor configuration. */
+function layout(
+    anchorMin: [number, number],
+    anchorMax: [number, number],
+    anchoredPosition: [number, number],
+    sizeDelta: [number, number],
+    pivot: [number, number],
 ): Rect {
-    const aLeft   = parentRect.x + anchorMin.x * parentRect.width;
-    const aTop    = parentRect.y + anchorMin.y * parentRect.height;
-    const aRight  = parentRect.x + anchorMax.x * parentRect.width;
-    const aBottom = parentRect.y + anchorMax.y * parentRect.height;
-    const aCx = (aLeft + aRight)  * 0.5;
-    const aCy = (aTop  + aBottom) * 0.5;
-    const w = (aRight - aLeft) + sizeDelta.x;
-    const h = (aBottom - aTop) + sizeDelta.y;
-    const x = aCx + anchoredPosition.x - pivot.x * w;
-    const y = aCy + anchoredPosition.y - pivot.y * h;
-    return new Rect(x, y, w, h);
+    const rt = new GameObject("Anchored").addComponent(RectTransform);
+    rt.anchorMin.set(anchorMin[0], anchorMin[1]);
+    rt.anchorMax.set(anchorMax[0], anchorMax[1]);
+    rt.anchoredPosition.set(anchoredPosition[0], anchoredPosition[1]);
+    rt.sizeDelta.set(sizeDelta[0], sizeDelta[1]);
+    rt.pivot.set(pivot[0], pivot[1]);
+    return rt.getScreenRect(new Rect());
 }
 
-describe("RectTransform math", () => {
-    const parent = new Rect(0, 0, 800, 600);
-
+describe("RectTransform anchor math", () => {
     test("center anchor, default pivot — centered in parent", () => {
-        const r = computeScreenRect(
-            parent,
-            new Vector2(0.5, 0.5), new Vector2(0.5, 0.5),
-            new Vector2(0, 0),
-            new Vector2(100, 50),
-            new Vector2(0.5, 0.5),
-        );
+        const r = layout([0.5, 0.5], [0.5, 0.5], [0, 0], [100, 50], [0.5, 0.5]);
         expect(r.x).toBeCloseTo(350);   // 400 - 50
         expect(r.y).toBeCloseTo(275);   // 300 - 25
         expect(r.width).toBeCloseTo(100);
@@ -118,25 +112,13 @@ describe("RectTransform math", () => {
     });
 
     test("center anchor, offset with anchoredPosition", () => {
-        const r = computeScreenRect(
-            parent,
-            new Vector2(0.5, 0.5), new Vector2(0.5, 0.5),
-            new Vector2(20, -10),
-            new Vector2(100, 50),
-            new Vector2(0.5, 0.5),
-        );
+        const r = layout([0.5, 0.5], [0.5, 0.5], [20, -10], [100, 50], [0.5, 0.5]);
         expect(r.x).toBeCloseTo(370);
         expect(r.y).toBeCloseTo(265);
     });
 
     test("stretch anchors fill parent exactly", () => {
-        const r = computeScreenRect(
-            parent,
-            new Vector2(0, 0), new Vector2(1, 1),
-            new Vector2(0, 0),
-            new Vector2(0, 0),
-            new Vector2(0.5, 0.5),
-        );
+        const r = layout([0, 0], [1, 1], [0, 0], [0, 0], [0.5, 0.5]);
         expect(r.x).toBeCloseTo(0);
         expect(r.y).toBeCloseTo(0);
         expect(r.width).toBeCloseTo(800);
@@ -144,44 +126,32 @@ describe("RectTransform math", () => {
     });
 
     test("stretch anchors with margin padding (sizeDelta negative)", () => {
-        const r = computeScreenRect(
-            parent,
-            new Vector2(0, 0), new Vector2(1, 1),
-            new Vector2(0, 0),
-            new Vector2(-40, -20),
-            new Vector2(0.5, 0.5),
-        );
+        const r = layout([0, 0], [1, 1], [0, 0], [-40, -20], [0.5, 0.5]);
         expect(r.width).toBeCloseTo(760);
         expect(r.height).toBeCloseTo(580);
         expect(r.x).toBeCloseTo(20);
         expect(r.y).toBeCloseTo(10);
     });
 
-    test("top-left anchor corner-anchored element", () => {
-        const r = computeScreenRect(
-            parent,
-            new Vector2(0, 0), new Vector2(0, 0),
-            new Vector2(10, 10),
-            new Vector2(80, 30),
-            new Vector2(0, 0),
-        );
+    test("anchorMin (0,0) is the TOP-left corner in this Y-down system", () => {
+        const r = layout([0, 0], [0, 0], [10, 10], [80, 30], [0, 0]);
         expect(r.x).toBeCloseTo(10);
         expect(r.y).toBeCloseTo(10);
         expect(r.width).toBeCloseTo(80);
         expect(r.height).toBeCloseTo(30);
     });
 
-    test("bottom-right anchor (1,1)", () => {
-        const r = computeScreenRect(
-            parent,
-            new Vector2(1, 1), new Vector2(1, 1),
-            new Vector2(-10, -10),
-            new Vector2(80, 30),
-            new Vector2(1, 1),
-        );
-        // pivot (1,1): top-left of rect = anchorCenter + offset - size
+    test("anchorMax (1,1) is the BOTTOM-right corner, so Y grows downward", () => {
+        const r = layout([1, 1], [1, 1], [-10, -10], [80, 30], [1, 1]);
+        // pivot (1,1) is the element's bottom-right, the inverse of Unity.
         expect(r.x).toBeCloseTo(800 - 10 - 80);
         expect(r.y).toBeCloseTo(600 - 10 - 30);
+    });
+
+    test("a larger anchoredPosition.y moves the element down the screen", () => {
+        const high = layout([0, 0], [0, 0], [0, 100], [10, 10], [0, 0]);
+        const low  = layout([0, 0], [0, 0], [0, 200], [10, 10], [0, 0]);
+        expect(low.y).toBeGreaterThan(high.y);
     });
 });
 
@@ -601,5 +571,329 @@ describe("Button", () => {
         const btn = new GameObject("Btn").addComponent(Button);
         btn.sortingOrder = 5;
         expect(btn.sortingOrder).toBe(5);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Canvas — draw order and registration
+//
+// No DOM under vitest, so the Canvas has no 2D context and never paints; the
+// ordering and registration logic in `_prepare` runs regardless, which is what
+// these cover.
+// ---------------------------------------------------------------------------
+
+/** Creates a GameObject parented to `parent` before any component is added. */
+function child(name: string, parent: GameObject): GameObject {
+    const go = new GameObject(name);
+    go.transform.parent = parent.transform;
+    return go;
+}
+
+describe("Canvas draw order", () => {
+    beforeEach(() => Canvas._reset());
+    afterEach(() => Canvas._reset());
+
+    /**
+     * Canvas ─ Panel(bg) ─┬─ LabelA
+     *                     └─ LabelB
+     */
+    function makeTree() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+
+        const panelGO = child("Panel", canvasGO);
+        const bg = panelGO.addComponent(UIImage);
+
+        const a = child("LabelA", panelGO).addComponent(UIText);
+        const b = child("LabelB", panelGO).addComponent(UIText);
+
+        return { canvas, bg, a, b };
+    }
+
+    test("graphics draw in hierarchy order, parents before children", () => {
+        const { canvas, bg, a, b } = makeTree();
+        canvas._prepare();
+        expect(Array.from(canvas._graphicList)).toEqual([bg, a, b]);
+    });
+
+    test("re-enabling a parent graphic does not lift it above its children", () => {
+        const { canvas, bg, a, b } = makeTree();
+        canvas._prepare();
+
+        // Re-registration appends, so without a hierarchy tiebreaker the panel
+        // background would end up painting over its own labels.
+        bg.enabled = false;
+        bg.enabled = true;
+        canvas._prepare();
+
+        expect(Array.from(canvas._graphicList)).toEqual([bg, a, b]);
+    });
+
+    test("sortingOrder still wins over hierarchy position", () => {
+        const { canvas, bg, a, b } = makeTree();
+        bg.sortingOrder = 10;
+        canvas._prepare();
+        expect(Array.from(canvas._graphicList)).toEqual([a, b, bg]);
+    });
+
+    test("re-parenting reorders on the same frame it happens", () => {
+        const { canvas, bg, a, b } = makeTree();
+        canvas._prepare();
+        expect(Array.from(canvas._graphicList)).toEqual([bg, a, b]);
+
+        // Move LabelA out to be a direct sibling of Panel, after it.
+        a.gameObject.transform.parent = canvas.gameObject.transform;
+        canvas._prepare();
+
+        expect(Array.from(canvas._graphicList)).toEqual([bg, b, a]);
+    });
+});
+
+describe("Canvas registration", () => {
+    beforeEach(() => Canvas._reset());
+    afterEach(() => Canvas._reset());
+
+    test("a Canvas added after its children adopts them", () => {
+        const rootGO = new GameObject("Root");
+        const img = child("Child", rootGO).addComponent(UIImage);
+
+        // Resolved (and cached) as "no canvas" before the Canvas exists.
+        expect(img.canvas).toBeNull();
+
+        const canvas = rootGO.addComponent(Canvas);
+
+        expect(img.canvas).toBe(canvas);
+        expect(Array.from(canvas._graphicList)).toContain(img);
+    });
+
+    test("disabling a graphic unregisters it from the canvas", () => {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        const img = child("Child", canvasGO).addComponent(UIImage);
+
+        expect(Array.from(canvas._graphicList)).toContain(img);
+        img.enabled = false;
+        expect(Array.from(canvas._graphicList)).not.toContain(img);
+    });
+});
+
+describe("RectTransform ancestor cache", () => {
+    beforeEach(() => Canvas._reset());
+    afterEach(() => Canvas._reset());
+
+    test("a missing Canvas is cached for the frame instead of re-walked", () => {
+        const go = new GameObject("Solo");
+        const rt = go.addComponent(RectTransform);
+
+        const spy = vi.spyOn(go, "getComponent");
+        void rt.canvas;
+        const afterFirst = spy.mock.calls.length;
+        expect(afterFirst).toBeGreaterThan(0);
+
+        void rt.canvas;
+        void rt.canvas;
+        expect(spy.mock.calls.length).toBe(afterFirst);
+
+        spy.mockRestore();
+    });
+
+    test("invalidateLayoutCache forces the walk to run again", () => {
+        const go = new GameObject("Solo");
+        const rt = go.addComponent(RectTransform);
+        void rt.canvas;
+
+        const spy = vi.spyOn(go, "getComponent");
+        rt.invalidateLayoutCache();
+        void rt.canvas;
+
+        expect(spy.mock.calls.length).toBeGreaterThan(0);
+        spy.mockRestore();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// EventSystem — multi-pointer routing
+//
+// Buttons with no Canvas ancestor are hit-tested in screen space against the
+// 800x600 viewport fallback, which keeps these tests free of a 2D context.
+// ---------------------------------------------------------------------------
+
+describe("EventSystem multi-touch", () => {
+    let touches: TouchInfo[] = [];
+
+    function makeButton(x: number, y: number): Button {
+        const btn = new GameObject("Btn").addComponent(Button);
+        const rt = btn.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(x, y);
+        rt.sizeDelta.set(100, 50);
+        return btn;
+    }
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        touches = [];
+
+        // `_update` and the RectTransform viewport fallback both need a window.
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Canvas._reset();
+    });
+
+    test("two fingers press two buttons at once", () => {
+        const a = makeButton(0, 0);       // covers   0..100 x 0..50
+        const b = makeButton(200, 0);     // covers 200..300 x 0..50
+
+        touches = [
+            touch(1, 50, 25, TouchPhase.Began),
+            touch(2, 250, 25, TouchPhase.Began),
+        ];
+        EventSystem._update();
+
+        expect(a.state).toBe(ButtonState.Pressed);
+        expect(b.state).toBe(ButtonState.Pressed);
+    });
+
+    test("each finger fires the click on the button it pressed", () => {
+        const a = makeButton(0, 0);
+        const b = makeButton(200, 0);
+
+        let clickedA = 0;
+        let clickedB = 0;
+        a.onClick = () => { clickedA++; };
+        b.onClick = () => { clickedB++; };
+
+        touches = [
+            touch(1, 50, 25, TouchPhase.Began),
+            touch(2, 250, 25, TouchPhase.Began),
+        ];
+        EventSystem._update();
+        expect(clickedA).toBe(0);
+        expect(clickedB).toBe(0);
+
+        touches = [
+            touch(1, 50, 25, TouchPhase.Ended),
+            touch(2, 250, 25, TouchPhase.Ended),
+        ];
+        EventSystem._update();
+
+        expect(clickedA).toBe(1);
+        expect(clickedB).toBe(1);
+    });
+
+    test("a finger released off the button it pressed fires nothing", () => {
+        const a = makeButton(0, 0);
+        let clicked = 0;
+        a.onClick = () => { clicked++; };
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+
+        // Dragged off the button before lifting.
+        touches = [touch(1, 500, 400, TouchPhase.Ended)];
+        EventSystem._update();
+
+        expect(clicked).toBe(0);
+    });
+
+    test("a press dropped without a release frame does not click later", () => {
+        const a = makeButton(0, 0);
+        let clicked = 0;
+        a.onClick = () => { clicked++; };
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+
+        // The finger vanishes outright, as a canceled touch does.
+        touches = [];
+        EventSystem._update();
+
+        // A later, unrelated press-and-release must not resurrect the first one.
+        touches = [touch(1, 500, 400, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 500, 400, TouchPhase.Ended)];
+        EventSystem._update();
+
+        expect(clicked).toBe(0);
+    });
+
+    test("isPointerOverUI is a union across pointers", () => {
+        makeButton(0, 0);
+
+        touches = [touch(1, 700, 500, TouchPhase.Began)];
+        EventSystem._update();
+        expect(EventSystem.isPointerOverUI).toBe(false);
+
+        // Second finger lands on the button; the first is still off it.
+        touches = [
+            touch(1, 700, 500, TouchPhase.Moved),
+            touch(2, 50, 25, TouchPhase.Began),
+        ];
+        EventSystem._update();
+        expect(EventSystem.isPointerOverUI).toBe(true);
+    });
+
+    test("a non-interactable button reports Disabled and never clicks", () => {
+        const a = makeButton(0, 0);
+        a.interactable = false;
+        let clicked = 0;
+        a.onClick = () => { clicked++; };
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+        expect(a.state).toBe(ButtonState.Disabled);
+
+        touches = [touch(1, 50, 25, TouchPhase.Ended)];
+        EventSystem._update();
+        expect(clicked).toBe(0);
+    });
+
+    test("the mouse still drives buttons when no finger is down", () => {
+        const a = makeButton(0, 0);
+        let clicked = 0;
+        a.onClick = () => { clicked++; };
+
+        vi.spyOn(Input, "mousePosition", "get")
+            .mockReturnValue(new Vector2(50, 25));
+        const button = vi.spyOn(Input, "getMouseButton").mockReturnValue(true);
+
+        EventSystem._update();
+        expect(a.state).toBe(ButtonState.Pressed);
+
+        button.mockReturnValue(false);
+        EventSystem._update();
+        expect(clicked).toBe(1);
+    });
+
+    test("getPointerPosition writes into the supplied vector", () => {
+        makeButton(0, 0);
+        touches = [touch(1, 120, 45, TouchPhase.Began)];
+        EventSystem._update();
+
+        const out = new Vector2();
+        expect(EventSystem.getPointerPosition(out)).toBe(out);
+        expect(out.x).toBeCloseTo(120);
+        expect(out.y).toBeCloseTo(45);
     });
 });

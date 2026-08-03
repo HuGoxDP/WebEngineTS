@@ -27,6 +27,12 @@ export enum ImageFillOrigin {
 type DrawableSource = HTMLImageElement | HTMLCanvasElement | ImageBitmap;
 
 /**
+ * Textures already reported as undrawable, so the warning fires once each
+ * instead of on every frame of every element using them.
+ */
+const _warnedTextures: Set<number> = new Set();
+
+/**
  * Renders a solid color rectangle or a sprite inside a RectTransform.
  *
  * @remarks
@@ -259,7 +265,19 @@ export class UIImage extends UIBehaviour {
         if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) return image;
 
         // Compressed (KTX2) textures expose only { width, height } — the GPU
-        // holds the pixels, so there is nothing the 2D context can draw.
+        // holds the pixels, so there is nothing the 2D context can draw. Without
+        // a warning the element silently degrades to a solid `color` fill, which
+        // looks like a layout bug rather than a format problem.
+        const id = this.sprite.getInstanceID();
+        if (!_warnedTextures.has(id)) {
+            _warnedTextures.add(id);
+            console.warn(
+                `[UIImage] Texture "${this.sprite.name}" cannot be drawn on a Canvas: `
+                + `its pixels live only on the GPU (compressed/KTX2 format). `
+                + `Falling back to a solid "color" fill — use an uncompressed `
+                + `texture for UI sprites.`,
+            );
+        }
         return null;
     }
 
