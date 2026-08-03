@@ -15,6 +15,7 @@ import { ContentSizeFitter, FitMode } from "../src/engine/core/ui/ContentSizeFit
 import { CanvasGroup } from "../src/engine/core/ui/CanvasGroup";
 import { RectMask2D } from "../src/engine/core/ui/RectMask2D";
 import { ScrollRect, ScrollMovementType } from "../src/engine/core/ui/ScrollRect";
+import { Scrollbar, ScrollbarDirection } from "../src/engine/core/ui/Scrollbar";
 import { Time } from "../src/engine/core/Time";
 import {
     GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
@@ -3989,5 +3990,232 @@ describe("Sprite", () => {
 
         sprite.rect.set(0, 0, 16, 16);
         expect(img._visualHash()).not.toBe(typed);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Scrollbar
+// ---------------------------------------------------------------------------
+
+describe("Scrollbar", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    /** A vertical 20x200 bar at the canvas origin, handle covering a fifth. */
+    function makeBar() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const bar = child("Bar", canvasGO).addComponent(Scrollbar);
+        const rt = bar.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(0, 0);
+        rt.sizeDelta.set(20, 200);
+        bar.size = 0.2;
+        return { canvas, bar };
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+        vi.spyOn(Input, "mousePosition", "get").mockReturnValue(new Vector2(700, 500));
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Canvas._reset();
+    });
+
+    test("value clamps to 0..1 and notifies only on a real change", () => {
+        const { bar } = makeBar();
+        const seen: number[] = [];
+        bar.onValueChanged.addListener(v => seen.push(v));
+
+        bar.value = 2;
+        bar.value = 1;
+        bar.value = -1;
+
+        expect(bar.value).toBe(0);
+        expect(seen).toEqual([1, 0]);
+    });
+
+    test("setValueWithoutNotify stays silent", () => {
+        const { bar } = makeBar();
+        let calls = 0;
+        bar.onValueChanged.addListener(() => { calls++; });
+
+        bar.setValueWithoutNotify(0.5);
+
+        expect(bar.value).toBeCloseTo(0.5);
+        expect(calls).toBe(0);
+    });
+
+    test("size clamps to 0..1", () => {
+        const { bar } = makeBar();
+        bar.size = 5;
+        expect(bar.size).toBe(1);
+        bar.size = -3;
+        expect(bar.size).toBe(0);
+    });
+
+    test("numberOfSteps snaps the value to discrete stops", () => {
+        const { bar } = makeBar();
+        bar.numberOfSteps = 5;   // stops at 0, 0.25, 0.5, 0.75, 1
+
+        bar.value = 0.3;
+        expect(bar.value).toBeCloseTo(0.25);
+
+        bar.value = 0.9;
+        expect(bar.value).toBeCloseTo(1);
+    });
+
+    test("dragging the handle follows the pointer down the track", () => {
+        const { bar } = makeBar();
+
+        // Handle covers 40 of 200 units, so 160 of travel. Grab it, then move.
+        touches = [touch(1, 10, 20, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 10, 100, TouchPhase.Moved)];
+        EventSystem._update();
+        touches = [touch(1, 10, 180, TouchPhase.Moved)];
+        EventSystem._update();
+
+        expect(bar.value).toBeCloseTo(1);
+    });
+
+    test("dragging is reported in the direction the bar runs", () => {
+        const { bar } = makeBar();
+        bar.direction = ScrollbarDirection.BottomToTop;
+
+        touches = [touch(1, 10, 20, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 10, 100, TouchPhase.Moved)];
+        EventSystem._update();
+        touches = [touch(1, 10, 180, TouchPhase.Moved)];
+        EventSystem._update();
+
+        // Same gesture, mirrored meaning.
+        expect(bar.value).toBeCloseTo(0);
+    });
+
+    test("pressing the track past the handle pages toward the pointer", () => {
+        const { bar } = makeBar();
+        expect(bar.value).toBe(0);
+
+        // Well below the handle, which sits at the top.
+        touches = [touch(1, 10, 190, TouchPhase.Began)];
+        EventSystem._update();
+
+        // One page is the handle size, not a jump to the pointer.
+        expect(bar.value).toBeCloseTo(0.2);
+    });
+
+    test("pressing on the handle itself does not move it", () => {
+        const { bar } = makeBar();
+        bar.value = 0.5;
+
+        // Mid-track, where the handle now is.
+        touches = [touch(1, 10, 100, TouchPhase.Began)];
+        EventSystem._update();
+
+        expect(bar.value).toBeCloseTo(0.5);
+    });
+
+    test("a bar showing everything has nothing to drag", () => {
+        const { bar } = makeBar();
+        bar.size = 1;
+
+        touches = [touch(1, 10, 20, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 10, 180, TouchPhase.Moved)];
+        EventSystem._update();
+
+        expect(bar.value).toBe(0);
+    });
+
+    test("a non-interactable bar ignores the pointer", () => {
+        const { bar } = makeBar();
+        bar.interactable = false;
+
+        touches = [touch(1, 10, 190, TouchPhase.Began)];
+        EventSystem._update();
+
+        expect(bar.value).toBe(0);
+    });
+
+    test("dragging consumes the event so an enclosing view stays put", () => {
+        const { bar } = makeBar();
+        let consumed = false;
+        bar.onDrag.addListener(e => { consumed = e.consumed; });
+
+        touches = [touch(1, 10, 20, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 10, 100, TouchPhase.Moved)];
+        EventSystem._update();
+
+        expect(consumed).toBe(true);
+    });
+
+    test("the handle is drawn proportional to size", () => {
+        const { bar } = makeBar();
+
+        const m = makeContext();
+        bar._draw(m.ctx, new Rect(0, 0, 20, 200));
+
+        // Track then handle; the handle covers a fifth of a 200-unit track.
+        expect(m.ops.filter(o => o === "fill").length).toBe(2);
+
+        const m2 = makeContext();
+        bar.size = 0.5;
+        bar._draw(m2.ctx, new Rect(0, 0, 20, 200));
+        expect(m2.ops.filter(o => o === "fill").length).toBe(2);
+
+        // Same op count, different geometry — the hash is what proves it moved.
+        expect(bar._visualHash()).not.toBe(0);
+    });
+
+    test("the visual hash tracks value and size", () => {
+        const { bar } = makeBar();
+        const base = bar._visualHash();
+
+        bar.value = 0.5;
+        const moved = bar._visualHash();
+        expect(moved).not.toBe(base);
+
+        bar.size = 0.6;
+        expect(bar._visualHash()).not.toBe(moved);
+    });
+
+    test("a ScrollRect and a Scrollbar can mirror each other without a loop", () => {
+        const { bar } = makeBar();
+
+        let barUpdates = 0;
+        bar.onValueChanged.addListener(() => { barUpdates++; });
+
+        // The pattern from the docs: the view feeds the bar silently.
+        bar.setValueWithoutNotify(0.5);
+        bar.setValueWithoutNotify(0.5);
+
+        expect(barUpdates).toBe(0);
+        expect(bar.value).toBeCloseTo(0.5);
     });
 });

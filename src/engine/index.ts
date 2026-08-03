@@ -274,6 +274,7 @@ export { ContentSizeFitter, FitMode } from "./core/ui/ContentSizeFitter";
 export { CanvasGroup } from "./core/ui/CanvasGroup";
 export { RectMask2D, MaskPadding } from "./core/ui/RectMask2D";
 export { ScrollRect, ScrollMovementType } from "./core/ui/ScrollRect";
+export { Scrollbar, ScrollbarDirection } from "./core/ui/Scrollbar";
 export { EventSystem } from "./core/ui/EventSystem";
 export { UIEvent } from "./core/ui/UIEvent";
 export { PointerEventData } from "./core/ui/PointerEventData";
@@ -456,6 +457,7 @@ import { ContentSizeFitter, FitMode } from "./core/ui/ContentSizeFitter";
 import { CanvasGroup } from "./core/ui/CanvasGroup";
 import { RectMask2D, MaskPadding } from "./core/ui/RectMask2D";
 import { ScrollRect, ScrollMovementType } from "./core/ui/ScrollRect";
+import { Scrollbar, ScrollbarDirection } from "./core/ui/Scrollbar";
 import { EventSystem } from "./core/ui/EventSystem";
 import { UIEvent } from "./core/ui/UIEvent";
 import { PointerEventData } from "./core/ui/PointerEventData";
@@ -574,6 +576,7 @@ const WebEngineTS = {
     GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
     HorizontalLayoutGroup, VerticalLayoutGroup, ContentSizeFitter, FitMode,
     CanvasGroup, RectMask2D, MaskPadding, ScrollRect, ScrollMovementType,
+    Scrollbar, ScrollbarDirection,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,
