@@ -10,7 +10,7 @@ Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see �
 2D affine pipeline (rotation/scale), the full layout API, the `UIEvent` + pointer/drag
 surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout groups with
 `ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup`. Next: §5.1b
-`ScrollRect` (§5.0f) on top of `RectMask2D`, then the `Sprite` type and 9-slice.
+the `Sprite` type and 9-slice (§5.0a/b), then `Scrollbar` and `Dropdown`.
 
 ---
 
@@ -23,7 +23,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate), **`CanvasGroup`** | `WorldSpace` render mode |
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter` | anchor presets, `AspectRatioFitter` |
 | Graphics | `UIImage` (solid/sprite/fill/radius), `UIText` (wrap, outline, align, **preferred sizes, overflow, word breaking**) | `Sprite` type, 9-slice, tiled, radial fill, auto-size, rich text |
-| Interaction | **`Selectable`** base under `Button`/`Slider`/`Toggle`, `ToggleGroup`, `VirtualJoystick`, `EventSystem` (multi-pointer), `UIEvent`, pointer + drag events | `ScrollRect`, `InputField`, keyboard nav, transition modes |
+| Interaction | `Selectable` base under `Button`/`Slider`/`Toggle`, `ToggleGroup`, **`ScrollRect`**, `VirtualJoystick`, `EventSystem` (multi-pointer), `UIEvent`, pointer + drag events | `Scrollbar`, `InputField`, keyboard nav, transition modes |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
 | Repaint | `OnDemand` + `_visualHash`, **event-driven surface sync** | layout dirty flags, dirty-rect partial repaint |
 | Draw order | **hierarchy-ordered**, `sortingOrder` first | — |
@@ -551,7 +551,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~6.3a~~ | ~~`UIText` preferred sizes + overflow/ellipsis + word breaking~~ | **done** | S | — |
 | ~~2.6~~ | ~~Warn on compressed-texture sprites~~ | **done** | XS | — |
 | 3.5 | Unity-import layout compat helper | P2 | M | 3.1–3.3 |
-| 5.0f | `ScrollRect` + `Scrollbar` | P2 | L | 5.0e, 5.1 |
+| ~~5.0f~~ | ~~`ScrollRect`~~ (`Scrollbar` still open) | **done** | L | — |
 | 5.0g | `Dropdown` | P2 | M | 5.0f |
 | 5.0h | Radial fill methods | P2 | S | — |
 | 5.2 | Compose `Button` from Image + Text | P2 | M | 5.1, 5.0a |

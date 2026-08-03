@@ -14,6 +14,8 @@ import {
 import { ContentSizeFitter, FitMode } from "../src/engine/core/ui/ContentSizeFitter";
 import { CanvasGroup } from "../src/engine/core/ui/CanvasGroup";
 import { RectMask2D } from "../src/engine/core/ui/RectMask2D";
+import { ScrollRect, ScrollMovementType } from "../src/engine/core/ui/ScrollRect";
+import { Time } from "../src/engine/core/Time";
 import {
     GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
 } from "../src/engine/core/ui/GridLayoutGroup";
@@ -3453,5 +3455,281 @@ describe("RectMask2D", () => {
 
         mask.enabled = false;
         expect(content._maskChain().length).toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// ScrollRect
+// ---------------------------------------------------------------------------
+
+describe("ScrollRect", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    /**
+     * Canvas -> Viewport(200x100, masked, ScrollRect) -> Content(200x400).
+     * 300 units of vertical travel, none horizontal.
+     */
+    function makeScroll() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const viewGO = child("Viewport", canvasGO);
+        const view = viewGO.addComponent(UIImage);
+        const vrt = view.rectTransform;
+        vrt.anchorMin.set(0, 0);
+        vrt.anchorMax.set(0, 0);
+        vrt.pivot.set(0, 0);
+        vrt.anchoredPosition.set(0, 0);
+        vrt.sizeDelta.set(200, 100);
+        viewGO.addComponent(RectMask2D);
+
+        const scroll = viewGO.addComponent(ScrollRect);
+        scroll.horizontal = false;
+        scroll.inertia = false;
+        scroll.movementType = ScrollMovementType.Clamped;
+
+        const contentGO = child("Content", viewGO);
+        contentGO.addComponent(UIImage);
+        const crt = contentGO.getComponent(RectTransform)!;
+        crt.sizeDelta.set(200, 400);
+        scroll.content = crt;
+
+        return { canvas, scroll, crt, viewGO };
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        ScrollRect._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+        vi.spyOn(Input, "mousePosition", "get").mockReturnValue(new Vector2(700, 500));
+        vi.spyOn(Input, "mouseScrollDelta", "get").mockReturnValue(new Vector2(0, 0));
+        vi.spyOn(Time, "deltaTime", "get").mockReturnValue(1 / 60);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        ScrollRect._reset();
+        Canvas._reset();
+    });
+
+    test("scrollable size is the overhang past the window", () => {
+        const { scroll } = makeScroll();
+        const size = scroll.getScrollableSize(new Vector2());
+
+        expect(size.x).toBeCloseTo(0);
+        expect(size.y).toBeCloseTo(300);
+    });
+
+    test("the content is pinned to the window's top-left corner", () => {
+        const { scroll, crt } = makeScroll();
+        crt.anchorMin.set(0.5, 0.5);
+        crt.pivot.set(1, 1);
+
+        ScrollRect._updateAll();
+
+        expect(crt.anchorMin.x).toBe(0);
+        expect(crt.anchorMin.y).toBe(0);
+        expect(crt.pivot.x).toBe(0);
+        expect(scroll.content).toBe(crt);
+    });
+
+    test("normalized position runs 0 at the top to 1 at the bottom", () => {
+        const { scroll, crt } = makeScroll();
+
+        expect(scroll.verticalNormalizedPosition).toBeCloseTo(0);
+
+        crt.anchoredPosition.set(0, -150);
+        expect(scroll.verticalNormalizedPosition).toBeCloseTo(0.5);
+
+        crt.anchoredPosition.set(0, -300);
+        expect(scroll.verticalNormalizedPosition).toBeCloseTo(1);
+    });
+
+    test("assigning the normalized position moves the content", () => {
+        const { scroll, crt } = makeScroll();
+
+        scroll.verticalNormalizedPosition = 1;
+        expect(crt.anchoredPosition.y).toBeCloseTo(-300);
+
+        scroll.verticalNormalizedPosition = 0.25;
+        expect(crt.anchoredPosition.y).toBeCloseTo(-75);
+    });
+
+    test("an axis with nothing to scroll reports 0", () => {
+        const { scroll } = makeScroll();
+        expect(scroll.horizontalNormalizedPosition).toBe(0);
+    });
+
+    test("dragging moves the content and stops at the ends when clamped", () => {
+        const { scroll, crt } = makeScroll();
+
+        touches = [touch(1, 100, 80, TouchPhase.Began)];
+        EventSystem._update();
+
+        // The frame that crosses the threshold only *starts* the drag: the
+        // gesture anchors here, so the threshold distance is not a jump.
+        touches = [touch(1, 100, 20, TouchPhase.Moved)];
+        EventSystem._update();
+        expect(scroll.isDragging).toBe(true);
+        expect(crt.anchoredPosition.y).toBeCloseTo(0);
+
+        touches = [touch(1, 100, -40, TouchPhase.Moved)];
+        EventSystem._update();
+        expect(crt.anchoredPosition.y).toBeCloseTo(-60);
+
+        // Far past the end: clamped movement refuses to overshoot.
+        touches = [touch(1, 100, -5000, TouchPhase.Moved)];
+        EventSystem._update();
+        expect(crt.anchoredPosition.y).toBeCloseTo(-300);
+    });
+
+    test("a locked axis does not move", () => {
+        const { scroll, crt } = makeScroll();
+        scroll.vertical = false;
+
+        touches = [touch(1, 100, 80, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 100, 20, TouchPhase.Moved)];
+        EventSystem._update();
+
+        expect(crt.anchoredPosition.y).toBeCloseTo(0);
+    });
+
+    test("elastic movement allows overshoot and springs back", () => {
+        const { scroll, crt } = makeScroll();
+        scroll.movementType = ScrollMovementType.Elastic;
+
+        touches = [touch(1, 100, 20, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 100, 100, TouchPhase.Moved)];   // starts the drag
+        EventSystem._update();
+        touches = [touch(1, 100, 280, TouchPhase.Moved)];   // 180 past the top
+        EventSystem._update();
+
+        // Rubber-banded: it moved, but far less than the raw 180 units.
+        const overshoot = crt.anchoredPosition.y;
+        expect(overshoot).toBeGreaterThan(0);
+        expect(overshoot).toBeLessThan(180);
+
+        touches = [touch(1, 100, 280, TouchPhase.Ended)];
+        EventSystem._update();
+
+        // Released: the spring pulls it back toward the limit.
+        for (let i = 0; i < 60; i++) ScrollRect._updateAll();
+        expect(crt.anchoredPosition.y).toBeCloseTo(0);
+    });
+
+    test("inertia keeps the content moving after release, then settles", () => {
+        const { scroll, crt } = makeScroll();
+        scroll.inertia = true;
+
+        touches = [touch(1, 100, 80, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 100, 60, TouchPhase.Moved)];   // starts the drag
+        EventSystem._update();
+        touches = [touch(1, 100, 40, TouchPhase.Moved)];   // builds velocity
+        EventSystem._update();
+        touches = [touch(1, 100, 40, TouchPhase.Ended)];
+        EventSystem._update();
+
+        const atRelease = crt.anchoredPosition.y;
+        ScrollRect._updateAll();
+        expect(crt.anchoredPosition.y).toBeLessThan(atRelease);
+
+        for (let i = 0; i < 120; i++) ScrollRect._updateAll();
+        expect(scroll.velocity.y).toBeCloseTo(0);
+    });
+
+    test("stopMovement kills the coast immediately", () => {
+        const { scroll } = makeScroll();
+        scroll.inertia = true;
+
+        touches = [touch(1, 100, 80, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 100, 60, TouchPhase.Moved)];
+        EventSystem._update();
+        touches = [touch(1, 100, 40, TouchPhase.Moved)];
+        EventSystem._update();
+
+        scroll.stopMovement();
+        expect(scroll.velocity.y).toBe(0);
+    });
+
+    test("the wheel scrolls when the pointer is over the view", () => {
+        const { crt } = makeScroll();
+
+        vi.spyOn(Input, "mouseScrollDelta", "get").mockReturnValue(new Vector2(0, 1));
+        vi.spyOn(EventSystem, "getPointerPosition").mockImplementation(
+            out => out.set(100, 50),
+        );
+
+        ScrollRect._updateAll();
+        expect(crt.anchoredPosition.y).toBeLessThan(0);
+    });
+
+    test("the wheel is ignored when the pointer is elsewhere", () => {
+        const { crt } = makeScroll();
+
+        vi.spyOn(Input, "mouseScrollDelta", "get").mockReturnValue(new Vector2(0, 1));
+        vi.spyOn(EventSystem, "getPointerPosition").mockImplementation(
+            out => out.set(700, 500),
+        );
+
+        ScrollRect._updateAll();
+        expect(crt.anchoredPosition.y).toBe(0);
+    });
+
+    test("onValueChanged reports movement once per change", () => {
+        const { scroll } = makeScroll();
+        const seen: number[] = [];
+        scroll.onValueChanged.addListener(v => seen.push(v.y));
+
+        scroll.verticalNormalizedPosition = 0.5;
+        scroll.verticalNormalizedPosition = 0.5;
+        scroll.verticalNormalizedPosition = 1;
+
+        expect(seen.length).toBe(2);
+        expect(seen[0]).toBeCloseTo(0.5);
+        expect(seen[1]).toBeCloseTo(1);
+    });
+
+    test("a scroll view with no content is inert rather than broken", () => {
+        const { scroll } = makeScroll();
+        scroll.content = null;
+
+        expect(() => ScrollRect._updateAll()).not.toThrow();
+        expect(scroll.verticalNormalizedPosition).toBe(0);
+        expect(scroll.getScrollableSize(new Vector2()).y).toBe(0);
+    });
+
+    test("dragging the view consumes the event", () => {
+        const { scroll } = makeScroll();
+        let consumed = false;
+        scroll.onDrag.addListener(e => { consumed = e.consumed; });
+
+        touches = [touch(1, 100, 80, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 100, 20, TouchPhase.Moved)];
+        EventSystem._update();
+
+        expect(consumed).toBe(true);
     });
 });
