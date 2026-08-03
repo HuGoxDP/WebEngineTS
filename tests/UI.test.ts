@@ -2,6 +2,9 @@ import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { Canvas, CanvasRenderMode, CanvasRepaintMode } from "../src/engine/core/ui/Canvas";
 import { EventSystem } from "../src/engine/core/ui/EventSystem";
 import { UIEvent } from "../src/engine/core/ui/UIEvent";
+import { Slider, SliderDirection } from "../src/engine/core/ui/Slider";
+import { Toggle } from "../src/engine/core/ui/Toggle";
+import { ToggleGroup } from "../src/engine/core/ui/ToggleGroup";
 import { Input } from "../src/engine/core/Input";
 import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
@@ -1755,5 +1758,406 @@ describe("UIBehaviour pointer events", () => {
 
         expect(dragsA).toBe(1);
         expect(dragsB).toBe(1);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Slider and Toggle
+// ---------------------------------------------------------------------------
+
+describe("Slider", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    /**
+     * A 200x40 slider at the canvas origin. With handleSize 20 the usable track
+     * runs from local x=10 to x=190, so 180 units span the whole range.
+     */
+    function makeSlider() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const slider = child("Slider", canvasGO).addComponent(Slider);
+        const rt = slider.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(0, 0);
+        rt.sizeDelta.set(200, 40);
+        return { canvas, slider };
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Canvas._reset();
+    });
+
+    test("value clamps into the range", () => {
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 10;
+
+        slider.value = 20;
+        expect(slider.value).toBe(10);
+
+        slider.value = -5;
+        expect(slider.value).toBe(0);
+    });
+
+    test("onValueChanged fires only on a real change", () => {
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 10;
+
+        const seen: number[] = [];
+        slider.onValueChanged.addListener(v => seen.push(v));
+
+        slider.value = 5;
+        slider.value = 5;
+        slider.value = 7;
+
+        expect(seen).toEqual([5, 7]);
+    });
+
+    test("wholeNumbers snaps assigned values to integers", () => {
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 10;
+        slider.wholeNumbers = true;
+
+        slider.value = 3.6;
+        expect(slider.value).toBe(4);
+    });
+
+    test("normalizedValue maps across the range", () => {
+        const { slider } = makeSlider();
+        slider.minValue = 20;
+        slider.maxValue = 40;
+
+        slider.normalizedValue = 0.5;
+        expect(slider.value).toBeCloseTo(30);
+        expect(slider.normalizedValue).toBeCloseTo(0.5);
+    });
+
+    test("pressing the track jumps the value to that point", () => {
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 100;
+
+        // Track spans local x 10..190; x=100 is the midpoint.
+        touches = [touch(1, 100, 20, TouchPhase.Began)];
+        EventSystem._update();
+
+        expect(slider.normalizedValue).toBeCloseTo(0.5);
+        expect(slider.isPressed).toBe(true);
+    });
+
+    test("dragging past the ends clamps rather than overshoots", () => {
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 100;
+
+        touches = [touch(1, 100, 20, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 5000, 20, TouchPhase.Moved)];
+        EventSystem._update();
+        expect(slider.value).toBe(100);
+
+        touches = [touch(1, -5000, 20, TouchPhase.Moved)];
+        EventSystem._update();
+        expect(slider.value).toBe(0);
+    });
+
+    test("RightToLeft mirrors the mapping", () => {
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 100;
+        slider.direction = SliderDirection.RightToLeft;
+
+        // The low end is now on the right, so the far left reads as maximum.
+        touches = [touch(1, 10, 20, TouchPhase.Began)];
+        EventSystem._update();
+        expect(slider.value).toBeCloseTo(100);
+    });
+
+    test("a vertical slider reads along Y, with TopToBottom increasing", () => {
+        const { slider } = makeSlider();
+        slider.rectTransform.sizeDelta.set(40, 200);
+        slider.direction = SliderDirection.TopToBottom;
+        slider.minValue = 0;
+        slider.maxValue = 100;
+        expect(slider.isVertical).toBe(true);
+
+        touches = [touch(1, 20, 10, TouchPhase.Began)];
+        EventSystem._update();
+        const atTop = slider.value;
+
+        touches = [touch(1, 20, 190, TouchPhase.Moved)];
+        EventSystem._update();
+        const atBottom = slider.value;
+
+        expect(atTop).toBeCloseTo(0);
+        expect(atBottom).toBeCloseTo(100);
+    });
+
+    test("a non-interactable slider ignores the pointer", () => {
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 100;
+        slider.value = 25;
+        slider.interactable = false;
+
+        touches = [touch(1, 190, 20, TouchPhase.Began)];
+        EventSystem._update();
+
+        expect(slider.value).toBe(25);
+    });
+
+    test("dragging marks the event consumed so an outer scroller stays put", () => {
+        const { slider } = makeSlider();
+        let sawConsumed = false;
+        slider.onPointerDown.addListener(e => { sawConsumed = e.consumed; });
+
+        touches = [touch(1, 100, 20, TouchPhase.Began)];
+        EventSystem._update();
+
+        // The slider's own listener runs first and sets the flag.
+        expect(sawConsumed).toBe(true);
+    });
+
+    test("the visual hash tracks the value", () => {
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 10;
+        const before = slider._visualHash();
+        slider.value = 8;
+        expect(slider._visualHash()).not.toBe(before);
+    });
+});
+
+describe("Toggle", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    function makeScene() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+        return { canvasGO, canvas };
+    }
+
+    function addToggle(canvasGO: GameObject, x: number): Toggle {
+        const toggle = child(`Toggle${x}`, canvasGO).addComponent(Toggle);
+        const rt = toggle.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(x, 0);
+        rt.sizeDelta.set(100, 30);
+        return toggle;
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Canvas._reset();
+    });
+
+    test("clicking flips the state and notifies", () => {
+        const { canvasGO } = makeScene();
+        const toggle = addToggle(canvasGO, 0);
+        const seen: boolean[] = [];
+        toggle.onValueChanged.addListener(v => seen.push(v));
+
+        touches = [touch(1, 10, 10, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 10, 10, TouchPhase.Ended)];
+        EventSystem._update();
+        expect(toggle.isOn).toBe(true);
+
+        touches = [touch(2, 10, 10, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(2, 10, 10, TouchPhase.Ended)];
+        EventSystem._update();
+        expect(toggle.isOn).toBe(false);
+
+        expect(seen).toEqual([true, false]);
+    });
+
+    test("setIsOnWithoutNotify changes state silently", () => {
+        const { canvasGO } = makeScene();
+        const toggle = addToggle(canvasGO, 0);
+        let calls = 0;
+        toggle.onValueChanged.addListener(() => { calls++; });
+
+        toggle.setIsOnWithoutNotify(true);
+
+        expect(toggle.isOn).toBe(true);
+        expect(calls).toBe(0);
+    });
+
+    test("assigning the same state notifies nobody", () => {
+        const { canvasGO } = makeScene();
+        const toggle = addToggle(canvasGO, 0);
+        toggle.isOn = true;
+
+        let calls = 0;
+        toggle.onValueChanged.addListener(() => { calls++; });
+        toggle.isOn = true;
+
+        expect(calls).toBe(0);
+    });
+
+    test("a non-interactable toggle ignores clicks", () => {
+        const { canvasGO } = makeScene();
+        const toggle = addToggle(canvasGO, 0);
+        toggle.interactable = false;
+
+        touches = [touch(1, 10, 10, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 10, 10, TouchPhase.Ended)];
+        EventSystem._update();
+
+        expect(toggle.isOn).toBe(false);
+    });
+
+    test("the visual hash tracks the checked state", () => {
+        const { canvasGO } = makeScene();
+        const toggle = addToggle(canvasGO, 0);
+        const before = toggle._visualHash();
+        toggle.isOn = true;
+        expect(toggle._visualHash()).not.toBe(before);
+    });
+});
+
+describe("ToggleGroup", () => {
+    function makeGroup() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const group = canvasGO.addComponent(ToggleGroup);
+        const a = child("A", canvasGO).addComponent(Toggle);
+        const b = child("B", canvasGO).addComponent(Toggle);
+        const c = child("C", canvasGO).addComponent(Toggle);
+        a.group = group;
+        b.group = group;
+        c.group = group;
+        return { group, a, b, c };
+    }
+
+    beforeEach(() => Canvas._reset());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        Canvas._reset();
+    });
+
+    test("turning one on turns the others off", () => {
+        const { group, a, b, c } = makeGroup();
+
+        a.isOn = true;
+        expect(group.active).toBe(a);
+
+        b.isOn = true;
+        expect(a.isOn).toBe(false);
+        expect(b.isOn).toBe(true);
+        expect(c.isOn).toBe(false);
+        expect(group.active).toBe(b);
+    });
+
+    test("siblings switched off by the group still notify", () => {
+        const { a, b } = makeGroup();
+        const seen: boolean[] = [];
+        a.onValueChanged.addListener(v => seen.push(v));
+
+        a.isOn = true;
+        b.isOn = true;
+
+        expect(seen).toEqual([true, false]);
+    });
+
+    test("the last selection cannot be cleared by default", () => {
+        const { group, a } = makeGroup();
+        a.isOn = true;
+
+        a.isOn = false;
+
+        expect(a.isOn).toBe(true);
+        expect(group.anyTogglesOn()).toBe(true);
+    });
+
+    test("allowSwitchOff lets the active one be turned off", () => {
+        const { group, a } = makeGroup();
+        group.allowSwitchOff = true;
+        a.isOn = true;
+
+        a.isOn = false;
+
+        expect(a.isOn).toBe(false);
+        expect(group.active).toBeNull();
+    });
+
+    test("setAllTogglesOff clears the group regardless", () => {
+        const { group, a } = makeGroup();
+        a.isOn = true;
+
+        group.setAllTogglesOff();
+
+        expect(group.anyTogglesOn()).toBe(false);
+    });
+
+    test("leaving the group drops the toggle from it", () => {
+        const { group, a, b } = makeGroup();
+        a.isOn = true;
+
+        a.group = null;
+        b.isOn = true;
+
+        // No longer a member, so the group cannot switch it off.
+        expect(a.isOn).toBe(true);
+        expect(group.members).not.toContain(a);
     });
 });

@@ -256,6 +256,9 @@ export { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
 export { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
 export { Button, ButtonState } from "./core/ui/Button";
 export { VirtualJoystick } from "./core/ui/VirtualJoystick";
+export { Slider, SliderDirection } from "./core/ui/Slider";
+export { Toggle } from "./core/ui/Toggle";
+export { ToggleGroup } from "./core/ui/ToggleGroup";
 export { EventSystem } from "./core/ui/EventSystem";
 export { UIEvent } from "./core/ui/UIEvent";
 export { PointerEventData } from "./core/ui/PointerEventData";
@@ -421,6 +424,9 @@ import { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
 import { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
 import { Button, ButtonState } from "./core/ui/Button";
 import { VirtualJoystick } from "./core/ui/VirtualJoystick";
+import { Slider, SliderDirection } from "./core/ui/Slider";
+import { Toggle } from "./core/ui/Toggle";
+import { ToggleGroup } from "./core/ui/ToggleGroup";
 import { EventSystem } from "./core/ui/EventSystem";
 import { UIEvent } from "./core/ui/UIEvent";
 import { PointerEventData } from "./core/ui/PointerEventData";
@@ -533,6 +539,7 @@ const WebEngineTS = {
     UIText, TextAlignment, VerticalAlignment,
     Button, ButtonState, EventSystem, VirtualJoystick,
     UIEvent, PointerEventData,
+    Slider, SliderDirection, Toggle, ToggleGroup,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,

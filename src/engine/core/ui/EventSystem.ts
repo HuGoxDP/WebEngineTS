@@ -276,6 +276,7 @@ export class EventSystem {
         data.pointerId = id;
         data.position.copy(EventSystem._canvasPoint);
 
+        // A default only; every dispatch re-derives it for its own receiver.
         if (hit) data.localPosition.copy(EventSystem._localPoint);
         else data.localPosition.set(0, 0);
 
@@ -312,9 +313,9 @@ export class EventSystem {
         state.hoverOwner = owner;
 
         if (previous && previous.isActiveAndEnabled) {
-            previous._raise(PointerEventKind.Exit, data);
+            EventSystem._deliver(previous, PointerEventKind.Exit, data);
         }
-        if (owner) owner._raise(PointerEventKind.Enter, data);
+        if (owner) EventSystem._deliver(owner, PointerEventKind.Enter, data);
     }
 
     /** Promotes a held press into a drag once it moves far enough, then feeds it. */
@@ -329,7 +330,7 @@ export class EventSystem {
 
         if (state.dragTarget) {
             data.dragging = true;
-            state.dragTarget._raise(PointerEventKind.Drag, data);
+            EventSystem._deliver(state.dragTarget, PointerEventKind.Drag, data);
             return;
         }
 
@@ -350,8 +351,8 @@ export class EventSystem {
 
         state.dragTarget = target;
         data.dragging = true;
-        target._raise(PointerEventKind.BeginDrag, data);
-        target._raise(PointerEventKind.Drag, data);
+        EventSystem._deliver(target, PointerEventKind.BeginDrag, data);
+        EventSystem._deliver(target, PointerEventKind.Drag, data);
     }
 
     /** Handles the frame a pointer comes up: up, end-drag or click, then reset. */
@@ -375,7 +376,7 @@ export class EventSystem {
         if (dragTarget) {
             data.dragging = false;
             if (dragTarget.isActiveAndEnabled) {
-                dragTarget._raise(PointerEventKind.EndDrag, data);
+                EventSystem._deliver(dragTarget, PointerEventKind.EndDrag, data);
             }
             // A drag is not a click, matching Unity: releasing after dragging a
             // slider handle must not also activate whatever is under it.
@@ -409,10 +410,10 @@ export class EventSystem {
             data.consumed = false;
 
             if (state.dragTarget?.isActiveAndEnabled) {
-                state.dragTarget._raise(PointerEventKind.EndDrag, data);
+                EventSystem._deliver(state.dragTarget, PointerEventKind.EndDrag, data);
             }
             if (state.hoverOwner?.isActiveAndEnabled) {
-                state.hoverOwner._raise(PointerEventKind.Exit, data);
+                EventSystem._deliver(state.hoverOwner, PointerEventKind.Exit, data);
             }
         }
 
@@ -518,7 +519,30 @@ export class EventSystem {
         kind: PointerEventKind,
         data: PointerEventData,
     ): void {
-        EventSystem._findHandler(from, kind)?._raise(kind, data);
+        const target = EventSystem._findHandler(from, kind);
+        if (target) EventSystem._deliver(target, kind, data);
+    }
+
+    /**
+     * Raises `kind` on `target`, re-deriving `localPosition` in *its* space.
+     *
+     * @remarks
+     * The receiver is often not the element the pointer is over: a drag keeps
+     * running once the pointer has left, and an event can bubble to an ancestor.
+     * Reporting the hit element's local coordinates — or none at all when the
+     * pointer is over nothing — would leave a dragging control reading a
+     * position it never moved to.
+     */
+    private static _deliver(
+        target: UIBehaviour,
+        kind: PointerEventKind,
+        data: PointerEventData,
+    ): void {
+        const ok = target.rectTransform.canvasToLocalPoint(
+            data.position.x, data.position.y, data.localPosition,
+        );
+        if (!ok) data.localPosition.set(0, 0);
+        target._raise(kind, data);
     }
 
     /** The nearest self-or-ancestor UIBehaviour subscribed to `kind`. */
