@@ -186,13 +186,15 @@ function flagsOf(config) {
         : has(/_dirtyOff/) ? "off"
         : isScenario ? "?" : "off";
 
+    // "n/a" (not blank) where a toggle does not apply to this scene, so an empty
+    // cell never has to be guessed at.
     return {
-        objects,
-        instanced: /^scene1/.test(config) ? (has(/_instanced/) ? "on" : "off") : "",
-        maxSize,
-        relArc: isScenario ? (has(/_relArc/) ? "on" : "off") : "",
-        relSrc: isScenario ? (has(/_relSrc/) ? "on" : "off") : "",
-        ktx2: isScenario ? (has(/_ktx2/) ? "on" : "off") : "",
+        objects: objects || "n/a",
+        instanced: /^scene1/.test(config) ? (has(/_instanced/) ? "on" : "off") : "n/a",
+        maxSize: isScenario ? maxSize : "n/a",
+        relArc: isScenario ? (has(/_relArc/) ? "on" : "off") : "n/a",
+        relSrc: isScenario ? (has(/_relSrc/) ? "on" : "off") : "n/a",
+        ktx2: isScenario ? (has(/_ktx2/) ? "on" : "off") : "n/a",
         warmup: has(/_nowarm/) ? "off" : has(/_warm/) ? "on" : "?",
         dirty,
         cold: has(/_cold/) ? "on" : "off",
@@ -215,10 +217,10 @@ if (perRun) {
         ["session", (x) => x.session],
         ["sessions_total", (x) => x.sessionsTotal],
         ["run", (x) => x.run],
-        // Colons/slashes make spreadsheets coerce cells into times/dates, so the
-        // timestamp is emitted as unambiguous text plus a numeric epoch.
+        // Colons make spreadsheets coerce the cell into a time, so the clock part
+        // is emitted with dashes. The date keeps its natural form.
+        ["date_utc", (x) => x.r.timestamp.split("T")[0] ?? ""],
         ["time_utc", (x) => x.r.timestamp.split("T")[1]?.replace("Z", "").replace(/:/g, "-") ?? ""],
-        ["epoch_ms", (x) => Date.parse(x.r.timestamp)],
         ["warmup_frames", (x) => x.r.warmupFrames],
         ["sample_frames", (x) => x.r.sampleFrames],
         ["load_ms", (x) => x.r.loadTimeMs.toFixed(1)],
