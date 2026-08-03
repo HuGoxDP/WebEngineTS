@@ -9,14 +9,25 @@ import { EngineSettings } from '../EngineSettings';
  * Used for: camera viewport, UI elements, sprite bounds, texture coordinates.
  *
  * @remarks
- * Rect is described by position (x, y) and size (width, height).
- * Position corresponds to the bottom-left corner of the rectangle.
+ * Rect is described by position (x, y) and size (width, height), where (x, y) is
+ * the corner with the lower coordinate on each axis.
+ *
+ * **Axis convention:** Rect is deliberately convention-neutral — it stores
+ * numbers and does min/max arithmetic, and never assumes which screen direction
+ * +Y points in. Its consumers disagree on purpose:
+ * - Camera viewports and sprite bounds are **Y-up**, so `yMin` is the bottom edge.
+ * - Canvas UI (`RectTransform`, `Canvas`) is **Y-down** (top-left origin, CSS
+ *   convention), so `yMin` is the *top* edge there.
+ *
+ * Members are therefore documented as "lower/upper Y", not "bottom/top". See
+ * {@link RectTransform} for the UI coordinate system.
+ *
  * API matches Unity Rect as closely as possible.
  */
 export class Rect {
     /** X coordinate of the left edge */
     public x: number;
-    /** Y coordinate of the bottom edge */
+    /** Y coordinate of the lower-Y edge (bottom when Y-up, top when Y-down) */
     public y: number;
     /** Width of the rectangle */
     public width: number;
@@ -30,7 +41,7 @@ export class Rect {
     /**
      * Creates a new Rect.
      * @param x X coordinate (left edge)
-     * @param y Y coordinate (bottom edge)
+     * @param y Y coordinate (lower-Y edge)
      * @param width Width
      * @param height Height
      */
@@ -63,7 +74,7 @@ export class Rect {
         this.width = value - this.x;
     }
 
-    /** Minimum Y coordinate (bottom edge) */
+    /** Minimum Y coordinate (bottom edge when Y-up, top edge when Y-down) */
     get yMin(): number {
         return this.y;
     }
@@ -74,7 +85,7 @@ export class Rect {
         this.height = yMax - this.y;
     }
 
-    /** Maximum Y coordinate (top edge) */
+    /** Maximum Y coordinate (top edge when Y-up, bottom edge when Y-down) */
     get yMax(): number {
         return this.y + this.height;
     }
@@ -84,7 +95,7 @@ export class Rect {
     }
 
     /**
-     * Position of the rectangle (bottom-left corner).
+     * Position of the rectangle (the lower-coordinate corner on both axes).
      * WARNING: Allocates new Vector2. Use getPosition(out) in hot paths.
      */
     get position(): Vector2 {
@@ -126,7 +137,7 @@ export class Rect {
     }
 
     /**
-     * Minimum point (bottom-left corner).
+     * Minimum point (lower X and lower Y).
      * WARNING: Allocates new Vector2. Use getMin(out) in hot paths.
      */
     get min(): Vector2 {
@@ -139,7 +150,7 @@ export class Rect {
     }
 
     /**
-     * Maximum point (top-right corner).
+     * Maximum point (upper X and upper Y).
      * WARNING: Allocates new Vector2. Use getMax(out) in hot paths.
      */
     get max(): Vector2 {
@@ -367,7 +378,7 @@ export class Rect {
 
     /**
      * Creates a Rect from position and size.
-     * @param position Position (bottom-left corner)
+     * @param position Position (the lower-coordinate corner on both axes)
      * @param size Size
      * @param out Optional Rect to reuse
      */
@@ -382,7 +393,9 @@ export class Rect {
 
     /**
      * Finds normalized coordinates of a point relative to the rectangle.
-     * Returns (0,0) for bottom-left corner and (1,1) for top-right.
+     * Returns (0,0) at ({@link xMin}, {@link yMin}) and (1,1) at
+     * ({@link xMax}, {@link yMax}) — which corner that is on screen depends on
+     * the caller's axis convention.
      * @param rect Rectangle
      * @param point Point
      * @param out Optional Vector2 to reuse

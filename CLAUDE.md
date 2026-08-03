@@ -186,6 +186,16 @@ Each step runs components first, then the active scenario.
 ## Key Technical Decisions
 
 - **Coordinate system**: Unity +Z-forward vs Three.js −Z-forward; cameras use `CameraState.cameraLookRotation()` with Shepperd's method
+- **UI coordinate system — Y points DOWN**: Canvas UI uses a top-left origin with X right and
+  Y down (the CSS / 2D-context convention), *not* Unity's bottom-left Y-up. Deliberate and
+  permanent: the browser 2D context and DOM pointer events are already Y-down, so this removes
+  a flip from every draw call and every hit-test. Consequences, each inverted vs. Unity —
+  `RectTransform.anchorMin` is the **top**-left anchor corner and `anchorMax` the
+  **bottom**-right; `pivot` `(0,0)` is the element's top-left; a larger `anchoredPosition.y`
+  moves an element **down**; on the resulting `Rect`, `yMin` is the top edge. `Rect` itself is
+  documented convention-*neutral* ("lower/upper Y", not "bottom/top") because it is shared with
+  camera viewports and sprite bounds, which are genuinely Y-up. Every new UI feature must state
+  its Y convention in its JSDoc — see `design/canvas-ui-roadmap.md` §3.
 - **Cinemachine first-frame**: Always Cut on first activation (blending from null CameraState causes camera at origin)
 - **Texture GPU upload timing**: `releaseSourceImage()` uses a two-frame countdown (`_releaseCountdown = 2`) to ensure GPU upload completes before CPU data is released
 - **ImageBitmap leak**: Three.js `dispose()` does not call `.close()` on ImageBitmap sources — engine handles this in `Texture.onDestroy()`
@@ -212,6 +222,11 @@ Each step runs components first, then the active scenario.
 Prioritized plan for continued engine work. Driven by peer-review feedback on the
 thesis paper (submission 76) and the paper's own "future work" section. Rationale is
 kept here so future sessions understand *why* each item exists.
+
+**Canvas UI toolkit** has its own plan — inventory of gaps, defects, per-task complexity and
+priority, and the Y-down coordinate contract: [`design/canvas-ui-roadmap.md`](design/canvas-ui-roadmap.md).
+Stage 0 (correctness + coordinate docs + event-driven surface sync) landed 2026-08-03;
+Stage 1 (layout dirty flags → rotation/scale → layout groups) is next.
 
 **Execution plan** (sequencing, effort, resources, per-item success metrics, risks):
 [`design/roadmap-2026H2.md`](design/roadmap-2026H2.md). The critical path is the paper's
