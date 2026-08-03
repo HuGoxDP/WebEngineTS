@@ -1,8 +1,12 @@
 // path: benchmarks/aggregate.mjs
 //
-// Aggregates exported Benchmark JSON runs into per-configuration tables.
+// Aggregates exported Benchmark JSON runs into tables.
 //
-//   node benchmarks/aggregate.mjs <dir> [--keep-first] [--gap <seconds>] [--csv]
+//   node benchmarks/aggregate.mjs <dir> [--runs] [--keep-first] [--gap <s>] [--csv]
+//
+// Default: one row per configuration (mean ± SD across its runs).
+// `--runs`: one row per individual run with every recorded metric, grouped by
+// scene with a blank line between scenes.
 //
 // Files are grouped by the configuration encoded in their filename (the harness
 // writes `<config>_<gpuTag>_<HHMMSS>.json`). Within a group, runs more than
@@ -23,18 +27,20 @@ let dir = null;
 let keepFirst = false;
 let gapSeconds = 90;
 let asCsv = false;
+let perRun = false;
 
 for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--keep-first") keepFirst = true;
     else if (a === "--csv") asCsv = true;
+    else if (a === "--runs") perRun = true;
     else if (a === "--gap") gapSeconds = Number(argv[++i]);
     else if (!a.startsWith("--")) dir = a;
     else throw new Error(`Unknown option: ${a}`);
 }
 
 if (!dir) {
-    console.error("usage: node benchmarks/aggregate.mjs <dir> [--keep-first] [--gap <s>] [--csv]");
+    console.error("usage: node benchmarks/aggregate.mjs <dir> [--runs] [--keep-first] [--gap <s>] [--csv]");
     process.exit(1);
 }
 
@@ -150,7 +156,111 @@ const rows = sessions.map((s) => {
     };
 });
 
-// ==================== OUTPUT ====================
+// ==================== OUTPUT: PER-RUN ====================
+
+/** Scene bucket a config belongs to, for grouping the per-run table. */
+function sceneOf(config) {
+    if (/^scene1/.test(config)) return "Scene 1 — primitives grid";
+    if (/Benchscene2/i.test(config)) return "Scene 2 — complex model";
+    if (/Benchscene3/i.test(config)) return "Scene 3 — solar system";
+    if (/^scene2/.test(config)) return "Scene 2 — procedural high-poly";
+    if (/^scene3/.test(config)) return "Scene 3 — procedural solar";
+    if (/ktx2/i.test(config)) return "KTX2 fallback";
+    return "Other";
+}
+
+/** Flags portion of a config name (drops the scenario/scene prefix). */
+function flagsOf(config) {
+    return config
+        .replace(/^scenario_Benchscene\d+-[A-Za-z0-9]+_?/, "")
+        .replace(/^scene\d+_?/, "") || "(defaults)";
+}
+
+if (perRun) {
+    const RUN_COLS = [
+        ["scene", (x) => x.scene],
+        ["config", (x) => x.config],
+        ["flags", (x) => flagsOf(x.config)],
+        ["session", (x) => x.session],
+        ["run", (x) => x.run],
+        ["time_utc", (x) => x.r.timestamp.split("T")[1]?.replace("Z", "") ?? ""],
+        ["warmup_frames", (x) => x.r.warmupFrames],
+        ["sample_frames", (x) => x.r.sampleFrames],
+        ["load_ms", (x) => x.r.loadTimeMs.toFixed(1)],
+        ["mean_ms", (x) => x.r.frameTimeMs.mean.toFixed(3)],
+        ["median_ms", (x) => x.r.frameTimeMs.median.toFixed(3)],
+        ["p95_ms", (x) => x.r.frameTimeMs.p95.toFixed(3)],
+        ["p99_ms", (x) => x.r.frameTimeMs.p99.toFixed(3)],
+        ["min_ms", (x) => x.r.frameTimeMs.min.toFixed(3)],
+        ["max_ms", (x) => x.r.frameTimeMs.max.toFixed(3)],
+        ["sd_ms", (x) => x.r.frameTimeMs.stdDev.toFixed(3)],
+        ["fps", (x) => x.r.fps.toFixed(2)],
+        ["cpu_ms", (x) => x.r.cpuFrameMsMean.toFixed(3)],
+        ["fixed_ms", (x) => (x.r.phaseMsMean?.fixedUpdate ?? 0).toFixed(3)],
+        ["update_ms", (x) => (x.r.phaseMsMean?.update ?? 0).toFixed(3)],
+        ["late_ms", (x) => (x.r.phaseMsMean?.lateUpdate ?? 0).toFixed(3)],
+        ["render_ms", (x) => (x.r.phaseMsMean?.render ?? 0).toFixed(3)],
+        ["first_render_ms", (x) => x.r.firstRenderCpuMs.toFixed(1)],
+        ["max_first10_ms", (x) => x.r.maxFirst10Ms.toFixed(3)],
+        ["heap_MB", (x) => ((x.r.memory.jsHeapUsedBytes ?? 0) * MB).toFixed(2)],
+        ["texVram_MB", (x) => ((x.r.memory.estimatedTextureVramBytes ?? 0) * MB).toFixed(2)],
+        ["geoVram_MB", (x) => ((x.r.memory.estimatedGeometryVramBytes ?? 0) * MB).toFixed(3)],
+        ["rtVram_MB", (x) => ((x.r.memory.estimatedRenderTargetVramBytes ?? 0) * MB).toFixed(2)],
+        ["gpuTextures", (x) => x.r.memory.gpuTextures ?? ""],
+        ["gpuGeometries", (x) => x.r.memory.gpuGeometries ?? ""],
+        ["drawCalls", (x) => x.r.memory.drawCalls ?? ""],
+        ["triangles", (x) => x.r.memory.triangles ?? ""],
+        ["gpu", (x) => x.r.gpu ?? ""],
+        ["file", (x) => x.file],
+    ];
+
+    // Flatten sessions back to runs, carrying session/run numbering.
+    const flat = [];
+    for (const s of sessions) {
+        s.runs.forEach((run, i) => {
+            flat.push({
+                scene: sceneOf(s.config),
+                config: s.config,
+                session: s.total > 1 ? `${s.index}/${s.total}` : "1",
+                run: i + 1,
+                file: run.file,
+                r: run.r,
+            });
+        });
+    }
+
+    const scenes = [...new Set(flat.map((x) => x.scene))].sort();
+    const header = RUN_COLS.map(([n]) => n);
+
+    if (asCsv) {
+        const esc = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+        const out = [header.join(",")];
+        for (const scene of scenes) {
+            for (const x of flat.filter((f) => f.scene === scene)) {
+                out.push(RUN_COLS.map(([, get]) => esc(get(x))).join(","));
+            }
+            out.push(""); // blank line between scenes
+        }
+        console.log(out.join("\n"));
+    } else {
+        // Width per column across ALL rows so the blocks stay aligned.
+        const widths = header.map((h, i) =>
+            Math.max(h.length, ...flat.map((x) => String(RUN_COLS[i][1](x)).length)));
+        const line = (cells) => cells.map((c, i) => String(c).padEnd(widths[i])).join("  ");
+
+        console.log(line(header));
+        console.log(widths.map((w) => "-".repeat(w)).join("  "));
+        for (const scene of scenes) {
+            for (const x of flat.filter((f) => f.scene === scene)) {
+                console.log(line(RUN_COLS.map(([, get]) => get(x))));
+            }
+            console.log(""); // blank line between scenes
+        }
+    }
+    process.exit(0);
+}
+
+// ==================== OUTPUT: PER-CONFIG ====================
 
 if (asCsv) {
     const header = ["config", "runs_used", "runs_total", ...METRICS.flatMap(([n]) => [n, `${n}_sd`])];
