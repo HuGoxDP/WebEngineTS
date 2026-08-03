@@ -99,7 +99,7 @@ for (const s of sessions) {
 }
 for (const s of sessions) {
     s.total = seen.get(s.config);
-    s.label = s.total > 1 ? `${s.config}  [session ${s.index}/${s.total}]` : s.config;
+    s.label = s.total > 1 ? `${s.config}  [session ${s.index} of ${s.total}]` : s.config;
 }
 sessions.sort((a, b) => a.config.localeCompare(b.config) || a.index - b.index);
 
@@ -169,21 +169,56 @@ function sceneOf(config) {
     return "Other";
 }
 
-/** Flags portion of a config name (drops the scenario/scene prefix). */
+/**
+ * Decodes the optimization flags a run used from its config name, so each
+ * toggle reads as an explicit on/off column instead of a packed string.
+ *
+ * `dirty` is reported as "?" for scenario runs recorded before the flag was
+ * added to result filenames — it is genuinely unknown there, not off.
+ */
 function flagsOf(config) {
-    return config
-        .replace(/^scenario_Benchscene\d+-[A-Za-z0-9]+_?/, "")
-        .replace(/^scene\d+_?/, "") || "(defaults)";
+    const has = (re) => re.test(config);
+    const isScenario = /^scenario_/.test(config);
+    const objects = config.match(/_N(\d+)/)?.[1] ?? "";
+    const maxSize = config.match(/_max(\d+)/)?.[1] ?? "0";
+
+    const dirty = has(/_dirtyOn/) ? "on"
+        : has(/_dirtyOff/) ? "off"
+        : isScenario ? "?" : "off";
+
+    return {
+        objects,
+        instanced: /^scene1/.test(config) ? (has(/_instanced/) ? "on" : "off") : "",
+        maxSize,
+        relArc: isScenario ? (has(/_relArc/) ? "on" : "off") : "",
+        relSrc: isScenario ? (has(/_relSrc/) ? "on" : "off") : "",
+        ktx2: isScenario ? (has(/_ktx2/) ? "on" : "off") : "",
+        warmup: has(/_nowarm/) ? "off" : has(/_warm/) ? "on" : "?",
+        dirty,
+        cold: has(/_cold/) ? "on" : "off",
+    };
 }
 
 if (perRun) {
     const RUN_COLS = [
         ["scene", (x) => x.scene],
-        ["config", (x) => x.config],
-        ["flags", (x) => flagsOf(x.config)],
+        // ── explicit per-flag columns (what was actually enabled) ──
+        ["objects", (x) => flagsOf(x.config).objects],
+        ["instanced", (x) => flagsOf(x.config).instanced],
+        ["maxSize", (x) => flagsOf(x.config).maxSize],
+        ["relArc", (x) => flagsOf(x.config).relArc],
+        ["relSrc", (x) => flagsOf(x.config).relSrc],
+        ["ktx2", (x) => flagsOf(x.config).ktx2],
+        ["warmup", (x) => flagsOf(x.config).warmup],
+        ["dirty", (x) => flagsOf(x.config).dirty],
+        ["cold", (x) => flagsOf(x.config).cold],
         ["session", (x) => x.session],
+        ["sessions_total", (x) => x.sessionsTotal],
         ["run", (x) => x.run],
-        ["time_utc", (x) => x.r.timestamp.split("T")[1]?.replace("Z", "") ?? ""],
+        // Colons/slashes make spreadsheets coerce cells into times/dates, so the
+        // timestamp is emitted as unambiguous text plus a numeric epoch.
+        ["time_utc", (x) => x.r.timestamp.split("T")[1]?.replace("Z", "").replace(/:/g, "-") ?? ""],
+        ["epoch_ms", (x) => Date.parse(x.r.timestamp)],
         ["warmup_frames", (x) => x.r.warmupFrames],
         ["sample_frames", (x) => x.r.sampleFrames],
         ["load_ms", (x) => x.r.loadTimeMs.toFixed(1)],
@@ -211,6 +246,7 @@ if (perRun) {
         ["drawCalls", (x) => x.r.memory.drawCalls ?? ""],
         ["triangles", (x) => x.r.memory.triangles ?? ""],
         ["gpu", (x) => x.r.gpu ?? ""],
+        ["config", (x) => x.config],
         ["file", (x) => x.file],
     ];
 
@@ -221,7 +257,8 @@ if (perRun) {
             flat.push({
                 scene: sceneOf(s.config),
                 config: s.config,
-                session: s.total > 1 ? `${s.index}/${s.total}` : "1",
+                session: s.index,
+                sessionsTotal: s.total,
                 run: i + 1,
                 file: run.file,
                 r: run.r,
