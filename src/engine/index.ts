@@ -259,6 +259,13 @@ export { VirtualJoystick } from "./core/ui/VirtualJoystick";
 export { Slider, SliderDirection } from "./core/ui/Slider";
 export { Toggle } from "./core/ui/Toggle";
 export { ToggleGroup } from "./core/ui/ToggleGroup";
+export { LayoutElement, LayoutUtility } from "./core/ui/LayoutElement";
+export type { ILayoutSize } from "./core/ui/LayoutElement";
+export {
+    LayoutGroup, LayoutPadding, LayoutAnchor,
+    HorizontalLayoutGroup, VerticalLayoutGroup,
+} from "./core/ui/LayoutGroup";
+export { ContentSizeFitter, FitMode } from "./core/ui/ContentSizeFitter";
 export { EventSystem } from "./core/ui/EventSystem";
 export { UIEvent } from "./core/ui/UIEvent";
 export { PointerEventData } from "./core/ui/PointerEventData";
@@ -427,6 +434,12 @@ import { VirtualJoystick } from "./core/ui/VirtualJoystick";
 import { Slider, SliderDirection } from "./core/ui/Slider";
 import { Toggle } from "./core/ui/Toggle";
 import { ToggleGroup } from "./core/ui/ToggleGroup";
+import { LayoutElement } from "./core/ui/LayoutElement";
+import {
+    LayoutGroup, LayoutPadding, LayoutAnchor,
+    HorizontalLayoutGroup, VerticalLayoutGroup,
+} from "./core/ui/LayoutGroup";
+import { ContentSizeFitter, FitMode } from "./core/ui/ContentSizeFitter";
 import { EventSystem } from "./core/ui/EventSystem";
 import { UIEvent } from "./core/ui/UIEvent";
 import { PointerEventData } from "./core/ui/PointerEventData";
@@ -540,6 +553,8 @@ const WebEngineTS = {
     Button, ButtonState, EventSystem, VirtualJoystick,
     UIEvent, PointerEventData,
     Slider, SliderDirection, Toggle, ToggleGroup,
+    LayoutElement, LayoutGroup, LayoutPadding, LayoutAnchor,
+    HorizontalLayoutGroup, VerticalLayoutGroup, ContentSizeFitter, FitMode,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,

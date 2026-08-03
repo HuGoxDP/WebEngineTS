@@ -569,6 +569,16 @@ export class RectTransform extends Component {
         return this._localRect;
     }
 
+    /**
+     * @internal
+     * Writes the rect this element is laid out inside into `out`, in the
+     * parent's local space — a parent RectTransform's rect, or the owning
+     * canvas when this is a root-level element.
+     */
+    public _getParentRect(out: Rect): Rect {
+        return this._parentLocalRect(out);
+    }
+
     /** @internal The canvas-space axis-aligned bounds, resolved. */
     public get _resolvedBounds(): Rect {
         this._resolve(0);

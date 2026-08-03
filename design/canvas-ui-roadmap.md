@@ -6,10 +6,11 @@ document covers what round 2+ should be.
 
 Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see §8.
 
-**Status:** Stage 0 (§2 + §3.1–3.3 + §4.2), §4.1 (resolved-rect cache), §4.3, §4.4
-(rotation/scale), §4.5 (layout API + anchor-reference fix), §5.1a (`UIEvent` +
-pointer/drag events) and `Slider`/`Toggle`/`ToggleGroup` landed 2026-08-03.
-Next: §4.6 layout groups (with §6.3a preferred sizes), then §5.1b `Selectable`.
+**Status:** Everything through §4.6 landed 2026-08-03 — Stage 0, the rect cache, the
+2D affine pipeline (rotation/scale), the full layout API, the `UIEvent` + pointer/drag
+surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, and the layout groups
+with `ContentSizeFitter`. Next: `GridLayoutGroup`, §4.7 `CanvasGroup`, §5.1b
+`Selectable`, then §5.0e `RectMask2D` toward `ScrollRect`.
 
 ---
 
@@ -20,8 +21,8 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Area | Present | Missing |
 |---|---|---|
 | Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate) | `WorldSpace` render mode, `CanvasGroup` |
-| Layout | `RectTransform` (anchors, pivot, sizeDelta, rotation, scale, corners, **offsets, insets, sizing**) | anchor presets, **all layout groups** |
-| Graphics | `UIImage` (solid/sprite/fill/radius), `UIText` (wrap, outline, align) | `Sprite` type, 9-slice, tiled, radial fill, auto-size, ellipsis, rich text |
+| Layout | `RectTransform` (anchors, pivot, sizeDelta, rotation, scale, corners, offsets, insets, sizing), **`LayoutElement`, Horizontal/Vertical groups, `ContentSizeFitter`** | anchor presets, `GridLayoutGroup`, `AspectRatioFitter` |
+| Graphics | `UIImage` (solid/sprite/fill/radius), `UIText` (wrap, outline, align, **preferred sizes, overflow, word breaking**) | `Sprite` type, 9-slice, tiled, radial fill, auto-size, rich text |
 | Interaction | `Button`, **`Slider`, `Toggle`, `ToggleGroup`**, `VirtualJoystick`, `EventSystem` (multi-pointer), `UIEvent`, pointer + drag events | `Selectable`, `ScrollRect`, `InputField`, keyboard nav |
 | Clipping | — | `RectMask2D` (nothing clips to parent bounds today) |
 | Repaint | `OnDemand` + `_visualHash`, **event-driven surface sync** | layout dirty flags, dirty-rect partial repaint |
@@ -537,7 +538,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~4.3~~ | ~~Share resolved rects with `EventSystem`~~ (both read the RectTransform cache) | **done** | XS | — |
 | ~~4.4~~ | ~~RectTransform rotation + scale~~ | **done** | L | — |
 | ~~4.5~~ | ~~Full RectTransform API surface~~ + anchor-reference fix | **done** | M | — |
-| 4.6 | Layout groups + size protocol | P1 | L | 6.3a |
+| ~~4.6~~ | ~~Layout groups + size protocol~~ (Grid still open) | **done** | L | — |
 | 4.7 | `CanvasGroup` | P1 | S | 4.4 |
 | 4.8 | Overlay canvas memory in `MemoryProfiler` ⚑ | P1 | S | — |
 | 5.0a | `Sprite` asset type | P1 | M | — |
@@ -547,7 +548,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | 5.0e | `RectMask2D` | P1 | M | 4.4 |
 | 5.1a | ~~Multi-listener `UIEvent` + pointer/drag events~~ | **done** | M | — |
 | 5.1b | `Selectable` base + transition modes | P1 | M | 5.1a ✅ |
-| 6.3a | `UIText` preferred sizes + overflow/ellipsis | P1 | S | — |
+| ~~6.3a~~ | ~~`UIText` preferred sizes + overflow/ellipsis + word breaking~~ | **done** | S | — |
 | ~~2.6~~ | ~~Warn on compressed-texture sprites~~ | **done** | XS | — |
 | 3.5 | Unity-import layout compat helper | P2 | M | 3.1–3.3 |
 | 5.0f | `ScrollRect` + `Scrollbar` | P2 | L | 5.0e, 5.1 |

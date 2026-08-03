@@ -5,6 +5,12 @@ import { UIEvent } from "../src/engine/core/ui/UIEvent";
 import { Slider, SliderDirection } from "../src/engine/core/ui/Slider";
 import { Toggle } from "../src/engine/core/ui/Toggle";
 import { ToggleGroup } from "../src/engine/core/ui/ToggleGroup";
+import { LayoutElement } from "../src/engine/core/ui/LayoutElement";
+import {
+    LayoutGroup, LayoutAnchor,
+    HorizontalLayoutGroup, VerticalLayoutGroup,
+} from "../src/engine/core/ui/LayoutGroup";
+import { ContentSizeFitter, FitMode } from "../src/engine/core/ui/ContentSizeFitter";
 import { Input } from "../src/engine/core/Input";
 import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
@@ -2312,5 +2318,348 @@ describe("UIText overflow", () => {
         const before = t._visualHash();
         t.overflow = TextOverflow.Ellipsis;
         expect(t._visualHash()).not.toBe(before);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Layout groups and ContentSizeFitter
+// ---------------------------------------------------------------------------
+
+describe("LayoutGroup", () => {
+    beforeEach(() => {
+        Canvas._reset();
+        LayoutGroup._reset();
+        ContentSizeFitter._reset();
+    });
+    afterEach(() => {
+        vi.restoreAllMocks();
+        Canvas._reset();
+        LayoutGroup._reset();
+        ContentSizeFitter._reset();
+    });
+
+    /** A 400x300 panel under an 800x600 canvas, ready to host a group. */
+    function makePanel() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const panelGO = child("Panel", canvasGO);
+        const prt = panelGO.addComponent(RectTransform);
+        prt.anchorMin.set(0, 0);
+        prt.anchorMax.set(0, 0);
+        prt.pivot.set(0, 0);
+        prt.anchoredPosition.set(0, 0);
+        prt.sizeDelta.set(400, 300);
+        return { canvasGO, panelGO, prt };
+    }
+
+    /** A fixed-size child row. */
+    function addRow(parent: GameObject, name: string, w: number, h: number): RectTransform {
+        const go = child(name, parent);
+        const rt = go.addComponent(RectTransform);
+        rt.sizeDelta.set(w, h);
+        const el = go.addComponent(LayoutElement);
+        el.preferredWidth = w;
+        el.preferredHeight = h;
+        return rt;
+    }
+
+    test("a vertical group stacks children downward with spacing", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(VerticalLayoutGroup);
+        group.spacing = 10;
+        group.childForceExpandCross = false;
+
+        const a = addRow(panelGO, "A", 100, 40);
+        const b = addRow(panelGO, "B", 100, 60);
+
+        LayoutGroup._updateAll();
+
+        expect(a.getScreenRect(new Rect()).y).toBeCloseTo(0);
+        expect(a.getScreenRect(new Rect()).height).toBeCloseTo(40);
+        expect(b.getScreenRect(new Rect()).y).toBeCloseTo(50);
+        expect(b.getScreenRect(new Rect()).height).toBeCloseTo(60);
+    });
+
+    test("a horizontal group stacks children rightward", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(HorizontalLayoutGroup);
+        group.spacing = 5;
+        group.childForceExpandCross = false;
+
+        const a = addRow(panelGO, "A", 80, 30);
+        const b = addRow(panelGO, "B", 120, 30);
+
+        LayoutGroup._updateAll();
+
+        expect(a.getScreenRect(new Rect()).x).toBeCloseTo(0);
+        expect(b.getScreenRect(new Rect()).x).toBeCloseTo(85);
+        expect(b.getScreenRect(new Rect()).width).toBeCloseTo(120);
+    });
+
+    test("padding insets the whole block", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(VerticalLayoutGroup);
+        group.padding.set(12, 8, 20, 0);
+        group.childForceExpandCross = false;
+
+        const a = addRow(panelGO, "A", 100, 40);
+        LayoutGroup._updateAll();
+
+        const r = a.getScreenRect(new Rect());
+        expect(r.x).toBeCloseTo(12);
+        expect(r.y).toBeCloseTo(20);
+    });
+
+    test("childForceExpandCross stretches children across the other axis", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(VerticalLayoutGroup);
+        group.padding.set(10, 10, 0, 0);
+        group.childForceExpandCross = true;
+
+        const a = addRow(panelGO, "A", 50, 40);
+        LayoutGroup._updateAll();
+
+        // 400 wide minus 10 padding on each side.
+        expect(a.getScreenRect(new Rect()).width).toBeCloseTo(380);
+    });
+
+    test("reverseArrangement stacks the other way", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(VerticalLayoutGroup);
+        group.childForceExpandCross = false;
+        group.reverseArrangement = true;
+
+        const a = addRow(panelGO, "A", 100, 40);
+        const b = addRow(panelGO, "B", 100, 40);
+
+        LayoutGroup._updateAll();
+
+        // B is laid out first, so A ends up below it.
+        expect(b.getScreenRect(new Rect()).y).toBeCloseTo(0);
+        expect(a.getScreenRect(new Rect()).y).toBeCloseTo(40);
+    });
+
+    test("flexible children absorb the leftover space", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(HorizontalLayoutGroup);
+        group.childForceExpandCross = false;
+
+        const a = addRow(panelGO, "A", 100, 30);
+        const b = addRow(panelGO, "B", 100, 30);
+        b.gameObject.getComponent(LayoutElement)!.flexibleWidth = 1;
+
+        LayoutGroup._updateAll();
+
+        // 400 available, 200 used: B takes all 200 spare.
+        expect(a.getScreenRect(new Rect()).width).toBeCloseTo(100);
+        expect(b.getScreenRect(new Rect()).width).toBeCloseTo(300);
+    });
+
+    test("childForceExpandWidth splits spare space evenly when nobody claims it", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(HorizontalLayoutGroup);
+        group.childForceExpandCross = false;
+        group.childForceExpandWidth = true;
+
+        const a = addRow(panelGO, "A", 100, 30);
+        const b = addRow(panelGO, "B", 100, 30);
+
+        LayoutGroup._updateAll();
+
+        expect(a.getScreenRect(new Rect()).width).toBeCloseTo(200);
+        expect(b.getScreenRect(new Rect()).width).toBeCloseTo(200);
+    });
+
+    test("alignment parks a short block at the far edge", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(VerticalLayoutGroup);
+        group.childForceExpandCross = false;
+        group.childAlignment = LayoutAnchor.LowerLeft;
+
+        const a = addRow(panelGO, "A", 100, 40);
+        LayoutGroup._updateAll();
+
+        // LowerLeft is the high-Y edge in this Y-down system.
+        expect(a.getScreenRect(new Rect()).y).toBeCloseTo(260);
+    });
+
+    test("ignoreLayout leaves a child where it was put", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(VerticalLayoutGroup);
+        group.childForceExpandCross = false;
+
+        const floating = addRow(panelGO, "Floating", 50, 50);
+        floating.gameObject.getComponent(LayoutElement)!.ignoreLayout = true;
+        floating.anchorMin.set(0, 0);
+        floating.anchorMax.set(0, 0);
+        floating.pivot.set(0, 0);
+        floating.anchoredPosition.set(333, 222);
+
+        const a = addRow(panelGO, "A", 100, 40);
+        LayoutGroup._updateAll();
+
+        expect(floating.getScreenRect(new Rect()).x).toBeCloseTo(333);
+        // The managed child still starts at the top, unaffected by the skipped one.
+        expect(a.getScreenRect(new Rect()).y).toBeCloseTo(0);
+    });
+
+    test("an inactive child is left out of the arrangement", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(VerticalLayoutGroup);
+        group.childForceExpandCross = false;
+
+        const a = addRow(panelGO, "A", 100, 40);
+        const b = addRow(panelGO, "B", 100, 40);
+        a.gameObject.setActive(false);
+
+        LayoutGroup._updateAll();
+
+        expect(b.getScreenRect(new Rect()).y).toBeCloseTo(0);
+    });
+
+    test("a settled layout writes the same numbers, so the rect cache still hits", () => {
+        const { panelGO } = makePanel();
+        const group = panelGO.addComponent(VerticalLayoutGroup);
+        group.childForceExpandCross = false;
+        const a = addRow(panelGO, "A", 100, 40);
+
+        LayoutGroup._updateAll();
+        a.getScreenRect(new Rect());
+
+        // Re-running the layout must not disturb the snapshot, or every frame
+        // would recompute every rect in the group.
+        LayoutGroup._updateAll();
+        const sets = vi.spyOn(Rect.prototype, "set");
+        a.getScreenRect(new Rect());
+
+        expect(sets.mock.calls.length).toBe(1);
+    });
+});
+
+describe("ContentSizeFitter", () => {
+    beforeEach(() => {
+        Canvas._reset();
+        LayoutGroup._reset();
+        ContentSizeFitter._reset();
+    });
+    afterEach(() => {
+        UIText._setMeasureContext(undefined);
+        vi.restoreAllMocks();
+        Canvas._reset();
+        LayoutGroup._reset();
+        ContentSizeFitter._reset();
+    });
+
+    function makeCanvas(): GameObject {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+        return canvasGO;
+    }
+
+    test("PreferredSize sizes a label to its text", () => {
+        UIText._setMeasureContext(makeContext().ctx);
+        const canvasGO = makeCanvas();
+
+        const go = child("Label", canvasGO);
+        const rt = go.addComponent(RectTransform);
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.sizeDelta.set(10, 10);
+
+        const label = go.addComponent(UIText);
+        label.text = "abcde";      // 50 wide in the mock
+        label.fontSize = 10;
+        label.lineHeight = 1;
+
+        const fitter = go.addComponent(ContentSizeFitter);
+        fitter.horizontalFit = FitMode.PreferredSize;
+        fitter.verticalFit = FitMode.PreferredSize;
+
+        ContentSizeFitter._updateAll();
+
+        expect(rt.getScreenRect(new Rect()).width).toBeCloseTo(50);
+        expect(rt.getScreenRect(new Rect()).height).toBeCloseTo(10);
+    });
+
+    test("Unconstrained leaves the axis alone", () => {
+        UIText._setMeasureContext(makeContext().ctx);
+        const canvasGO = makeCanvas();
+
+        const go = child("Label", canvasGO);
+        const rt = go.addComponent(RectTransform);
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.sizeDelta.set(123, 45);
+
+        const label = go.addComponent(UIText);
+        label.text = "abcde";
+
+        const fitter = go.addComponent(ContentSizeFitter);
+        fitter.horizontalFit = FitMode.Unconstrained;
+        fitter.verticalFit = FitMode.Unconstrained;
+
+        ContentSizeFitter._updateAll();
+
+        expect(rt.getScreenRect(new Rect()).width).toBeCloseTo(123);
+        expect(rt.getScreenRect(new Rect()).height).toBeCloseTo(45);
+    });
+
+    test("a fitter on a layout group sizes to the arranged children", () => {
+        const canvasGO = makeCanvas();
+
+        const listGO = child("List", canvasGO);
+        const lrt = listGO.addComponent(RectTransform);
+        lrt.anchorMin.set(0, 0);
+        lrt.anchorMax.set(0, 0);
+        lrt.pivot.set(0, 0);
+        lrt.anchoredPosition.set(0, 0);
+        lrt.sizeDelta.set(200, 10);
+
+        const group = listGO.addComponent(VerticalLayoutGroup);
+        group.spacing = 5;
+        group.childForceExpandCross = false;
+
+        for (const name of ["A", "B", "C"]) {
+            const go = child(name, listGO);
+            go.addComponent(RectTransform);
+            const el = go.addComponent(LayoutElement);
+            el.preferredWidth = 100;
+            el.preferredHeight = 30;
+        }
+
+        const fitter = listGO.addComponent(ContentSizeFitter);
+        fitter.verticalFit = FitMode.PreferredSize;
+
+        LayoutGroup._updateAll();
+        ContentSizeFitter._updateAll();
+
+        // Three 30-tall rows with two 5-unit gaps.
+        expect(lrt.getScreenRect(new Rect()).height).toBeCloseTo(100);
+    });
+
+    test("a stretched element subtracts its anchor span", () => {
+        const canvasGO = makeCanvas();
+
+        const go = child("Stretched", canvasGO);
+        const rt = go.addComponent(RectTransform);
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(1, 0);     // full canvas width
+        rt.pivot.set(0, 0);
+
+        const el = go.addComponent(LayoutElement);
+        el.preferredWidth = 300;
+
+        const fitter = go.addComponent(ContentSizeFitter);
+        fitter.horizontalFit = FitMode.PreferredSize;
+
+        ContentSizeFitter._updateAll();
+
+        // Assigning 300 straight into sizeDelta would have given 800 + 300.
+        expect(rt.getScreenRect(new Rect()).width).toBeCloseTo(300);
     });
 });

@@ -18,6 +18,8 @@ import { AudioListener } from "./audio/AudioListener.ts";
 import { AudioSource } from "./audio/AudioSource.ts";
 import { Canvas } from "./ui/Canvas.ts";
 import { EventSystem } from "./ui/EventSystem.ts";
+import { LayoutGroup } from "./ui/LayoutGroup.ts";
+import { ContentSizeFitter } from "./ui/ContentSizeFitter.ts";
 import { ParticleSystem } from "./particles/ParticleSystem.ts";
 import { LODGroup } from "./components/LODGroup.ts";
 import { Gamepad } from "./input/Gamepad.ts";
@@ -575,10 +577,16 @@ export class Application {
         AudioListener._updateAll();
         AudioSource._updateAll();
 
-        // 7b. UI event processing (before UI render so button states are up-to-date)
+        // 7b. UI layout — groups arrange their children, then fitters resize to
+        // the result. Ahead of input so a click hit-tests the positions that
+        // will actually be drawn this frame.
+        LayoutGroup._updateAll();
+        ContentSizeFitter._updateAll();
+
+        // 7c. UI event processing (before UI render so button states are up-to-date)
         EventSystem._update();
 
-        // 7c. Level-of-detail selection (uses final world transforms + Camera.main)
+        // 7d. Level-of-detail selection (uses final world transforms + Camera.main)
         LODGroup._updateAll();
 
         const tRenderStart = performance.now();
