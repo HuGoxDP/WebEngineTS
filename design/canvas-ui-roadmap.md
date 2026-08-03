@@ -6,8 +6,8 @@ document covers what round 2+ should be.
 
 Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see §8.
 
-**Status:** Stage 0 (§2 correctness + §3.1–3.3 coordinate-system docs + §4.2) landed
-2026-08-03. Stage 1 (§4) is next.
+**Status:** Stage 0 (§2 correctness + §3.1–3.3 coordinate-system docs + §4.2) and §4.1
+(resolved-rect cache) landed 2026-08-03. Next: §4.4 rotation/scale.
 
 ---
 
@@ -227,26 +227,39 @@ puzzle. Not needed until such an import path exists — listed so the decision i
 
 ## 4. Stage 1 — layout core and the performance work
 
-### 4.1 Layout dirty flags — **P1, M** ⚑
+### 4.1 Resolved-rect cache — **DONE (partial)** ✅, follow-up below
 
-The largest UI optimization available, and the one that pairs with the thesis's dirty-flag
-narrative (Scene 1 already exposes `?dirty=`).
+`Canvas._prepare` computed a full screen rect for **every** graphic **every** frame, even in
+`OnDemand`, purely to decide whether anything moved, and each `_computeRect` recursively
+resolved every ancestor — so a tree of *n* elements at depth *d* cost O(n·d) rect
+computations per frame for a HUD that had not changed since it was built. `OnDemand` avoided
+the *paint*, not the *layout*.
 
-`Canvas._prepare` (`Canvas.ts:484-504`) computes a full screen rect for **every** graphic
-**every** frame, even in `OnDemand`, purely to decide whether anything moved. Each
-`_computeRect` recursively resolves every ancestor (`RectTransform.ts:195`), so a tree of
-*n* elements at depth *d* costs O(n·d) rect computations per frame — for a HUD that has not
-changed since it was built. `OnDemand` currently avoids the *paint*, not the *layout*.
+**Shipped:** each `RectTransform` caches its resolved rect plus a 10-scalar snapshot of its
+layout inputs and a copy of the parent rect it was built from. A read reuses the cached rect
+when neither its own inputs nor its parent's resolved rect moved. Repeated reads within a
+frame — draw, hit-test, and any scenario script — now cost comparisons instead of
+arithmetic, and a deep chain no longer re-derives every ancestor's geometry per descendant.
 
-Fix: a monotonic `_layoutVersion` on `RectTransform`, bumped by property writes (requires
-converting `anchoredPosition`/`sizeDelta`/`anchorMin`/`anchorMax`/`pivot` from public fields
-to accessors over observable `Vector2`s — a breaking change worth doing now rather than
-later), plus a cached resolved rect invalidated when the element's own version or any
-ancestor's version advances. `_prepare` then hashes versions instead of recomputing
-geometry.
+**What this deliberately does *not* do, and why.** The original design here short-circuited
+*before* walking the parent chain, keyed on a frame counter plus a global change epoch. That
+is wrong, and the tests now pin it: the layout inputs are public `Vector2` fields mutated in
+place (`rt.anchoredPosition.set(...)`), so there is no setter to hook and an ancestor's move
+is undiscoverable without walking up to check it. A child whose own inputs were unchanged
+would have returned a stale rect on the frame its parent moved. Reverting to that design
+fails four tests, three of them staleness.
 
-Measure with the existing harness: `Application.cpuFrameTime` on a static 200-element HUD,
-before and after. That number is directly usable in the paper.
+So the walk still happens on every read: the win is a constant factor, not the asymptotic
+O(n·d) → O(n) the first draft claimed. Getting the asymptotic win needs **write-time**
+invalidation, i.e. `anchoredPosition`/`sizeDelta`/`anchorMin`/`anchorMax`/`pivot` becoming
+accessors over an observable `Vector2`. That is not a small change: `Vector2` assigns `x`/`y`
+as own data properties in its constructor, so a subclass cannot shadow them with accessors —
+it needs either a `Proxy` (too slow for this path) or accessors on `Vector2` itself, whose
+blast radius is the entire math layer. Tracked as its own item rather than smuggled in here.
+
+**Follow-up — observable `Vector2` for layout inputs — P2, L.** Do it when the math layer is
+being touched anyway, or when a profile on real content shows the walk actually costing.
+Until then this cache is the correct-by-construction version.
 
 ### 4.2 Stop forcing layout every frame — **DONE** ✅
 
@@ -486,11 +499,11 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~2.4~~ | ~~Cache the negative canvas lookup~~ | **done** | XS | — |
 | ~~2.5~~ | ~~Multi-touch pointer routing~~ | **done** | M | — |
 | ~~3.3~~ | ~~Canonical coordinate-system doc~~ (in `CLAUDE.md`) | **done** | XS | — |
-| 4.1 | Layout dirty flags / version cache ⚑ | P1 | M | 2.7 |
-| 4.3 | Share resolved rects with `EventSystem` | P1 | S | 4.1 |
-| 4.4 | RectTransform rotation + scale | P1 | L | 4.1, 2.7 |
+| ~~4.1~~ | ~~Resolved-rect cache~~ (constant-factor; see §4.1) | **done** | M | — |
+| 4.3 | Share resolved rects with `EventSystem` — largely subsumed by 4.1 | P2 | XS | — |
+| 4.4 | RectTransform rotation + scale | P1 | L | 4.1 ✅ |
 | 4.5 | Full RectTransform API surface | P1 | M | 4.4 |
-| 4.6 | Layout groups + size protocol | P1 | L | 4.1, 6.3a |
+| 4.6 | Layout groups + size protocol | P1 | L | 6.3a |
 | 4.7 | `CanvasGroup` | P1 | S | 4.4 |
 | 4.8 | Overlay canvas memory in `MemoryProfiler` ⚑ | P1 | S | — |
 | 5.0a | `Sprite` asset type | P1 | M | — |

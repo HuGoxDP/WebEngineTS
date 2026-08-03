@@ -712,6 +712,135 @@ describe("RectTransform ancestor cache", () => {
 });
 
 // ---------------------------------------------------------------------------
+// RectTransform resolved-rect cache
+//
+// The cache must never be observable in a rect's *value* — only in how much
+// work producing it costs. `_cachedParent.copy()` runs once per level that
+// actually recomputes, and `getScreenRect` adds exactly one copy into `out`,
+// so counting Rect.copy calls reads out the number of recomputed levels.
+// ---------------------------------------------------------------------------
+
+describe("RectTransform rect cache", () => {
+    beforeEach(() => Canvas._reset());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        Canvas._reset();
+    });
+
+    /** Canvas(800x600) ─ Panel ─ Label, both stretched to their parent. */
+    function makeChain() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const panel = child("Panel", canvasGO).addComponent(RectTransform);
+        panel.anchorMin.set(0, 0);
+        panel.anchorMax.set(1, 1);
+        panel.sizeDelta.set(0, 0);
+        panel.pivot.set(0, 0);
+        panel.anchoredPosition.set(0, 0);
+
+        const label = child("Label", panel.gameObject).addComponent(RectTransform);
+        label.anchorMin.set(0, 0);
+        label.anchorMax.set(0, 0);
+        label.pivot.set(0, 0);
+        label.anchoredPosition.set(10, 20);
+        label.sizeDelta.set(100, 40);
+
+        return { canvas, panel, label };
+    }
+
+    test("moving a parent is visible to the child immediately", () => {
+        const { panel, label } = makeChain();
+        const before = label.getScreenRect(new Rect());
+
+        // The critical case: nothing about the label changed, and its own cache
+        // is warm. Only the walk up to the panel can reveal the move.
+        panel.anchoredPosition.set(50, 30);
+        const after = label.getScreenRect(new Rect());
+
+        expect(after.x).toBeCloseTo(before.x + 50);
+        expect(after.y).toBeCloseTo(before.y + 30);
+    });
+
+    test("resizing a parent is visible to the child immediately", () => {
+        const { panel, label } = makeChain();
+        label.anchorMin.set(1, 1);
+        label.anchorMax.set(1, 1);
+        const before = label.getScreenRect(new Rect());
+
+        panel.sizeDelta.set(-200, 0);
+        const after = label.getScreenRect(new Rect());
+
+        expect(after.x).toBeCloseTo(before.x - 200);
+    });
+
+    test("a canvas resize is visible without any element changing", () => {
+        const { canvas, label } = makeChain();
+        label.anchorMin.set(1, 1);
+        label.anchorMax.set(1, 1);
+
+        // Panel stretches to 800 wide, and pivot (0,0) against a stretched
+        // anchor puts its origin at the anchor centre: rect x = 400. The label
+        // anchors to the panel's far edge, so x = 400 + 800 + 10.
+        expect(label.getScreenRect(new Rect()).x).toBeCloseTo(1210);
+
+        vi.spyOn(canvas, "width", "get").mockReturnValue(1600);
+
+        // Nothing on either element changed — only the root the chain resolves
+        // against. Panel origin moves to 800, its far edge to 2400.
+        expect(label.getScreenRect(new Rect()).x).toBeCloseTo(2410);
+    });
+
+    test("an unchanged chain recomputes nothing on a second read", () => {
+        const { label } = makeChain();
+        const out = new Rect();
+        label.getScreenRect(out);
+
+        const copies = vi.spyOn(Rect.prototype, "copy");
+        label.getScreenRect(out);
+
+        // Just the one copy into `out`; neither level recomputed.
+        expect(copies.mock.calls.length).toBe(1);
+    });
+
+    test("changing the element itself recomputes exactly its own level", () => {
+        const { label } = makeChain();
+        const out = new Rect();
+        label.getScreenRect(out);
+
+        const copies = vi.spyOn(Rect.prototype, "copy");
+        label.anchoredPosition.set(99, 99);
+        label.getScreenRect(out);
+
+        // The label recomputes; the panel above it does not.
+        expect(copies.mock.calls.length).toBe(2);
+    });
+
+    test("the cached rect is never handed out to callers", () => {
+        const { label } = makeChain();
+        const a = label.getScreenRect(new Rect());
+        const b = label.getScreenRect(new Rect());
+        expect(a).not.toBe(b);
+
+        // Mutating a returned rect must not corrupt the cache.
+        a.x = -12345;
+        expect(label.getScreenRect(new Rect()).x).toBe(b.x);
+    });
+
+    test("screenRect and getScreenRect agree", () => {
+        const { label } = makeChain();
+        const viaOut = label.getScreenRect(new Rect());
+        const viaProp = label.screenRect;
+        expect(viaProp.x).toBeCloseTo(viaOut.x);
+        expect(viaProp.y).toBeCloseTo(viaOut.y);
+        expect(viaProp.width).toBeCloseTo(viaOut.width);
+        expect(viaProp.height).toBeCloseTo(viaOut.height);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // EventSystem — multi-pointer routing
 //
 // Buttons with no Canvas ancestor are hit-tested in screen space against the

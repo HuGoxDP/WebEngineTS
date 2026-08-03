@@ -111,8 +111,39 @@ export class RectTransform extends Component {
     private _canvasLookupFrame: number = -1;
     private _canvasResolved: boolean = false;
 
-    /** Scratch rects for the ancestor walk, one per hierarchy depth. */
-    private static readonly _scratch: Rect[] = [];
+    // ── resolved-rect cache ──────────────────────────────────────────
+    //
+    // Resolving a rect walks every ancestor, so a tree of n elements at depth d
+    // costs O(n·d) rect computations per frame — paid even by a HUD that has not
+    // moved since it was built, because change detection had to compute the
+    // geometry to discover it was the same.
+    //
+    // The layout inputs are public Vector2 fields mutated in place
+    // (`rt.anchoredPosition.set(...)`), so there is no setter to hook. They are
+    // therefore snapshotted: ten scalar comparisons detect any change, which is
+    // far cheaper than the walk it avoids and keeps the public API untouched.
+    //
+    // Memoizing on the frame number would be wrong — a script that moves an
+    // element in Update and reads screenRect immediately must see the new value,
+    // and an ancestor's in-place mutation is invisible until something checks
+    // it. So the walk itself always happens; what the cache saves is the
+    // arithmetic at each level, and a rect is reused only when neither its own
+    // inputs nor its parent's resolved rect moved.
+
+    private readonly _cachedRect: Rect = new Rect();
+    private readonly _cachedParent: Rect = new Rect();
+    private readonly _snapshot: Float64Array = new Float64Array(10);
+    private _cacheValid: boolean = false;
+
+    /**
+     * Scratch for the one root rect in a resolve chain.
+     *
+     * @remarks
+     * Only the deepest frame of the recursion reaches the canvas/viewport root
+     * — every shallower frame gets its parent's own cached rect — and it reads
+     * the scratch before returning, so one instance is enough.
+     */
+    private static readonly _rootScratch: Rect = new Rect();
 
     constructor(gameObject: GameObject) {
         super(gameObject);
@@ -171,6 +202,7 @@ export class RectTransform extends Component {
         _CanvasCtor = ctor;
     }
 
+
     /**
      * The computed screen-space rectangle of this element, in canvas units.
      * Origin is the top-left of the viewport / parent Canvas.
@@ -178,7 +210,7 @@ export class RectTransform extends Component {
      * WARNING: allocates a new Rect. Use {@link getScreenRect} in hot paths.
      */
     public get screenRect(): Rect {
-        return this._computeRect(new Rect(), 0);
+        return new Rect().copy(this._resolve(0));
     }
 
     /**
@@ -188,7 +220,7 @@ export class RectTransform extends Component {
      * @returns `out` (or the newly allocated rect) for chaining.
      */
     public getScreenRect(out?: Rect): Rect {
-        return this._computeRect(out ?? new Rect(), 0);
+        return (out ?? new Rect()).copy(this._resolve(0));
     }
 
     /**
@@ -204,12 +236,37 @@ export class RectTransform extends Component {
         this._canvasResolved = false;
         this._cachedParentRect = null;
         this._cachedCanvas = null;
+        this._cacheValid = false;
     }
 
     // ── private ──────────────────────────────────────────────────────
 
-    private _computeRect(out: Rect, depth: number): Rect {
+    /**
+     * Resolves this element's screen rect, reusing the cached one when nothing
+     * that feeds it has changed.
+     *
+     * @returns the internal cached rect — callers copy out of it, never keep it.
+     */
+    private _resolve(depth: number): Rect {
+        // Both of these run unconditionally. The inputs are public Vector2
+        // fields mutated in place, so there is no setter to hook: an ancestor
+        // that moved is only discoverable by walking up and checking. Skipping
+        // the walk on a frame counter would hand a child a stale rect the frame
+        // its parent moved.
+        const selfChanged = this._syncSnapshot();
         const parentRect = this._parentRect(depth);
+
+        if (!selfChanged
+            && this._cacheValid
+            && this._cachedParent.x === parentRect.x
+            && this._cachedParent.y === parentRect.y
+            && this._cachedParent.width === parentRect.width
+            && this._cachedParent.height === parentRect.height) {
+            return this._cachedRect;
+        }
+
+        this._cachedParent.copy(parentRect);
+
         const pw = parentRect.width;
         const ph = parentRect.height;
 
@@ -224,44 +281,72 @@ export class RectTransform extends Component {
         const w = aW + this.sizeDelta.x;
         const h = aH + this.sizeDelta.y;
 
+        const out = this._cachedRect;
         out.x = aLeft + aW * 0.5 + this.anchoredPosition.x - this.pivot.x * w;
         out.y = aTop  + aH * 0.5 + this.anchoredPosition.y - this.pivot.y * h;
         out.width  = w;
         out.height = h;
+
+        this._cacheValid = true;
         return out;
     }
 
     /**
+     * Folds the layout inputs into the snapshot.
+     *
+     * @returns whether any of them moved since the last resolve.
+     */
+    private _syncSnapshot(): boolean {
+        const s = this._snapshot;
+        const ap = this.anchoredPosition;
+        const sd = this.sizeDelta;
+        const lo = this.anchorMin;
+        const hi = this.anchorMax;
+        const pv = this.pivot;
+
+        if (s[0] === ap.x && s[1] === ap.y
+            && s[2] === sd.x && s[3] === sd.y
+            && s[4] === lo.x && s[5] === lo.y
+            && s[6] === hi.x && s[7] === hi.y
+            && s[8] === pv.x && s[9] === pv.y) {
+            return false;
+        }
+
+        s[0] = ap.x; s[1] = ap.y;
+        s[2] = sd.x; s[3] = sd.y;
+        s[4] = lo.x; s[5] = lo.y;
+        s[6] = hi.x; s[7] = hi.y;
+        s[8] = pv.x; s[9] = pv.y;
+        return true;
+    }
+
+    /**
      * Resolves the reference rect this element is laid out against.
-     * The result lives in the scratch slot for `depth` and stays valid only
-     * until the next call at the same depth.
+     *
+     * @remarks
+     * A RectTransform parent returns its own cached rect, which is stable. Only
+     * the canvas/viewport root needs scratch, and only the deepest frame of a
+     * resolve chain ever reaches it.
      */
     private _parentRect(depth: number): Rect {
-        const scratch = RectTransform._scratchAt(depth);
-
         if (depth < MAX_RECT_DEPTH) {
             const prt = this.parentRectTransform;
-            if (prt) return prt._computeRect(scratch, depth + 1);
+            if (prt) return prt._resolve(depth + 1);
         }
 
         // The owning canvas defines the root rect. Note `canvas` starts its walk
         // at this GameObject, so a Canvas on this very object is picked up too.
+        // A resize shows up as a different root rect, which the caller's
+        // `_cachedParent` comparison catches — no separate invalidation needed.
         const canvas = this.canvas;
-        if (canvas) return scratch.set(0, 0, canvas.width, canvas.height);
+        if (canvas) {
+            return RectTransform._rootScratch.set(0, 0, canvas.width, canvas.height);
+        }
 
-        // Fallback: entire viewport
-        return scratch.set(0, 0,
+        // Fallback: the entire viewport, for elements with no Canvas at all.
+        return RectTransform._rootScratch.set(0, 0,
             typeof window !== "undefined" ? window.innerWidth  : 800,
             typeof window !== "undefined" ? window.innerHeight : 600,
         );
-    }
-
-    private static _scratchAt(depth: number): Rect {
-        let r = RectTransform._scratch[depth];
-        if (!r) {
-            r = new Rect();
-            RectTransform._scratch[depth] = r;
-        }
-        return r;
     }
 }
