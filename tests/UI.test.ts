@@ -11,6 +11,7 @@ import {
     HorizontalLayoutGroup, VerticalLayoutGroup,
 } from "../src/engine/core/ui/LayoutGroup";
 import { ContentSizeFitter, FitMode } from "../src/engine/core/ui/ContentSizeFitter";
+import { CanvasGroup } from "../src/engine/core/ui/CanvasGroup";
 import { Input } from "../src/engine/core/Input";
 import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
@@ -2661,5 +2662,226 @@ describe("ContentSizeFitter", () => {
 
         // Assigning 300 straight into sizeDelta would have given 800 + 300.
         expect(rt.getScreenRect(new Rect()).width).toBeCloseTo(300);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// CanvasGroup
+// ---------------------------------------------------------------------------
+
+describe("CanvasGroup", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    /** Canvas -> Panel(200x100 image) -> Label, with the panel groupable. */
+    function makeScene() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const panelGO = child("Panel", canvasGO);
+        const panel = panelGO.addComponent(UIImage);
+        const prt = panel.rectTransform;
+        prt.anchorMin.set(0, 0);
+        prt.anchorMax.set(0, 0);
+        prt.pivot.set(0, 0);
+        prt.anchoredPosition.set(0, 0);
+        prt.sizeDelta.set(200, 100);
+
+        const labelGO = child("Label", panelGO);
+        const label = labelGO.addComponent(UIImage);
+        const lrt = label.rectTransform;
+        lrt.anchorMin.set(0, 0);
+        lrt.anchorMax.set(1, 1);
+        lrt.pivot.set(0, 0);
+        lrt.anchoredPosition.set(0, 0);
+        lrt.sizeDelta.set(0, 0);
+
+        return { canvas, canvasGO, panel, panelGO, label, labelGO };
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Canvas._reset();
+    });
+
+    test("no group means full opacity", () => {
+        const { label } = makeScene();
+        expect(label._groupAlpha()).toBeCloseTo(1);
+        expect(label._groupInteractable()).toBe(true);
+        expect(label._groupBlocksRaycasts()).toBe(true);
+    });
+
+    test("alpha applies to the whole branch, including descendants", () => {
+        const { panelGO, panel, label } = makeScene();
+        const group = panelGO.addComponent(CanvasGroup);
+        group.alpha = 0.5;
+
+        expect(panel._groupAlpha()).toBeCloseTo(0.5);
+        expect(label._groupAlpha()).toBeCloseTo(0.5);
+    });
+
+    test("nested groups multiply", () => {
+        const { panelGO, labelGO, label } = makeScene();
+        panelGO.addComponent(CanvasGroup).alpha = 0.5;
+        labelGO.addComponent(CanvasGroup).alpha = 0.4;
+
+        expect(label._groupAlpha()).toBeCloseTo(0.2);
+    });
+
+    test("ignoreParentGroups stops the inheritance", () => {
+        const { panelGO, labelGO, label } = makeScene();
+        panelGO.addComponent(CanvasGroup).alpha = 0.5;
+
+        const inner = labelGO.addComponent(CanvasGroup);
+        inner.alpha = 0.4;
+        inner.ignoreParentGroups = true;
+
+        expect(label._groupAlpha()).toBeCloseTo(0.4);
+    });
+
+    test("alpha is clamped to 0..1", () => {
+        const { panelGO, panel } = makeScene();
+        const group = panelGO.addComponent(CanvasGroup);
+
+        group.alpha = 5;
+        expect(panel._groupAlpha()).toBe(1);
+
+        group.alpha = -2;
+        expect(panel._groupAlpha()).toBe(0);
+    });
+
+    test("a group added after the elements is picked up", () => {
+        const { panelGO, label } = makeScene();
+        expect(label._groupAlpha()).toBeCloseTo(1);
+
+        // Adding the component changes no transform link, so the elements have
+        // to be told to look again.
+        panelGO.addComponent(CanvasGroup).alpha = 0.25;
+
+        expect(label._groupAlpha()).toBeCloseTo(0.25);
+    });
+
+    test("a disabled group stops counting", () => {
+        const { panelGO, label } = makeScene();
+        const group = panelGO.addComponent(CanvasGroup);
+        group.alpha = 0.5;
+        expect(label._groupAlpha()).toBeCloseTo(0.5);
+
+        group.enabled = false;
+        expect(label._groupAlpha()).toBeCloseTo(1);
+    });
+
+    test("interactable false swallows the pointer but delivers nothing", () => {
+        const { panelGO, panel } = makeScene();
+        const group = panelGO.addComponent(CanvasGroup);
+        group.interactable = false;
+
+        let downs = 0;
+        panel.onPointerDown.addListener(() => { downs++; });
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+
+        expect(downs).toBe(0);
+        // Still modal: a click on the greyed-out panel must not reach the scene.
+        expect(EventSystem.isPointerOverUI).toBe(true);
+    });
+
+    test("blocksRaycasts false lets the pointer through entirely", () => {
+        const { panelGO, panel } = makeScene();
+        const group = panelGO.addComponent(CanvasGroup);
+        group.blocksRaycasts = false;
+
+        let downs = 0;
+        panel.onPointerDown.addListener(() => { downs++; });
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+
+        expect(downs).toBe(0);
+        expect(EventSystem.isPointerOverUI).toBe(false);
+    });
+
+    test("a see-through group reveals what sits behind it", () => {
+        const { canvasGO, panelGO, panel } = makeScene();
+        panelGO.addComponent(CanvasGroup).blocksRaycasts = false;
+
+        // A second panel below the first in the hierarchy, so it draws behind.
+        const backGO = child("Back", canvasGO);
+        const back = backGO.addComponent(UIImage);
+        const brt = back.rectTransform;
+        brt.anchorMin.set(0, 0);
+        brt.anchorMax.set(0, 0);
+        brt.pivot.set(0, 0);
+        brt.anchoredPosition.set(0, 0);
+        brt.sizeDelta.set(200, 100);
+
+        let backDowns = 0;
+        let frontDowns = 0;
+        back.onPointerDown.addListener(() => { backDowns++; });
+        panel.onPointerDown.addListener(() => { frontDowns++; });
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+
+        expect(frontDowns).toBe(0);
+        expect(backDowns).toBe(1);
+    });
+
+    test("a group over a button disables it without hiding it", () => {
+        const { canvasGO } = makeScene();
+        const btnGO = child("Btn", canvasGO);
+        const btn = btnGO.addComponent(Button);
+        const rt = btn.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(300, 0);
+        rt.sizeDelta.set(100, 50);
+
+        let clicks = 0;
+        btn.onClick.addListener(() => { clicks++; });
+
+        btnGO.addComponent(CanvasGroup).interactable = false;
+
+        touches = [touch(1, 350, 25, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 350, 25, TouchPhase.Ended)];
+        EventSystem._update();
+
+        expect(clicks).toBe(0);
+    });
+
+    test("a fading group keeps triggering repaints", () => {
+        const { canvas, panelGO } = makeScene();
+        const group = panelGO.addComponent(CanvasGroup);
+
+        canvas._prepare();
+        expect(canvas._prepare()).toBe(false);
+
+        group.alpha = 0.5;
+        expect(canvas._prepare()).toBe(true);
     });
 });

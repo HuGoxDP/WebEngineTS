@@ -1,11 +1,15 @@
 import { Behaviour } from "../Behaviour";
 import { RectTransform } from "./RectTransform";
 import { UIEvent } from "./UIEvent";
+import { CanvasGroup } from "./CanvasGroup";
 import type { Canvas } from "./Canvas";
 import type { PointerEventData } from "./PointerEventData";
 import type { Rect } from "../math/Rect";
 import type { GameObject } from "../GameObject";
 import type { Transform } from "../Transform";
+
+/** Depth cap for the CanvasGroup walk, matching the RectTransform ancestor walk. */
+const MAX_GROUP_DEPTH = 64;
 
 /**
  * @internal
@@ -188,6 +192,52 @@ export abstract class UIBehaviour extends Behaviour {
         }
     }
 
+    // ── CanvasGroup resolution ───────────────────────────────────────
+    //
+    // Which groups sit above this element changes only on a re-parent or when a
+    // group is added or removed, but their *values* change freely (a fade
+    // animates alpha every frame). So the chain is cached and the values are
+    // read fresh from it — the scan is the expensive half, not the arithmetic.
+
+    private _groupChain: CanvasGroup[] | null = null;
+    private _groupChainVersion: number = -1;
+
+    /**
+     * @internal
+     * Combined opacity of every {@link CanvasGroup} above this element.
+     * `1` when there are none.
+     */
+    public _groupAlpha(): number {
+        const chain = this._resolveGroupChain();
+        let alpha = 1;
+        for (let i = 0; i < chain.length; i++) alpha *= chain[i].alpha;
+        return alpha;
+    }
+
+    /** @internal Whether every group above this element allows interaction. */
+    public _groupInteractable(): boolean {
+        const chain = this._resolveGroupChain();
+        for (let i = 0; i < chain.length; i++) {
+            if (!chain[i].interactable) return false;
+        }
+        return true;
+    }
+
+    /** @internal Whether every group above this element blocks the pointer. */
+    public _groupBlocksRaycasts(): boolean {
+        const chain = this._resolveGroupChain();
+        for (let i = 0; i < chain.length; i++) {
+            if (!chain[i].blocksRaycasts) return false;
+        }
+        return true;
+    }
+
+    /** @internal Drops the cached group chain, e.g. after a re-parent. */
+    public _invalidateGroupChain(): void {
+        this._groupChainVersion = -1;
+        this._groupChain = null;
+    }
+
     /** The RectTransform on this GameObject (auto-added if missing). */
     public get rectTransform(): RectTransform {
         if (!this._rectTransform) {
@@ -294,6 +344,32 @@ export abstract class UIBehaviour extends Behaviour {
     }
 
     // ── private ──────────────────────────────────────────────────────
+
+    /**
+     * The active CanvasGroups from this element upward, nearest first, stopping
+     * at one that ignores its parents.
+     */
+    private _resolveGroupChain(): readonly CanvasGroup[] {
+        if (this._groupChain && this._groupChainVersion === CanvasGroup._structureVersion) {
+            return this._groupChain;
+        }
+
+        const chain: CanvasGroup[] = [];
+        let go: GameObject | null = this.gameObject;
+
+        for (let depth = 0; go && depth < MAX_GROUP_DEPTH; depth++) {
+            const group = go.getComponent(CanvasGroup);
+            if (group && group.isActiveAndEnabled) {
+                chain.push(group);
+                if (group.ignoreParentGroups) break;
+            }
+            go = go.transform.parent?.gameObject ?? null;
+        }
+
+        this._groupChain = chain;
+        this._groupChainVersion = CanvasGroup._structureVersion;
+        return chain;
+    }
 
     /** Moves registration from the current canvas (if any) to `target`. */
     private _register(target: Canvas | null): void {

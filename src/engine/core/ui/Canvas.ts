@@ -577,6 +577,7 @@ export class Canvas extends Behaviour {
                 hash = hashNumber(hash, local.width);
                 hash = hashNumber(hash, local.height);
                 for (let k = 0; k < 6; k++) hash = hashNumber(hash, m[k]);
+                hash = hashNumber(hash, g._groupAlpha());
 
                 const gh = g._visualHash();
                 if (Number.isNaN(gh)) unknown = true;
@@ -607,6 +608,7 @@ export class Canvas extends Behaviour {
 
             g._lastParent = parent;
             g.rectTransform.invalidateLayoutCache();
+            g._invalidateGroupChain();
             g._revalidateCanvas();
 
             // A moved element sits somewhere else in the hierarchy, so the draw
@@ -696,8 +698,12 @@ export class Canvas extends Behaviour {
             const rt = g.rectTransform;
             if (g._allowCulling && !rt._resolvedBounds.overlaps(this._canvasRect)) continue;
 
+            const groupAlpha = g._groupAlpha();
+            if (groupAlpha <= 0) continue;
+
             const m = rt._canvasMatrix;
             ctx.save();
+            ctx.globalAlpha = this._alpha * groupAlpha;
             // Composes with the canvas-unit transform already on the context, so
             // components keep drawing in their own local rect and inherit the
             // element's rotation and scale without knowing about either.

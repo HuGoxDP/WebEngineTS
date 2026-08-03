@@ -476,6 +476,10 @@ export class EventSystem {
                 const g = graphics[gi];
                 if (!g.isActiveAndEnabled || !g.raycastTarget) continue;
 
+                // A group with blocksRaycasts off is see-through to the pointer,
+                // so the search carries on to whatever is behind it.
+                if (!g._groupBlocksRaycasts()) continue;
+
                 const rt = g.rectTransform;
                 const p = EventSystem._canvasPoint;
 
@@ -490,7 +494,12 @@ export class EventSystem {
                 if (!g._hitTest(local.x, local.y, rt._resolvedLocalRect)) continue;
 
                 EventSystem._pointerOverUI = true;
-                return g;
+
+                // A non-interactable group still swallows the pointer — that is
+                // what makes a greyed-out dialog modal — but nothing under it
+                // receives events, so the search stops here rather than
+                // continuing to whatever is behind.
+                return g._groupInteractable() ? g : null;
             }
         }
 
@@ -498,6 +507,7 @@ export class EventSystem {
         EventSystem._canvasPoint.copy(screen);
         for (const btn of EventSystem._buttons) {
             if (!btn.isActiveAndEnabled || btn.canvas !== null) continue;
+            if (!btn._groupBlocksRaycasts()) continue;
 
             const rt = btn.rectTransform;
             if (!rt._resolvedBounds.contains(screen)) continue;
@@ -507,7 +517,7 @@ export class EventSystem {
             if (!btn._hitTest(local.x, local.y, rt._resolvedLocalRect)) continue;
 
             EventSystem._pointerOverUI = true;
-            return btn;
+            return btn._groupInteractable() ? btn : null;
         }
 
         return null;
