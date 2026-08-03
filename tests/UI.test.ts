@@ -12,7 +12,11 @@ import {
     CanvasScaler,
     ScreenMatchMode,
 } from "../src/engine/core/ui/CanvasScaler";
-import { RectTransform } from "../src/engine/core/ui/RectTransform";
+import {
+    RectTransform,
+    RectTransformAxis,
+    RectTransformEdge,
+} from "../src/engine/core/ui/RectTransform";
 import { cssColor, roundedRectPath } from "../src/engine/core/ui/UIUtils";
 import { GameObject } from "../src/engine/core/GameObject";
 import { Color } from "../src/engine/core/math/Color";
@@ -784,16 +788,15 @@ describe("RectTransform rect cache", () => {
         label.anchorMin.set(1, 1);
         label.anchorMax.set(1, 1);
 
-        // Panel stretches to 800 wide, and pivot (0,0) against a stretched
-        // anchor puts its origin at the anchor centre: rect x = 400. The label
-        // anchors to the panel's far edge, so x = 400 + 800 + 10.
-        expect(label.getScreenRect(new Rect()).x).toBeCloseTo(1210);
+        // Panel stretches to fill the canvas: origin 0, far edge 800. The label
+        // anchors to that far edge, 10 beyond it.
+        expect(label.getScreenRect(new Rect()).x).toBeCloseTo(810);
 
         vi.spyOn(canvas, "width", "get").mockReturnValue(1600);
 
         // Nothing on either element changed — only the root the chain resolves
-        // against. Panel origin moves to 800, its far edge to 2400.
-        expect(label.getScreenRect(new Rect()).x).toBeCloseTo(2410);
+        // against. The panel's far edge moves to 1600.
+        expect(label.getScreenRect(new Rect()).x).toBeCloseTo(1610);
     });
 
     test("an unchanged chain recomputes nothing on a second read", () => {
@@ -852,6 +855,160 @@ describe("RectTransform rect cache", () => {
         expect(viaProp.y).toBeCloseTo(viaOut.y);
         expect(viaProp.width).toBeCloseTo(viaOut.width);
         expect(viaProp.height).toBeCloseTo(viaOut.height);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// RectTransform layout API (offsets, insets, sizing)
+// ---------------------------------------------------------------------------
+
+describe("RectTransform layout API", () => {
+    beforeEach(() => Canvas._reset());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        Canvas._reset();
+    });
+
+    /** A RectTransform under an 800x600 canvas. */
+    function makeUnder(): RectTransform {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+        return child("El", canvasGO).addComponent(RectTransform);
+    }
+
+    test("the anchor reference point is sampled at the pivot, not the centre", () => {
+        const rt = makeUnder();
+        // Stretched horizontally with a left pivot: the two definitions differ
+        // here, and only here.
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(1, 0);
+        rt.pivot.set(0, 0);
+        rt.sizeDelta.set(0, 50);
+        rt.anchoredPosition.set(0, 0);
+
+        // Unity's rule puts the pivot at anchorMin + pivot * anchorSize = 0,
+        // so a zero-sizeDelta stretch exactly fills the parent.
+        const r = rt.getScreenRect(new Rect());
+        expect(r.x).toBeCloseTo(0);
+        expect(r.width).toBeCloseTo(800);
+    });
+
+    test("offsetMin and offsetMax describe a stretched element's margins", () => {
+        const rt = makeUnder();
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(1, 1);
+        rt.pivot.set(0.5, 0.5);
+        rt.sizeDelta.set(-40, -20);
+        rt.anchoredPosition.set(0, 0);
+
+        expect(rt.offsetMin.x).toBeCloseTo(20);
+        expect(rt.offsetMin.y).toBeCloseTo(10);
+        expect(rt.offsetMax.x).toBeCloseTo(-20);
+        expect(rt.offsetMax.y).toBeCloseTo(-10);
+    });
+
+    test("assigning offsetMin resizes without moving the opposite corner", () => {
+        const rt = makeUnder();
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(1, 1);
+        rt.sizeDelta.set(0, 0);
+        rt.anchoredPosition.set(0, 0);
+
+        const maxBefore = rt.getOffsetMax(new Vector2()).clone();
+        rt.offsetMin = new Vector2(30, 15);
+
+        expect(rt.getOffsetMin(new Vector2()).x).toBeCloseTo(30);
+        expect(rt.getOffsetMin(new Vector2()).y).toBeCloseTo(15);
+        expect(rt.getOffsetMax(new Vector2()).x).toBeCloseTo(maxBefore.x);
+        expect(rt.getOffsetMax(new Vector2()).y).toBeCloseTo(maxBefore.y);
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.x).toBeCloseTo(30);
+        expect(r.width).toBeCloseTo(770);
+    });
+
+    test("assigning offsetMax resizes without moving the opposite corner", () => {
+        const rt = makeUnder();
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(1, 1);
+        rt.sizeDelta.set(0, 0);
+        rt.anchoredPosition.set(0, 0);
+
+        const minBefore = rt.getOffsetMin(new Vector2()).clone();
+        rt.offsetMax = new Vector2(-50, -25);
+
+        expect(rt.getOffsetMin(new Vector2()).x).toBeCloseTo(minBefore.x);
+        expect(rt.getOffsetMax(new Vector2()).x).toBeCloseTo(-50);
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.width).toBeCloseTo(750);
+        expect(r.height).toBeCloseTo(575);
+    });
+
+    test("setSizeWithCurrentAnchors yields the final size under a stretch", () => {
+        const rt = makeUnder();
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(1, 1);
+        rt.pivot.set(0.5, 0.5);
+        rt.anchoredPosition.set(0, 0);
+
+        rt.setSizeWithCurrentAnchors(RectTransformAxis.Horizontal, 300);
+        rt.setSizeWithCurrentAnchors(RectTransformAxis.Vertical, 200);
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.width).toBeCloseTo(300);
+        expect(r.height).toBeCloseTo(200);
+    });
+
+    test("setInsetAndSizeFromParentEdge pins to the Top edge, which is low Y", () => {
+        const rt = makeUnder();
+        rt.pivot.set(0.5, 0.5);
+        rt.setInsetAndSizeFromParentEdge(RectTransformEdge.Top, 10, 60);
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.y).toBeCloseTo(10);
+        expect(r.height).toBeCloseTo(60);
+        expect(rt.anchorMin.y).toBe(0);
+        expect(rt.anchorMax.y).toBe(0);
+    });
+
+    test("setInsetAndSizeFromParentEdge pins to the Bottom edge, which is high Y", () => {
+        const rt = makeUnder();
+        rt.pivot.set(0.5, 0.5);
+        rt.setInsetAndSizeFromParentEdge(RectTransformEdge.Bottom, 10, 60);
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.y + r.height).toBeCloseTo(600 - 10);
+        expect(rt.anchorMin.y).toBe(1);
+    });
+
+    test("setInsetAndSizeFromParentEdge survives a pivot that is not centred", () => {
+        const rt = makeUnder();
+        rt.pivot.set(0, 0);
+        rt.setInsetAndSizeFromParentEdge(RectTransformEdge.Right, 25, 120);
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.x + r.width).toBeCloseTo(800 - 25);
+        expect(r.width).toBeCloseTo(120);
+    });
+
+    test("local corners run through the transform to give the world corners", () => {
+        const rt = makeUnder();
+        rt.anchorMin.set(0.5, 0.5);
+        rt.anchorMax.set(0.5, 0.5);
+        rt.pivot.set(0.5, 0.5);
+        rt.sizeDelta.set(100, 100);
+        rt.anchoredPosition.set(0, 0);
+
+        const local = rt.getLocalCorners();
+        expect(local[0].x).toBeCloseTo(-50);
+        expect(local[2].x).toBeCloseTo(50);
+
+        const world = rt.getWorldCorners();
+        expect(world[0].x).toBeCloseTo(350);
+        expect(world[2].x).toBeCloseTo(450);
     });
 });
 

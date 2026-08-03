@@ -246,7 +246,11 @@ export {
     ScreenMatchMode,
     CanvasPhysicalUnit,
 } from "./core/ui/CanvasScaler";
-export { RectTransform } from "./core/ui/RectTransform";
+export {
+    RectTransform,
+    RectTransformAxis,
+    RectTransformEdge,
+} from "./core/ui/RectTransform";
 export { UIBehaviour } from "./core/ui/UIBehaviour";
 export { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
 export { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
@@ -405,7 +409,11 @@ import {
     ScreenMatchMode,
     CanvasPhysicalUnit,
 } from "./core/ui/CanvasScaler";
-import { RectTransform } from "./core/ui/RectTransform";
+import {
+    RectTransform,
+    RectTransformAxis,
+    RectTransformEdge,
+} from "./core/ui/RectTransform";
 import { UIBehaviour } from "./core/ui/UIBehaviour";
 import { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
 import { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
@@ -514,7 +522,8 @@ const WebEngineTS = {
     ParticleSimulationSpace, ParticleRenderMode, ParticleShapeType, GradientMode,
 
     // UI
-    Canvas, CanvasRenderMode, CanvasRepaintMode, RectTransform, UIBehaviour,
+    Canvas, CanvasRenderMode, CanvasRepaintMode, UIBehaviour,
+    RectTransform, RectTransformAxis, RectTransformEdge,
     CanvasScaler, CanvasScaleMode, ScreenMatchMode, CanvasPhysicalUnit,
     UIImage, ImageFillMethod, ImageFillOrigin,
     UIText, TextAlignment, VerticalAlignment,

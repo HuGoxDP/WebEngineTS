@@ -18,6 +18,26 @@ const MAX_RECT_DEPTH = 64;
 
 const DEG_TO_RAD = Math.PI / 180;
 
+/** Axis selector for {@link RectTransform.setSizeWithCurrentAnchors}. */
+export enum RectTransformAxis {
+    Horizontal = "Horizontal",
+    Vertical = "Vertical",
+}
+
+/**
+ * Parent edge for {@link RectTransform.setInsetAndSizeFromParentEdge}.
+ *
+ * @remarks
+ * Because Y points down, **`Top` is the low-Y edge (anchor 0)** and `Bottom` the
+ * high-Y one (anchor 1) — the inverse of Unity, where `Top` is the anchor-1 side.
+ */
+export enum RectTransformEdge {
+    Left = "Left",
+    Right = "Right",
+    Top = "Top",
+    Bottom = "Bottom",
+}
+
 /**
  * Defines the 2D layout rectangle for a UI element.
  *
@@ -193,6 +213,9 @@ export class RectTransform extends Component {
     /** Scratch for corner transforms, so the AABB pass allocates nothing. */
     private static readonly _corners: Float64Array = new Float64Array(8);
 
+    /** Scratch for the layout API, which never nests or outlives a call. */
+    private static readonly _apiScratch: Rect = new Rect();
+
     constructor(gameObject: GameObject) {
         super(gameObject);
     }
@@ -349,6 +372,191 @@ export class RectTransform extends Component {
         return true;
     }
 
+    /**
+     * The element's rect in its own local space, with the pivot at the origin.
+     *
+     * @remarks
+     * Equivalent to Unity's `RectTransform.rect`.
+     *
+     * WARNING: allocates. Use {@link getLocalRect} in hot paths.
+     */
+    public get rect(): Rect {
+        return this.getLocalRect(new Rect());
+    }
+
+    /**
+     * Offset of the element's low-coordinate corner from the {@link anchorMin}
+     * corner, in canvas units.
+     *
+     * @remarks
+     * Equivalent to Unity's `RectTransform.offsetMin`, and the way a stretched
+     * element's margins are usually expressed. Because Y points down, `y` is
+     * the offset from the **top** edge, not the bottom.
+     *
+     * Assigning moves that corner and leaves {@link offsetMax} where it is, so
+     * the element resizes rather than moving.
+     *
+     * WARNING: the getter allocates. Use {@link getOffsetMin} in hot paths.
+     */
+    public get offsetMin(): Vector2 {
+        return this.getOffsetMin(new Vector2());
+    }
+
+    public set offsetMin(value: Vector2) {
+        const dx = value.x - (this.anchoredPosition.x - this.sizeDelta.x * this.pivot.x);
+        const dy = value.y - (this.anchoredPosition.y - this.sizeDelta.y * this.pivot.y);
+
+        this.sizeDelta.set(this.sizeDelta.x - dx, this.sizeDelta.y - dy);
+        this.anchoredPosition.set(
+            this.anchoredPosition.x + dx * (1 - this.pivot.x),
+            this.anchoredPosition.y + dy * (1 - this.pivot.y),
+        );
+    }
+
+    /**
+     * Offset of the element's high-coordinate corner from the {@link anchorMax}
+     * corner, in canvas units.
+     *
+     * @remarks
+     * Equivalent to Unity's `RectTransform.offsetMax`. Because Y points down,
+     * `y` is the offset from the **bottom** edge. Assigning resizes rather than
+     * moves, leaving {@link offsetMin} in place.
+     *
+     * WARNING: the getter allocates. Use {@link getOffsetMax} in hot paths.
+     */
+    public get offsetMax(): Vector2 {
+        return this.getOffsetMax(new Vector2());
+    }
+
+    public set offsetMax(value: Vector2) {
+        const dx = value.x - (this.anchoredPosition.x + this.sizeDelta.x * (1 - this.pivot.x));
+        const dy = value.y - (this.anchoredPosition.y + this.sizeDelta.y * (1 - this.pivot.y));
+
+        this.sizeDelta.set(this.sizeDelta.x + dx, this.sizeDelta.y + dy);
+        this.anchoredPosition.set(
+            this.anchoredPosition.x + dx * this.pivot.x,
+            this.anchoredPosition.y + dy * this.pivot.y,
+        );
+    }
+
+    /**
+     * Writes {@link offsetMin} into `out` without allocating.
+     *
+     * @param out - vector to receive the result.
+     * @returns `out` for chaining.
+     */
+    public getOffsetMin(out: Vector2): Vector2 {
+        return out.set(
+            this.anchoredPosition.x - this.sizeDelta.x * this.pivot.x,
+            this.anchoredPosition.y - this.sizeDelta.y * this.pivot.y,
+        );
+    }
+
+    /**
+     * Writes {@link offsetMax} into `out` without allocating.
+     *
+     * @param out - vector to receive the result.
+     * @returns `out` for chaining.
+     */
+    public getOffsetMax(out: Vector2): Vector2 {
+        return out.set(
+            this.anchoredPosition.x + this.sizeDelta.x * (1 - this.pivot.x),
+            this.anchoredPosition.y + this.sizeDelta.y * (1 - this.pivot.y),
+        );
+    }
+
+    /**
+     * Resizes the element along one axis, keeping its anchors and pivot.
+     *
+     * @remarks
+     * Equivalent to Unity's `RectTransform.SetSizeWithCurrentAnchors`. Use this
+     * rather than assigning {@link sizeDelta} when the anchors are stretched:
+     * `sizeDelta` is a delta on top of the anchor area, so the size it produces
+     * depends on the parent, whereas `size` here is the final size.
+     *
+     * @param axis - which axis to resize.
+     * @param size - the resulting size in canvas units.
+     */
+    public setSizeWithCurrentAnchors(axis: RectTransformAxis, size: number): void {
+        const parent = this._parentLocalRect(RectTransform._apiScratch);
+
+        if (axis === RectTransformAxis.Horizontal) {
+            this.sizeDelta.x = size - (this.anchorMax.x - this.anchorMin.x) * parent.width;
+        } else {
+            this.sizeDelta.y = size - (this.anchorMax.y - this.anchorMin.y) * parent.height;
+        }
+    }
+
+    /**
+     * Anchors the element to one parent edge and places it at a fixed inset and
+     * size from it.
+     *
+     * @remarks
+     * Equivalent to Unity's `RectTransform.SetInsetAndSizeFromParentEdge`. This
+     * is how a fixed-height header or a fixed-width sidebar is expressed.
+     * Collapses the anchors on the affected axis onto that edge, so the element
+     * keeps its distance from it however the parent resizes.
+     *
+     * Note the Y-down edge mapping on {@link RectTransformEdge}: `Top` is the
+     * anchor-0 side here, the opposite of Unity.
+     *
+     * @param edge - the parent edge to anchor against.
+     * @param inset - distance from that edge, in canvas units.
+     * @param size - size along the affected axis.
+     */
+    public setInsetAndSizeFromParentEdge(
+        edge: RectTransformEdge,
+        inset: number,
+        size: number,
+    ): void {
+        const vertical = edge === RectTransformEdge.Top || edge === RectTransformEdge.Bottom;
+        // Whether this edge sits at the high end of the axis, i.e. anchor 1.
+        const atEnd = edge === RectTransformEdge.Right || edge === RectTransformEdge.Bottom;
+        const anchor = atEnd ? 1 : 0;
+
+        if (vertical) {
+            this.anchorMin.y = anchor;
+            this.anchorMax.y = anchor;
+            this.sizeDelta.y = size;
+            this.anchoredPosition.y = atEnd
+                ? -inset - size * (1 - this.pivot.y)
+                : inset + size * this.pivot.y;
+        } else {
+            this.anchorMin.x = anchor;
+            this.anchorMax.x = anchor;
+            this.sizeDelta.x = size;
+            this.anchoredPosition.x = atEnd
+                ? -inset - size * (1 - this.pivot.x)
+                : inset + size * this.pivot.x;
+        }
+    }
+
+    /**
+     * Writes the element's four corners in its own local space into `out`.
+     *
+     * @remarks
+     * Equivalent to Unity's `RectTransform.GetLocalCorners`. Same order as
+     * {@link getWorldCorners}, which is these corners run through the element's
+     * transform.
+     *
+     * @param out - four vectors to receive the corners; allocated if omitted.
+     * @returns `out` (or the newly allocated array) for chaining.
+     */
+    public getLocalCorners(out?: Vector2[]): Vector2[] {
+        const result = out ?? [new Vector2(), new Vector2(), new Vector2(), new Vector2()];
+        this._resolve(0);
+
+        const r = this._localRect;
+        const x1 = r.x + r.width;
+        const y1 = r.y + r.height;
+
+        result[0].set(r.x, r.y);
+        result[1].set(x1,  r.y);
+        result[2].set(x1,  y1);
+        result[3].set(r.x, y1);
+        return result;
+    }
+
     /** @internal The local-to-canvas affine transform `[a, b, c, d, e, f]`. */
     public get _canvasMatrix(): Float64Array {
         this._resolve(0);
@@ -433,9 +641,13 @@ export class RectTransform extends Component {
         // rotation and scale act about it for free.
         this._localRect.set(-this.pivot.x * w, -this.pivot.y * h, w, h);
 
-        // Where the pivot lands in the parent's local space.
-        const px = aLeft + aW * 0.5 + this.anchoredPosition.x;
-        const py = aTop  + aH * 0.5 + this.anchoredPosition.y;
+        // Where the pivot lands in the parent's local space. The reference point
+        // is the anchor rect sampled *at the pivot*, not its centre — that is
+        // Unity's definition, and it is what keeps `offsetMin`/`offsetMax`
+        // consistent with `anchoredPosition`. The two only differ for a
+        // stretched anchor with an off-centre pivot.
+        const px = aLeft + this.pivot.x * aW + this.anchoredPosition.x;
+        const py = aTop  + this.pivot.y * aH + this.anchoredPosition.y;
 
         const rad = this.localRotation * DEG_TO_RAD;
         const cos = rad === 0 ? 1 : Math.cos(rad);
@@ -495,6 +707,19 @@ export class RectTransform extends Component {
             if (c[i + 1] < minY) minY = c[i + 1]; else if (c[i + 1] > maxY) maxY = c[i + 1];
         }
         this._aabb.set(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    /**
+     * The rect this element is laid out inside, in the parent's local space.
+     * Falls back to the canvas/viewport root when there is no parent.
+     */
+    private _parentLocalRect(out: Rect): Rect {
+        const prt = this.parentRectTransform;
+        if (prt) {
+            prt._resolve(0);
+            return out.copy(prt._localRect);
+        }
+        return out.copy(this._rootRect());
     }
 
     /** Maps a local-space point into canvas units. */

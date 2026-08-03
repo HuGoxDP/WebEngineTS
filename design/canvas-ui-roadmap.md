@@ -6,9 +6,9 @@ document covers what round 2+ should be.
 
 Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see §8.
 
-**Status:** Stage 0 (§2 + §3.1–3.3 + §4.2), §4.1 (resolved-rect cache), §4.3 and §4.4
-(rotation/scale via a 2D affine pipeline) landed 2026-08-03. Next: §4.5 (rest of the
-RectTransform API) and §5.1 (`Selectable` + pointer/drag events).
+**Status:** Stage 0 (§2 + §3.1–3.3 + §4.2), §4.1 (resolved-rect cache), §4.3, §4.4
+(rotation/scale) and §4.5 (layout API + anchor-reference fix) landed 2026-08-03.
+Next: §5.1 (`Selectable` + pointer/drag events), then §4.6 layout groups.
 
 ---
 
@@ -19,7 +19,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Area | Present | Missing |
 |---|---|---|
 | Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate) | `WorldSpace` render mode, `CanvasGroup` |
-| Layout | `RectTransform` (anchors, pivot, sizeDelta, **rotation, scale, corners**) | `offsetMin/Max`, `rect`, presets, **all layout groups** |
+| Layout | `RectTransform` (anchors, pivot, sizeDelta, rotation, scale, corners, **offsets, insets, sizing**) | anchor presets, **all layout groups** |
 | Graphics | `UIImage` (solid/sprite/fill/radius), `UIText` (wrap, outline, align) | `Sprite` type, 9-slice, tiled, radial fill, auto-size, ellipsis, rich text |
 | Interaction | `Button`, `VirtualJoystick`, `EventSystem` (**multi-pointer**) | `Selectable`, `Slider`, `Toggle`, `ScrollRect`, `InputField`, drag/enter/exit events, keyboard nav |
 | Clipping | — | `RectMask2D` (nothing clips to parent bounds today) |
@@ -328,7 +328,25 @@ represent a rotated element, so it touches four call paths:
 Sequence it **after** §4.1, which introduces the caching layer this rides on, and after
 §2.7, which provides the tests that catch a regression.
 
-### 4.5 Complete the RectTransform API surface — **P1, M**
+### 4.5 Complete the RectTransform API surface — **DONE (2026-08-03)** ✅
+
+Shipped: `rect`, `offsetMin`/`offsetMax` (+ non-allocating `getOffsetMin`/`getOffsetMax`),
+`setSizeWithCurrentAnchors`, `setInsetAndSizeFromParentEdge`, `getLocalCorners`, and the
+`RectTransformAxis` / `RectTransformEdge` enums. Anchor presets were **not** added: Unity has
+no runtime preset API either, and an editor inspector can derive them from the anchor values
+it already edits.
+
+**Found while deriving `offsetMin`: the anchor reference point was wrong.** The engine placed
+the pivot at the anchor rect's *centre* (`aLeft + aW * 0.5`); Unity samples the anchor rect
+*at the pivot* (`aLeft + pivot.x * aW`), which is what makes `offsetMin = anchoredPosition -
+sizeDelta * pivot` hold. The two agree for point anchors and for a centred pivot, which is
+every case the existing tests covered — so nothing caught it. They diverge for a stretched
+anchor with an off-centre pivot, where the old rule pushed the element off by half the anchor
+span: a panel stretched to fill its parent with pivot `(0,0)` sat at `400..1200` on an
+800-wide canvas instead of `0..800`.
+
+Fixed to Unity's rule. `offsetMin`/`offsetMax` could not have been defined consistently
+otherwise, so this was forced rather than optional.
 
 Missing versus Unity: `rect` (local rect), `offsetMin`/`offsetMax`, `anchoredPosition3D`,
 `SetInsetAndSizeFromParentEdge`, `SetSizeWithCurrentAnchors`, `GetWorldCorners`,
@@ -517,7 +535,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~4.1~~ | ~~Resolved-rect cache~~ (constant-factor; see §4.1) | **done** | M | — |
 | ~~4.3~~ | ~~Share resolved rects with `EventSystem`~~ (both read the RectTransform cache) | **done** | XS | — |
 | ~~4.4~~ | ~~RectTransform rotation + scale~~ | **done** | L | — |
-| 4.5 | Full RectTransform API surface | P1 | M | 4.4 |
+| ~~4.5~~ | ~~Full RectTransform API surface~~ + anchor-reference fix | **done** | M | — |
 | 4.6 | Layout groups + size protocol | P1 | L | 6.3a |
 | 4.7 | `CanvasGroup` | P1 | S | 4.4 |
 | 4.8 | Overlay canvas memory in `MemoryProfiler` ⚑ | P1 | S | — |
