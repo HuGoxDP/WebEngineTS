@@ -124,6 +124,9 @@ function downloadBaseName(result: BenchmarkResult): string {
     if (qp("relArc", "0") === "1") parts.push("relArc");
     if (qp("relSrc", "0") === "1") parts.push("relSrc");
     if (qp("ktx2", "0") === "1") parts.push("ktx2");
+    // Scene 1 already encodes dirty above; scenario runs need it too, otherwise
+    // e.g. the full-stack row is indistinguishable from the same config without it.
+    if (scenarioUrl) parts.push(qp("dirty", "0") === "1" ? "dirtyOn" : "dirtyOff");
     parts.push(qp("shaderWarmup", "0") === "1" ? "warm" : "nowarm");
     if (qp("cold", "0") === "1") parts.push("cold");
 
