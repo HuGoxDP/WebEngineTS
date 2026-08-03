@@ -7,8 +7,9 @@ document covers what round 2+ should be.
 Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see §8.
 
 **Status:** Stage 0 (§2 + §3.1–3.3 + §4.2), §4.1 (resolved-rect cache), §4.3, §4.4
-(rotation/scale) and §4.5 (layout API + anchor-reference fix) landed 2026-08-03.
-Next: §5.1 (`Selectable` + pointer/drag events), then §4.6 layout groups.
+(rotation/scale), §4.5 (layout API + anchor-reference fix) and §5.1a (`UIEvent` +
+pointer/drag events) landed 2026-08-03. Next: `Slider`/`Toggle` on top of the new
+event surface, then §4.6 layout groups.
 
 ---
 
@@ -21,7 +22,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate) | `WorldSpace` render mode, `CanvasGroup` |
 | Layout | `RectTransform` (anchors, pivot, sizeDelta, rotation, scale, corners, **offsets, insets, sizing**) | anchor presets, **all layout groups** |
 | Graphics | `UIImage` (solid/sprite/fill/radius), `UIText` (wrap, outline, align) | `Sprite` type, 9-slice, tiled, radial fill, auto-size, ellipsis, rich text |
-| Interaction | `Button`, `VirtualJoystick`, `EventSystem` (**multi-pointer**) | `Selectable`, `Slider`, `Toggle`, `ScrollRect`, `InputField`, drag/enter/exit events, keyboard nav |
+| Interaction | `Button`, `VirtualJoystick`, `EventSystem` (multi-pointer), **`UIEvent`, pointer + drag events** | `Selectable`, `Slider`, `Toggle`, `ScrollRect`, `InputField`, keyboard nav |
 | Clipping | — | `RectMask2D` (nothing clips to parent bounds today) |
 | Repaint | `OnDemand` + `_visualHash`, **event-driven surface sync** | layout dirty flags, dirty-rect partial repaint |
 | Draw order | **hierarchy-ordered**, `sortingOrder` first | — |
@@ -544,7 +545,8 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | 5.0c | `Slider` | P1 | M | 5.1 |
 | 5.0d | `Toggle` | P1 | S | 5.1 |
 | 5.0e | `RectMask2D` | P1 | M | 4.4 |
-| 5.1 | `Selectable` + multi-listener + pointer/drag events | P1 | M | 2.2 |
+| 5.1a | ~~Multi-listener `UIEvent` + pointer/drag events~~ | **done** | M | — |
+| 5.1b | `Selectable` base + transition modes | P1 | M | 5.1a ✅ |
 | 6.3a | `UIText` preferred sizes + overflow/ellipsis | P1 | S | — |
 | ~~2.6~~ | ~~Warn on compressed-texture sprites~~ | **done** | XS | — |
 | 3.5 | Unity-import layout compat helper | P2 | M | 3.1–3.3 |

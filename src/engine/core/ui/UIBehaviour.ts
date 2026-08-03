@@ -1,9 +1,27 @@
 import { Behaviour } from "../Behaviour";
 import { RectTransform } from "./RectTransform";
+import { UIEvent } from "./UIEvent";
 import type { Canvas } from "./Canvas";
+import type { PointerEventData } from "./PointerEventData";
 import type { Rect } from "../math/Rect";
 import type { GameObject } from "../GameObject";
 import type { Transform } from "../Transform";
+
+/**
+ * @internal
+ * The pointer events a {@link UIBehaviour} can receive. Used by the EventSystem
+ * to ask whether an element handles a kind before resolving a target for it.
+ */
+export enum PointerEventKind {
+    Enter = "Enter",
+    Exit = "Exit",
+    Down = "Down",
+    Up = "Up",
+    Click = "Click",
+    BeginDrag = "BeginDrag",
+    Drag = "Drag",
+    EndDrag = "EndDrag",
+}
 
 /**
  * Base class for all visual UI components (Image, Text, Button).
@@ -67,6 +85,107 @@ export abstract class UIBehaviour extends Behaviour {
         if (this._sortingOrder === value) return;
         this._sortingOrder = value;
         this._registeredCanvas?._setSortingDirty();
+    }
+
+    // ── pointer events ───────────────────────────────────────────────
+    //
+    // Created on first access rather than up front: most graphics in a HUD are
+    // decoration and subscribe to none of these, and eight event objects per
+    // element adds up across a few hundred of them.
+
+    private _evEnter: UIEvent<PointerEventData> | null = null;
+    private _evExit: UIEvent<PointerEventData> | null = null;
+    private _evDown: UIEvent<PointerEventData> | null = null;
+    private _evUp: UIEvent<PointerEventData> | null = null;
+    private _evClick: UIEvent<PointerEventData> | null = null;
+    private _evBeginDrag: UIEvent<PointerEventData> | null = null;
+    private _evDrag: UIEvent<PointerEventData> | null = null;
+    private _evEndDrag: UIEvent<PointerEventData> | null = null;
+
+    /**
+     * Fired when a pointer moves onto this element.
+     *
+     * @remarks
+     * Requires {@link raycastTarget}. Equivalent to Unity's `IPointerEnterHandler`.
+     */
+    public get onPointerEnter(): UIEvent<PointerEventData> {
+        return this._evEnter ??= new UIEvent<PointerEventData>();
+    }
+
+    /** Fired when a pointer moves off this element. */
+    public get onPointerExit(): UIEvent<PointerEventData> {
+        return this._evExit ??= new UIEvent<PointerEventData>();
+    }
+
+    /** Fired when a pointer is pressed on this element. */
+    public get onPointerDown(): UIEvent<PointerEventData> {
+        return this._evDown ??= new UIEvent<PointerEventData>();
+    }
+
+    /**
+     * Fired when a pointer that was pressed on this element is released,
+     * wherever it happens to be at the time.
+     */
+    public get onPointerUp(): UIEvent<PointerEventData> {
+        return this._evUp ??= new UIEvent<PointerEventData>();
+    }
+
+    /**
+     * Fired when a pointer is pressed and released on this same element.
+     *
+     * @remarks
+     * Not fired if the pointer was dragged away and released elsewhere.
+     */
+    public get onPointerClick(): UIEvent<PointerEventData> {
+        return this._evClick ??= new UIEvent<PointerEventData>();
+    }
+
+    /**
+     * Fired once when a press turns into a drag, i.e. the pointer has moved
+     * further than the EventSystem's drag threshold.
+     */
+    public get onBeginDrag(): UIEvent<PointerEventData> {
+        return this._evBeginDrag ??= new UIEvent<PointerEventData>();
+    }
+
+    /** Fired every frame a drag continues, with `delta` since the last frame. */
+    public get onDrag(): UIEvent<PointerEventData> {
+        return this._evDrag ??= new UIEvent<PointerEventData>();
+    }
+
+    /** Fired once when a drag ends. */
+    public get onEndDrag(): UIEvent<PointerEventData> {
+        return this._evEndDrag ??= new UIEvent<PointerEventData>();
+    }
+
+    /**
+     * @internal
+     * Whether this element has any subscriber for `kind`.
+     *
+     * Lets the EventSystem resolve a handler without forcing every event object
+     * into existence just by looking.
+     */
+    public _hasListeners(kind: PointerEventKind): boolean {
+        return this._event(kind)?.hasListeners === true;
+    }
+
+    /** @internal Dispatches `kind` to this element's subscribers, if any. */
+    public _raise(kind: PointerEventKind, data: PointerEventData): void {
+        const event = this._event(kind);
+        if (event?.hasListeners) event.invoke(data);
+    }
+
+    private _event(kind: PointerEventKind): UIEvent<PointerEventData> | null {
+        switch (kind) {
+            case PointerEventKind.Enter:     return this._evEnter;
+            case PointerEventKind.Exit:      return this._evExit;
+            case PointerEventKind.Down:      return this._evDown;
+            case PointerEventKind.Up:        return this._evUp;
+            case PointerEventKind.Click:     return this._evClick;
+            case PointerEventKind.BeginDrag: return this._evBeginDrag;
+            case PointerEventKind.Drag:      return this._evDrag;
+            default:                         return this._evEndDrag;
+        }
     }
 
     /** The RectTransform on this GameObject (auto-added if missing). */

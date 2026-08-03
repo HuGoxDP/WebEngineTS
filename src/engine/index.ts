@@ -257,6 +257,8 @@ export { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
 export { Button, ButtonState } from "./core/ui/Button";
 export { VirtualJoystick } from "./core/ui/VirtualJoystick";
 export { EventSystem } from "./core/ui/EventSystem";
+export { UIEvent } from "./core/ui/UIEvent";
+export { PointerEventData } from "./core/ui/PointerEventData";
 
 // =====================
 // SCENARIO
@@ -420,6 +422,8 @@ import { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
 import { Button, ButtonState } from "./core/ui/Button";
 import { VirtualJoystick } from "./core/ui/VirtualJoystick";
 import { EventSystem } from "./core/ui/EventSystem";
+import { UIEvent } from "./core/ui/UIEvent";
+import { PointerEventData } from "./core/ui/PointerEventData";
 
 import { Scenario } from "./core/scenario/Scenario";
 import { ScenarioBehaviour } from "./core/scenario/ScenarioBehaviour";
@@ -528,6 +532,7 @@ const WebEngineTS = {
     UIImage, ImageFillMethod, ImageFillOrigin,
     UIText, TextAlignment, VerticalAlignment,
     Button, ButtonState, EventSystem, VirtualJoystick,
+    UIEvent, PointerEventData,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,

@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { Canvas, CanvasRenderMode, CanvasRepaintMode } from "../src/engine/core/ui/Canvas";
 import { EventSystem } from "../src/engine/core/ui/EventSystem";
+import { UIEvent } from "../src/engine/core/ui/UIEvent";
 import { Input } from "../src/engine/core/Input";
 import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
@@ -1373,6 +1374,33 @@ describe("EventSystem multi-touch", () => {
         expect(bar.state).toBe(ButtonState.Pressed);
     });
 
+    test("a click still fires through the assignable onClick", () => {
+        const btn = makeButton(0, 0);
+        let clicked = 0;
+        btn.onClick = () => { clicked++; };
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 50, 25, TouchPhase.Ended)];
+        EventSystem._update();
+
+        expect(clicked).toBe(1);
+    });
+
+    test("assigning onClick does not drop addListener subscribers", () => {
+        const btn = makeButton(0, 0);
+        const seen: string[] = [];
+        btn.onClick.addListener(() => seen.push("listener"));
+        btn.onClick = () => seen.push("assigned");
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 50, 25, TouchPhase.Ended)];
+        EventSystem._update();
+
+        expect(seen).toEqual(["assigned", "listener"]);
+    });
+
     test("getPointerPosition writes into the supplied vector", () => {
         makeButton(0, 0);
         touches = [touch(1, 120, 45, TouchPhase.Began)];
@@ -1382,5 +1410,350 @@ describe("EventSystem multi-touch", () => {
         expect(EventSystem.getPointerPosition(out)).toBe(out);
         expect(out.x).toBeCloseTo(120);
         expect(out.y).toBeCloseTo(45);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// UIEvent
+// ---------------------------------------------------------------------------
+
+describe("UIEvent", () => {
+    test("calls every listener in subscription order", () => {
+        const ev = new UIEvent<number>();
+        const seen: string[] = [];
+        ev.addListener(n => seen.push(`a${n}`));
+        ev.addListener(n => seen.push(`b${n}`));
+
+        ev.invoke(1);
+        expect(seen).toEqual(["a1", "b1"]);
+    });
+
+    test("removeListener drops one subscription and leaves the rest", () => {
+        const ev = new UIEvent<void>();
+        let a = 0;
+        let b = 0;
+        const first = () => { a++; };
+        ev.addListener(first);
+        ev.addListener(() => { b++; });
+
+        ev.removeListener(first);
+        ev.invoke(undefined);
+
+        expect(a).toBe(0);
+        expect(b).toBe(1);
+    });
+
+    test("removing a listener that was never added is a no-op", () => {
+        const ev = new UIEvent<void>();
+        let calls = 0;
+        ev.addListener(() => { calls++; });
+        ev.removeListener(() => { /* a different function object */ });
+
+        ev.invoke(undefined);
+        expect(calls).toBe(1);
+    });
+
+    test("a throwing listener does not stop the others", () => {
+        const ev = new UIEvent<void>();
+        const errors = vi.spyOn(console, "error").mockImplementation(() => { /* quiet */ });
+        let reached = 0;
+
+        ev.addListener(() => { throw new Error("boom"); });
+        ev.addListener(() => { reached++; });
+        ev.invoke(undefined);
+
+        expect(reached).toBe(1);
+        expect(errors).toHaveBeenCalled();
+        errors.mockRestore();
+    });
+
+    test("a listener may unsubscribe itself mid-dispatch", () => {
+        const ev = new UIEvent<void>();
+        let calls = 0;
+        const once = () => {
+            calls++;
+            ev.removeListener(once);
+        };
+        ev.addListener(once);
+        ev.addListener(() => { /* keeps the list above length 1 */ });
+
+        ev.invoke(undefined);
+        ev.invoke(undefined);
+
+        expect(calls).toBe(1);
+    });
+
+    test("removeAllListeners clears the assigned handler too", () => {
+        const ev = new UIEvent<void>();
+        let calls = 0;
+        ev.addListener(() => { calls++; });
+        ev._setAssigned(() => { calls++; });
+
+        expect(ev.listenerCount).toBe(2);
+        ev.removeAllListeners();
+        ev.invoke(undefined);
+
+        expect(calls).toBe(0);
+        expect(ev.hasListeners).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Pointer and drag events on any graphic
+// ---------------------------------------------------------------------------
+
+describe("UIBehaviour pointer events", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    /** An 800x600 canvas holding one 200x100 image at the top-left. */
+    function makeScene() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const panelGO = child("Panel", canvasGO);
+        const panel = panelGO.addComponent(UIImage);
+        const prt = panel.rectTransform;
+        prt.anchorMin.set(0, 0);
+        prt.anchorMax.set(0, 0);
+        prt.pivot.set(0, 0);
+        prt.anchoredPosition.set(0, 0);
+        prt.sizeDelta.set(200, 100);
+
+        return { canvas, panel, panelGO };
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Canvas._reset();
+    });
+
+    test("down, up and click fire on a plain graphic", () => {
+        const { panel } = makeScene();
+        const seen: string[] = [];
+        panel.onPointerDown.addListener(() => seen.push("down"));
+        panel.onPointerUp.addListener(() => seen.push("up"));
+        panel.onPointerClick.addListener(() => seen.push("click"));
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+        expect(seen).toEqual(["down"]);
+
+        touches = [touch(1, 50, 50, TouchPhase.Ended)];
+        EventSystem._update();
+        expect(seen).toEqual(["down", "up", "click"]);
+    });
+
+    test("releasing off the element gives up without a click", () => {
+        const { panel } = makeScene();
+        const seen: string[] = [];
+        panel.onPointerUp.addListener(() => seen.push("up"));
+        panel.onPointerClick.addListener(() => seen.push("click"));
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 700, 500, TouchPhase.Ended)];
+        EventSystem._update();
+
+        expect(seen).toEqual(["up"]);
+    });
+
+    test("enter and exit follow the pointer on and off the element", () => {
+        const { panel } = makeScene();
+        const seen: string[] = [];
+        panel.onPointerEnter.addListener(() => seen.push("enter"));
+        panel.onPointerExit.addListener(() => seen.push("exit"));
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+        expect(seen).toEqual(["enter"]);
+
+        // Still inside: no repeat.
+        touches = [touch(1, 60, 60, TouchPhase.Moved)];
+        EventSystem._update();
+        expect(seen).toEqual(["enter"]);
+
+        touches = [touch(1, 700, 500, TouchPhase.Moved)];
+        EventSystem._update();
+        expect(seen).toEqual(["enter", "exit"]);
+    });
+
+    test("a press shorter than the drag threshold never becomes a drag", () => {
+        const { panel } = makeScene();
+        const seen: string[] = [];
+        panel.onBeginDrag.addListener(() => seen.push("begin"));
+        panel.onPointerClick.addListener(() => seen.push("click"));
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 53, 50, TouchPhase.Moved)];   // 3 < threshold of 5
+        EventSystem._update();
+        touches = [touch(1, 53, 50, TouchPhase.Ended)];
+        EventSystem._update();
+
+        expect(seen).toEqual(["click"]);
+    });
+
+    test("moving past the threshold begins a drag and suppresses the click", () => {
+        const { panel } = makeScene();
+        const seen: string[] = [];
+        panel.onBeginDrag.addListener(() => seen.push("begin"));
+        panel.onDrag.addListener(() => seen.push("drag"));
+        panel.onEndDrag.addListener(() => seen.push("end"));
+        panel.onPointerClick.addListener(() => seen.push("click"));
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+        expect(seen).toEqual([]);
+
+        touches = [touch(1, 90, 50, TouchPhase.Moved)];
+        EventSystem._update();
+        expect(seen).toEqual(["begin", "drag"]);
+
+        touches = [touch(1, 120, 50, TouchPhase.Moved)];
+        EventSystem._update();
+        expect(seen).toEqual(["begin", "drag", "drag"]);
+
+        touches = [touch(1, 120, 50, TouchPhase.Ended)];
+        EventSystem._update();
+        // A drag is not a click, matching Unity.
+        expect(seen).toEqual(["begin", "drag", "drag", "end"]);
+    });
+
+    test("drag delta reports movement since the previous frame", () => {
+        const { panel } = makeScene();
+        const deltas: number[] = [];
+        panel.onDrag.addListener(e => deltas.push(e.delta.x));
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 90, 50, TouchPhase.Moved)];
+        EventSystem._update();
+        touches = [touch(1, 105, 50, TouchPhase.Moved)];
+        EventSystem._update();
+
+        expect(deltas[0]).toBeCloseTo(40);
+        expect(deltas[1]).toBeCloseTo(15);
+    });
+
+    test("a drag continues once started even when the pointer leaves", () => {
+        const { panel } = makeScene();
+        let drags = 0;
+        panel.onDrag.addListener(() => { drags++; });
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 90, 50, TouchPhase.Moved)];
+        EventSystem._update();
+        touches = [touch(1, 700, 500, TouchPhase.Moved)];   // far outside
+        EventSystem._update();
+
+        expect(drags).toBe(2);
+    });
+
+    test("an event with no listener on the hit element goes to its ancestor", () => {
+        const { panel, panelGO } = makeScene();
+        const label = child("Label", panelGO).addComponent(UIText);
+        const lrt = label.rectTransform;
+        lrt.anchorMin.set(0, 0);
+        lrt.anchorMax.set(1, 1);
+        lrt.pivot.set(0, 0);
+        lrt.anchoredPosition.set(0, 0);
+        lrt.sizeDelta.set(0, 0);
+
+        let onPanel = 0;
+        panel.onPointerClick.addListener(() => { onPanel++; });
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 50, 50, TouchPhase.Ended)];
+        EventSystem._update();
+
+        expect(onPanel).toBe(1);
+    });
+
+    test("localPosition arrives in the element's own space", () => {
+        const { panel } = makeScene();
+        let local = new Vector2();
+        panel.onPointerDown.addListener(e => { local = e.localPosition.clone(); });
+
+        touches = [touch(1, 50, 30, TouchPhase.Began)];
+        EventSystem._update();
+
+        // Pivot (0,0) puts the element's origin at its top-left corner, which is
+        // also the canvas origin here.
+        expect(local.x).toBeCloseTo(50);
+        expect(local.y).toBeCloseTo(30);
+    });
+
+    test("a pointer that vanishes mid-drag still ends the drag", () => {
+        const { panel } = makeScene();
+        const seen: string[] = [];
+        panel.onEndDrag.addListener(() => seen.push("end"));
+        panel.onPointerExit.addListener(() => seen.push("exit"));
+
+        touches = [touch(1, 50, 50, TouchPhase.Began)];
+        EventSystem._update();
+        touches = [touch(1, 90, 50, TouchPhase.Moved)];
+        EventSystem._update();
+
+        touches = [];   // the finger is simply gone
+        EventSystem._update();
+
+        expect(seen).toContain("end");
+        expect(seen).toContain("exit");
+    });
+
+    test("two fingers drag two elements independently", () => {
+        const { canvas, panel } = makeScene();
+        const other = child("Other", canvas.gameObject).addComponent(UIImage);
+        const ort = other.rectTransform;
+        ort.anchorMin.set(0, 0);
+        ort.anchorMax.set(0, 0);
+        ort.pivot.set(0, 0);
+        ort.anchoredPosition.set(400, 0);
+        ort.sizeDelta.set(200, 100);
+
+        let dragsA = 0;
+        let dragsB = 0;
+        panel.onDrag.addListener(() => { dragsA++; });
+        other.onDrag.addListener(() => { dragsB++; });
+
+        touches = [
+            touch(1, 50, 50, TouchPhase.Began),
+            touch(2, 450, 50, TouchPhase.Began),
+        ];
+        EventSystem._update();
+
+        touches = [
+            touch(1, 100, 50, TouchPhase.Moved),
+            touch(2, 500, 50, TouchPhase.Moved),
+        ];
+        EventSystem._update();
+
+        expect(dragsA).toBe(1);
+        expect(dragsB).toBe(1);
     });
 });

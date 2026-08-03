@@ -1,6 +1,7 @@
 import { UIBehaviour } from "./UIBehaviour";
 import { Color } from "../math/Color";
 import { EventSystem } from "./EventSystem";
+import { UIEvent } from "./UIEvent";
 import { HASH_SEED, cssColor, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
 import type { Rect } from "../math/Rect";
 import type { GameObject } from "../GameObject";
@@ -60,8 +61,34 @@ export class Button extends UIBehaviour {
     /** Whether the button responds to pointer input. */
     public interactable: boolean = true;
 
-    /** Fired once per click (pointer released inside the rect while interactable). */
-    public onClick: (() => void) | null = null;
+    private readonly _onClick: UIEvent<void> = new UIEvent<void>();
+
+    /**
+     * Fired once per click — pointer pressed and released on this button while
+     * it is interactable, without being dragged away in between.
+     *
+     * @remarks
+     * Supports several subscribers:
+     *
+     * ```ts
+     * button.onClick.addListener(() => advance());
+     * button.onClick.addListener(() => playSound());
+     * ```
+     *
+     * Assigning a function still works and replaces only the assigned handler,
+     * leaving {@link UIEvent.addListener} subscribers in place. Assign `null`
+     * to clear it.
+     */
+    public get onClick(): UIEvent<void> {
+        return this._onClick;
+    }
+
+    public set onClick(value: UIEvent<void> | (() => void) | null) {
+        // Assigning the event back to itself is what `btn.onClick.addListener()`
+        // compiles to under some transpiler settings; treat it as a no-op.
+        if (value === this._onClick) return;
+        this._onClick._setAssigned(typeof value === "function" ? value : null);
+    }
 
     /** @internal Current visual state. Updated by EventSystem each frame. */
     public _state: ButtonState = ButtonState.Normal;
@@ -72,6 +99,11 @@ export class Button extends UIBehaviour {
 
     /** The current display state of the button. */
     public get state(): ButtonState { return this._state; }
+
+    /** @internal Fires {@link onClick}. Called by the EventSystem. */
+    public _invokeClick(): void {
+        this._onClick.invoke(undefined);
+    }
 
     protected override onEnable(): void {
         super.onEnable();
