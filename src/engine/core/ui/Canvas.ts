@@ -495,10 +495,9 @@ export class Canvas extends Behaviour {
         // Cheap and not a layout read, so it stays per-frame: a scaler property
         // assigned from script must take effect on the very next repaint.
         this._updateScaleFactor();
-        this._canvasRect.set(0, 0, this.width, this.height);
 
         this._repaintedLastFrame = this._prepare();
-        if (this._repaintedLastFrame) this._paint();
+        if (this._repaintedLastFrame && this._ctx2d) this._paint(this._ctx2d);
     }
 
     /**
@@ -531,6 +530,10 @@ export class Canvas extends Behaviour {
      * @returns true when the surface must be redrawn this frame.
      */
     public _prepare(): boolean {
+        // The visible area is part of layout, not of painting: the cull test in
+        // `_paint` reads it, and so does anything asking what is on screen.
+        this._canvasRect.set(0, 0, this.width, this.height);
+
         // Re-parenting is resolved before sorting, so an element that moved this
         // frame is drawn in its new hierarchy position on this frame.
         this._revalidateParents();
@@ -674,10 +677,12 @@ export class Canvas extends Behaviour {
         }
     }
 
-    private _paint(): void {
-        const ctx = this._ctx2d;
-        if (!ctx) return;
-
+    /**
+     * @internal
+     * Draws every visible graphic. Takes the context rather than reading the
+     * field so the paint path can be exercised without a DOM.
+     */
+    public _paint(ctx: CanvasRenderingContext2D): void {
         // One transform maps canvas units → device pixels: layout math and every
         // component's draw code stay in units and gain HiDPI sharpness for free.
         const s = this._effectivePixelRatio * this._scaleFactor;
@@ -704,6 +709,22 @@ export class Canvas extends Behaviour {
             const m = rt._canvasMatrix;
             ctx.save();
             ctx.globalAlpha = this._alpha * groupAlpha;
+
+            // Each mask clips in its own space, so a rotated one clips to its
+            // real quad. Clips intersect, so applying them in turn is enough.
+            const masks = g._maskChain();
+            for (let k = masks.length - 1; k >= 0; k--) {
+                const mask = masks[k];
+                const mm = mask.rectTransform._canvasMatrix;
+                const mr = mask._clipRect();
+                ctx.setTransform(s, 0, 0, s, 0, 0);
+                ctx.transform(mm[0], mm[1], mm[2], mm[3], mm[4], mm[5]);
+                ctx.beginPath();
+                ctx.rect(mr.x, mr.y, mr.width, mr.height);
+                ctx.clip();
+            }
+            if (masks.length > 0) ctx.setTransform(s, 0, 0, s, 0, 0);
+
             // Composes with the canvas-unit transform already on the context, so
             // components keep drawing in their own local rect and inherit the
             // element's rotation and scale without knowing about either.

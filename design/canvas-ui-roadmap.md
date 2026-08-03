@@ -10,7 +10,7 @@ Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see �
 2D affine pipeline (rotation/scale), the full layout API, the `UIEvent` + pointer/drag
 surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout groups with
 `ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup`. Next: §5.1b
-`RectMask2D` (§5.0e) toward `ScrollRect`, then the `Sprite` type and 9-slice.
+`ScrollRect` (§5.0f) on top of `RectMask2D`, then the `Sprite` type and 9-slice.
 
 ---
 
@@ -24,7 +24,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter` | anchor presets, `AspectRatioFitter` |
 | Graphics | `UIImage` (solid/sprite/fill/radius), `UIText` (wrap, outline, align, **preferred sizes, overflow, word breaking**) | `Sprite` type, 9-slice, tiled, radial fill, auto-size, rich text |
 | Interaction | **`Selectable`** base under `Button`/`Slider`/`Toggle`, `ToggleGroup`, `VirtualJoystick`, `EventSystem` (multi-pointer), `UIEvent`, pointer + drag events | `ScrollRect`, `InputField`, keyboard nav, transition modes |
-| Clipping | — | `RectMask2D` (nothing clips to parent bounds today) |
+| Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
 | Repaint | `OnDemand` + `_visualHash`, **event-driven surface sync** | layout dirty flags, dirty-rect partial repaint |
 | Draw order | **hierarchy-ordered**, `sortingOrder` first | — |
 
@@ -545,7 +545,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | 5.0b | 9-slice / tiled image | P1 | M | 5.0a |
 | ~~5.0c~~ | ~~`Slider`~~ | **done** | M | — |
 | ~~5.0d~~ | ~~`Toggle`~~ + `ToggleGroup` (radio behaviour) | **done** | S | — |
-| 5.0e | `RectMask2D` | P1 | M | 4.4 |
+| ~~5.0e~~ | ~~`RectMask2D`~~ | **done** | M | — |
 | 5.1a | ~~Multi-listener `UIEvent` + pointer/drag events~~ | **done** | M | — |
 | ~~5.1b~~ | ~~`Selectable` base~~ (transition modes still open) | **done** | M | — |
 | ~~6.3a~~ | ~~`UIText` preferred sizes + overflow/ellipsis + word breaking~~ | **done** | S | — |

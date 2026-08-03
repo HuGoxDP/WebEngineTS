@@ -2,6 +2,7 @@ import { Behaviour } from "../Behaviour";
 import { RectTransform } from "./RectTransform";
 import { UIEvent } from "./UIEvent";
 import { CanvasGroup } from "./CanvasGroup";
+import { RectMask2D } from "./RectMask2D";
 import type { Canvas } from "./Canvas";
 import type { PointerEventData } from "./PointerEventData";
 import type { Rect } from "../math/Rect";
@@ -236,6 +237,48 @@ export abstract class UIBehaviour extends Behaviour {
     public _invalidateGroupChain(): void {
         this._groupChainVersion = -1;
         this._groupChain = null;
+        this._maskChainVersion = -1;
+        this._maskChainCache = null;
+    }
+
+    // ── RectMask2D resolution ────────────────────────────────────────
+
+    private _maskChainCache: RectMask2D[] | null = null;
+    private _maskChainVersion: number = -1;
+
+    /**
+     * @internal
+     * The active masks above this element, nearest first. Empty when nothing
+     * clips it.
+     */
+    public _maskChain(): readonly RectMask2D[] {
+        if (this._maskChainCache && this._maskChainVersion === RectMask2D._structureVersion) {
+            return this._maskChainCache;
+        }
+
+        const chain: RectMask2D[] = [];
+        let go: GameObject | null = this.gameObject;
+
+        for (let depth = 0; go && depth < MAX_GROUP_DEPTH; depth++) {
+            const mask = go.getComponent(RectMask2D);
+            // A mask does not clip itself, only what is under it — otherwise a
+            // scroll view's own background would vanish behind its own window.
+            if (mask && mask.isActiveAndEnabled && go !== this.gameObject) chain.push(mask);
+            go = go.transform.parent?.gameObject ?? null;
+        }
+
+        this._maskChainCache = chain;
+        this._maskChainVersion = RectMask2D._structureVersion;
+        return chain;
+    }
+
+    /** @internal Whether a canvas-space point survives every mask above this. */
+    public _passesMasks(x: number, y: number): boolean {
+        const chain = this._maskChain();
+        for (let i = 0; i < chain.length; i++) {
+            if (!chain[i]._containsCanvasPoint(x, y)) return false;
+        }
+        return true;
     }
 
     /** The RectTransform on this GameObject (auto-added if missing). */

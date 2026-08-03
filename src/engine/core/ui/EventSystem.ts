@@ -454,6 +454,11 @@ export class EventSystem {
                 if (!rt.canvasToLocalPoint(p.x, p.y, local)) continue;
                 if (!g._hitTest(local.x, local.y, rt._resolvedLocalRect)) continue;
 
+                // Clipped away by a mask above it: a button scrolled out of the
+                // window is not there to be clicked, so the search continues to
+                // whatever else is under the pointer.
+                if (!g._passesMasks(p.x, p.y)) continue;
+
                 EventSystem._pointerOverUI = true;
 
                 // A non-interactable group still swallows the pointer — that is

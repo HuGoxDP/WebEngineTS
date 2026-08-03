@@ -271,6 +271,7 @@ export {
 } from "./core/ui/GridLayoutGroup";
 export { ContentSizeFitter, FitMode } from "./core/ui/ContentSizeFitter";
 export { CanvasGroup } from "./core/ui/CanvasGroup";
+export { RectMask2D, MaskPadding } from "./core/ui/RectMask2D";
 export { EventSystem } from "./core/ui/EventSystem";
 export { UIEvent } from "./core/ui/UIEvent";
 export { PointerEventData } from "./core/ui/PointerEventData";
@@ -450,6 +451,7 @@ import {
 } from "./core/ui/GridLayoutGroup";
 import { ContentSizeFitter, FitMode } from "./core/ui/ContentSizeFitter";
 import { CanvasGroup } from "./core/ui/CanvasGroup";
+import { RectMask2D, MaskPadding } from "./core/ui/RectMask2D";
 import { EventSystem } from "./core/ui/EventSystem";
 import { UIEvent } from "./core/ui/UIEvent";
 import { PointerEventData } from "./core/ui/PointerEventData";
@@ -566,7 +568,7 @@ const WebEngineTS = {
     LayoutElement, LayoutGroup, LinearLayoutGroup, LayoutPadding, LayoutAnchor,
     GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
     HorizontalLayoutGroup, VerticalLayoutGroup, ContentSizeFitter, FitMode,
-    CanvasGroup,
+    CanvasGroup, RectMask2D, MaskPadding,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,

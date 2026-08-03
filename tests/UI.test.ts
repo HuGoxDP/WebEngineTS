@@ -13,6 +13,7 @@ import {
 } from "../src/engine/core/ui/LayoutGroup";
 import { ContentSizeFitter, FitMode } from "../src/engine/core/ui/ContentSizeFitter";
 import { CanvasGroup } from "../src/engine/core/ui/CanvasGroup";
+import { RectMask2D } from "../src/engine/core/ui/RectMask2D";
 import {
     GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
 } from "../src/engine/core/ui/GridLayoutGroup";
@@ -85,6 +86,9 @@ function makeContext(): MockContext {
         fillText: (t: string) => { ops.push("fillText"); texts.push(t); },
         strokeText: (t: string) => { ops.push("strokeText"); texts.push(t); },
         drawImage: () => { ops.push("drawImage"); },
+        setTransform: () => { ops.push("setTransform"); },
+        transform: () => { ops.push("transform"); },
+        clearRect: () => { ops.push("clearRect"); },
         measureText: (s: string) => {
             state.measureCount++;
             return { width: s.length * 10 };
@@ -3248,5 +3252,206 @@ describe("Selectable", () => {
     test("ButtonState remains usable as the alias it now is", () => {
         expect(ButtonState.Pressed).toBe(SelectableState.Pressed);
         expect(ButtonState.Disabled).toBe(SelectableState.Disabled);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// RectMask2D
+// ---------------------------------------------------------------------------
+
+describe("RectMask2D", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    /**
+     * Canvas -> Viewport(200x100, masked) -> Content(200x400).
+     * The content is far taller than the window it sits in.
+     */
+    function makeScrollish() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const viewGO = child("Viewport", canvasGO);
+        const view = viewGO.addComponent(UIImage);
+        const vrt = view.rectTransform;
+        vrt.anchorMin.set(0, 0);
+        vrt.anchorMax.set(0, 0);
+        vrt.pivot.set(0, 0);
+        vrt.anchoredPosition.set(0, 0);
+        vrt.sizeDelta.set(200, 100);
+        const mask = viewGO.addComponent(RectMask2D);
+
+        const contentGO = child("Content", viewGO);
+        const content = contentGO.addComponent(UIImage);
+        const crt = content.rectTransform;
+        crt.anchorMin.set(0, 0);
+        crt.anchorMax.set(0, 0);
+        crt.pivot.set(0, 0);
+        crt.anchoredPosition.set(0, 0);
+        crt.sizeDelta.set(200, 400);
+
+        return { canvas, canvasGO, view, viewGO, mask, content, crt };
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+        vi.spyOn(Input, "mousePosition", "get").mockReturnValue(new Vector2(700, 500));
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Canvas._reset();
+    });
+
+    test("a mask clips its descendants but not itself", () => {
+        const { view, content } = makeScrollish();
+
+        expect(view._maskChain().length).toBe(0);
+        expect(content._maskChain().length).toBe(1);
+    });
+
+    test("padding shrinks the clipping window", () => {
+        const { mask } = makeScrollish();
+        mask.padding.set(5, 10, 15, 20);
+
+        const clip = mask._clipRect();
+        expect(clip.x).toBeCloseTo(5);
+        expect(clip.y).toBeCloseTo(15);
+        expect(clip.width).toBeCloseTo(200 - 5 - 10);
+        expect(clip.height).toBeCloseTo(100 - 15 - 20);
+    });
+
+    test("a mask added after the elements is picked up", () => {
+        const { canvasGO } = makeScrollish();
+
+        const plainGO = child("Plain", canvasGO);
+        const plain = plainGO.addComponent(UIImage);
+        expect(plain._maskChain().length).toBe(0);
+
+        const holderGO = child("Holder", canvasGO);
+        plainGO.transform.parent = holderGO.transform;
+        plain._invalidateGroupChain();
+        holderGO.addComponent(RectMask2D);
+
+        expect(plain._maskChain().length).toBe(1);
+    });
+
+    test("a point inside the window passes, one below it does not", () => {
+        const { mask } = makeScrollish();
+
+        expect(mask._containsCanvasPoint(100, 50)).toBe(true);
+        expect(mask._containsCanvasPoint(100, 250)).toBe(false);
+    });
+
+    test("clipped-away content cannot be clicked", () => {
+        const { content } = makeScrollish();
+        let downs = 0;
+        content.onPointerDown.addListener(() => { downs++; });
+
+        // Inside the window: the content is there to be hit.
+        touches = [touch(1, 100, 50, TouchPhase.Began)];
+        EventSystem._update();
+        expect(downs).toBe(1);
+
+        // Below the window, still inside the content's own 400-tall rect.
+        touches = [touch(2, 100, 250, TouchPhase.Began)];
+        EventSystem._update();
+        expect(downs).toBe(1);
+        expect(EventSystem.isPointerOverUI).toBe(false);
+    });
+
+    test("scrolling an item into the window makes it clickable", () => {
+        const { content, crt } = makeScrollish();
+
+        // An item far down the content, well past the 100-tall window.
+        const itemGO = child("Item", content.gameObject);
+        const item = itemGO.addComponent(UIImage);
+        const irt = item.rectTransform;
+        irt.anchorMin.set(0, 0);
+        irt.anchorMax.set(0, 0);
+        irt.pivot.set(0, 0);
+        irt.anchoredPosition.set(0, 300);
+        irt.sizeDelta.set(200, 50);
+
+        let downs = 0;
+        item.onPointerDown.addListener(() => { downs++; });
+
+        // At rest the item sits at canvas y 300–350, outside the window.
+        touches = [touch(1, 100, 50, TouchPhase.Began)];
+        EventSystem._update();
+        expect(downs).toBe(0);
+
+        // Scroll the content up so the item lands at y 25–75, inside it.
+        crt.anchoredPosition.set(0, -275);
+        touches = [touch(2, 100, 50, TouchPhase.Began)];
+        EventSystem._update();
+        expect(downs).toBe(1);
+    });
+
+    test("a rotated mask clips to its quad, not its bounding box", () => {
+        const { mask, viewGO } = makeScrollish();
+        viewGO.getComponent(RectTransform)!.pivot.set(0.5, 0.5);
+        viewGO.getComponent(RectTransform)!.anchoredPosition.set(100, 50);
+        viewGO.getComponent(RectTransform)!.localRotation = 45;
+
+        // The window's own centre survives any rotation.
+        expect(mask._containsCanvasPoint(100, 50)).toBe(true);
+
+        // Turned 45 degrees about (100,50), the 200x100 window spans roughly
+        // x -6..206 and y -56..156 as a bounding box. This point sits inside
+        // that box but well outside the quad itself.
+        expect(mask._containsCanvasPoint(0, -40)).toBe(false);
+    });
+
+    test("the paint pass installs one clip per mask above the element", () => {
+        const { canvas } = makeScrollish();
+        const m = makeContext();
+
+        canvas._prepare();
+        canvas._paint(m.ctx);
+
+        // The viewport draws unclipped; the content draws behind one clip.
+        expect(m.ops.filter(o => o === "clip").length).toBe(1);
+    });
+
+    test("nested masks each contribute a clip", () => {
+        const { canvas, content } = makeScrollish();
+        content.gameObject.addComponent(RectMask2D);
+
+        const innerGO = child("Inner", content.gameObject);
+        innerGO.addComponent(UIImage);
+
+        const m = makeContext();
+        canvas._prepare();
+        canvas._paint(m.ctx);
+
+        // Content sits behind one mask, the inner element behind two.
+        expect(m.ops.filter(o => o === "clip").length).toBe(3);
+    });
+
+    test("a disabled mask stops clipping", () => {
+        const { mask, content } = makeScrollish();
+        expect(content._maskChain().length).toBe(1);
+
+        mask.enabled = false;
+        expect(content._maskChain().length).toBe(0);
     });
 });
