@@ -255,6 +255,7 @@ export { UIBehaviour } from "./core/ui/UIBehaviour";
 export { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
 export { UIText, TextAlignment, VerticalAlignment, TextOverflow } from "./core/ui/UIText";
 export { Button, ButtonState } from "./core/ui/Button";
+export { Selectable, SelectableState } from "./core/ui/Selectable";
 export { VirtualJoystick } from "./core/ui/VirtualJoystick";
 export { Slider, SliderDirection } from "./core/ui/Slider";
 export { Toggle } from "./core/ui/Toggle";
@@ -434,6 +435,7 @@ import { UIBehaviour } from "./core/ui/UIBehaviour";
 import { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
 import { UIText, TextAlignment, VerticalAlignment, TextOverflow } from "./core/ui/UIText";
 import { Button, ButtonState } from "./core/ui/Button";
+import { Selectable, SelectableState } from "./core/ui/Selectable";
 import { VirtualJoystick } from "./core/ui/VirtualJoystick";
 import { Slider, SliderDirection } from "./core/ui/Slider";
 import { Toggle } from "./core/ui/Toggle";
@@ -558,7 +560,7 @@ const WebEngineTS = {
     CanvasScaler, CanvasScaleMode, ScreenMatchMode, CanvasPhysicalUnit,
     UIImage, ImageFillMethod, ImageFillOrigin,
     UIText, TextAlignment, VerticalAlignment, TextOverflow,
-    Button, ButtonState, EventSystem, VirtualJoystick,
+    Button, ButtonState, Selectable, SelectableState, EventSystem, VirtualJoystick,
     UIEvent, PointerEventData,
     Slider, SliderDirection, Toggle, ToggleGroup,
     LayoutElement, LayoutGroup, LinearLayoutGroup, LayoutPadding, LayoutAnchor,

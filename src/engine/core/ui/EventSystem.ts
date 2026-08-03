@@ -2,9 +2,9 @@ import { Input } from "../Input";
 import { Vector2 } from "../math/Vector2";
 import { Touch, TouchPhase } from "../input/Touch";
 import { Canvas } from "./Canvas";
-import { Button, ButtonState } from "./Button";
 import { PointerEventData } from "./PointerEventData";
 import { PointerEventKind, UIBehaviour } from "./UIBehaviour";
+import type { Selectable } from "./Selectable";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -36,7 +36,6 @@ class PointerState {
     /** Nearest self-or-ancestor of the hit element that handles enter/exit. */
     public hoverOwner: UIBehaviour | null = null;
     public pressedGraphic: UIBehaviour | null = null;
-    public pressedButton: Button | null = null;
     public dragTarget: UIBehaviour | null = null;
 
     public down: boolean = false;
@@ -83,15 +82,13 @@ export class EventSystem {
      */
     public static dragThreshold: number = 5;
 
-    private static _buttons: Set<Button> = new Set();
+    private static _selectables: Set<Selectable> = new Set();
     private static _joysticks: Set<IPointerSampler> = new Set();
     private static _pointerOverUI: boolean = false;
 
     private static readonly _pointers: Map<number, PointerState> = new Map();
 
     // Per-frame scratch. Cleared rather than reallocated — this runs every frame.
-    private static readonly _hovered: Set<Button> = new Set();
-    private static readonly _held: Set<Button> = new Set();
     private static readonly _stale: number[] = [];
 
     private static readonly _canvasPoint: Vector2 = new Vector2();
@@ -139,23 +136,16 @@ export class EventSystem {
 
     /**
      * @internal
-     * Registers a button for pointer event processing.
-     * Called automatically by Button.onEnable.
+     * Registers a control so it can be hit-tested even with no Canvas ancestor.
+     * Called automatically by Selectable.onEnable.
      */
-    public static _registerButton(btn: Button): void {
-        EventSystem._buttons.add(btn);
+    public static _registerSelectable(control: Selectable): void {
+        EventSystem._selectables.add(control);
     }
 
-    /**
-     * @internal
-     * Unregisters a button.
-     * Called automatically by Button.onDisable / onDestroy.
-     */
-    public static _unregisterButton(btn: Button): void {
-        EventSystem._buttons.delete(btn);
-        for (const state of EventSystem._pointers.values()) {
-            if (state.pressedButton === btn) state.pressedButton = null;
-        }
+    /** @internal Called automatically by Selectable.onDisable / onDestroy. */
+    public static _unregisterSelectable(control: Selectable): void {
+        EventSystem._selectables.delete(control);
     }
 
     /** @internal Registers an on-screen stick for per-frame pointer sampling. */
@@ -180,8 +170,6 @@ export class EventSystem {
             if (stick.isActiveAndEnabled) stick._pollPointer();
         }
 
-        EventSystem._hovered.clear();
-        EventSystem._held.clear();
         EventSystem._pointerOverUI = false;
 
         for (const state of EventSystem._pointers.values()) state.seenThisFrame = false;
@@ -210,16 +198,13 @@ export class EventSystem {
         }
 
         EventSystem._retireVanishedPointers();
-        EventSystem._refreshButtonStates();
     }
 
     /** @internal */
     public static _reset(): void {
-        EventSystem._buttons.clear();
+        EventSystem._selectables.clear();
         EventSystem._joysticks.clear();
         EventSystem._pointers.clear();
-        EventSystem._hovered.clear();
-        EventSystem._held.clear();
         EventSystem._stale.length = 0;
         EventSystem._pointerOverUI = false;
     }
@@ -250,7 +235,6 @@ export class EventSystem {
             state.pressPos.copy(data.position);
             data.pressPosition.copy(state.pressPos);
             state.pressedGraphic = hit;
-            state.pressedButton = hit ? EventSystem._findButton(hit.gameObject) : null;
             data.pressed = hit;
             if (hit) EventSystem._raiseUp(hit, PointerEventKind.Down, data);
         }
@@ -362,11 +346,9 @@ export class EventSystem {
         data: PointerEventData,
     ): void {
         const pressedGraphic = state.pressedGraphic;
-        const pressedButton = state.pressedButton;
         const dragTarget = state.dragTarget;
 
         state.pressedGraphic = null;
-        state.pressedButton = null;
         state.dragTarget = null;
 
         if (pressedGraphic && pressedGraphic.isActiveAndEnabled) {
@@ -386,11 +368,6 @@ export class EventSystem {
         if (!pressedGraphic || pressedGraphic !== hit) return;
 
         EventSystem._raiseUp(pressedGraphic, PointerEventKind.Click, data);
-
-        const hitButton = EventSystem._findButton(pressedGraphic.gameObject);
-        if (pressedButton && pressedButton === hitButton && pressedButton.interactable) {
-            pressedButton._invokeClick();
-        }
     }
 
     /**
@@ -409,6 +386,14 @@ export class EventSystem {
             data.dragging = false;
             data.consumed = false;
 
+            // The press ended, just not with a clean release. Up still has to
+            // fire or a control that counts presses stays stuck holding one —
+            // no click, though, since the pointer never released on it.
+            if (state.pressedGraphic?.isActiveAndEnabled) {
+                EventSystem._raiseUp(state.pressedGraphic, PointerEventKind.Up, data);
+            }
+            state.pressedGraphic = null;
+
             if (state.dragTarget?.isActiveAndEnabled) {
                 EventSystem._deliver(state.dragTarget, PointerEventKind.EndDrag, data);
             }
@@ -419,30 +404,6 @@ export class EventSystem {
 
         for (let i = 0; i < stale.length; i++) EventSystem._pointers.delete(stale[i]);
         stale.length = 0;
-    }
-
-    /** Recomputes every button's visual state from the pointers over it. */
-    private static _refreshButtonStates(): void {
-        for (const state of EventSystem._pointers.values()) {
-            const hovered = state.data.hovered;
-            if (!hovered) continue;
-
-            const btn = EventSystem._findButton(hovered.gameObject);
-            if (!btn || !btn.interactable) continue;
-
-            // Held wins over hover, and both are unions across pointers: a button
-            // under two fingers reads as pressed, not as pressed-and-hovered.
-            if (state.down && state.pressedButton === btn) EventSystem._held.add(btn);
-            else EventSystem._hovered.add(btn);
-        }
-
-        for (const btn of EventSystem._buttons) {
-            if (!btn.isActiveAndEnabled)            btn._state = ButtonState.Normal;
-            else if (!btn.interactable)             btn._state = ButtonState.Disabled;
-            else if (EventSystem._held.has(btn))    btn._state = ButtonState.Pressed;
-            else if (EventSystem._hovered.has(btn)) btn._state = ButtonState.Highlighted;
-            else                                    btn._state = ButtonState.Normal;
-        }
     }
 
     private static _stateFor(id: number): PointerState {
@@ -503,21 +464,21 @@ export class EventSystem {
             }
         }
 
-        // Buttons with no Canvas ancestor are still hit-tested in screen space.
+        // Controls with no Canvas ancestor are still hit-tested in screen space.
         EventSystem._canvasPoint.copy(screen);
-        for (const btn of EventSystem._buttons) {
-            if (!btn.isActiveAndEnabled || btn.canvas !== null) continue;
-            if (!btn._groupBlocksRaycasts()) continue;
+        for (const control of EventSystem._selectables) {
+            if (!control.isActiveAndEnabled || control.canvas !== null) continue;
+            if (!control._groupBlocksRaycasts()) continue;
 
-            const rt = btn.rectTransform;
+            const rt = control.rectTransform;
             if (!rt._resolvedBounds.contains(screen)) continue;
 
             const local = EventSystem._localPoint;
             if (!rt.canvasToLocalPoint(screen.x, screen.y, local)) continue;
-            if (!btn._hitTest(local.x, local.y, rt._resolvedLocalRect)) continue;
+            if (!control._hitTest(local.x, local.y, rt._resolvedLocalRect)) continue;
 
             EventSystem._pointerOverUI = true;
-            return btn._groupInteractable() ? btn : null;
+            return control._groupInteractable() ? control : null;
         }
 
         return null;
@@ -580,14 +541,4 @@ export class EventSystem {
             ?? EventSystem._findHandler(from, PointerEventKind.Exit);
     }
 
-    /** Walks up the hierarchy for the Button that owns the hit element. */
-    private static _findButton(from: GameObject): Button | null {
-        let go: GameObject | null = from;
-        for (let depth = 0; go && depth < MAX_HANDLER_DEPTH; depth++) {
-            const btn = go.getComponent(Button);
-            if (btn && btn.isActiveAndEnabled) return btn;
-            go = go.transform.parent?.gameObject ?? null;
-        }
-        return null;
-    }
 }

@@ -1,4 +1,4 @@
-import { UIBehaviour } from "./UIBehaviour";
+import { Selectable } from "./Selectable";
 import { Color } from "../math/Color";
 import { UIEvent } from "./UIEvent";
 import { HASH_SEED, cssColor, hashBool, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
@@ -23,7 +23,7 @@ import type { GameObject } from "../GameObject";
  * toggle.onValueChanged.addListener(on => grid.setActive(on));
  * ```
  */
-export class Toggle extends UIBehaviour {
+export class Toggle extends Selectable {
 
     /** Box fill color when off. */
     public backgroundColor: Color = new Color(0.18, 0.18, 0.18, 1);
@@ -61,23 +61,17 @@ export class Toggle extends UIBehaviour {
     /** Label font family. */
     public fontFamily: string = "Arial, sans-serif";
 
-    /** Whether the toggle responds to pointer input. */
-    public interactable: boolean = true;
-
     /** Fired whenever {@link isOn} changes, by click or by assignment. */
     public readonly onValueChanged: UIEvent<boolean> = new UIEvent<boolean>();
 
     private _isOn: boolean = false;
     private _group: ToggleGroup | null = null;
-    private _hovered: boolean = false;
 
     constructor(gameObject: GameObject) {
         super(gameObject);
 
-        this.onPointerEnter.addListener(() => { this._hovered = true; });
-        this.onPointerExit.addListener(() => { this._hovered = false; });
         this.onPointerClick.addListener(() => {
-            if (this.interactable) this.isOn = !this._isOn;
+            if (this.isInteractable()) this.isOn = !this._isOn;
         });
     }
 
@@ -133,7 +127,6 @@ export class Toggle extends UIBehaviour {
 
     protected override onDisable(): void {
         super.onDisable();
-        this._hovered = false;
         this._group?._unregister(this);
     }
 
@@ -154,7 +147,7 @@ export class Toggle extends UIBehaviour {
         ctx.fill();
 
         ctx.strokeStyle = cssColor(this.borderColor);
-        ctx.lineWidth = this._hovered && this.interactable ? 2 : 1;
+        ctx.lineWidth = this.isHovered && this.isInteractable() ? 2 : 1;
         ctx.stroke();
 
         if (this._isOn) this._drawCheck(ctx, bx, by, size);
@@ -171,7 +164,7 @@ export class Toggle extends UIBehaviour {
             );
         }
 
-        if (!this.interactable) {
+        if (!this.isInteractable()) {
             ctx.fillStyle = cssColor(this.disabledColor);
             ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
         }
@@ -179,8 +172,8 @@ export class Toggle extends UIBehaviour {
 
     public override _visualHash(): number {
         let h = hashBool(HASH_SEED, this._isOn);
-        h = hashBool(h, this._hovered);
-        h = hashBool(h, this.interactable);
+        h = hashBool(h, this.isHovered);
+        h = hashBool(h, this.isInteractable());
         h = hashColor(h, this.backgroundColor);
         h = hashColor(h, this.checkedColor);
         h = hashColor(h, this.borderColor);

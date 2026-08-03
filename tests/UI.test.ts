@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { Canvas, CanvasRenderMode, CanvasRepaintMode } from "../src/engine/core/ui/Canvas";
 import { EventSystem } from "../src/engine/core/ui/EventSystem";
 import { UIEvent } from "../src/engine/core/ui/UIEvent";
+import { PointerEventData } from "../src/engine/core/ui/PointerEventData";
 import { Slider, SliderDirection } from "../src/engine/core/ui/Slider";
 import { Toggle } from "../src/engine/core/ui/Toggle";
 import { ToggleGroup } from "../src/engine/core/ui/ToggleGroup";
@@ -18,6 +19,7 @@ import {
 import { Input } from "../src/engine/core/Input";
 import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
+import { SelectableState } from "../src/engine/core/ui/Selectable";
 import { TextAlignment, TextOverflow, UIText, VerticalAlignment } from "../src/engine/core/ui/UIText";
 import { ImageFillMethod, ImageFillOrigin, UIImage } from "../src/engine/core/ui/UIImage";
 import {
@@ -569,19 +571,24 @@ describe("Button", () => {
         const btn = new GameObject("Btn").addComponent(Button);
         const normal = btn._visualHash();
 
-        btn._state = ButtonState.Pressed;
+        // State is derived from pointer events rather than assigned, so it is
+        // driven the way the EventSystem drives it.
+        btn.onPointerDown.invoke(new PointerEventData());
+        expect(btn.state).toBe(ButtonState.Pressed);
         expect(btn._visualHash()).not.toBe(normal);
 
-        btn._state = ButtonState.Normal;
+        btn.onPointerUp.invoke(new PointerEventData());
+        expect(btn.state).toBe(ButtonState.Normal);
         expect(btn._visualHash()).toBe(normal);
     });
 
     test("a disabled button reports the disabled color regardless of state", () => {
         const btn = new GameObject("Btn").addComponent(Button);
-        btn._state = ButtonState.Pressed;
+        btn.onPointerDown.invoke(new PointerEventData());
         const enabledHash = btn._visualHash();
 
         btn.interactable = false;
+        expect(btn.state).toBe(ButtonState.Disabled);
         expect(btn._visualHash()).not.toBe(enabledHash);
     });
 
@@ -3075,5 +3082,171 @@ describe("GridLayoutGroup", () => {
 
         // The second child is now the first cell.
         expect(cells[1].getScreenRect(new Rect()).y).toBeCloseTo(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Selectable
+// ---------------------------------------------------------------------------
+
+describe("Selectable", () => {
+    let touches: TouchInfo[] = [];
+
+    function touch(id: number, x: number, y: number, phase: TouchPhase): TouchInfo {
+        const t = new TouchInfo(id);
+        t.position.set(x, y);
+        t.phase = phase;
+        return t;
+    }
+
+    function makeButton(x: number): Button {
+        const btn = new GameObject("Btn").addComponent(Button);
+        const rt = btn.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(x, 0);
+        rt.sizeDelta.set(100, 50);
+        return btn;
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        touches = [];
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.spyOn(Touch, "touches", "get").mockImplementation(() => touches);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+        // Parked well clear of every control: an unmocked mouse sits at (0,0),
+        // which is inside them and would read as a hover.
+        vi.spyOn(Input, "mousePosition", "get").mockReturnValue(new Vector2(700, 500));
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Canvas._reset();
+    });
+
+    test("state walks Normal to Highlighted to Pressed and back", () => {
+        const btn = makeButton(0);
+        expect(btn.state).toBe(SelectableState.Normal);
+
+        // A touch that is present but not down reads as a hover.
+        touches = [touch(1, 50, 25, TouchPhase.Ended)];
+        EventSystem._update();
+        expect(btn.state).toBe(SelectableState.Highlighted);
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+        expect(btn.state).toBe(SelectableState.Pressed);
+
+        touches = [touch(1, 50, 25, TouchPhase.Ended)];
+        EventSystem._update();
+        expect(btn.state).toBe(SelectableState.Highlighted);
+    });
+
+    test("a pointer that vanishes mid-press does not leave it stuck", () => {
+        const btn = makeButton(0);
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+        expect(btn.state).toBe(SelectableState.Pressed);
+
+        // The finger is simply gone — no Ended phase, no release.
+        touches = [];
+        EventSystem._update();
+
+        expect(btn.isPressed).toBe(false);
+        expect(btn.state).toBe(SelectableState.Normal);
+    });
+
+    test("two fingers on one control both have to leave before it releases", () => {
+        const btn = makeButton(0);
+
+        touches = [
+            touch(1, 20, 25, TouchPhase.Began),
+            touch(2, 60, 25, TouchPhase.Began),
+        ];
+        EventSystem._update();
+        expect(btn.isPressed).toBe(true);
+
+        touches = [
+            touch(1, 20, 25, TouchPhase.Ended),
+            touch(2, 60, 25, TouchPhase.Began),
+        ];
+        EventSystem._update();
+        // One released, the other is still holding it.
+        expect(btn.isPressed).toBe(true);
+
+        touches = [touch(2, 60, 25, TouchPhase.Ended)];
+        EventSystem._update();
+        expect(btn.isPressed).toBe(false);
+    });
+
+    test("interactable false reports Disabled", () => {
+        const btn = makeButton(0);
+        btn.interactable = false;
+        expect(btn.state).toBe(SelectableState.Disabled);
+        expect(btn.isInteractable()).toBe(false);
+    });
+
+    test("a CanvasGroup can veto interactivity without touching the flag", () => {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const btnGO = child("Btn", canvasGO);
+        const btn = btnGO.addComponent(Button);
+        expect(btn.isInteractable()).toBe(true);
+
+        canvasGO.addComponent(CanvasGroup).interactable = false;
+
+        expect(btn.interactable).toBe(true);
+        expect(btn.isInteractable()).toBe(false);
+        expect(btn.state).toBe(SelectableState.Disabled);
+    });
+
+    test("disabling a control clears its press and hover", () => {
+        const btn = makeButton(0);
+
+        touches = [touch(1, 50, 25, TouchPhase.Began)];
+        EventSystem._update();
+        expect(btn.isPressed).toBe(true);
+
+        btn.enabled = false;
+        btn.enabled = true;
+
+        expect(btn.isPressed).toBe(false);
+        expect(btn.isHovered).toBe(false);
+    });
+
+    test("Slider and Toggle share the same state machine", () => {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const slider = child("S", canvasGO).addComponent(Slider);
+        const toggle = child("T", canvasGO).addComponent(Toggle);
+
+        expect(slider.state).toBe(SelectableState.Normal);
+        expect(toggle.state).toBe(SelectableState.Normal);
+
+        slider.interactable = false;
+        toggle.interactable = false;
+
+        expect(slider.state).toBe(SelectableState.Disabled);
+        expect(toggle.state).toBe(SelectableState.Disabled);
+    });
+
+    test("ButtonState remains usable as the alias it now is", () => {
+        expect(ButtonState.Pressed).toBe(SelectableState.Pressed);
+        expect(ButtonState.Disabled).toBe(SelectableState.Disabled);
     });
 });

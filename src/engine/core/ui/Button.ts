@@ -1,18 +1,21 @@
-import { UIBehaviour } from "./UIBehaviour";
+import { Selectable, SelectableState } from "./Selectable";
 import { Color } from "../math/Color";
-import { EventSystem } from "./EventSystem";
 import { UIEvent } from "./UIEvent";
 import { HASH_SEED, cssColor, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
 import type { Rect } from "../math/Rect";
 import type { GameObject } from "../GameObject";
 
-/** Visual state of the button. */
-export enum ButtonState {
-    Normal      = "Normal",
-    Highlighted = "Highlighted",
-    Pressed     = "Pressed",
-    Disabled    = "Disabled",
-}
+/**
+ * Visual state of the button.
+ *
+ * @remarks
+ * An alias of {@link SelectableState}, kept because it is the name existing
+ * scenarios import. The values are identical.
+ */
+export const ButtonState = SelectableState;
+
+/** Visual state of the button. See {@link ButtonState}. */
+export type ButtonState = SelectableState;
 
 /**
  * An interactive button that responds to pointer input.
@@ -29,7 +32,7 @@ export enum ButtonState {
  * btn.onClick = () => loadScene();
  * ```
  */
-export class Button extends UIBehaviour {
+export class Button extends Selectable {
 
     /** Background color when the button is idle. */
     public normalColor: Color     = new Color(0.25, 0.25, 0.25, 1);
@@ -57,9 +60,6 @@ export class Button extends UIBehaviour {
 
     /** Font family. */
     public fontFamily: string = "Arial, sans-serif";
-
-    /** Whether the button responds to pointer input. */
-    public interactable: boolean = true;
 
     private readonly _onClick: UIEvent<void> = new UIEvent<void>();
 
@@ -90,34 +90,14 @@ export class Button extends UIBehaviour {
         this._onClick._setAssigned(typeof value === "function" ? value : null);
     }
 
-    /** @internal Current visual state. Updated by EventSystem each frame. */
-    public _state: ButtonState = ButtonState.Normal;
-
     constructor(gameObject: GameObject) {
         super(gameObject);
-    }
 
-    /** The current display state of the button. */
-    public get state(): ButtonState { return this._state; }
-
-    /** @internal Fires {@link onClick}. Called by the EventSystem. */
-    public _invokeClick(): void {
-        this._onClick.invoke(undefined);
-    }
-
-    protected override onEnable(): void {
-        super.onEnable();
-        EventSystem._registerButton(this);
-    }
-
-    protected override onDisable(): void {
-        super.onDisable();
-        EventSystem._unregisterButton(this);
-    }
-
-    protected override onDestroy(): void {
-        super.onDestroy();
-        EventSystem._unregisterButton(this);
+        // A click is press and release on this same element, already resolved
+        // by the event surface — including being suppressed after a drag.
+        this.onPointerClick.addListener(() => {
+            if (this.isInteractable()) this._onClick.invoke(undefined);
+        });
     }
 
     public override _draw(ctx: CanvasRenderingContext2D, rect: Rect): void {
@@ -152,11 +132,11 @@ export class Button extends UIBehaviour {
     // ── private ──────────────────────────────────────────────────────
 
     private _stateColor(): Color {
-        if (!this.interactable) return this.disabledColor;
-        switch (this._state) {
-            case ButtonState.Highlighted: return this.highlightedColor;
-            case ButtonState.Pressed:     return this.pressedColor;
-            default:                      return this.normalColor;
+        switch (this.state) {
+            case SelectableState.Disabled:    return this.disabledColor;
+            case SelectableState.Highlighted: return this.highlightedColor;
+            case SelectableState.Pressed:     return this.pressedColor;
+            default:                          return this.normalColor;
         }
     }
 }

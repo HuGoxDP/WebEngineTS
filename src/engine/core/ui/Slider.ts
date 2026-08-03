@@ -1,4 +1,4 @@
-import { UIBehaviour } from "./UIBehaviour";
+import { Selectable } from "./Selectable";
 import { Color } from "../math/Color";
 import { Mathf } from "../math/Mathf";
 import { UIEvent } from "./UIEvent";
@@ -41,7 +41,7 @@ export enum SliderDirection {
  * slider.onValueChanged.addListener(v => setTemperature(v));
  * ```
  */
-export class Slider extends UIBehaviour {
+export class Slider extends Selectable {
 
     /** Track color behind the fill. */
     public backgroundColor: Color = new Color(0.20, 0.20, 0.20, 1);
@@ -64,9 +64,6 @@ export class Slider extends UIBehaviour {
     /** Which way the fill grows. */
     public direction: SliderDirection = SliderDirection.LeftToRight;
 
-    /** Whether the slider responds to pointer input. */
-    public interactable: boolean = true;
-
     /** Snap {@link value} to integers. */
     public wholeNumbers: boolean = false;
 
@@ -76,15 +73,9 @@ export class Slider extends UIBehaviour {
     private _minValue: number = 0;
     private _maxValue: number = 1;
     private _value: number = 0;
-    private _hovered: boolean = false;
-    private _pressed: boolean = false;
 
     constructor(gameObject: GameObject) {
         super(gameObject);
-
-        this.onPointerEnter.addListener(() => { this._hovered = true; });
-        this.onPointerExit.addListener(() => { this._hovered = false; });
-        this.onPointerUp.addListener(() => { this._pressed = false; });
 
         // A press anywhere on the track moves the handle to it, then the same
         // gesture keeps dragging — one motion to pick a value.
@@ -140,9 +131,6 @@ export class Slider extends UIBehaviour {
         this.value = Mathf.lerp(this._minValue, this._maxValue, Mathf.clamp01(t));
     }
 
-    /** Whether the slider is currently being dragged. */
-    public get isPressed(): boolean { return this._pressed; }
-
     /** Whether the control fills along Y rather than X. */
     public get isVertical(): boolean {
         return this.direction === SliderDirection.TopToBottom
@@ -191,7 +179,7 @@ export class Slider extends UIBehaviour {
         ctx.arc(cx, cy, half * this._handleScale(), 0, Math.PI * 2);
         ctx.fill();
 
-        if (!this.interactable) {
+        if (!this.isInteractable()) {
             ctx.fillStyle = cssColor(this.disabledColor);
             ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
         }
@@ -207,7 +195,7 @@ export class Slider extends UIBehaviour {
         h = hashString(h, this.direction);
         h = hashNumber(h, this._drawFraction());
         h = hashNumber(h, this._handleScale());
-        return hashBool(h, this.interactable);
+        return hashBool(h, this.isInteractable());
     }
 
     // ── private ──────────────────────────────────────────────────────
@@ -223,15 +211,14 @@ export class Slider extends UIBehaviour {
 
     /** Handle grows slightly on hover and press, so the state is legible. */
     private _handleScale(): number {
-        if (!this.interactable) return 1;
-        if (this._pressed) return 1.15;
-        return this._hovered ? 1.08 : 1;
+        if (!this.isInteractable()) return 1;
+        if (this.isPressed) return 1.15;
+        return this.isHovered ? 1.08 : 1;
     }
 
     /** Maps a pointer position in local space onto the value range. */
     private _grab(e: PointerEventData): void {
-        if (!this.interactable) return;
-        this._pressed = true;
+        if (!this.isInteractable()) return;
 
         const rect = this.rectTransform._resolvedLocalRect;
         const vertical = this.isVertical;
