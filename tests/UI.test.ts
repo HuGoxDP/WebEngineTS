@@ -24,7 +24,9 @@ import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
 import { SelectableState } from "../src/engine/core/ui/Selectable";
 import { TextAlignment, TextOverflow, UIText, VerticalAlignment } from "../src/engine/core/ui/UIText";
-import { ImageFillMethod, ImageFillOrigin, UIImage } from "../src/engine/core/ui/UIImage";
+import { ImageFillMethod, ImageFillOrigin, ImageType, UIImage } from "../src/engine/core/ui/UIImage";
+import { Sprite } from "../src/engine/core/graphics/Sprite";
+import type { Texture2D } from "../src/engine/core/graphics/Texture2D";
 import {
     CanvasPhysicalUnit,
     CanvasScaleMode,
@@ -53,6 +55,7 @@ interface MockContext {
     ops: string[];
     rects: number[][];
     texts: string[];
+    draws: number[][];
     measureCount: number;
     ctx: CanvasRenderingContext2D;
 }
@@ -61,6 +64,7 @@ function makeContext(): MockContext {
     const ops: string[] = [];
     const rects: number[][] = [];
     const texts: string[] = [];
+    const draws: number[][] = [];
     const state = { measureCount: 0 };
 
     const ctx = {
@@ -87,7 +91,10 @@ function makeContext(): MockContext {
         },
         fillText: (t: string) => { ops.push("fillText"); texts.push(t); },
         strokeText: (t: string) => { ops.push("strokeText"); texts.push(t); },
-        drawImage: () => { ops.push("drawImage"); },
+        drawImage: (_img: unknown, ...args: number[]) => {
+            ops.push("drawImage");
+            draws.push(args);
+        },
         setTransform: () => { ops.push("setTransform"); },
         transform: () => { ops.push("transform"); },
         clearRect: () => { ops.push("clearRect"); },
@@ -98,7 +105,7 @@ function makeContext(): MockContext {
     };
 
     return {
-        ops, rects, texts,
+        ops, rects, texts, draws,
         get measureCount() { return state.measureCount; },
         ctx: ctx as unknown as CanvasRenderingContext2D,
     };
@@ -3731,5 +3738,256 @@ describe("ScrollRect", () => {
         EventSystem._update();
 
         expect(consumed).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Sprite, atlas sub-rects, nine-slice and tiling
+//
+// UIImage only draws sources the 2D context understands, and it checks with
+// `instanceof`. Under vitest none of those constructors exist, so a stand-in is
+// installed as HTMLCanvasElement for the duration of these tests.
+// ---------------------------------------------------------------------------
+
+class FakeBitmap {
+    public width = 64;
+    public height = 64;
+}
+
+interface FakeTexture {
+    getInstanceID(): number;
+    name: string;
+    width: number;
+    height: number;
+    _internalThreeTexture: { image: unknown; version: number };
+}
+
+describe("Sprite", () => {
+    let nextId = 1;
+
+    function makeTexture(size = 64): FakeTexture {
+        const id = nextId++;
+        const image = new FakeBitmap();
+        image.width = size;
+        image.height = size;
+        return {
+            getInstanceID: () => id,
+            name: `tex${id}`,
+            width: size,
+            height: size,
+            _internalThreeTexture: { image, version: 1 },
+        };
+    }
+
+    /** A UIImage wired to a fake texture, drawn white so no tint pass runs. */
+    function makeImage(sprite: Sprite): UIImage {
+        const img = new GameObject("Img").addComponent(UIImage);
+        img.sprite = sprite;
+        img.color = Color.white.clone();
+        return img;
+    }
+
+    beforeEach(() => {
+        (globalThis as unknown as { HTMLCanvasElement: unknown }).HTMLCanvasElement =
+            FakeBitmap;
+    });
+
+    afterEach(() => {
+        delete (globalThis as unknown as { HTMLCanvasElement?: unknown }).HTMLCanvasElement;
+        vi.restoreAllMocks();
+    });
+
+    test("a sprite with no rect covers the whole texture", () => {
+        const tex = makeTexture(48);
+        const sprite = new Sprite(tex as unknown as Texture2D);
+
+        expect(sprite.width).toBe(48);
+        expect(sprite.height).toBe(48);
+        expect(sprite._sourceRect(new Rect()).width).toBe(48);
+    });
+
+    test("a sprite rect names a region of an atlas", () => {
+        const tex = makeTexture(128);
+        const sprite = new Sprite(tex as unknown as Texture2D, new Rect(10, 20, 30, 40));
+
+        expect(sprite.width).toBe(30);
+        expect(sprite.height).toBe(40);
+
+        const src = sprite._sourceRect(new Rect());
+        expect(src.x).toBe(10);
+        expect(src.y).toBe(20);
+    });
+
+    test("the rect is copied, not aliased", () => {
+        const tex = makeTexture();
+        const source = new Rect(1, 2, 3, 4);
+        const sprite = new Sprite(tex as unknown as Texture2D, source);
+
+        source.set(9, 9, 9, 9);
+        expect(sprite.rect.x).toBe(1);
+    });
+
+    test("assigning a bare texture still works and wraps it", () => {
+        const tex = makeTexture();
+        const img = new GameObject("Img").addComponent(UIImage);
+
+        img.sprite = tex as unknown as Texture2D;
+
+        expect(img.sprite).toBeInstanceOf(Sprite);
+        expect(img.texture).toBe(tex);
+    });
+
+    test("assigning null clears both sprite and texture", () => {
+        const tex = makeTexture();
+        const img = new GameObject("Img").addComponent(UIImage);
+        img.sprite = tex as unknown as Texture2D;
+
+        img.sprite = null;
+
+        expect(img.sprite).toBeNull();
+        expect(img.texture).toBeNull();
+    });
+
+    test("Simple draws the sub-rect stretched over the whole element", () => {
+        const tex = makeTexture(128);
+        const img = makeImage(new Sprite(tex as unknown as Texture2D, new Rect(10, 20, 30, 40)));
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 200, 100));
+
+        expect(m.draws.length).toBe(1);
+        // source x, y, w, h then destination x, y, w, h
+        expect(m.draws[0]).toEqual([10, 20, 30, 40, 0, 0, 200, 100]);
+    });
+
+    test("preserveAspect letterboxes the sub-rect", () => {
+        const tex = makeTexture(128);
+        const img = makeImage(new Sprite(tex as unknown as Texture2D, new Rect(0, 0, 40, 20)));
+        img.preserveAspect = true;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 200, 200));
+
+        // 2:1 source in a square rect: 200x100, centred vertically.
+        const d = m.draws[0];
+        expect(d[6]).toBeCloseTo(200);
+        expect(d[7]).toBeCloseTo(100);
+        expect(d[5]).toBeCloseTo(50);
+    });
+
+    test("Sliced draws nine regions with unstretched corners", () => {
+        const tex = makeTexture(48);
+        const sprite = new Sprite(tex as unknown as Texture2D, new Rect(0, 0, 48, 48));
+        sprite.border.setAll(16);
+
+        const img = makeImage(sprite);
+        img.type = ImageType.Sliced;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 200, 100));
+
+        expect(m.draws.length).toBe(9);
+
+        // Top-left corner: 16x16 of source at 16x16 of destination.
+        expect(m.draws[0]).toEqual([0, 0, 16, 16, 0, 0, 16, 16]);
+
+        // Centre: the 16x16 middle stretched across what the corners leave.
+        expect(m.draws[4]).toEqual([16, 16, 16, 16, 16, 16, 168, 68]);
+
+        // Bottom-right corner: pinned to the far edge, still 16x16.
+        expect(m.draws[8]).toEqual([32, 32, 16, 16, 184, 84, 16, 16]);
+    });
+
+    test("Sliced with no border falls back to a plain stretch", () => {
+        const tex = makeTexture(48);
+        const img = makeImage(new Sprite(tex as unknown as Texture2D, new Rect(0, 0, 48, 48)));
+        img.type = ImageType.Sliced;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 200, 100));
+
+        expect(m.draws.length).toBe(1);
+    });
+
+    test("Sliced squashes its corners rather than overlapping them", () => {
+        const tex = makeTexture(48);
+        const sprite = new Sprite(tex as unknown as Texture2D, new Rect(0, 0, 48, 48));
+        sprite.border.setAll(16);
+
+        const img = makeImage(sprite);
+        img.type = ImageType.Sliced;
+
+        const m = makeContext();
+        // Only 16 wide: the two 16px corners cannot both fit at full size.
+        img._draw(m.ctx, new Rect(0, 0, 16, 100));
+
+        // Left corners come from source x 0, right corners from source x 32.
+        const left = m.draws.filter(d => d[0] === 0);
+        const right = m.draws.filter(d => d[0] === 32);
+        expect(left.length).toBeGreaterThan(0);
+        expect(right.length).toBeGreaterThan(0);
+
+        // The point of the squash: they must tile, not sit on top of each other.
+        const leftEdge = Math.max(...left.map(d => d[4] + d[6]));
+        const rightEdge = Math.min(...right.map(d => d[4]));
+        expect(leftEdge).toBeLessThanOrEqual(rightEdge + 0.001);
+    });
+
+    test("Tiled repeats the sprite at its natural size", () => {
+        const tex = makeTexture(32);
+        const img = makeImage(new Sprite(tex as unknown as Texture2D, new Rect(0, 0, 32, 32)));
+        img.type = ImageType.Tiled;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 96, 64));
+
+        // 3 across, 2 down.
+        expect(m.draws.length).toBe(6);
+        expect(m.draws[0][6]).toBe(32);
+        expect(m.ops).toContain("clip");
+    });
+
+    test("Tiled falls back to stretching past the tile cap", () => {
+        const tex = makeTexture(1);
+        const img = makeImage(new Sprite(tex as unknown as Texture2D, new Rect(0, 0, 1, 1)));
+        img.type = ImageType.Tiled;
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 2000, 2000));
+
+        expect(m.draws.length).toBe(1);
+    });
+
+    test("a sprite of a texture that has not decoded draws nothing", () => {
+        const tex = makeTexture(0);
+        tex.width = 0;
+        tex.height = 0;
+        (tex._internalThreeTexture.image as FakeBitmap).width = 0;
+        (tex._internalThreeTexture.image as FakeBitmap).height = 0;
+
+        const img = makeImage(new Sprite(tex as unknown as Texture2D));
+
+        const m = makeContext();
+        img._draw(m.ctx, new Rect(0, 0, 100, 100));
+
+        expect(m.draws.length).toBe(0);
+    });
+
+    test("the visual hash tracks the sub-rect, border and fit mode", () => {
+        const tex = makeTexture(64);
+        const sprite = new Sprite(tex as unknown as Texture2D, new Rect(0, 0, 32, 32));
+        const img = makeImage(sprite);
+
+        const base = img._visualHash();
+
+        img.type = ImageType.Sliced;
+        const typed = img._visualHash();
+        expect(typed).not.toBe(base);
+
+        sprite.border.setAll(8);
+        expect(img._visualHash()).not.toBe(typed);
+
+        sprite.rect.set(0, 0, 16, 16);
+        expect(img._visualHash()).not.toBe(typed);
     });
 });

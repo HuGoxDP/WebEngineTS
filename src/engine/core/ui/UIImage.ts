@@ -1,7 +1,8 @@
 import { UIBehaviour } from "./UIBehaviour";
 import { Color } from "../math/Color";
 import { HASH_SEED, cssColor, hashBool, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
-import type { Rect } from "../math/Rect";
+import { Rect } from "../math/Rect";
+import { Sprite } from "../graphics/Sprite";
 import type { Texture2D } from "../graphics/Texture2D";
 import type { GameObject } from "../GameObject";
 
@@ -22,6 +23,29 @@ export enum ImageFillOrigin {
     /** Vertical fill grows bottom → top. */
     Bottom = "Bottom",
 }
+
+/** How a sprite is fitted to the element's rect. */
+export enum ImageType {
+    /** Stretched to the rect as a single quad. */
+    Simple = "Simple",
+    /**
+     * Nine-slice: corners keep their size, edges stretch along one axis, the
+     * middle stretches both ways. Needs a {@link Sprite.border}.
+     */
+    Sliced = "Sliced",
+    /** The sprite repeats to fill the rect at its natural pixel size. */
+    Tiled = "Tiled",
+}
+
+/**
+ * Safety cap on how many tiles one Tiled image may draw.
+ *
+ * @remarks
+ * A sprite a few pixels across stretched over a full screen would otherwise
+ * issue hundreds of thousands of draws and lock the frame. Past the cap the
+ * image falls back to stretching, which is wrong but visible and cheap.
+ */
+const MAX_TILES = 4096;
 
 /** Bitmap sources the 2D context can draw directly. */
 type DrawableSource = HTMLImageElement | HTMLCanvasElement | ImageBitmap;
@@ -54,8 +78,40 @@ export class UIImage extends UIBehaviour {
     /** Fill color when no sprite is assigned, or the tint applied to one. */
     public color: Color = Color.white.clone();
 
-    /** Optional sprite texture. When set, draws the texture instead of a solid color. */
-    public sprite: Texture2D | null = null;
+    private _sprite: Sprite | null = null;
+
+    /**
+     * The sprite to draw. When null the rect is filled with {@link color};
+     * otherwise the sprite is drawn and `color` tints it.
+     *
+     * @remarks
+     * Assigning a bare {@link Texture2D} still works and wraps it as a
+     * whole-texture sprite, so existing scenarios need no change. Assign a
+     * {@link Sprite} to draw one region of an atlas, or to nine-slice.
+     */
+    public get sprite(): Sprite | null { return this._sprite; }
+
+    public set sprite(value: Sprite | Texture2D | null) {
+        if (value === null) {
+            this._sprite = null;
+            return;
+        }
+        this._sprite = value instanceof Sprite ? value : Sprite.fromTexture(value);
+    }
+
+    /** The texture behind {@link sprite}, or null. */
+    public get texture(): Texture2D | null {
+        return this._sprite?.texture ?? null;
+    }
+
+    /**
+     * How the sprite is fitted to the rect.
+     *
+     * @remarks
+     * {@link ImageType.Sliced} needs the sprite to carry a border; without one
+     * it draws as {@link ImageType.Simple}.
+     */
+    public type: ImageType = ImageType.Simple;
 
     /**
      * Fill amount (0 = empty, 1 = full), clipped along {@link fillMethod}.
@@ -133,15 +189,25 @@ export class UIImage extends UIBehaviour {
         h = hashBool(h, this.preserveAspect);
         h = hashBool(h, this.imageSmoothing);
 
-        if (!this.sprite) return hashNumber(h, 0);
+        const sprite = this._sprite;
+        if (!sprite) return hashNumber(h, 0);
 
-        h = hashNumber(h, this.sprite.getInstanceID());
+        h = hashString(h, this.type);
+        h = hashNumber(h, sprite.texture.getInstanceID());
+        h = hashNumber(h, sprite.rect.x);
+        h = hashNumber(h, sprite.rect.y);
+        h = hashNumber(h, sprite.rect.width);
+        h = hashNumber(h, sprite.rect.height);
+        h = hashNumber(h, sprite.border.left);
+        h = hashNumber(h, sprite.border.right);
+        h = hashNumber(h, sprite.border.top);
+        h = hashNumber(h, sprite.border.bottom);
 
         // A texture assigned before its bitmap decoded, or repainted through
         // Texture2D.apply(), keeps the same identity — so track the upload
         // counter and the decoded size, or the canvas would never redraw it.
         const source = this._spriteImage();
-        h = hashNumber(h, this.sprite._internalThreeTexture.version);
+        h = hashNumber(h, sprite.texture._internalThreeTexture.version);
         h = hashNumber(h, source ? UIImage._sourceWidth(source) : -1);
         return hashNumber(h, source ? UIImage._sourceHeight(source) : -1);
     }
@@ -174,28 +240,133 @@ export class UIImage extends UIBehaviour {
     }
 
     private _drawSprite(ctx: CanvasRenderingContext2D, source: DrawableSource, rect: Rect): void {
+        const sprite = this._sprite!;
+        const src = sprite._sourceRect(UIImage._srcScratch);
+
+        // The sprite may name a region of a texture that has not decoded yet.
+        if (src.width <= 0 || src.height <= 0) return;
+
+        if (this.type === ImageType.Sliced && !sprite.border.isEmpty) {
+            UIImage._drawSliced(ctx, source, src, sprite, rect);
+            return;
+        }
+
+        if (this.type === ImageType.Tiled) {
+            UIImage._drawTiled(ctx, source, src, rect);
+            return;
+        }
+
         if (!this.preserveAspect) {
-            ctx.drawImage(source, rect.x, rect.y, rect.width, rect.height);
+            ctx.drawImage(
+                source, src.x, src.y, src.width, src.height,
+                rect.x, rect.y, rect.width, rect.height,
+            );
             return;
         }
 
-        const srcW = UIImage._sourceWidth(source);
-        const srcH = UIImage._sourceHeight(source);
-        if (srcW <= 0 || srcH <= 0) {
-            ctx.drawImage(source, rect.x, rect.y, rect.width, rect.height);
-            return;
-        }
-
-        const scale = Math.min(rect.width / srcW, rect.height / srcH);
-        const dw = srcW * scale;
-        const dh = srcH * scale;
+        const scale = Math.min(rect.width / src.width, rect.height / src.height);
+        const dw = src.width * scale;
+        const dh = src.height * scale;
         ctx.drawImage(
-            source,
+            source, src.x, src.y, src.width, src.height,
             rect.x + (rect.width - dw) * 0.5,
             rect.y + (rect.height - dh) * 0.5,
             dw, dh,
         );
     }
+
+    /**
+     * Draws the nine regions of a bordered sprite.
+     *
+     * @remarks
+     * Corners keep their pixel size, edges stretch along one axis and the middle
+     * stretches both ways. Destination corners shrink together when the rect is
+     * too small to hold them, so a squeezed panel degrades to squashed corners
+     * rather than to slices drawn over each other.
+     */
+    private static _drawSliced(
+        ctx: CanvasRenderingContext2D,
+        source: DrawableSource,
+        src: Rect,
+        sprite: Sprite,
+        rect: Rect,
+    ): void {
+        const b = sprite.border;
+
+        const sl = Math.min(b.left, src.width);
+        const sr = Math.min(b.right, src.width - sl);
+        const st = Math.min(b.top, src.height);
+        const sb = Math.min(b.bottom, src.height - st);
+
+        const hScale = Math.min(1, rect.width / Math.max(1e-6, sl + sr));
+        const vScale = Math.min(1, rect.height / Math.max(1e-6, st + sb));
+        const dl = sl * hScale;
+        const dr = sr * hScale;
+        const dt = st * vScale;
+        const db = sb * vScale;
+
+        const sxs = [src.x, src.x + sl, src.x + src.width - sr];
+        const sws = [sl, src.width - sl - sr, sr];
+        const sys = [src.y, src.y + st, src.y + src.height - sb];
+        const shs = [st, src.height - st - sb, sb];
+
+        const dxs = [rect.x, rect.x + dl, rect.x + rect.width - dr];
+        const dws = [dl, rect.width - dl - dr, dr];
+        const dys = [rect.y, rect.y + dt, rect.y + rect.height - db];
+        const dhs = [dt, rect.height - dt - db, db];
+
+        for (let row = 0; row < 3; row++) {
+            if (shs[row] <= 0 || dhs[row] <= 0) continue;
+            for (let col = 0; col < 3; col++) {
+                if (sws[col] <= 0 || dws[col] <= 0) continue;
+                ctx.drawImage(
+                    source,
+                    sxs[col], sys[row], sws[col], shs[row],
+                    dxs[col], dys[row], dws[col], dhs[row],
+                );
+            }
+        }
+    }
+
+    /** Repeats the sprite at its natural size, clipped to the rect. */
+    private static _drawTiled(
+        ctx: CanvasRenderingContext2D,
+        source: DrawableSource,
+        src: Rect,
+        rect: Rect,
+    ): void {
+        const cols = Math.ceil(rect.width / src.width);
+        const rows = Math.ceil(rect.height / src.height);
+
+        if (cols * rows > MAX_TILES) {
+            ctx.drawImage(
+                source, src.x, src.y, src.width, src.height,
+                rect.x, rect.y, rect.width, rect.height,
+            );
+            return;
+        }
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.width, rect.height);
+        ctx.clip();
+
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                ctx.drawImage(
+                    source, src.x, src.y, src.width, src.height,
+                    rect.x + col * src.width,
+                    rect.y + row * src.height,
+                    src.width, src.height,
+                );
+            }
+        }
+
+        ctx.restore();
+    }
+
+    /** Scratch for the resolved source rectangle; never live across a call. */
+    private static readonly _srcScratch: Rect = new Rect();
 
     /**
      * Returns the bitmap to draw: the sprite itself when untinted, otherwise a
@@ -211,7 +382,8 @@ export class UIImage extends UIBehaviour {
         const key = hashColor(HASH_SEED, c);
         // The texture version is part of the key so a Texture2D.apply() does not
         // leave a stale tinted copy behind.
-        const sourceId = this.sprite!.getInstanceID() * 397 + this.sprite!._internalThreeTexture.version;
+        const texture = this._sprite!.texture;
+        const sourceId = texture.getInstanceID() * 397 + texture._internalThreeTexture.version;
         if (this._tintCanvas && this._tintKey === key && this._tintSourceId === sourceId) {
             return this._tintCanvas;
         }
@@ -255,9 +427,10 @@ export class UIImage extends UIBehaviour {
     }
 
     private _spriteImage(): DrawableSource | null {
-        if (!this.sprite) return null;
+        const texture = this._sprite?.texture;
+        if (!texture) return null;
 
-        const image = this.sprite._internalThreeTexture.image as unknown;
+        const image = texture._internalThreeTexture.image as unknown;
         if (!image) return null;
 
         if (typeof HTMLImageElement !== "undefined" && image instanceof HTMLImageElement) return image;
@@ -268,11 +441,11 @@ export class UIImage extends UIBehaviour {
         // holds the pixels, so there is nothing the 2D context can draw. Without
         // a warning the element silently degrades to a solid `color` fill, which
         // looks like a layout bug rather than a format problem.
-        const id = this.sprite.getInstanceID();
+        const id = texture.getInstanceID();
         if (!_warnedTextures.has(id)) {
             _warnedTextures.add(id);
             console.warn(
-                `[UIImage] Texture "${this.sprite.name}" cannot be drawn on a Canvas: `
+                `[UIImage] Texture "${texture.name}" cannot be drawn on a Canvas: `
                 + `its pixels live only on the GPU (compressed/KTX2 format). `
                 + `Falling back to a solid "color" fill — use an uncompressed `
                 + `texture for UI sprites.`,

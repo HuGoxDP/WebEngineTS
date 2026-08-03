@@ -125,6 +125,7 @@ export { Mesh, type MeshCombineInstance } from "./core/graphics/Mesh";
 export { Texture, FilterMode, TextureWrapMode } from "./core/graphics/Texture";
 export { Texture2D, TextureFormat } from "./core/graphics/Texture2D";
 export { Cubemap } from "./core/graphics/Cubemap";
+export { Sprite, SpriteBorder } from "./core/graphics/Sprite";
 export { Shader, ShaderPropertyType } from "./core/graphics/Shader";
 export { Material } from "./core/graphics/Material";
 export { StandardMaterial, MaterialRenderMode } from "./core/graphics/StandardMaterial";
@@ -252,7 +253,7 @@ export {
     RectTransformEdge,
 } from "./core/ui/RectTransform";
 export { UIBehaviour } from "./core/ui/UIBehaviour";
-export { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
+export { UIImage, ImageFillMethod, ImageFillOrigin, ImageType } from "./core/ui/UIImage";
 export { UIText, TextAlignment, VerticalAlignment, TextOverflow } from "./core/ui/UIText";
 export { Button, ButtonState } from "./core/ui/Button";
 export { Selectable, SelectableState } from "./core/ui/Selectable";
@@ -434,7 +435,8 @@ import {
     RectTransformEdge,
 } from "./core/ui/RectTransform";
 import { UIBehaviour } from "./core/ui/UIBehaviour";
-import { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
+import { UIImage, ImageFillMethod, ImageFillOrigin, ImageType } from "./core/ui/UIImage";
+import { Sprite, SpriteBorder } from "./core/graphics/Sprite";
 import { UIText, TextAlignment, VerticalAlignment, TextOverflow } from "./core/ui/UIText";
 import { Button, ButtonState } from "./core/ui/Button";
 import { Selectable, SelectableState } from "./core/ui/Selectable";
@@ -562,7 +564,8 @@ const WebEngineTS = {
     Canvas, CanvasRenderMode, CanvasRepaintMode, UIBehaviour,
     RectTransform, RectTransformAxis, RectTransformEdge,
     CanvasScaler, CanvasScaleMode, ScreenMatchMode, CanvasPhysicalUnit,
-    UIImage, ImageFillMethod, ImageFillOrigin,
+    UIImage, ImageFillMethod, ImageFillOrigin, ImageType,
+    Sprite, SpriteBorder,
     UIText, TextAlignment, VerticalAlignment, TextOverflow,
     Button, ButtonState, Selectable, SelectableState, EventSystem, VirtualJoystick,
     UIEvent, PointerEventData,

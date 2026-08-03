@@ -10,7 +10,7 @@ Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see �
 2D affine pipeline (rotation/scale), the full layout API, the `UIEvent` + pointer/drag
 surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout groups with
 `ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup`. Next: §5.1b
-the `Sprite` type and 9-slice (§5.0a/b), then `Scrollbar` and `Dropdown`.
+`Scrollbar` and `Dropdown` (§5.0f/g), then radial fill and `Selectable` transition modes.
 
 ---
 
@@ -22,7 +22,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 |---|---|---|
 | Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate), **`CanvasGroup`** | `WorldSpace` render mode |
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter` | anchor presets, `AspectRatioFitter` |
-| Graphics | `UIImage` (solid/sprite/fill/radius), `UIText` (wrap, outline, align, **preferred sizes, overflow, word breaking**) | `Sprite` type, 9-slice, tiled, radial fill, auto-size, rich text |
+| Graphics | `UIImage` (solid/sprite/fill/radius, **atlas sub-rects, 9-slice, tiled**), **`Sprite`**, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | radial fill, auto-size, rich text |
 | Interaction | `Selectable` base under `Button`/`Slider`/`Toggle`, `ToggleGroup`, **`ScrollRect`**, `VirtualJoystick`, `EventSystem` (multi-pointer), `UIEvent`, pointer + drag events | `Scrollbar`, `InputField`, keyboard nav, transition modes |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
 | Repaint | `OnDemand` + `_visualHash`, **event-driven surface sync** | layout dirty flags, dirty-rect partial repaint |
@@ -541,8 +541,8 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~4.6~~ | ~~Layout groups + size protocol + `GridLayoutGroup`~~ | **done** | L | — |
 | ~~4.7~~ | ~~`CanvasGroup`~~ | **done** | S | — |
 | 4.8 | Overlay canvas memory in `MemoryProfiler` ⚑ | P1 | S | — |
-| 5.0a | `Sprite` asset type | P1 | M | — |
-| 5.0b | 9-slice / tiled image | P1 | M | 5.0a |
+| ~~5.0a~~ | ~~`Sprite` asset type~~ (atlas sub-rects + border) | **done** | M | — |
+| ~~5.0b~~ | ~~9-slice / tiled image~~ | **done** | M | — |
 | ~~5.0c~~ | ~~`Slider`~~ | **done** | M | — |
 | ~~5.0d~~ | ~~`Toggle`~~ + `ToggleGroup` (radio behaviour) | **done** | S | — |
 | ~~5.0e~~ | ~~`RectMask2D`~~ | **done** | M | — |
