@@ -42,3 +42,8 @@ The Application class manages the engine's lifetime: WebGL context creation, the
 
 Figure~\ref{fig:lifecycle} shows the per-frame sequence: input polling, fixed-timestep physics, game logic updates, late updates, transform synchronization, and rendering. The ordering matches Unity's convention.
 
+\subsection{Deployment status}
+The engine has been deployed as the 3D runtime of the KSU24 learning platform at Kherson State University since April 2026, currently serving one educational scenario together with three test scenarios. Scenarios are delivered to the browser as ZIP archives and executed through \texttt{Application.loadScenarioFromBuffer}; the bare specifier \texttt{"WebEngineTS"} is resolved through an import map to the standalone bundle, so the platform carries no build-time dependency on the engine and the runtime can be updated independently of the host application.
+
+The deployment is presently in \emph{closed testing}: student access has not yet been opened while defects are resolved and performance, architecture, and features continue to be developed. Consequently, no usage statistics or user-experience data are available yet, and the evaluation reported in Section~5 is confined to controlled benchmark measurements on reference scenes. Opening the platform to students, and the accompanying user study, are planned as the next stage of this work.
+

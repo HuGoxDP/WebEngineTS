@@ -20,6 +20,8 @@ The browser was Microsoft Edge 147.0.3912.86 with hardware acceleration enabled 
 
 \textbf{Repetition protocol.} Each Scene 1 and Scene 2 configuration was executed three times; each Scene 3 configuration ten times. Reported values are mean $\pm$ standard deviation.
 
+\textbf{Reproducibility.} The measurement harness, the benchmark scenes, the exact engine build that was measured, the run protocol, and the raw per-run exports behind every table in this section are published at \url{https://github.com/<user>/webenginets-benchmarks}. The suite is self-contained: \texttt{npm install \&\& npm start} serves it locally, and each configuration is selected entirely through URL parameters, so every reported figure can be re-measured independently. Each exported run records its own configuration, the GPU that served it, and a timestamp, and the aggregation script recomputes the tables below from those raw files.
+
 \subsection{Scene 1 -- Per-frame transform overhead}
 Table~\ref{tab:scene1} reports average frame time as a function of object count for Scene 1, with and without dirty-flag transforms enabled.
 
