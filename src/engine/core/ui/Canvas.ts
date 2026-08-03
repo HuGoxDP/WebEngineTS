@@ -136,8 +136,6 @@ export class Canvas extends Behaviour {
     private _scrollHandler: (() => void) | null = null;
     private _viewport: VisualViewport | null = null;
 
-    /** Scratch layout rects, one slot per entry in {@link _graphics}. */
-    private _rects: Rect[] = [];
     private readonly _canvasRect: Rect = new Rect();
 
     /** Reusable scratch for the hierarchy-order walk; never live across calls. */
@@ -335,7 +333,6 @@ export class Canvas extends Behaviour {
         this._htmlCanvas = null;
         this._ctx2d = null;
         this._graphics.length = 0;
-        this._rects.length = 0;
     }
 
     // ── public API ───────────────────────────────────────────────────
@@ -568,14 +565,18 @@ export class Canvas extends Behaviour {
             if (onDemand) hash = hashBool(hash, active);
             if (!active) continue;
 
-            const rect = this._rectAt(i);
-            g.rectTransform.getScreenRect(rect);
-
             if (onDemand) {
-                hash = hashNumber(hash, rect.x);
-                hash = hashNumber(hash, rect.y);
-                hash = hashNumber(hash, rect.width);
-                hash = hashNumber(hash, rect.height);
+                // The local rect plus the transform is the element's full
+                // placement — the bounds alone would miss a pure rotation.
+                const rt = g.rectTransform;
+                const local = rt._resolvedLocalRect;
+                const m = rt._canvasMatrix;
+
+                hash = hashNumber(hash, local.x);
+                hash = hashNumber(hash, local.y);
+                hash = hashNumber(hash, local.width);
+                hash = hashNumber(hash, local.height);
+                for (let k = 0; k < 6; k++) hash = hashNumber(hash, m[k]);
 
                 const gh = g._visualHash();
                 if (Number.isNaN(gh)) unknown = true;
@@ -692,25 +693,21 @@ export class Canvas extends Behaviour {
             const g = this._graphics[i];
             if (!g.isActiveAndEnabled) continue;
 
-            const rect = this._rectAt(i);
-            if (g._allowCulling && !rect.overlaps(this._canvasRect)) continue;
+            const rt = g.rectTransform;
+            if (g._allowCulling && !rt._resolvedBounds.overlaps(this._canvasRect)) continue;
 
+            const m = rt._canvasMatrix;
             ctx.save();
-            g._draw(ctx, rect);
+            // Composes with the canvas-unit transform already on the context, so
+            // components keep drawing in their own local rect and inherit the
+            // element's rotation and scale without knowing about either.
+            ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+            g._draw(ctx, rt._resolvedLocalRect);
             ctx.restore();
             drawn++;
         }
 
         this._drawnGraphicCount = drawn;
-    }
-
-    private _rectAt(index: number): Rect {
-        let r = this._rects[index];
-        if (!r) {
-            r = new Rect();
-            this._rects[index] = r;
-        }
-        return r;
     }
 
     private _applyZIndex(): void {

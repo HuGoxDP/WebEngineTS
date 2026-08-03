@@ -715,9 +715,12 @@ describe("RectTransform ancestor cache", () => {
 // RectTransform resolved-rect cache
 //
 // The cache must never be observable in a rect's *value* — only in how much
-// work producing it costs. `_cachedParent.copy()` runs once per level that
-// actually recomputes, and `getScreenRect` adds exactly one copy into `out`,
-// so counting Rect.copy calls reads out the number of recomputed levels.
+// work producing it costs. Each recomputed level writes its local rect and its
+// bounds (2 Rect.set calls); resolving a root-level element always restamps the
+// shared root scratch (1 more). So for Canvas -> Panel -> Label:
+//   both cached          -> 1 set
+//   label alone recomputes -> 3 sets
+//   both recompute         -> 5 sets
 // ---------------------------------------------------------------------------
 
 describe("RectTransform rect cache", () => {
@@ -798,11 +801,11 @@ describe("RectTransform rect cache", () => {
         const out = new Rect();
         label.getScreenRect(out);
 
-        const copies = vi.spyOn(Rect.prototype, "copy");
+        const sets = vi.spyOn(Rect.prototype, "set");
         label.getScreenRect(out);
 
-        // Just the one copy into `out`; neither level recomputed.
-        expect(copies.mock.calls.length).toBe(1);
+        // Only the root scratch restamp; neither level recomputed.
+        expect(sets.mock.calls.length).toBe(1);
     });
 
     test("changing the element itself recomputes exactly its own level", () => {
@@ -810,12 +813,24 @@ describe("RectTransform rect cache", () => {
         const out = new Rect();
         label.getScreenRect(out);
 
-        const copies = vi.spyOn(Rect.prototype, "copy");
+        const sets = vi.spyOn(Rect.prototype, "set");
         label.anchoredPosition.set(99, 99);
         label.getScreenRect(out);
 
         // The label recomputes; the panel above it does not.
-        expect(copies.mock.calls.length).toBe(2);
+        expect(sets.mock.calls.length).toBe(3);
+    });
+
+    test("changing a parent recomputes both levels", () => {
+        const { panel, label } = makeChain();
+        const out = new Rect();
+        label.getScreenRect(out);
+
+        const sets = vi.spyOn(Rect.prototype, "set");
+        panel.sizeDelta.set(-100, -100);
+        label.getScreenRect(out);
+
+        expect(sets.mock.calls.length).toBe(5);
     });
 
     test("the cached rect is never handed out to callers", () => {
@@ -837,6 +852,161 @@ describe("RectTransform rect cache", () => {
         expect(viaProp.y).toBeCloseTo(viaOut.y);
         expect(viaProp.width).toBeCloseTo(viaOut.width);
         expect(viaProp.height).toBeCloseTo(viaOut.height);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// RectTransform rotation and scale
+// ---------------------------------------------------------------------------
+
+describe("RectTransform rotation and scale", () => {
+    beforeEach(() => Canvas._reset());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        Canvas._reset();
+    });
+
+    /** A centred 100x100 element on an 800x600 canvas. */
+    function makeElement() {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const rt = child("El", canvasGO).addComponent(RectTransform);
+        rt.anchorMin.set(0.5, 0.5);
+        rt.anchorMax.set(0.5, 0.5);
+        rt.pivot.set(0.5, 0.5);
+        rt.anchoredPosition.set(0, 0);
+        rt.sizeDelta.set(100, 100);
+        return { canvas, rt };
+    }
+
+    test("the local rect puts the pivot at the origin", () => {
+        const { rt } = makeElement();
+        const local = rt.getLocalRect(new Rect());
+        expect(local.x).toBeCloseTo(-50);
+        expect(local.y).toBeCloseTo(-50);
+        expect(local.width).toBeCloseTo(100);
+        expect(local.height).toBeCloseTo(100);
+
+        rt.pivot.set(0, 0);
+        const topLeft = rt.getLocalRect(new Rect());
+        expect(topLeft.x).toBeCloseTo(0);
+        expect(topLeft.y).toBeCloseTo(0);
+    });
+
+    test("an unrotated element still reports the same screen rect as before", () => {
+        const { rt } = makeElement();
+        const r = rt.getScreenRect(new Rect());
+        expect(r.x).toBeCloseTo(350);
+        expect(r.y).toBeCloseTo(250);
+        expect(r.width).toBeCloseTo(100);
+        expect(r.height).toBeCloseTo(100);
+    });
+
+    test("a positive angle turns clockwise on screen", () => {
+        const { rt } = makeElement();
+        rt.localRotation = 90;
+
+        const corners = rt.getWorldCorners();
+        // The element's own top-left corner ends up on the screen's top-right.
+        expect(corners[0].x).toBeCloseTo(450);
+        expect(corners[0].y).toBeCloseTo(250);
+    });
+
+    test("rotation leaves the local rect alone and only moves the bounds", () => {
+        const { rt } = makeElement();
+        const before = rt.getLocalRect(new Rect());
+
+        rt.localRotation = 45;
+
+        const after = rt.getLocalRect(new Rect());
+        expect(after.width).toBeCloseTo(before.width);
+        expect(after.height).toBeCloseTo(before.height);
+
+        // A 45-degree square's bounds grow to its diagonal, still centred.
+        const bounds = rt.getScreenRect(new Rect());
+        expect(bounds.width).toBeCloseTo(Math.SQRT2 * 100);
+        expect(bounds.height).toBeCloseTo(Math.SQRT2 * 100);
+        expect(bounds.x + bounds.width * 0.5).toBeCloseTo(400);
+        expect(bounds.y + bounds.height * 0.5).toBeCloseTo(300);
+    });
+
+    test("scale grows the element about its pivot", () => {
+        const { rt } = makeElement();
+        rt.localScale.set(2, 3);
+
+        const bounds = rt.getScreenRect(new Rect());
+        expect(bounds.width).toBeCloseTo(200);
+        expect(bounds.height).toBeCloseTo(300);
+        expect(bounds.x + bounds.width * 0.5).toBeCloseTo(400);
+        expect(bounds.y + bounds.height * 0.5).toBeCloseTo(300);
+    });
+
+    test("scale about a corner pivot keeps that corner pinned", () => {
+        const { rt } = makeElement();
+        rt.pivot.set(0, 0);
+        const before = rt.getScreenRect(new Rect());
+
+        rt.localScale.set(2, 2);
+        const after = rt.getScreenRect(new Rect());
+
+        expect(after.x).toBeCloseTo(before.x);
+        expect(after.y).toBeCloseTo(before.y);
+        expect(after.width).toBeCloseTo(200);
+    });
+
+    test("a parent's rotation composes into the child", () => {
+        const { canvas, rt } = makeElement();
+        const childRT = child("Child", rt.gameObject).addComponent(RectTransform);
+        childRT.anchorMin.set(0.5, 0.5);
+        childRT.anchorMax.set(0.5, 0.5);
+        childRT.pivot.set(0.5, 0.5);
+        childRT.anchoredPosition.set(50, 0);   // 50 to the right of the parent
+        childRT.sizeDelta.set(10, 10);
+
+        expect(childRT.getScreenRect(new Rect()).x + 5).toBeCloseTo(450);
+
+        // Turning the parent a quarter turn clockwise swings the child below it.
+        rt.localRotation = 90;
+        const swung = childRT.getScreenRect(new Rect());
+        expect(swung.x + 5).toBeCloseTo(400);
+        expect(swung.y + 5).toBeCloseTo(350);
+
+        expect(canvas).toBeTruthy();
+    });
+
+    test("canvasToLocalPoint inverts the transform", () => {
+        const { rt } = makeElement();
+        rt.localRotation = 30;
+        rt.localScale.set(2, 2);
+
+        const corners = rt.getWorldCorners();
+        const local = new Vector2();
+
+        expect(rt.canvasToLocalPoint(corners[0].x, corners[0].y, local)).toBe(true);
+        expect(local.x).toBeCloseTo(-50);
+        expect(local.y).toBeCloseTo(-50);
+    });
+
+    test("a degenerate scale reports no local point rather than NaN", () => {
+        const { rt } = makeElement();
+        rt.localScale.set(0, 0);
+        expect(rt.canvasToLocalPoint(400, 300, new Vector2())).toBe(false);
+    });
+
+    test("a pure rotation still marks the canvas for repaint", () => {
+        const { canvas, rt } = makeElement();
+        rt.gameObject.addComponent(UIImage);
+
+        canvas._prepare();
+        expect(canvas._prepare()).toBe(false);
+
+        // Bounds barely move for a square turned 90 degrees; the transform must
+        // be part of the change hash or the repaint would be skipped.
+        rt.localRotation = 90;
+        expect(canvas._prepare()).toBe(true);
     });
 });
 
@@ -1013,6 +1183,37 @@ describe("EventSystem multi-touch", () => {
         button.mockReturnValue(false);
         EventSystem._update();
         expect(clicked).toBe(1);
+    });
+
+    test("hit-testing follows a rotated button, not its bounding box", () => {
+        const bar = new GameObject("Bar").addComponent(Button);
+        const rt = bar.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0.5, 0.5);
+        rt.anchoredPosition.set(400, 300);
+        rt.sizeDelta.set(200, 20);          // a wide, thin horizontal bar
+
+        // Lying flat, a point out along its length hits.
+        touches = [touch(1, 480, 300, TouchPhase.Began)];
+        EventSystem._update();
+        expect(bar.state).toBe(ButtonState.Pressed);
+
+        // 45 degrees, deliberately not a quarter turn: a rectangle rotated by a
+        // multiple of 90 stays axis-aligned, so its bounding box still matches
+        // it exactly and a bounds-only hit-test would pass by luck.
+        rt.localRotation = 45;
+
+        // Well inside the (now much larger) bounding box, but off the bar's
+        // narrow diagonal band. Only the inverse transform rejects this.
+        touches = [touch(2, 470, 230, TouchPhase.Began)];
+        EventSystem._update();
+        expect(bar.state).toBe(ButtonState.Normal);
+
+        // On the band, out along its new diagonal.
+        touches = [touch(3, 456, 356, TouchPhase.Began)];
+        EventSystem._update();
+        expect(bar.state).toBe(ButtonState.Pressed);
     });
 
     test("getPointerPosition writes into the supplied vector", () => {

@@ -16,6 +16,8 @@ let _CanvasCtor: CanvasCtor | null = null;
 /** Depth cap for the ancestor walk — guards against pathological hierarchies. */
 const MAX_RECT_DEPTH = 64;
 
+const DEG_TO_RAD = Math.PI / 180;
+
 /**
  * Defines the 2D layout rectangle for a UI element.
  *
@@ -95,6 +97,29 @@ export class RectTransform extends Component {
      */
     public pivot: Vector2 = new Vector2(0.5, 0.5);
 
+    /**
+     * Rotation about the {@link pivot}, in degrees.
+     *
+     * @remarks
+     * Because Y points down, a **positive angle turns clockwise** on screen —
+     * the inverse of Unity, and the same direction the 2D canvas context uses.
+     *
+     * Rotation and scale live here rather than on the sibling {@link Transform}
+     * for two reasons: a UI element's 3D transform is meaningless (nothing reads
+     * it), and `Transform.localRotation` / `localScale` return clones, so
+     * reading them once per element per frame would allocate in the draw path.
+     */
+    public localRotation: number = 0;
+
+    /**
+     * Scale about the {@link pivot}, per axis. `(1, 1)` is unscaled.
+     *
+     * @remarks
+     * Scales the element and everything under it. Negative values mirror.
+     * See {@link localRotation} for why this is not `Transform.localScale`.
+     */
+    public localScale: Vector2 = new Vector2(1, 1);
+
     // ── ancestor-lookup cache ────────────────────────────────────────
     //
     // screenRect is read several times per frame per element (event hit-test,
@@ -130,9 +155,26 @@ export class RectTransform extends Component {
     // arithmetic at each level, and a rect is reused only when neither its own
     // inputs nor its parent's resolved rect moved.
 
-    private readonly _cachedRect: Rect = new Rect();
-    private readonly _cachedParent: Rect = new Rect();
-    private readonly _snapshot: Float64Array = new Float64Array(10);
+    /**
+     * The element's rect in its own local space, where the pivot sits at the
+     * origin: `(-pivot.x * w, -pivot.y * h, w, h)`.
+     */
+    private readonly _localRect: Rect = new Rect();
+
+    /**
+     * Local-to-canvas affine transform as `[a, b, c, d, e, f]`, applying
+     * `x' = a·x + c·y + e`, `y' = b·x + d·y + f` — the same layout the 2D
+     * context's `setTransform` takes.
+     */
+    private readonly _matrix: Float64Array = new Float64Array([1, 0, 0, 1, 0, 0]);
+
+    /** Axis-aligned bounds of the transformed rect, in canvas units. */
+    private readonly _aabb: Rect = new Rect();
+
+    private readonly _snapshot: Float64Array = new Float64Array(13);
+
+    /** Parent local rect (4) plus parent matrix (6), as last resolved against. */
+    private readonly _cachedParentState: Float64Array = new Float64Array(10);
     private _cacheValid: boolean = false;
 
     /**
@@ -140,10 +182,16 @@ export class RectTransform extends Component {
      *
      * @remarks
      * Only the deepest frame of the recursion reaches the canvas/viewport root
-     * — every shallower frame gets its parent's own cached rect — and it reads
+     * — every shallower frame gets its parent's own local rect — and it reads
      * the scratch before returning, so one instance is enough.
      */
     private static readonly _rootScratch: Rect = new Rect();
+
+    /** The root's local-to-canvas transform: the canvas is the identity frame. */
+    private static readonly _identity: Float64Array = new Float64Array([1, 0, 0, 1, 0, 0]);
+
+    /** Scratch for corner transforms, so the AABB pass allocates nothing. */
+    private static readonly _corners: Float64Array = new Float64Array(8);
 
     constructor(gameObject: GameObject) {
         super(gameObject);
@@ -207,20 +255,116 @@ export class RectTransform extends Component {
      * The computed screen-space rectangle of this element, in canvas units.
      * Origin is the top-left of the viewport / parent Canvas.
      *
+     * @remarks
+     * When the element (or an ancestor) is rotated, this is the **axis-aligned
+     * bounding box** of the rotated rect. Use {@link getWorldCorners} for the
+     * true quad.
+     *
      * WARNING: allocates a new Rect. Use {@link getScreenRect} in hot paths.
      */
     public get screenRect(): Rect {
-        return new Rect().copy(this._resolve(0));
+        return this.getScreenRect(new Rect());
     }
 
     /**
      * Writes the computed screen-space rectangle into `out`, without allocating.
      *
+     * @remarks
+     * Axis-aligned bounds when rotated — see {@link screenRect}.
+     *
      * @param out - rect to receive the result; a new one is allocated if omitted.
      * @returns `out` (or the newly allocated rect) for chaining.
      */
     public getScreenRect(out?: Rect): Rect {
-        return (out ?? new Rect()).copy(this._resolve(0));
+        this._resolve(0);
+        return (out ?? new Rect()).copy(this._aabb);
+    }
+
+    /**
+     * Writes this element's rect in its own local space into `out`.
+     *
+     * @remarks
+     * The pivot sits at the local origin, so the rect runs from
+     * `-pivot * size` to `(1 - pivot) * size`. This is the space
+     * {@link UIBehaviour._draw} draws in.
+     *
+     * @param out - rect to receive the result; a new one is allocated if omitted.
+     * @returns `out` (or the newly allocated rect) for chaining.
+     */
+    public getLocalRect(out?: Rect): Rect {
+        this._resolve(0);
+        return (out ?? new Rect()).copy(this._localRect);
+    }
+
+    /**
+     * Writes the element's four corners in canvas units into `out`.
+     *
+     * @remarks
+     * Order is top-left, top-right, bottom-right, bottom-left *in the element's
+     * own space*, so a rotation moves them around the screen accordingly. The
+     * Y-down origin makes this the mirror of Unity's corner order.
+     *
+     * @param out - four vectors to receive the corners; allocated if omitted.
+     * @returns `out` (or the newly allocated array) for chaining.
+     */
+    public getWorldCorners(out?: Vector2[]): Vector2[] {
+        const result = out ?? [new Vector2(), new Vector2(), new Vector2(), new Vector2()];
+        this._resolve(0);
+
+        const r = this._localRect;
+        const x1 = r.x + r.width;
+        const y1 = r.y + r.height;
+
+        this._toCanvas(r.x, r.y, result[0]);
+        this._toCanvas(x1,  r.y, result[1]);
+        this._toCanvas(x1,  y1,  result[2]);
+        this._toCanvas(r.x, y1,  result[3]);
+        return result;
+    }
+
+    /**
+     * Converts a point in canvas units into this element's local space.
+     *
+     * @remarks
+     * The inverse of the element's transform, so it accounts for rotation and
+     * scale. Returns `false` for a degenerate transform (a zero scale), leaving
+     * `out` untouched — nothing can be hit through it.
+     *
+     * @param x - canvas-space X.
+     * @param y - canvas-space Y.
+     * @param out - vector to receive the local-space point.
+     * @returns whether the conversion was possible.
+     */
+    public canvasToLocalPoint(x: number, y: number, out: Vector2): boolean {
+        this._resolve(0);
+
+        const m = this._matrix;
+        const det = m[0] * m[3] - m[1] * m[2];
+        if (det === 0 || !Number.isFinite(det)) return false;
+
+        const dx = x - m[4];
+        const dy = y - m[5];
+        out.x = ( m[3] * dx - m[2] * dy) / det;
+        out.y = (-m[1] * dx + m[0] * dy) / det;
+        return true;
+    }
+
+    /** @internal The local-to-canvas affine transform `[a, b, c, d, e, f]`. */
+    public get _canvasMatrix(): Float64Array {
+        this._resolve(0);
+        return this._matrix;
+    }
+
+    /** @internal The local-space rect, resolved. Read it, never mutate it. */
+    public get _resolvedLocalRect(): Rect {
+        this._resolve(0);
+        return this._localRect;
+    }
+
+    /** @internal The canvas-space axis-aligned bounds, resolved. */
+    public get _resolvedBounds(): Rect {
+        this._resolve(0);
+        return this._aabb;
     }
 
     /**
@@ -242,38 +386,42 @@ export class RectTransform extends Component {
     // ── private ──────────────────────────────────────────────────────
 
     /**
-     * Resolves this element's screen rect, reusing the cached one when nothing
-     * that feeds it has changed.
-     *
-     * @returns the internal cached rect — callers copy out of it, never keep it.
+     * Resolves this element's local rect, canvas transform and bounds, reusing
+     * the cached ones when nothing that feeds them has changed.
      */
-    private _resolve(depth: number): Rect {
-        // Both of these run unconditionally. The inputs are public Vector2
-        // fields mutated in place, so there is no setter to hook: an ancestor
-        // that moved is only discoverable by walking up and checking. Skipping
-        // the walk on a frame counter would hand a child a stale rect the frame
-        // its parent moved.
+    private _resolve(depth: number): void {
+        // Both of these run unconditionally. The inputs are public fields
+        // mutated in place, so there is no setter to hook: an ancestor that
+        // moved is only discoverable by walking up and checking. Skipping the
+        // walk on a frame counter would hand a child a stale rect the frame its
+        // parent moved.
         const selfChanged = this._syncSnapshot();
-        const parentRect = this._parentRect(depth);
 
-        if (!selfChanged
-            && this._cacheValid
-            && this._cachedParent.x === parentRect.x
-            && this._cachedParent.y === parentRect.y
-            && this._cachedParent.width === parentRect.width
-            && this._cachedParent.height === parentRect.height) {
-            return this._cachedRect;
+        const prt = depth < MAX_RECT_DEPTH ? this.parentRectTransform : null;
+        let pRect: Rect;
+        let pMat: Float64Array;
+
+        if (prt) {
+            prt._resolve(depth + 1);
+            pRect = prt._localRect;
+            pMat = prt._matrix;
+        } else {
+            pRect = this._rootRect();
+            pMat = RectTransform._identity;
         }
 
-        this._cachedParent.copy(parentRect);
+        if (!selfChanged && this._cacheValid && this._parentStateUnchanged(pRect, pMat)) {
+            return;
+        }
+        this._storeParentState(pRect, pMat);
 
-        const pw = parentRect.width;
-        const ph = parentRect.height;
+        const pw = pRect.width;
+        const ph = pRect.height;
 
-        const aLeft   = parentRect.x + this.anchorMin.x * pw;
-        const aTop    = parentRect.y + this.anchorMin.y * ph;
-        const aRight  = parentRect.x + this.anchorMax.x * pw;
-        const aBottom = parentRect.y + this.anchorMax.y * ph;
+        const aLeft   = pRect.x + this.anchorMin.x * pw;
+        const aTop    = pRect.y + this.anchorMin.y * ph;
+        const aRight  = pRect.x + this.anchorMax.x * pw;
+        const aBottom = pRect.y + this.anchorMax.y * ph;
 
         const aW = aRight - aLeft;
         const aH = aBottom - aTop;
@@ -281,14 +429,94 @@ export class RectTransform extends Component {
         const w = aW + this.sizeDelta.x;
         const h = aH + this.sizeDelta.y;
 
-        const out = this._cachedRect;
-        out.x = aLeft + aW * 0.5 + this.anchoredPosition.x - this.pivot.x * w;
-        out.y = aTop  + aH * 0.5 + this.anchoredPosition.y - this.pivot.y * h;
-        out.width  = w;
-        out.height = h;
+        // The pivot is the element's origin, so the local rect straddles it and
+        // rotation and scale act about it for free.
+        this._localRect.set(-this.pivot.x * w, -this.pivot.y * h, w, h);
 
+        // Where the pivot lands in the parent's local space.
+        const px = aLeft + aW * 0.5 + this.anchoredPosition.x;
+        const py = aTop  + aH * 0.5 + this.anchoredPosition.y;
+
+        const rad = this.localRotation * DEG_TO_RAD;
+        const cos = rad === 0 ? 1 : Math.cos(rad);
+        const sin = rad === 0 ? 0 : Math.sin(rad);
+        const sx = this.localScale.x;
+        const sy = this.localScale.y;
+
+        // local = T(pivot position) · R(angle) · S(scale)
+        const la = cos * sx;
+        const lb = sin * sx;
+        const lc = -sin * sy;
+        const ld = cos * sy;
+
+        // canvas = parent · local
+        const m = this._matrix;
+        m[0] = pMat[0] * la + pMat[2] * lb;
+        m[1] = pMat[1] * la + pMat[3] * lb;
+        m[2] = pMat[0] * lc + pMat[2] * ld;
+        m[3] = pMat[1] * lc + pMat[3] * ld;
+        m[4] = pMat[0] * px + pMat[2] * py + pMat[4];
+        m[5] = pMat[1] * px + pMat[3] * py + pMat[5];
+
+        this._updateBounds();
         this._cacheValid = true;
-        return out;
+    }
+
+    /** Recomputes the canvas-space AABB from the local rect and the matrix. */
+    private _updateBounds(): void {
+        const r = this._localRect;
+        const m = this._matrix;
+        const x1 = r.x + r.width;
+        const y1 = r.y + r.height;
+
+        // No rotation and no skew: the transformed rect is still axis-aligned,
+        // which is the overwhelmingly common case.
+        if (m[1] === 0 && m[2] === 0) {
+            const ax = m[0] * r.x + m[4];
+            const ay = m[3] * r.y + m[5];
+            const bx = m[0] * x1 + m[4];
+            const by = m[3] * y1 + m[5];
+            this._aabb.set(
+                Math.min(ax, bx), Math.min(ay, by),
+                Math.abs(bx - ax), Math.abs(by - ay),
+            );
+            return;
+        }
+
+        const c = RectTransform._corners;
+        c[0] = m[0] * r.x + m[2] * r.y + m[4]; c[1] = m[1] * r.x + m[3] * r.y + m[5];
+        c[2] = m[0] * x1  + m[2] * r.y + m[4]; c[3] = m[1] * x1  + m[3] * r.y + m[5];
+        c[4] = m[0] * x1  + m[2] * y1  + m[4]; c[5] = m[1] * x1  + m[3] * y1  + m[5];
+        c[6] = m[0] * r.x + m[2] * y1  + m[4]; c[7] = m[1] * r.x + m[3] * y1  + m[5];
+
+        let minX = c[0], maxX = c[0], minY = c[1], maxY = c[1];
+        for (let i = 2; i < 8; i += 2) {
+            if (c[i] < minX) minX = c[i]; else if (c[i] > maxX) maxX = c[i];
+            if (c[i + 1] < minY) minY = c[i + 1]; else if (c[i + 1] > maxY) maxY = c[i + 1];
+        }
+        this._aabb.set(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    /** Maps a local-space point into canvas units. */
+    private _toCanvas(x: number, y: number, out: Vector2): void {
+        const m = this._matrix;
+        out.x = m[0] * x + m[2] * y + m[4];
+        out.y = m[1] * x + m[3] * y + m[5];
+    }
+
+    private _parentStateUnchanged(pRect: Rect, pMat: Float64Array): boolean {
+        const s = this._cachedParentState;
+        return s[0] === pRect.x && s[1] === pRect.y
+            && s[2] === pRect.width && s[3] === pRect.height
+            && s[4] === pMat[0] && s[5] === pMat[1] && s[6] === pMat[2]
+            && s[7] === pMat[3] && s[8] === pMat[4] && s[9] === pMat[5];
+    }
+
+    private _storeParentState(pRect: Rect, pMat: Float64Array): void {
+        const s = this._cachedParentState;
+        s[0] = pRect.x; s[1] = pRect.y; s[2] = pRect.width; s[3] = pRect.height;
+        s[4] = pMat[0]; s[5] = pMat[1]; s[6] = pMat[2];
+        s[7] = pMat[3]; s[8] = pMat[4]; s[9] = pMat[5];
     }
 
     /**
@@ -308,10 +536,14 @@ export class RectTransform extends Component {
             && s[2] === sd.x && s[3] === sd.y
             && s[4] === lo.x && s[5] === lo.y
             && s[6] === hi.x && s[7] === hi.y
-            && s[8] === pv.x && s[9] === pv.y) {
+            && s[8] === pv.x && s[9] === pv.y
+            && s[10] === this.localRotation
+            && s[11] === this.localScale.x && s[12] === this.localScale.y) {
             return false;
         }
 
+        s[10] = this.localRotation;
+        s[11] = this.localScale.x; s[12] = this.localScale.y;
         s[0] = ap.x; s[1] = ap.y;
         s[2] = sd.x; s[3] = sd.y;
         s[4] = lo.x; s[5] = lo.y;
@@ -328,16 +560,18 @@ export class RectTransform extends Component {
      * the canvas/viewport root needs scratch, and only the deepest frame of a
      * resolve chain ever reaches it.
      */
-    private _parentRect(depth: number): Rect {
-        if (depth < MAX_RECT_DEPTH) {
-            const prt = this.parentRectTransform;
-            if (prt) return prt._resolve(depth + 1);
-        }
-
-        // The owning canvas defines the root rect. Note `canvas` starts its walk
-        // at this GameObject, so a Canvas on this very object is picked up too.
-        // A resize shows up as a different root rect, which the caller's
-        // `_cachedParent` comparison catches — no separate invalidation needed.
+    /**
+     * The rect a root-level element is laid out against, in canvas units.
+     *
+     * @remarks
+     * The canvas is the identity frame, so its rect doubles as both the local
+     * and the canvas-space one. A resize shows up as a different root rect,
+     * which the caller's parent-state comparison catches — no separate
+     * invalidation hook is needed.
+     */
+    private _rootRect(): Rect {
+        // Note `canvas` starts its walk at this GameObject, so a Canvas on this
+        // very object is picked up too.
         const canvas = this.canvas;
         if (canvas) {
             return RectTransform._rootScratch.set(0, 0, canvas.width, canvas.height);

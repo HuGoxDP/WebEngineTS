@@ -6,8 +6,9 @@ document covers what round 2+ should be.
 
 Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see §8.
 
-**Status:** Stage 0 (§2 correctness + §3.1–3.3 coordinate-system docs + §4.2) and §4.1
-(resolved-rect cache) landed 2026-08-03. Next: §4.4 rotation/scale.
+**Status:** Stage 0 (§2 + §3.1–3.3 + §4.2), §4.1 (resolved-rect cache), §4.3 and §4.4
+(rotation/scale via a 2D affine pipeline) landed 2026-08-03. Next: §4.5 (rest of the
+RectTransform API) and §5.1 (`Selectable` + pointer/drag events).
 
 ---
 
@@ -18,7 +19,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Area | Present | Missing |
 |---|---|---|
 | Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate) | `WorldSpace` render mode, `CanvasGroup` |
-| Layout | `RectTransform` (anchors, pivot, sizeDelta) | rotation/scale, `offsetMin/Max`, `rect`, corners, presets, **all layout groups** |
+| Layout | `RectTransform` (anchors, pivot, sizeDelta, **rotation, scale, corners**) | `offsetMin/Max`, `rect`, presets, **all layout groups** |
 | Graphics | `UIImage` (solid/sprite/fill/radius), `UIText` (wrap, outline, align) | `Sprite` type, 9-slice, tiled, radial fill, auto-size, ellipsis, rich text |
 | Interaction | `Button`, `VirtualJoystick`, `EventSystem` (**multi-pointer**) | `Selectable`, `Slider`, `Toggle`, `ScrollRect`, `InputField`, drag/enter/exit events, keyboard nav |
 | Clipping | — | `RectMask2D` (nothing clips to parent bounds today) |
@@ -290,7 +291,21 @@ accept one frame of latency (invisible at 60 Hz, and the same latency Unity has)
 `_prepare` layout pass ahead of the event pass. Prefer the latter: it also makes hit-testing
 agree exactly with what was drawn.
 
-### 4.4 RectTransform rotation and scale — **P1, L**
+### 4.4 RectTransform rotation and scale — **DONE (2026-08-03)** ✅
+
+Shipped as designed below, with one deviation worth recording: `localRotation` (degrees,
+clockwise) and `localScale` (Vector2) live **on `RectTransform`**, not on the sibling
+`Transform`. Two reasons. A UI element's 3D transform is meaningless — nothing in the
+subsystem reads it — and `Transform.localRotation` / `localScale` / `localEulerAngles` all
+return clones, so reading them once per element per frame would allocate in the draw path.
+Keeping them as plain fields also lets them join the existing snapshot-based change
+detection for free.
+
+`§4.3` fell out of this for free: `Canvas._rects` is gone entirely, and both the paint loop
+and the `EventSystem` hit-test now read the RectTransform's own cached local rect, matrix
+and bounds.
+
+Original design, for reference:
 
 `Transform.localRotation` and `localScale` on a UI GameObject are **silently ignored** —
 verified, zero references to either in `src/engine/core/ui/`. That blocks: any UI animation
@@ -500,8 +515,8 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~2.5~~ | ~~Multi-touch pointer routing~~ | **done** | M | — |
 | ~~3.3~~ | ~~Canonical coordinate-system doc~~ (in `CLAUDE.md`) | **done** | XS | — |
 | ~~4.1~~ | ~~Resolved-rect cache~~ (constant-factor; see §4.1) | **done** | M | — |
-| 4.3 | Share resolved rects with `EventSystem` — largely subsumed by 4.1 | P2 | XS | — |
-| 4.4 | RectTransform rotation + scale | P1 | L | 4.1 ✅ |
+| ~~4.3~~ | ~~Share resolved rects with `EventSystem`~~ (both read the RectTransform cache) | **done** | XS | — |
+| ~~4.4~~ | ~~RectTransform rotation + scale~~ | **done** | L | — |
 | 4.5 | Full RectTransform API surface | P1 | M | 4.4 |
 | 4.6 | Layout groups + size protocol | P1 | L | 6.3a |
 | 4.7 | `CanvasGroup` | P1 | S | 4.4 |

@@ -1,6 +1,5 @@
 import { Input } from "../Input";
 import { Vector2 } from "../math/Vector2";
-import { Rect } from "../math/Rect";
 import { Touch, TouchPhase } from "../input/Touch";
 import { Canvas } from "./Canvas";
 import { Button, ButtonState } from "./Button";
@@ -62,8 +61,8 @@ export class EventSystem {
     private static readonly _hovered: Set<Button> = new Set();
     private static readonly _held: Set<Button> = new Set();
 
-    private static readonly _scratchRect: Rect = new Rect();
     private static readonly _canvasPoint: Vector2 = new Vector2();
+    private static readonly _localPoint: Vector2 = new Vector2();
     private static readonly _screenPoint: Vector2 = new Vector2();
     private static readonly _pointerPoint: Vector2 = new Vector2();
 
@@ -266,9 +265,18 @@ export class EventSystem {
                 const g = graphics[gi];
                 if (!g.isActiveAndEnabled || !g.raycastTarget) continue;
 
-                g.rectTransform.getScreenRect(EventSystem._scratchRect);
+                const rt = g.rectTransform;
                 const p = EventSystem._canvasPoint;
-                if (!g._hitTest(p.x, p.y, EventSystem._scratchRect)) continue;
+
+                // Bounds first: a cheap reject for the many elements the pointer
+                // is nowhere near, before inverting the transform.
+                if (!rt._resolvedBounds.contains(p)) continue;
+
+                // The pointer moves into the element's own space, so a rotated
+                // or scaled element is hit exactly where it is drawn.
+                const local = EventSystem._localPoint;
+                if (!rt.canvasToLocalPoint(p.x, p.y, local)) continue;
+                if (!g._hitTest(local.x, local.y, rt._resolvedLocalRect)) continue;
 
                 EventSystem._pointerOverUI = true;
                 return EventSystem._findButton(g.gameObject);
@@ -278,11 +286,16 @@ export class EventSystem {
         // Buttons with no Canvas ancestor are still hit-tested in screen space.
         for (const btn of EventSystem._buttons) {
             if (!btn.isActiveAndEnabled || btn.canvas !== null) continue;
-            btn.rectTransform.getScreenRect(EventSystem._scratchRect);
-            if (EventSystem._scratchRect.contains(screen)) {
-                EventSystem._pointerOverUI = true;
-                return btn;
-            }
+
+            const rt = btn.rectTransform;
+            if (!rt._resolvedBounds.contains(screen)) continue;
+
+            const local = EventSystem._localPoint;
+            if (!rt.canvasToLocalPoint(screen.x, screen.y, local)) continue;
+            if (!btn._hitTest(local.x, local.y, rt._resolvedLocalRect)) continue;
+
+            EventSystem._pointerOverUI = true;
+            return btn;
         }
 
         return null;

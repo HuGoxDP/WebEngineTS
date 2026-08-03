@@ -116,11 +116,14 @@ export abstract class UIBehaviour extends Behaviour {
      * @internal
      * Called by the Canvas each frame to draw this element.
      *
-     * Coordinates are canvas units; the context is already scaled to device
-     * pixels and wrapped in `save()`/`restore()`.
+     * Coordinates are canvas units in the element's **local space**, where the
+     * pivot is the origin — so `rect.x` is `-pivot.x * width`, not a screen
+     * position. The context arrives already scaled to device pixels, already
+     * carrying the element's rotation and scale, and wrapped in
+     * `save()`/`restore()`, so drawing at `rect` is all a component has to do.
      *
-     * @param rect - the element's resolved layout rect. Shared scratch owned by
-     *               the Canvas: read it, never store it.
+     * @param rect - the element's resolved local rect. Owned by its
+     *               RectTransform: read it, never store or mutate it.
      */
     public abstract _draw(ctx: CanvasRenderingContext2D, rect: Rect): void;
 
@@ -148,8 +151,12 @@ export abstract class UIBehaviour extends Behaviour {
 
     /**
      * @internal
-     * Tests a canvas-space point against this element's interactive shape.
-     * Defaults to the layout rect; override for non-rectangular controls.
+     * Tests a point against this element's interactive shape.
+     *
+     * Both the point and the rect are in the element's local space, the same
+     * space {@link _draw} paints in, so an override never has to think about
+     * the element's rotation or scale. Defaults to the layout rect; override
+     * for non-rectangular controls.
      */
     public _hitTest(x: number, y: number, rect: Rect): boolean {
         return x >= rect.x && x <= rect.x + rect.width

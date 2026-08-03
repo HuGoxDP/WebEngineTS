@@ -115,8 +115,10 @@ export class VirtualJoystick extends UIBehaviour {
         if (!canvas) return;
 
         // Layout is resolved here rather than at draw time so the stick keeps
-        // tracking on frames where the canvas skips its repaint.
-        const rect = this.rectTransform.getScreenRect(VirtualJoystick._scratch);
+        // tracking on frames where the canvas skips its repaint. Everything runs
+        // in the element's local space, which is where `_draw` paints and where
+        // rotation and scale of the joystick (or a parent) are already folded in.
+        const rect = this.rectTransform.getLocalRect(VirtualJoystick._scratch);
         const cx = rect.x + rect.width  * 0.5;
         const cy = rect.y + rect.height * 0.5;
         const baseR = Math.min(rect.width, rect.height) * 0.5;
@@ -185,7 +187,7 @@ export class VirtualJoystick extends UIBehaviour {
 
     /**
      * Finds the pointer driving this joystick and writes it into
-     * {@link VirtualJoystick._pointer} in canvas units.
+     * {@link VirtualJoystick._pointer} in this element's local space.
      */
     private _firstActivePointer(canvas: Canvas, cx: number, cy: number, baseR: number): boolean {
         const out = VirtualJoystick._pointer;
@@ -194,15 +196,14 @@ export class VirtualJoystick extends UIBehaviour {
         if (this._activeTouchId !== -1) {
             const t = Touch.touches.find(x => x.id === this._activeTouchId);
             if (t && t.phase !== TouchPhase.Ended && t.phase !== TouchPhase.Canceled) {
-                canvas.screenToCanvasPoint(t.position, out);
-                return true;
+                if (this._toLocal(canvas, t.position, out)) return true;
             }
             this._activeTouchId = -1;
         }
 
         for (const t of Touch.touches) {
             if (t.phase !== TouchPhase.Began) continue;
-            canvas.screenToCanvasPoint(t.position, out);
+            if (!this._toLocal(canvas, t.position, out)) continue;
             const dx = out.x - cx;
             const dy = out.y - cy;
             if (dx * dx + dy * dy <= baseR * baseR) {
@@ -212,12 +213,18 @@ export class VirtualJoystick extends UIBehaviour {
         }
 
         if (Input.getMouseButton(0)) {
-            canvas.screenToCanvasPoint(Input.mousePosition, out);
+            if (!this._toLocal(canvas, Input.mousePosition, out)) return false;
             const dx = out.x - cx;
             const dy = out.y - cy;
             if (dx * dx + dy * dy <= baseR * baseR || this._pressed) return true;
         }
 
         return false;
+    }
+
+    /** Screen point → canvas units → this element's local space. */
+    private _toLocal(canvas: Canvas, screenPoint: Vector2, out: Vector2): boolean {
+        canvas.screenToCanvasPoint(screenPoint, out);
+        return this.rectTransform.canvasToLocalPoint(out.x, out.y, out);
     }
 }
