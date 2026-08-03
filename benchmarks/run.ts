@@ -114,7 +114,7 @@ function downloadBaseName(result: BenchmarkResult): string {
         if (scene === "1") {
             parts.push(`N${qp("count", "1000")}`);
             if (qp("instanced", "0") === "1") parts.push("instanced");
-            parts.push(qp("dirty", "1") === "1" ? "dirtyOn" : "dirtyOff");
+            parts.push(qp("dirty", "0") === "1" ? "dirtyOn" : "dirtyOff");
         } else if (scene === "2") {
             parts.push(`tris${qp("tris", "434000")}`);
         }
@@ -124,7 +124,7 @@ function downloadBaseName(result: BenchmarkResult): string {
     if (qp("relArc", "0") === "1") parts.push("relArc");
     if (qp("relSrc", "0") === "1") parts.push("relSrc");
     if (qp("ktx2", "0") === "1") parts.push("ktx2");
-    parts.push(qp("shaderWarmup", "1") === "1" ? "warm" : "nowarm");
+    parts.push(qp("shaderWarmup", "0") === "1" ? "warm" : "nowarm");
     if (qp("cold", "0") === "1") parts.push("cold");
 
     parts.push(gpuTag(result.gpu));
