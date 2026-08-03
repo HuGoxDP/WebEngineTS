@@ -8,7 +8,7 @@ import { ToggleGroup } from "../src/engine/core/ui/ToggleGroup";
 import { Input } from "../src/engine/core/Input";
 import { Touch, TouchInfo, TouchPhase } from "../src/engine/core/input/Touch";
 import { Button, ButtonState } from "../src/engine/core/ui/Button";
-import { TextAlignment, UIText, VerticalAlignment } from "../src/engine/core/ui/UIText";
+import { TextAlignment, TextOverflow, UIText, VerticalAlignment } from "../src/engine/core/ui/UIText";
 import { ImageFillMethod, ImageFillOrigin, UIImage } from "../src/engine/core/ui/UIImage";
 import {
     CanvasPhysicalUnit,
@@ -2159,5 +2159,158 @@ describe("ToggleGroup", () => {
         // No longer a member, so the group cannot switch it off.
         expect(a.isOn).toBe(true);
         expect(group.members).not.toContain(a);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// UIText measurement and overflow
+//
+// The mock context measures 10 units per character, so widths are exact and
+// readable: "abc" is 30 wide.
+// ---------------------------------------------------------------------------
+
+describe("UIText measurement", () => {
+    beforeEach(() => Canvas._reset());
+    afterEach(() => {
+        UIText._setMeasureContext(undefined);
+        vi.restoreAllMocks();
+        Canvas._reset();
+    });
+
+    function makeLabel(): UIText {
+        return new GameObject("Label").addComponent(UIText);
+    }
+
+    test("preferredWidth is the widest unwrapped line", () => {
+        UIText._setMeasureContext(makeContext().ctx);
+        const t = makeLabel();
+        t.text = "abc\nabcdefgh\nab";
+
+        expect(t.preferredWidth).toBeCloseTo(80);
+    });
+
+    test("preferredWidth is zero without a measuring context", () => {
+        UIText._setMeasureContext(null);
+        const t = makeLabel();
+        t.text = "abcdef";
+
+        expect(t.preferredWidth).toBe(0);
+    });
+
+    test("getPreferredHeight grows as the width shrinks", () => {
+        UIText._setMeasureContext(makeContext().ctx);
+        const t = makeLabel();
+        t.text = "aaa bbb ccc ddd";
+        t.fontSize = 10;
+        t.lineHeight = 1;
+        t.wordWrap = true;
+
+        const wide = t.getPreferredHeight(1000);
+        const narrow = t.getPreferredHeight(70);
+
+        expect(wide).toBeCloseTo(10);
+        expect(narrow).toBeGreaterThan(wide);
+    });
+
+    test("an empty label prefers nothing", () => {
+        UIText._setMeasureContext(makeContext().ctx);
+        const t = makeLabel();
+        t.text = "";
+
+        expect(t.preferredWidth).toBe(0);
+        expect(t.getPreferredHeight(100)).toBe(0);
+    });
+});
+
+describe("UIText overflow", () => {
+    function makeLabel(): UIText {
+        const t = new GameObject("Label").addComponent(UIText);
+        t.fontSize = 10;
+        t.lineHeight = 1;
+        return t;
+    }
+
+    test("a word wider than the rect is broken between characters", () => {
+        const m = makeContext();
+        const t = makeLabel();
+        t.text = "aaaaaaaaaa";      // 100 wide against a 50-wide rect
+        t.wordWrap = true;
+
+        t._draw(m.ctx, new Rect(0, 0, 50, 200));
+
+        expect(m.texts.length).toBeGreaterThan(1);
+        expect(m.texts.join("")).toBe("aaaaaaaaaa");
+    });
+
+    test("Clip stops at the last line that fits", () => {
+        const m = makeContext();
+        const t = makeLabel();
+        t.text = "one\ntwo\nthree\nfour";
+        t.wordWrap = false;
+        t.overflow = TextOverflow.Clip;
+
+        // Room for two 10-unit lines.
+        t._draw(m.ctx, new Rect(0, 0, 200, 20));
+
+        expect(m.texts).toEqual(["one", "two"]);
+    });
+
+    test("Overflow draws every line regardless of the rect", () => {
+        const m = makeContext();
+        const t = makeLabel();
+        t.text = "one\ntwo\nthree\nfour";
+        t.wordWrap = false;
+        t.overflow = TextOverflow.Overflow;
+
+        t._draw(m.ctx, new Rect(0, 0, 200, 20));
+
+        expect(m.texts).toEqual(["one", "two", "three", "four"]);
+    });
+
+    test("Ellipsis marks the last visible line when more follow", () => {
+        const m = makeContext();
+        const t = makeLabel();
+        t.text = "one\ntwo\nthree\nfour";
+        t.wordWrap = false;
+        t.overflow = TextOverflow.Ellipsis;
+
+        t._draw(m.ctx, new Rect(0, 0, 200, 20));
+
+        expect(m.texts.length).toBe(2);
+        expect(m.texts[0]).toBe("one");
+        expect(m.texts[1].endsWith("…")).toBe(true);
+    });
+
+    test("Ellipsis leaves fully visible text untouched", () => {
+        const m = makeContext();
+        const t = makeLabel();
+        t.text = "one\ntwo";
+        t.wordWrap = false;
+        t.overflow = TextOverflow.Ellipsis;
+
+        t._draw(m.ctx, new Rect(0, 0, 200, 100));
+
+        expect(m.texts).toEqual(["one", "two"]);
+    });
+
+    test("Ellipsis truncates a too-wide line when wrapping is off", () => {
+        const m = makeContext();
+        const t = makeLabel();
+        t.text = "abcdefghij";        // 100 wide
+        t.wordWrap = false;
+        t.overflow = TextOverflow.Ellipsis;
+
+        t._draw(m.ctx, new Rect(0, 0, 50, 100));
+
+        expect(m.texts.length).toBe(1);
+        expect(m.texts[0].endsWith("…")).toBe(true);
+        expect(m.texts[0].length).toBeLessThan(t.text.length);
+    });
+
+    test("the visual hash tracks the overflow mode", () => {
+        const t = makeLabel();
+        const before = t._visualHash();
+        t.overflow = TextOverflow.Ellipsis;
+        expect(t._visualHash()).not.toBe(before);
     });
 });

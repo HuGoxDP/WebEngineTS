@@ -18,6 +18,41 @@ export enum VerticalAlignment {
     Bottom = "bottom",
 }
 
+/** What happens to text that does not fit its rect. */
+export enum TextOverflow {
+    /** Draw every line, even past the bottom edge. */
+    Overflow = "Overflow",
+    /** Stop at the last line that fits completely. */
+    Clip = "Clip",
+    /**
+     * Like {@link Clip}, but the last drawn line ends in an ellipsis, and with
+     * {@link UIText.wordWrap} off each line is truncated to the rect width.
+     */
+    Ellipsis = "Ellipsis",
+}
+
+/** The character appended when text is elided. */
+const ELLIPSIS = "…";
+
+/**
+ * A context used only to measure text outside of a paint.
+ *
+ * @remarks
+ * `preferredWidth` has to answer before the canvas has drawn anything — a
+ * layout pass runs first — so measurement cannot borrow the paint context.
+ * `undefined` means "not looked up yet"; `null` means there is no DOM.
+ */
+let _measureCtx: CanvasRenderingContext2D | null | undefined;
+
+function measureContext(): CanvasRenderingContext2D | null {
+    if (_measureCtx === undefined) {
+        _measureCtx = typeof document !== "undefined"
+            ? document.createElement("canvas").getContext("2d")
+            : null;
+    }
+    return _measureCtx;
+}
+
 /**
  * Renders text inside a RectTransform using the Canvas 2D API.
  *
@@ -75,6 +110,73 @@ export class UIText extends UIBehaviour {
     /** Outline color, used when {@link outlineWidth} is greater than zero. */
     public outlineColor: Color = new Color(0, 0, 0, 1);
 
+    /**
+     * What to do with text that does not fit the rect.
+     *
+     * @default TextOverflow.Clip
+     */
+    public overflow: TextOverflow = TextOverflow.Clip;
+
+    /**
+     * Width in canvas units this label would like, ignoring its current rect.
+     *
+     * @remarks
+     * The widest line with no wrapping applied, which is what a layout group or
+     * a `ContentSizeFitter` sizes against. Returns `0` when no measuring context
+     * is available (no DOM), since guessing would silently produce a wrong
+     * layout rather than an obviously empty one.
+     */
+    public get preferredWidth(): number {
+        const ctx = measureContext();
+        if (!ctx || !this.text) return 0;
+
+        ctx.font = this._font();
+        let widest = 0;
+        for (const paragraph of this.text.split("\n")) {
+            const w = ctx.measureText(paragraph).width;
+            if (w > widest) widest = w;
+        }
+        return widest;
+    }
+
+    /**
+     * Height in canvas units this label would like at its current rect width.
+     *
+     * @remarks
+     * Equivalent to Unity's `Text.preferredHeight`. See
+     * {@link getPreferredHeight} to ask about a different width.
+     */
+    public get preferredHeight(): number {
+        return this.getPreferredHeight(this.rectTransform._resolvedLocalRect.width);
+    }
+
+    /**
+     * Height in canvas units this label needs if laid out at `width`.
+     *
+     * @param width - the width to wrap against, in canvas units.
+     * @returns the required height, or `0` without a measuring context.
+     */
+    public getPreferredHeight(width: number): number {
+        const ctx = measureContext();
+        if (!ctx || !this.text) return 0;
+
+        const font = this._font();
+        ctx.font = font;
+        const lines = this.wordWrap && width > 0
+            ? this._wrapText(ctx, this.text, width)
+            : this.text.split("\n");
+        return lines.length * this.fontSize * this.lineHeight;
+    }
+
+    /**
+     * @internal
+     * Overrides the context used for measurement. Exists so tests can measure
+     * deterministically without a DOM; pass `undefined` to restore the default.
+     */
+    public static _setMeasureContext(ctx: CanvasRenderingContext2D | null | undefined): void {
+        _measureCtx = ctx;
+    }
+
     /** Cached wrap result, keyed by the inputs that can change it. */
     private _lines: string[] = [];
     private _cacheText: string | null = null;
@@ -108,10 +210,25 @@ export class UIText extends UIBehaviour {
         }
         ctx.fillStyle = cssColor(this.color);
 
+        const bottom = rect.y + rect.height;
+        const clips = this.overflow !== TextOverflow.Overflow;
+
         for (let i = 0; i < lines.length; i++) {
-            if (y + lineH > rect.y + rect.height) break;
-            if (stroke) ctx.strokeText(lines[i], x, y);
-            ctx.fillText(lines[i], x, y);
+            const lastVisible = clips && (i + 1 >= lines.length || y + lineH * 2 > bottom);
+            if (clips && y + lineH > bottom) break;
+
+            let line = lines[i];
+            if (this.overflow === TextOverflow.Ellipsis) {
+                // Either there are lines below that will not be drawn, or this
+                // one runs off the side because wrapping is off.
+                const cutShort = lastVisible && i + 1 < lines.length;
+                const tooWide = !this.wordWrap
+                    && ctx.measureText(line).width > rect.width;
+                if (cutShort || tooWide) line = UIText._elide(ctx, line, rect.width);
+            }
+
+            if (stroke) ctx.strokeText(line, x, y);
+            ctx.fillText(line, x, y);
             y += lineH;
         }
     }
@@ -128,6 +245,7 @@ export class UIText extends UIBehaviour {
         h = hashNumber(h, this.lineHeight);
         h = hashNumber(h, this.outlineWidth);
         h = hashColor(h, this.outlineColor);
+        h = hashString(h, this.overflow);
         return hashNumber(h, fontGeneration());
     }
 
@@ -184,13 +302,62 @@ export class UIText extends UIBehaviour {
                 const test = line ? `${line} ${word}` : word;
                 if (ctx.measureText(test).width <= maxWidth) {
                     line = test;
+                    continue;
+                }
+
+                if (line) result.push(line);
+
+                // A single word wider than the rect has no space to break at,
+                // so it is split between characters rather than left to run off
+                // the edge. A long URL or a chemical formula does this.
+                if (ctx.measureText(word).width > maxWidth) {
+                    const chunks = UIText._breakWord(ctx, word, maxWidth);
+                    for (let i = 0; i < chunks.length - 1; i++) result.push(chunks[i]);
+                    line = chunks[chunks.length - 1];
                 } else {
-                    if (line) result.push(line);
                     line = word;
                 }
             }
             result.push(line);
         }
         return result;
+    }
+
+    /** Splits an over-wide word into chunks that each fit `maxWidth`. */
+    private static _breakWord(
+        ctx: CanvasRenderingContext2D,
+        word: string,
+        maxWidth: number,
+    ): string[] {
+        const chunks: string[] = [];
+        let chunk = "";
+
+        for (const ch of word) {
+            const test = chunk + ch;
+            if (chunk && ctx.measureText(test).width > maxWidth) {
+                chunks.push(chunk);
+                chunk = ch;
+            } else {
+                chunk = test;
+            }
+        }
+
+        chunks.push(chunk);
+        return chunks;
+    }
+
+    /** Trims a line until it plus an ellipsis fits `maxWidth`. */
+    private static _elide(
+        ctx: CanvasRenderingContext2D,
+        line: string,
+        maxWidth: number,
+    ): string {
+        if (ctx.measureText(line + ELLIPSIS).width <= maxWidth) return line + ELLIPSIS;
+
+        let text = line;
+        while (text.length > 0 && ctx.measureText(text + ELLIPSIS).width > maxWidth) {
+            text = text.slice(0, -1);
+        }
+        return text + ELLIPSIS;
     }
 }

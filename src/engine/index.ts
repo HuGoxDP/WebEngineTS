@@ -253,7 +253,7 @@ export {
 } from "./core/ui/RectTransform";
 export { UIBehaviour } from "./core/ui/UIBehaviour";
 export { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
-export { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
+export { UIText, TextAlignment, VerticalAlignment, TextOverflow } from "./core/ui/UIText";
 export { Button, ButtonState } from "./core/ui/Button";
 export { VirtualJoystick } from "./core/ui/VirtualJoystick";
 export { Slider, SliderDirection } from "./core/ui/Slider";
@@ -421,7 +421,7 @@ import {
 } from "./core/ui/RectTransform";
 import { UIBehaviour } from "./core/ui/UIBehaviour";
 import { UIImage, ImageFillMethod, ImageFillOrigin } from "./core/ui/UIImage";
-import { UIText, TextAlignment, VerticalAlignment } from "./core/ui/UIText";
+import { UIText, TextAlignment, VerticalAlignment, TextOverflow } from "./core/ui/UIText";
 import { Button, ButtonState } from "./core/ui/Button";
 import { VirtualJoystick } from "./core/ui/VirtualJoystick";
 import { Slider, SliderDirection } from "./core/ui/Slider";
@@ -536,7 +536,7 @@ const WebEngineTS = {
     RectTransform, RectTransformAxis, RectTransformEdge,
     CanvasScaler, CanvasScaleMode, ScreenMatchMode, CanvasPhysicalUnit,
     UIImage, ImageFillMethod, ImageFillOrigin,
-    UIText, TextAlignment, VerticalAlignment,
+    UIText, TextAlignment, VerticalAlignment, TextOverflow,
     Button, ButtonState, EventSystem, VirtualJoystick,
     UIEvent, PointerEventData,
     Slider, SliderDirection, Toggle, ToggleGroup,
