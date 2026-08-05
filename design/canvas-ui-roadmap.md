@@ -12,8 +12,8 @@ surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout group
 `ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup` — followed by the control
 library (`RectMask2D`, `ScrollRect`, `Scrollbar`, `Sprite`/9-slice, `Dropdown`, radial fill,
 `Selectable` transitions + focus, keyboard navigation). §4.8, `AspectRatioFitter` and §6.4
-(`WorldSpace`, projected) landed 2026-08-05.
-Next: §6.1 dirty-rect partial repaint, or §6.2 the shared tint cache.
+(`WorldSpace`, projected) and §6.2 (shared tint cache) landed 2026-08-05.
+Next: §6.1 dirty-rect partial repaint.
 
 ---
 
@@ -483,13 +483,36 @@ redraw only intersecting graphics. Needs §4.1's per-element change detection to
 those are. Alternative with less machinery: split static and dynamic elements across two
 stacked canvases — but that doubles backing-store memory (§4.8), so measure first.
 
-### 6.2 Shared tint cache for `UIImage` — **P2, M**
+### 6.2 Shared tint cache for `UIImage` — **DONE (2026-08-05)** ✅
 
-`_buildTinted` (`UIImage.ts:218`) allocates a full-size offscreen canvas **per image
-instance**, and releases it only in `onDestroy` — twenty tinted copies of one icon means
-twenty full-resolution buffers held while disabled. Fix: a module-level cache keyed by
-(texture id, texture version, quantized color) with an LRU bound, or drop the pre-tint
-entirely in favour of compositing on the main canvas.
+`_buildTinted` allocated a full-size offscreen canvas **per image instance**, released only
+in `onDestroy` — twenty tinted copies of one icon meant twenty full-resolution buffers held
+while disabled.
+
+**Shipped:** `TintCache` (`ui/TintCache.ts`), a process-wide store keyed by (texture id,
+texture upload version, tint RGB) with a byte budget and LRU eviction
+(`UIImage.tintCacheBytes` / `tintCacheCount` / `tintCacheLimitBytes`, default 32 MB, plus
+`UIImage.clearTintCache()`). The alternative — dropping the pre-tint and compositing on the
+main canvas — was not taken: the 2D context cannot multiply a bitmap by a colour while
+drawing it, so it would mean a per-draw offscreen pass instead of a per-tint one.
+
+Two consequences beyond the memory fix:
+- **Atlases now pay off for tinting too.** The buffer holds the whole source texture, so
+  every sprite drawn from one atlas with one tint shares a single tinted atlas.
+- **Alpha left the cache key.** Opacity is applied at draw time via `globalAlpha` and never
+  reached the tint pass, but the old key hashed the full colour — so two elements differing
+  only in alpha each rebuilt an identical buffer.
+
+Eviction scans for the oldest entry instead of reordering on hit, keeping the lookup itself
+write-free; a buffer larger than the entire budget is kept rather than evicted on the spot,
+since evicting it would mean rebuilding it on every repaint forever. Entries verify their
+(texture, version, tint) triple on hit, so the numeric hash key cannot serve the wrong
+bitmap on a collision.
+
+Reported through `profilerHooks.uiTintCacheBytes` into
+`MemoryReport.renderer.estimatedUITintCacheBytes`, the overlay's Memory tab and
+`BenchmarkResult.memory` — the same treatment §4.8 gave canvas surfaces, and for the same
+reason: this memory is invisible to every texture counter.
 
 ### 6.3 `UIText` completeness — **P1 for the first two, S each; P3 for rich text, L**
 
@@ -614,7 +637,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | 5.2 | Compose `Button` from Image + Text | P2 | M | 5.1, 5.0a |
 | ~~5.3~~ | ~~Keyboard navigation + focus~~ (gamepad still open) | **done** | M | — |
 | 6.1 | Dirty-rect partial repaint | P2 | M | 4.1 |
-| 6.2 | Shared tint cache | P2 | M | — |
+| ~~6.2~~ | ~~Shared tint cache~~ (+ LRU bound, profiler visibility) | **done** | M | — |
 | ~~6.4~~ | ~~`WorldSpace` render mode (projected)~~ | **done** | L | 4.4 |
 | 6.5 | Compressed-texture sprite support | P2 | L | 2.6 |
 | 6.6 | Serializable components (engine-wide) | P2 | M | — |

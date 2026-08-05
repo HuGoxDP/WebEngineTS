@@ -2,6 +2,7 @@ import { UIBehaviour } from "./UIBehaviour";
 import { Color } from "../math/Color";
 import { HASH_SEED, cssColor, hashBool, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
 import { Rect } from "../math/Rect";
+import { TintCache } from "./TintCache";
 import { Sprite } from "../graphics/Sprite";
 import type { Texture2D } from "../graphics/Texture2D";
 import type { GameObject } from "../GameObject";
@@ -176,14 +177,40 @@ export class UIImage extends UIBehaviour {
      */
     public imageSmoothing: boolean = true;
 
-    /** Offscreen buffer holding the tinted copy of {@link sprite}. */
-    private _tintCanvas: HTMLCanvasElement | null = null;
-    private _tintSourceId: number = -1;
-    private _tintKey: number = -1;
-
     constructor(gameObject: GameObject) {
         super(gameObject);
     }
+
+    /**
+     * Memory held by tinted sprite copies across every UIImage, in bytes.
+     *
+     * @remarks
+     * A tint cannot be applied while drawing, so a tinted sprite is composited
+     * into an offscreen buffer once and reused. Those buffers are shared by
+     * (texture, tint), so twenty tinted copies of one icon cost one buffer, and
+     * every sprite drawn from one atlas with one tint shares a single tinted
+     * atlas. Also reported by `MemoryProfiler`.
+     */
+    public static get tintCacheBytes(): number { return TintCache.bytes; }
+
+    /** Number of tinted buffers currently cached. */
+    public static get tintCacheCount(): number { return TintCache.count; }
+
+    /**
+     * Upper bound on {@link tintCacheBytes}. Defaults to 32 MB.
+     *
+     * @remarks
+     * Least-recently-used buffers are dropped when the bound is exceeded, and
+     * rebuilt on demand if they are needed again. Lower it on a
+     * memory-constrained target; raise it for a UI that cycles through many
+     * tints of a large atlas.
+     */
+    public static get tintCacheLimitBytes(): number { return TintCache.limitBytes; }
+
+    public static set tintCacheLimitBytes(value: number) { TintCache.limitBytes = value; }
+
+    /** Drops every cached tinted copy. They are rebuilt on the next draw. */
+    public static clearTintCache(): void { TintCache.clear(); }
 
     public override _draw(ctx: CanvasRenderingContext2D, rect: Rect): void {
         const w = rect.width;
@@ -252,11 +279,6 @@ export class UIImage extends UIBehaviour {
         h = hashNumber(h, sprite.texture._internalThreeTexture.version);
         h = hashNumber(h, source ? UIImage._sourceWidth(source) : -1);
         return hashNumber(h, source ? UIImage._sourceHeight(source) : -1);
-    }
-
-    protected override onDestroy(): void {
-        super.onDestroy();
-        this._tintCanvas = null;
     }
 
     // ── private ──────────────────────────────────────────────────────
@@ -491,7 +513,7 @@ export class UIImage extends UIBehaviour {
 
     /**
      * Returns the bitmap to draw: the sprite itself when untinted, otherwise a
-     * cached tinted copy. Rebuilt only when the sprite or the color changes.
+     * tinted copy from the shared cache, built on the first miss.
      */
     private _resolveSource(): DrawableSource | null {
         const raw = this._spriteImage();
@@ -500,28 +522,37 @@ export class UIImage extends UIBehaviour {
         const c = this.color;
         if (c.r >= 1 && c.g >= 1 && c.b >= 1) return raw;
 
-        const key = hashColor(HASH_SEED, c);
-        // The texture version is part of the key so a Texture2D.apply() does not
-        // leave a stale tinted copy behind.
-        const texture = this._sprite!.texture;
-        const sourceId = texture.getInstanceID() * 397 + texture._internalThreeTexture.version;
-        if (this._tintCanvas && this._tintKey === key && this._tintSourceId === sourceId) {
-            return this._tintCanvas;
-        }
+        // Alpha is applied while drawing, so two elements differing only in
+        // opacity share one tinted buffer.
+        const rgb = (Math.round(Math.max(0, Math.min(1, c.r)) * 255) << 16)
+            | (Math.round(Math.max(0, Math.min(1, c.g)) * 255) << 8)
+            | Math.round(Math.max(0, Math.min(1, c.b)) * 255);
 
-        const tinted = this._buildTinted(raw, sourceId, key);
-        return tinted ?? raw;
+        // The upload counter is part of the identity so a Texture2D.apply()
+        // cannot leave a stale tinted copy behind.
+        const texture = this._sprite!.texture;
+        const textureId = texture.getInstanceID();
+        const version = texture._internalThreeTexture.version;
+
+        const cached = TintCache.get(textureId, version, rgb);
+        if (cached) return cached;
+
+        const tinted = UIImage._buildTinted(raw, rgb);
+        if (!tinted) return raw;
+
+        TintCache.put(textureId, version, rgb, tinted);
+        return tinted;
     }
 
-    /** Multiplies the sprite by the tint color into an offscreen buffer. */
-    private _buildTinted(source: DrawableSource, sourceId: number, key: number): HTMLCanvasElement | null {
+    /** Multiplies a bitmap by `rgb` into a fresh offscreen buffer. */
+    private static _buildTinted(source: DrawableSource, rgb: number): HTMLCanvasElement | null {
         if (typeof document === "undefined") return null;
 
         const w = UIImage._sourceWidth(source);
         const h = UIImage._sourceHeight(source);
         if (w <= 0 || h <= 0) return null;
 
-        const buffer = this._tintCanvas ?? document.createElement("canvas");
+        const buffer = document.createElement("canvas");
         const bctx = buffer.getContext("2d");
         if (!bctx) return null;
 
@@ -535,15 +566,12 @@ export class UIImage extends UIBehaviour {
         // Multiply keeps the sprite's shading; the second pass restores the
         // original alpha, which `multiply` would otherwise flatten.
         bctx.globalCompositeOperation = "multiply";
-        bctx.fillStyle = `rgb(${Math.round(this.color.r * 255)},${Math.round(this.color.g * 255)},${Math.round(this.color.b * 255)})`;
+        bctx.fillStyle = `rgb(${(rgb >> 16) & 0xff},${(rgb >> 8) & 0xff},${rgb & 0xff})`;
         bctx.fillRect(0, 0, w, h);
 
         bctx.globalCompositeOperation = "destination-in";
         bctx.drawImage(source, 0, 0, w, h);
 
-        this._tintCanvas = buffer;
-        this._tintSourceId = sourceId;
-        this._tintKey = key;
         return buffer;
     }
 

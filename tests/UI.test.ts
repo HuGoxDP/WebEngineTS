@@ -48,6 +48,7 @@ import { cssColor, roundedRectPath } from "../src/engine/core/ui/UIUtils";
 import { profilerHooks } from "../src/engine/core/diagnostics/ProfilerHooks";
 import { Camera } from "../src/engine/core/components/Camera";
 import { Vector3 } from "../src/engine/core/math/Vector3";
+import { TintCache } from "../src/engine/core/ui/TintCache";
 import { GameObject } from "../src/engine/core/GameObject";
 import { Color } from "../src/engine/core/math/Color";
 
@@ -5680,5 +5681,244 @@ describe("Keyboard navigation", () => {
 
         expect(a.navigate(NavigationDirection.Right)).toBe(true);
         expect(a.navigate(NavigationDirection.Left)).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Shared tint cache
+//
+// Tinting composites the sprite into an offscreen buffer, so these tests stub
+// just enough of `document` for one to be created.
+// ---------------------------------------------------------------------------
+
+describe("UIImage tint cache", () => {
+    let created = 0;
+    let nextId = 100;
+
+    class FakeTintCanvas {
+        public width = 0;
+        public height = 0;
+        public style: Record<string, string> = {};
+        private readonly _ctx = makeContext().ctx;
+        public getContext(): CanvasRenderingContext2D { return this._ctx; }
+    }
+
+    function makeTexture(size = 64): FakeTexture {
+        const id = nextId++;
+        const image = new FakeBitmap();
+        image.width = size;
+        image.height = size;
+        return {
+            getInstanceID: () => id,
+            name: `tex${id}`,
+            width: size,
+            height: size,
+            _internalThreeTexture: { image, version: 1 },
+        };
+    }
+
+    /** Draws `img` once, which is what populates the cache. */
+    function draw(img: UIImage): void {
+        img._draw(makeContext().ctx, new Rect(0, 0, 100, 100));
+    }
+
+    function makeImage(sprite: Sprite, color: Color): UIImage {
+        const img = new GameObject("Img").addComponent(UIImage);
+        img.sprite = sprite;
+        img.color = color;
+        return img;
+    }
+
+    beforeEach(() => {
+        TintCache._reset();
+        created = 0;
+        (globalThis as unknown as { HTMLCanvasElement: unknown }).HTMLCanvasElement = FakeBitmap;
+        (globalThis as unknown as { document: unknown }).document = {
+            createElement: () => { created++; return new FakeTintCanvas(); },
+        };
+    });
+
+    afterEach(() => {
+        delete (globalThis as unknown as { document?: unknown }).document;
+        delete (globalThis as unknown as { HTMLCanvasElement?: unknown }).HTMLCanvasElement;
+        TintCache._reset();
+        vi.restoreAllMocks();
+    });
+
+    test("an untinted image builds no buffer at all", () => {
+        const tex = makeTexture();
+        const img = makeImage(new Sprite(tex as unknown as Texture2D), Color.white.clone());
+
+        draw(img);
+
+        expect(UIImage.tintCacheCount).toBe(0);
+        expect(created).toBe(0);
+    });
+
+    test("two elements with the same texture and tint share one buffer", () => {
+        const tex = makeTexture();
+        const sprite = new Sprite(tex as unknown as Texture2D);
+
+        draw(makeImage(sprite, new Color(1, 0, 0, 1)));
+        draw(makeImage(sprite, new Color(1, 0, 0, 1)));
+
+        expect(created).toBe(1);
+        expect(UIImage.tintCacheCount).toBe(1);
+    });
+
+    test("twenty tinted copies of one icon cost one buffer, not twenty", () => {
+        const tex = makeTexture();
+        const sprite = new Sprite(tex as unknown as Texture2D);
+
+        for (let i = 0; i < 20; i++) draw(makeImage(sprite, new Color(0.5, 0.5, 0.5, 1)));
+
+        expect(created).toBe(1);
+        expect(UIImage.tintCacheBytes).toBe(64 * 64 * 4);
+    });
+
+    test("different tints of one texture get their own buffers", () => {
+        const tex = makeTexture();
+        const sprite = new Sprite(tex as unknown as Texture2D);
+
+        draw(makeImage(sprite, new Color(1, 0, 0, 1)));
+        draw(makeImage(sprite, new Color(0, 1, 0, 1)));
+
+        expect(UIImage.tintCacheCount).toBe(2);
+    });
+
+    test("elements differing only in opacity share one buffer", () => {
+        const tex = makeTexture();
+        const sprite = new Sprite(tex as unknown as Texture2D);
+
+        // Alpha is applied while drawing, so it is not part of the tint identity.
+        draw(makeImage(sprite, new Color(1, 0, 0, 1)));
+        draw(makeImage(sprite, new Color(1, 0, 0, 0.25)));
+
+        expect(created).toBe(1);
+    });
+
+    test("sub-rects of one atlas with one tint share the tinted atlas", () => {
+        const atlas = makeTexture(128);
+        const a = new Sprite(atlas as unknown as Texture2D, new Rect(0, 0, 32, 32));
+        const b = new Sprite(atlas as unknown as Texture2D, new Rect(32, 0, 32, 32));
+
+        draw(makeImage(a, new Color(0, 0, 1, 1)));
+        draw(makeImage(b, new Color(0, 0, 1, 1)));
+
+        expect(created).toBe(1);
+        expect(UIImage.tintCacheBytes).toBe(128 * 128 * 4);
+    });
+
+    test("repainting the texture invalidates the tinted copy", () => {
+        const tex = makeTexture();
+        const sprite = new Sprite(tex as unknown as Texture2D);
+        const img = makeImage(sprite, new Color(1, 0, 0, 1));
+
+        draw(img);
+        expect(created).toBe(1);
+
+        // What Texture2D.apply() does to the upload counter.
+        tex._internalThreeTexture.version = 2;
+        draw(img);
+
+        expect(created).toBe(2);
+    });
+
+    test("clearTintCache drops everything and the next draw rebuilds", () => {
+        const tex = makeTexture();
+        const img = makeImage(new Sprite(tex as unknown as Texture2D), new Color(1, 0, 0, 1));
+
+        draw(img);
+        UIImage.clearTintCache();
+
+        expect(UIImage.tintCacheBytes).toBe(0);
+        expect(UIImage.tintCacheCount).toBe(0);
+
+        draw(img);
+        expect(UIImage.tintCacheCount).toBe(1);
+    });
+
+    test("the cache is bounded, evicting the least recently used", () => {
+        // Room for two 64x64 buffers, not three.
+        UIImage.tintCacheLimitBytes = 64 * 64 * 4 * 2;
+
+        const sprite = new Sprite(makeTexture() as unknown as Texture2D);
+        const first = makeImage(sprite, new Color(1, 0, 0, 1));
+        draw(first);
+        draw(makeImage(sprite, new Color(0, 1, 0, 1)));
+
+        // Touch the first again so the second is the stale one.
+        draw(first);
+        draw(makeImage(sprite, new Color(0, 0, 1, 1)));
+
+        expect(UIImage.tintCacheCount).toBe(2);
+        expect(UIImage.tintCacheBytes).toBeLessThanOrEqual(UIImage.tintCacheLimitBytes);
+
+        // The survivor is reused rather than rebuilt.
+        const before = created;
+        draw(first);
+        expect(created).toBe(before);
+    });
+
+    test("lowering the limit evicts immediately", () => {
+        const sprite = new Sprite(makeTexture() as unknown as Texture2D);
+        draw(makeImage(sprite, new Color(1, 0, 0, 1)));
+        draw(makeImage(sprite, new Color(0, 1, 0, 1)));
+        expect(UIImage.tintCacheCount).toBe(2);
+
+        UIImage.tintCacheLimitBytes = 1;
+
+        expect(UIImage.tintCacheCount).toBe(1);
+    });
+
+    test("a single buffer larger than the whole budget is kept rather than thrashed", () => {
+        UIImage.tintCacheLimitBytes = 1;
+        const sprite = new Sprite(makeTexture(128) as unknown as Texture2D);
+        const img = makeImage(sprite, new Color(1, 0, 0, 1));
+
+        draw(img);
+        expect(UIImage.tintCacheCount).toBe(1);
+
+        const before = created;
+        draw(img);
+        expect(created).toBe(before);
+    });
+
+    test("MemoryProfiler sees the tint cache through the profiler hooks", () => {
+        const sprite = new Sprite(makeTexture() as unknown as Texture2D);
+        draw(makeImage(sprite, new Color(1, 0, 0, 1)));
+
+        expect(profilerHooks.uiTintCacheBytes?.()).toBe(64 * 64 * 4);
+    });
+});
+
+describe("TintCache identity", () => {
+    beforeEach(() => TintCache._reset());
+    afterEach(() => TintCache._reset());
+
+    /** A stand-in buffer — the cache only reads its dimensions. */
+    function buffer(size: number): HTMLCanvasElement {
+        return { width: size, height: size } as unknown as HTMLCanvasElement;
+    }
+
+    test("a miss on an unknown key returns null", () => {
+        expect(TintCache.get(1, 1, 0xff0000)).toBeNull();
+    });
+
+    test("each of texture, version and tint is part of the identity", () => {
+        TintCache.put(1, 1, 0xff0000, buffer(8));
+
+        expect(TintCache.get(1, 1, 0xff0000)).not.toBeNull();
+        expect(TintCache.get(2, 1, 0xff0000)).toBeNull();
+        expect(TintCache.get(1, 2, 0xff0000)).toBeNull();
+        expect(TintCache.get(1, 1, 0x00ff00)).toBeNull();
+    });
+
+    test("re-putting the same key replaces rather than double-counts", () => {
+        TintCache.put(1, 1, 0xff0000, buffer(8));
+        TintCache.put(1, 1, 0xff0000, buffer(8));
+
+        expect(TintCache.count).toBe(1);
+        expect(TintCache.bytes).toBe(8 * 8 * 4);
     });
 });

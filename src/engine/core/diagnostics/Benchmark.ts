@@ -89,6 +89,8 @@ export interface BenchmarkResult {
         estimatedRenderTargetVramBytes: number | null;
         /** Summed backing-store bytes of every live UI canvas overlay. */
         estimatedUICanvasBytes: number | null;
+        /** Memory held by shared tinted sprite copies (`UIImage.tintCacheBytes`). */
+        estimatedUITintCacheBytes: number | null;
         drawCalls: number | null;
         triangles: number | null;
     };
@@ -254,7 +256,7 @@ export class Benchmark {
             "jsHeapUsedBytes", "gpuTextures", "gpuGeometries",
             "estimatedTextureVramBytes", "estimatedGeometryVramBytes",
             "estimatedRenderTargetVramBytes", "estimatedUICanvasBytes",
-            "drawCalls", "triangles",
+            "estimatedUITintCacheBytes", "drawCalls", "triangles",
         ];
         const rows = arr.map((r) => [
             Benchmark._csvCell(r.label),
@@ -285,6 +287,7 @@ export class Benchmark {
             r.memory.estimatedGeometryVramBytes ?? "",
             r.memory.estimatedRenderTargetVramBytes ?? "",
             r.memory.estimatedUICanvasBytes ?? "",
+            r.memory.estimatedUITintCacheBytes ?? "",
             r.memory.drawCalls ?? "",
             r.memory.triangles ?? "",
         ].join(","));
@@ -347,6 +350,7 @@ export class Benchmark {
             estimatedGeometryVramBytes: null,
             estimatedRenderTargetVramBytes: null,
             estimatedUICanvasBytes: null,
+            estimatedUITintCacheBytes: null,
             drawCalls: null,
             triangles: null,
         };
@@ -364,6 +368,7 @@ export class Benchmark {
                     estimatedGeometryVramBytes: snap.renderer?.estimatedGeometryVramBytes ?? null,
                     estimatedRenderTargetVramBytes: snap.renderer?.estimatedRenderTargetVramBytes ?? null,
                     estimatedUICanvasBytes: snap.renderer?.estimatedUICanvasBytes ?? null,
+                    estimatedUITintCacheBytes: snap.renderer?.estimatedUITintCacheBytes ?? null,
                     drawCalls: snap.renderStats?.drawCalls ?? null,
                     triangles: snap.renderStats?.triangles ?? null,
                 };

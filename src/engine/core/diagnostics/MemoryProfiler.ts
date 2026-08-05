@@ -64,6 +64,12 @@ export interface MemoryReport {
         estimatedUICanvasBytes: number;
         /** Number of live UI canvases behind {@link estimatedUICanvasBytes}. */
         uiCanvasCount: number;
+        /**
+         * Memory held by tinted sprite copies (`UIImage.tintCacheBytes`), in
+         * bytes. A tint is composited into a full-resolution offscreen buffer,
+         * so a UI of tinted icons holds real memory no texture counter sees.
+         */
+        estimatedUITintCacheBytes: number;
     } | null;
 
     /** Three.js renderer draw call info (last frame). */
@@ -314,13 +320,15 @@ export class MemoryProfiler {
             const vramTotal = r.renderer.estimatedTextureVramBytes
                 + r.renderer.estimatedGeometryVramBytes
                 + r.renderer.estimatedRenderTargetVramBytes
-                + r.renderer.estimatedUICanvasBytes;
+                + r.renderer.estimatedUICanvasBytes
+                + r.renderer.estimatedUITintCacheBytes;
             console.log(
                 `Est. VRAM: ~${f(r.renderer.estimatedTextureVramBytes)} textures`
                 + ` + ~${f(r.renderer.estimatedGeometryVramBytes)} geometry`
                 + ` + ~${f(r.renderer.estimatedRenderTargetVramBytes)} render targets`
                 + ` + ~${f(r.renderer.estimatedUICanvasBytes)} UI surfaces`
                 + ` (${r.renderer.uiCanvasCount})`
+                + ` + ~${f(r.renderer.estimatedUITintCacheBytes)} UI tints`
                 + ` = ~${f(vramTotal)}`
             );
         } else {
@@ -528,6 +536,7 @@ export class MemoryProfiler {
             estimatedRenderTargetVramBytes: MemoryProfiler._estimateRenderTargetVram(),
             estimatedUICanvasBytes: profilerHooks.uiCanvasBytes?.() ?? 0,
             uiCanvasCount: profilerHooks.uiCanvasCount?.() ?? 0,
+            estimatedUITintCacheBytes: profilerHooks.uiTintCacheBytes?.() ?? 0,
         };
     }
 
@@ -780,11 +789,13 @@ export class MemoryProfiler {
         const rtVram = MemoryProfiler._estimateRenderTargetVram();
         const uiBytes = profilerHooks.uiCanvasBytes?.() ?? 0;
         const uiCount = profilerHooks.uiCanvasCount?.() ?? 0;
+        const tintBytes = profilerHooks.uiTintCacheBytes?.() ?? 0;
         _L.push(`Est. tex VRAM:   ${f(texVram)}`);
         _L.push(`Est. geo VRAM:   ${f(geoVram)}`);
         _L.push(`Est. RT VRAM:    ${f(rtVram)}`);
         _L.push(`UI surfaces:     ${f(uiBytes)} (${uiCount} canvas${uiCount === 1 ? "" : "es"})`);
-        _L.push(`Est. VRAM total: ${f(texVram + geoVram + rtVram + uiBytes)}`);
+        _L.push(`UI tint cache:   ${f(tintBytes)}`);
+        _L.push(`Est. VRAM total: ${f(texVram + geoVram + rtVram + uiBytes + tintBytes)}`);
         _L.push(`Shader programs: ${info?.programs?.length ?? "—"}`);
 
         _L.push(``);

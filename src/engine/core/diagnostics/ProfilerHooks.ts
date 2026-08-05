@@ -27,4 +27,5 @@ export const profilerHooks: {
     aliveParticleCount?: () => number;
     uiCanvasCount?: () => number;
     uiCanvasBytes?: () => number;
+    uiTintCacheBytes?: () => number;
 } = {};
