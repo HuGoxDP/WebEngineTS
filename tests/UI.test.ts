@@ -12,6 +12,7 @@ import {
     HorizontalLayoutGroup, VerticalLayoutGroup,
 } from "../src/engine/core/ui/LayoutGroup";
 import { ContentSizeFitter, FitMode } from "../src/engine/core/ui/ContentSizeFitter";
+import { AspectRatioFitter, AspectMode } from "../src/engine/core/ui/AspectRatioFitter";
 import { CanvasGroup } from "../src/engine/core/ui/CanvasGroup";
 import { RectMask2D } from "../src/engine/core/ui/RectMask2D";
 import { ScrollRect, ScrollMovementType } from "../src/engine/core/ui/ScrollRect";
@@ -2756,6 +2757,220 @@ describe("ContentSizeFitter", () => {
 
         // Assigning 300 straight into sizeDelta would have given 800 + 300.
         expect(rt.getScreenRect(new Rect()).width).toBeCloseTo(300);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// AspectRatioFitter
+// ---------------------------------------------------------------------------
+
+describe("AspectRatioFitter", () => {
+    beforeEach(() => {
+        Canvas._reset();
+        AspectRatioFitter._reset();
+    });
+    afterEach(() => {
+        vi.restoreAllMocks();
+        Canvas._reset();
+        AspectRatioFitter._reset();
+    });
+
+    /** A 800x600 canvas holding a `w`x`h` panel with a fitter on it. */
+    function setup(w: number, h: number) {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+
+        const panelGO = child("Panel", canvasGO);
+        const panel = panelGO.addComponent(RectTransform);
+        panel.anchorMin.set(0, 0);
+        panel.anchorMax.set(0, 0);
+        panel.pivot.set(0, 0);
+        panel.anchoredPosition.set(0, 0);
+        panel.sizeDelta.set(w, h);
+
+        const go = child("Framed", panelGO);
+        const rt = go.addComponent(RectTransform);
+        const fitter = go.addComponent(AspectRatioFitter);
+
+        return { rt, fitter, panel };
+    }
+
+    test("None leaves the element untouched", () => {
+        const { rt, fitter } = setup(400, 400);
+        rt.sizeDelta.set(123, 45);
+
+        fitter.aspectRatio = 16 / 9;
+        AspectRatioFitter._updateAll();
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.width).toBeCloseTo(123);
+        expect(r.height).toBeCloseTo(45);
+    });
+
+    test("WidthControlsHeight derives the height and keeps the width", () => {
+        const { rt, fitter } = setup(400, 400);
+        rt.sizeDelta.set(320, 999);
+
+        fitter.aspectMode = AspectMode.WidthControlsHeight;
+        fitter.aspectRatio = 16 / 9;
+        AspectRatioFitter._updateAll();
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.width).toBeCloseTo(320);
+        expect(r.height).toBeCloseTo(180);
+    });
+
+    test("HeightControlsWidth derives the width and keeps the height", () => {
+        const { rt, fitter } = setup(400, 400);
+        rt.sizeDelta.set(999, 180);
+
+        fitter.aspectMode = AspectMode.HeightControlsWidth;
+        fitter.aspectRatio = 16 / 9;
+        AspectRatioFitter._updateAll();
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.width).toBeCloseTo(320);
+        expect(r.height).toBeCloseTo(180);
+    });
+
+    test("a stretched element still resolves to the requested size", () => {
+        const { rt, fitter } = setup(400, 400);
+        // Stretched vertically: sizeDelta is a delta on the anchor span, so a
+        // naive assignment would come out 400 too tall.
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 1);
+        rt.sizeDelta.set(320, 0);
+
+        fitter.aspectMode = AspectMode.WidthControlsHeight;
+        fitter.aspectRatio = 16 / 9;
+        AspectRatioFitter._updateAll();
+
+        expect(rt.getScreenRect(new Rect()).height).toBeCloseTo(180);
+    });
+
+    test("FitInParent letterboxes inside a parent wider than the ratio", () => {
+        // 400x400 parent, 16:9 content — width is what has to give.
+        const { rt, fitter } = setup(400, 400);
+        fitter.aspectMode = AspectMode.FitInParent;
+        fitter.aspectRatio = 16 / 9;
+        AspectRatioFitter._updateAll();
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.width).toBeCloseTo(400);
+        expect(r.height).toBeCloseTo(225);
+        expect(r.width).toBeLessThanOrEqual(400);
+        expect(r.height).toBeLessThanOrEqual(400);
+    });
+
+    test("FitInParent shrinks the width when the parent is the wider one", () => {
+        // 800x200 parent, 1:1 content — height binds, width shrinks to 200.
+        const { rt, fitter } = setup(800, 200);
+        fitter.aspectMode = AspectMode.FitInParent;
+        fitter.aspectRatio = 1;
+        AspectRatioFitter._updateAll();
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.width).toBeCloseTo(200);
+        expect(r.height).toBeCloseTo(200);
+    });
+
+    test("EnvelopeParent covers the parent, overflowing on one axis", () => {
+        const { rt, fitter } = setup(400, 400);
+        fitter.aspectMode = AspectMode.EnvelopeParent;
+        fitter.aspectRatio = 16 / 9;
+        AspectRatioFitter._updateAll();
+
+        const r = rt.getScreenRect(new Rect());
+        // Covering a square with 16:9 means overflowing horizontally.
+        expect(r.height).toBeCloseTo(400);
+        expect(r.width).toBeCloseTo(400 * 16 / 9);
+    });
+
+    test("a centred pivot splits the letterbox bars evenly", () => {
+        const { rt, fitter } = setup(400, 400);
+        rt.pivot.set(0.5, 0.5);
+        fitter.aspectMode = AspectMode.FitInParent;
+        fitter.aspectRatio = 16 / 9;
+        AspectRatioFitter._updateAll();
+
+        const r = rt.getScreenRect(new Rect());
+        // Parent spans y 0..400, content is 225 tall → 87.5 of bar each side.
+        expect(r.y).toBeCloseTo(87.5);
+        expect(r.y + r.height).toBeCloseTo(312.5);
+    });
+
+    test("a top pivot puts the whole letterbox bar at the bottom (Y-down)", () => {
+        const { rt, fitter } = setup(400, 400);
+        rt.pivot.set(0, 0);
+        fitter.aspectMode = AspectMode.FitInParent;
+        fitter.aspectRatio = 16 / 9;
+        AspectRatioFitter._updateAll();
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.y).toBeCloseTo(0);
+        expect(r.height).toBeCloseTo(225);
+    });
+
+    test("the fit follows the parent when it changes shape", () => {
+        const { rt, fitter, panel } = setup(400, 400);
+        fitter.aspectMode = AspectMode.FitInParent;
+        fitter.aspectRatio = 1;
+        AspectRatioFitter._updateAll();
+        expect(rt.getScreenRect(new Rect()).width).toBeCloseTo(400);
+
+        panel.sizeDelta.set(200, 400);
+        AspectRatioFitter._updateAll();
+
+        const r = rt.getScreenRect(new Rect());
+        expect(r.width).toBeCloseTo(200);
+        expect(r.height).toBeCloseTo(200);
+    });
+
+    test("setAspectFromSize ignores a not-yet-loaded source", () => {
+        const { fitter } = setup(400, 400);
+        fitter.aspectRatio = 2;
+
+        fitter.setAspectFromSize(0, 0);
+        expect(fitter.aspectRatio).toBeCloseTo(2);
+
+        fitter.setAspectFromSize(1920, 1080);
+        expect(fitter.aspectRatio).toBeCloseTo(16 / 9);
+    });
+
+    test("a non-positive ratio is clamped rather than collapsing the element", () => {
+        const { rt, fitter } = setup(400, 400);
+        rt.sizeDelta.set(320, 200);
+        fitter.aspectRatio = 0;
+        fitter.aspectMode = AspectMode.WidthControlsHeight;
+
+        expect(fitter.aspectRatio).toBeGreaterThan(0);
+        AspectRatioFitter._updateAll();
+        expect(Number.isFinite(rt.getScreenRect(new Rect()).height)).toBe(true);
+    });
+
+    test("a disabled fitter stops driving the element", () => {
+        const { rt, fitter } = setup(400, 400);
+        fitter.aspectMode = AspectMode.WidthControlsHeight;
+        fitter.aspectRatio = 1;
+        rt.sizeDelta.set(320, 999);
+
+        fitter.enabled = false;
+        AspectRatioFitter._updateAll();
+
+        expect(rt.getScreenRect(new Rect()).height).toBeCloseTo(999);
+    });
+
+    test("setLayoutDirty applies the ratio without waiting for the frame pass", () => {
+        const { rt, fitter } = setup(400, 400);
+        fitter.aspectMode = AspectMode.WidthControlsHeight;
+        fitter.aspectRatio = 2;
+        rt.sizeDelta.set(320, 999);
+
+        fitter.setLayoutDirty();
+
+        expect(rt.getScreenRect(new Rect()).height).toBeCloseTo(160);
     });
 });
 

@@ -273,6 +273,7 @@ export {
     GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
 } from "./core/ui/GridLayoutGroup";
 export { ContentSizeFitter, FitMode } from "./core/ui/ContentSizeFitter";
+export { AspectRatioFitter, AspectMode } from "./core/ui/AspectRatioFitter";
 export { CanvasGroup } from "./core/ui/CanvasGroup";
 export { RectMask2D, MaskPadding } from "./core/ui/RectMask2D";
 export { ScrollRect, ScrollMovementType } from "./core/ui/ScrollRect";
@@ -459,6 +460,7 @@ import {
     GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
 } from "./core/ui/GridLayoutGroup";
 import { ContentSizeFitter, FitMode } from "./core/ui/ContentSizeFitter";
+import { AspectRatioFitter, AspectMode } from "./core/ui/AspectRatioFitter";
 import { CanvasGroup } from "./core/ui/CanvasGroup";
 import { RectMask2D, MaskPadding } from "./core/ui/RectMask2D";
 import { ScrollRect, ScrollMovementType } from "./core/ui/ScrollRect";
@@ -583,6 +585,7 @@ const WebEngineTS = {
     LayoutElement, LayoutGroup, LinearLayoutGroup, LayoutPadding, LayoutAnchor,
     GridLayoutGroup, GridStartCorner, GridStartAxis, GridConstraint,
     HorizontalLayoutGroup, VerticalLayoutGroup, ContentSizeFitter, FitMode,
+    AspectRatioFitter, AspectMode,
     CanvasGroup, RectMask2D, MaskPadding, ScrollRect, ScrollMovementType,
     Scrollbar, ScrollbarDirection, Dropdown,
 

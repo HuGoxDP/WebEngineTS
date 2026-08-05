@@ -23,7 +23,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Area | Present | Missing |
 |---|---|---|
 | Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate), **`CanvasGroup`** | `WorldSpace` render mode |
-| Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter` | anchor presets, `AspectRatioFitter` |
+| Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter`, **`AspectRatioFitter`** | anchor presets |
 | Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, **linear + radial fill**), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | auto-size, rich text |
 | Interaction | `Selectable` base (+ transitions, focus, **keyboard navigation**) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | `InputField`, gamepad nav |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
@@ -375,6 +375,15 @@ Reverse arrangement and `GridLayoutGroup.startCorner` are where Y-down bites (§
 Build the protocol + `Vertical`/`Horizontal` + `ContentSizeFitter` first (that covers most
 real layouts); `Grid` and `AspectRatioFitter` can follow.
 
+**`AspectRatioFitter` landed 2026-08-05**, completing the deferred half. All five Unity
+modes (`WidthControlsHeight`, `HeightControlsWidth`, `FitInParent`, `EnvelopeParent`,
+`None`), driven from `Application._loop` **after** the groups and `ContentSizeFitter` —
+it constrains one axis against the other, so both must have settled first. The Y-down
+consequence is not in the arithmetic (which is symmetric) but in *where the letterbox bars
+land*: placement follows the pivot, and pivot `(0,0)` is the top-left here, so a
+top-pivoted element bars at the bottom. `setAspectFromSize(w, h)` covers the "match this
+image" case without the caller dividing by zero on an asset that has not loaded.
+
 ### 4.7 `CanvasGroup` — **P1, S**
 
 Subtree `alpha`, `interactable`, `blocksRaycasts`. `Canvas.alpha` exists but is
@@ -549,6 +558,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~4.4~~ | ~~RectTransform rotation + scale~~ | **done** | L | — |
 | ~~4.5~~ | ~~Full RectTransform API surface~~ + anchor-reference fix | **done** | M | — |
 | ~~4.6~~ | ~~Layout groups + size protocol + `GridLayoutGroup`~~ | **done** | L | — |
+| ~~4.6b~~ | ~~`AspectRatioFitter`~~ (all five Unity modes) | **done** | S | 4.6 |
 | ~~4.7~~ | ~~`CanvasGroup`~~ | **done** | S | — |
 | ~~4.8~~ | ~~Overlay canvas memory in `MemoryProfiler`~~ ⚑ | **done** | S | — |
 | ~~5.0a~~ | ~~`Sprite` asset type~~ (atlas sub-rects + border) | **done** | M | — |
