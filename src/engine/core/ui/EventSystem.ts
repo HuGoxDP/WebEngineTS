@@ -515,7 +515,10 @@ export class EventSystem {
         const canvases = Canvas._sortedInstances();
         for (let ci = canvases.length - 1; ci >= 0; ci--) {
             const canvas = canvases[ci];
-            if (!canvas.isActiveAndEnabled || canvas.alpha <= 0) continue;
+            // A world-space canvas whose anchor is behind the camera is not on
+            // screen to be clicked, so it is skipped exactly as it is skipped
+            // when painting.
+            if (!canvas.isActiveAndEnabled || canvas.alpha <= 0 || !canvas.isRenderable) continue;
 
             canvas.screenToCanvasPoint(screen, EventSystem._canvasPoint);
 

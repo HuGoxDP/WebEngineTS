@@ -11,8 +11,9 @@ Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see �
 surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout groups with
 `ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup` — followed by the control
 library (`RectMask2D`, `ScrollRect`, `Scrollbar`, `Sprite`/9-slice, `Dropdown`, radial fill,
-`Selectable` transitions + focus, keyboard navigation). §4.8 landed 2026-08-05.
-Next: §6.4 `WorldSpace` render mode, or §6.1 dirty-rect partial repaint.
+`Selectable` transitions + focus, keyboard navigation). §4.8, `AspectRatioFitter` and §6.4
+(`WorldSpace`, projected) landed 2026-08-05.
+Next: §6.1 dirty-rect partial repaint, or §6.2 the shared tint cache.
 
 ---
 
@@ -22,7 +23,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 
 | Area | Present | Missing |
 |---|---|---|
-| Root | `Canvas` (overlay only), `CanvasScaler` (3 modes, all Unity-accurate), **`CanvasGroup`** | `WorldSpace` render mode |
+| Root | `Canvas` (overlay + **`WorldSpace`**, projected), `CanvasScaler` (3 modes, all Unity-accurate), `CanvasGroup` | depth-occluded world UI (textured quad) |
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter`, **`AspectRatioFitter`** | anchor presets |
 | Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, **linear + radial fill**), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | auto-size, rich text |
 | Interaction | `Selectable` base (+ transitions, focus, **keyboard navigation**) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | `InputField`, gamepad nav |
@@ -501,14 +502,14 @@ entirely in favour of compositing on the main canvas.
 - Rich text (`<b>`, `<color>`) — a real tokenizer plus per-run measurement; L, and rarely
   worth it before everything above.
 
-### 6.4 `CanvasRenderMode.WorldSpace` — **P2, L**
+### 6.4 `CanvasRenderMode.WorldSpace` — **DONE (projected overlay), 2026-08-05** ✅
 
-The enum has one member and a `// WorldSpace — planned for a future phase` comment
-(`Canvas.ts:17`). For the educational domain this is genuinely valuable: labels and
-callouts pinned to parts of a 3D model are the canonical lab-scenario UI, and today they
-must be faked by projecting positions in scenario code.
+For the educational domain this was the highest-value item in stage 3: labels and callouts
+pinned to parts of a 3D model are the canonical lab-scenario UI, and they had to be faked by
+projecting positions in scenario code.
 
-Two implementations, and the choice matters for the Three.js isolation rule:
+Two implementations were on the table, and the choice mattered for the Three.js isolation
+rule:
 - **Projected overlay** — keep drawing in 2D, project the world anchor to screen space each
   frame, scale by distance. Cheap, no Three.js in the UI layer, but no perspective on the UI
   plane and no depth occlusion.
@@ -517,8 +518,44 @@ Two implementations, and the choice matters for the Three.js isolation rule:
   through the existing engine `Texture2D`/`Material` types and stay behind `@internal` sync
   methods, never exposing `THREE.*`.
 
-Recommend projected overlay first — it covers the labelling use case at a fraction of the
-cost — and treat the textured quad as a separate decision.
+**Shipped: the projected overlay.** It covers the labelling use case at a fraction of the
+cost; the textured quad stays a separate decision, and nothing here forecloses it.
+
+How it fits the existing pipeline: layout, drawing, hit-testing and culling were already
+expressed in *canvas units*, so world space needed no new geometry path — only a
+**canvas-level base transform** (`_baseScale` + `_baseOffsetX/Y`, canvas units → CSS px)
+that overlay mode leaves as identity-with-scale. `_paint` folds it into the single
+`setTransform` it already issued, and `screenToCanvasPoint` inverts it, so hit-testing
+agrees with drawing for free. `Canvas._updateTransforms()` runs from `Application._loop`
+before the event pass, so a click and the paint that follows use the same projection.
+
+API: `worldSize` (the authored canvas rect), `worldScale` (world units per canvas unit,
+default `0.01` — the same reason Unity's world canvases carry a 0.01 Transform scale),
+`worldPivot` (which point of the rect lands on the anchor), `distanceScaling`,
+`worldCamera` (falls back to `Camera.main`), plus the read-backs `worldDistance` and
+`isRenderable`.
+
+Decisions worth recording:
+- **`distanceScaling = false` is the billboard mode** and is not a Unity feature. A label
+  that shrinks to nothing when the student zooms out is useless, so constant-pixel-size is a
+  first-class option rather than a script users have to write.
+- **An anchor behind the camera makes the canvas non-renderable**, not mirrored: `isRenderable`
+  goes false and the canvas neither paints nor hit-tests. `EventSystem` checks the same flag.
+- **`CanvasScaler` is ignored in world space** (`scaleFactor` forced to 1). Its scale modes
+  match the screen resolution, which would fight a projection; Unity draws the same line.
+- **The clear went to surface space.** `_paint` cleared through the canvas transform, which
+  in world space covers only part of the surface — it now clears the full backing store.
+- **Y-down (per §3.4):** `worldPivot` `(0.5, 1)` is the rect's **bottom** edge, so that is
+  what floats a callout *above* its anchor.
+- **Prerequisite patch:** `Camera._worldToViewportPoint` / `Camera._frustumHeightAt`
+  (`@internal`, engine types only). The existing `worldToScreenPoint` allocates a `Vector3`
+  per call and measures against `window.innerWidth/Height` rather than the render canvas,
+  which is wrong for an embedded viewport; it was left alone rather than changed under a UI
+  task.
+
+Known limitation, by construction: **no depth occlusion.** A label pinned to the far side of
+a model draws over it. Scenarios that care must hide it themselves (a raycast against the
+model is the usual test) — or the textured quad becomes worth building.
 
 ### 6.5 Compressed-texture sprites — **P2, L**
 
@@ -578,7 +615,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~5.3~~ | ~~Keyboard navigation + focus~~ (gamepad still open) | **done** | M | — |
 | 6.1 | Dirty-rect partial repaint | P2 | M | 4.1 |
 | 6.2 | Shared tint cache | P2 | M | — |
-| 6.4 | `WorldSpace` render mode (projected) | P2 | L | 4.4 |
+| ~~6.4~~ | ~~`WorldSpace` render mode (projected)~~ | **done** | L | 4.4 |
 | 6.5 | Compressed-texture sprite support | P2 | L | 2.6 |
 | 6.6 | Serializable components (engine-wide) | P2 | M | — |
 | 5.0i | `InputField` | P3 | L | 5.1, 5.3 |

@@ -46,6 +46,8 @@ import {
 } from "../src/engine/core/ui/RectTransform";
 import { cssColor, roundedRectPath } from "../src/engine/core/ui/UIUtils";
 import { profilerHooks } from "../src/engine/core/diagnostics/ProfilerHooks";
+import { Camera } from "../src/engine/core/components/Camera";
+import { Vector3 } from "../src/engine/core/math/Vector3";
 import { GameObject } from "../src/engine/core/GameObject";
 import { Color } from "../src/engine/core/math/Color";
 
@@ -205,6 +207,10 @@ describe("RectTransform anchor math", () => {
 describe("CanvasRenderMode", () => {
     test("ScreenSpaceOverlay value", () => {
         expect(CanvasRenderMode.ScreenSpaceOverlay).toBe("ScreenSpaceOverlay");
+    });
+
+    test("WorldSpace value", () => {
+        expect(CanvasRenderMode.WorldSpace).toBe("WorldSpace");
     });
 });
 
@@ -726,6 +732,256 @@ describe("Canvas registration", () => {
         expect(Array.from(canvas._graphicList)).toContain(img);
         img.enabled = false;
         expect(Array.from(canvas._graphicList)).not.toContain(img);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// WorldSpace render mode (projected overlay)
+//
+// The camera looks down +Z (engine convention), so an anchor at +Z is in front
+// of it. Vertical projection is fov-driven and aspect-independent, which is why
+// the assertions below work on a centred anchor and on Y.
+// ---------------------------------------------------------------------------
+
+describe("Canvas WorldSpace", () => {
+    beforeEach(() => Canvas._reset());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        Canvas._reset();
+    });
+
+    /** A 60° camera at the origin plus a world-space canvas on an 800x600 view. */
+    function setup(worldZ: number = 5) {
+        const camGO = new GameObject("Cam");
+        camGO.tag = "MainCamera";
+        const cam = camGO.addComponent(Camera);
+        cam.fieldOfView = 60;
+
+        const canvasGO = new GameObject("Label");
+        canvasGO.transform.position = new Vector3(0, 0, worldZ);
+        const canvas = canvasGO.addComponent(Canvas);
+        canvas.renderMode = CanvasRenderMode.WorldSpace;
+        canvas.worldSize.set(200, 100);
+        // Explicit rather than via Camera.main, which is global to the process
+        // and would let one test's camera drive another's canvas.
+        canvas.worldCamera = cam;
+
+        // There is no DOM under vitest, so the surface never measures itself;
+        // these are what a browser would have written in _syncSurface.
+        (canvas as any)._cssWidth = 800;
+        (canvas as any)._cssHeight = 600;
+
+        return { cam, camGO, canvas, canvasGO };
+    }
+
+    /** CSS pixels per canvas unit, read back through the public conversion. */
+    function baseScale(canvas: Canvas): number {
+        const origin = canvas.canvasToScreenPoint(new Vector2(0, 0), new Vector2());
+        const unit = canvas.canvasToScreenPoint(new Vector2(1, 0), new Vector2());
+        return unit.x - origin.x;
+    }
+
+    test("the canvas rect is the authored world size, not the screen", () => {
+        const { canvas } = setup();
+        canvas.worldSize.set(320, 180);
+
+        expect(canvas.width).toBeCloseTo(320);
+        expect(canvas.height).toBeCloseTo(180);
+    });
+
+    test("the anchor lands under the canvas pivot", () => {
+        const { canvas } = setup(5);
+        canvas._prepare();
+
+        // Centre pivot on a centred anchor → the middle of the 800x600 view.
+        const centre = canvas.canvasToScreenPoint(new Vector2(100, 50), new Vector2());
+        expect(centre.x).toBeCloseTo(400);
+        expect(centre.y).toBeCloseTo(300);
+    });
+
+    test("a bottom pivot floats the panel above the anchor (Y-down)", () => {
+        const { canvas } = setup(5);
+        canvas.worldPivot.set(0.5, 1);
+        canvas._prepare();
+
+        // pivot y=1 is the rect's bottom edge here, so the bottom sits on the
+        // anchor and the panel occupies the space above it.
+        const bottom = canvas.canvasToScreenPoint(new Vector2(100, 100), new Vector2());
+        expect(bottom.y).toBeCloseTo(300);
+
+        const top = canvas.canvasToScreenPoint(new Vector2(100, 0), new Vector2());
+        expect(top.y).toBeLessThan(300);
+    });
+
+    test("distance scaling reproduces perspective — twice as far is half the size", () => {
+        const { canvas, canvasGO } = setup(5);
+        canvas._prepare();
+        const near = baseScale(canvas);
+
+        canvasGO.transform.position = new Vector3(0, 0, 10);
+        canvas._prepare();
+        const far = baseScale(canvas);
+
+        expect(far).toBeCloseTo(near / 2, 4);
+    });
+
+    test("distance scaling matches the frustum height at that distance", () => {
+        const { canvas } = setup(5);
+        canvas.worldScale = 0.01;
+        canvas._prepare();
+
+        // 600 css px span 2*5*tan(30°) world units, and one canvas unit is 0.01
+        // of those.
+        const frustumHeight = 2 * 5 * Math.tan(Math.PI / 6);
+        expect(baseScale(canvas)).toBeCloseTo(0.01 * (600 / frustumHeight), 5);
+    });
+
+    test("worldScale sizes the panel in world units", () => {
+        const { canvas } = setup(5);
+        canvas._prepare();
+        const at1 = baseScale(canvas);
+
+        canvas.worldScale = 0.02;
+        canvas._prepare();
+
+        expect(baseScale(canvas)).toBeCloseTo(at1 * 2, 5);
+    });
+
+    test("distanceScaling off keeps a constant pixel size and only tracks position", () => {
+        const { canvas, canvasGO } = setup(5);
+        canvas.distanceScaling = false;
+        canvas._prepare();
+
+        expect(baseScale(canvas)).toBeCloseTo(1);
+
+        canvasGO.transform.position = new Vector3(0, 0, 50);
+        canvas._prepare();
+
+        expect(baseScale(canvas)).toBeCloseTo(1);
+        // Still centred, because the anchor is still on the view axis.
+        const centre = canvas.canvasToScreenPoint(new Vector2(100, 50), new Vector2());
+        expect(centre.x).toBeCloseTo(400);
+        expect(centre.y).toBeCloseTo(300);
+    });
+
+    test("moving the anchor off-axis moves the panel on screen", () => {
+        const { canvas, canvasGO } = setup(5);
+        canvas.distanceScaling = false;
+        canvas._prepare();
+
+        // +Y in world is up, which is a *smaller* Y on the Y-down screen.
+        canvasGO.transform.position = new Vector3(0, 1, 5);
+        canvas._prepare();
+
+        const centre = canvas.canvasToScreenPoint(new Vector2(100, 50), new Vector2());
+        expect(centre.y).toBeLessThan(300);
+    });
+
+    test("an anchor behind the camera is not renderable and draws nothing", () => {
+        const { canvas } = setup(-5);
+        child("Icon", canvas.gameObject).addComponent(UIImage);
+        canvas._prepare();
+
+        expect(canvas.isRenderable).toBe(false);
+
+        const mock = makeContext();
+        canvas._paint(mock.ctx);
+        expect(canvas.drawnGraphicCount).toBe(0);
+    });
+
+    test("an unset worldCamera falls back to Camera.main", () => {
+        const { canvas, cam } = setup(5);
+        canvas.worldCamera = null;
+        vi.spyOn(Camera, "main", "get").mockReturnValue(cam);
+
+        canvas._prepare();
+
+        expect(canvas.isRenderable).toBe(true);
+        const centre = canvas.canvasToScreenPoint(new Vector2(100, 50), new Vector2());
+        expect(centre.x).toBeCloseTo(400);
+        expect(centre.y).toBeCloseTo(300);
+    });
+
+    test("no camera at all is treated as not renderable rather than drawn at the origin", () => {
+        const { canvas } = setup(5);
+        canvas.worldCamera = null;
+        vi.spyOn(Camera, "main", "get").mockReturnValue(null);
+
+        canvas._prepare();
+
+        expect(canvas.isRenderable).toBe(false);
+    });
+
+    test("worldDistance reports how far the anchor is, for fading distant labels", () => {
+        const { canvas } = setup(12);
+        canvas._prepare();
+        expect(canvas.worldDistance).toBeCloseTo(12, 3);
+    });
+
+    test("hit-testing inverts the same placement painting uses", () => {
+        const { canvas } = setup(5);
+        canvas._prepare();
+
+        const screen = canvas.canvasToScreenPoint(new Vector2(30, 70), new Vector2());
+        const back = canvas.screenToCanvasPoint(screen, new Vector2());
+
+        expect(back.x).toBeCloseTo(30);
+        expect(back.y).toBeCloseTo(70);
+    });
+
+    test("a camera move repaints an otherwise unchanged canvas", () => {
+        const { canvas, camGO } = setup(5);
+        child("Icon", canvas.gameObject).addComponent(UIImage);
+
+        canvas._prepare();
+        expect(canvas._prepare()).toBe(false);
+
+        camGO.transform.position = new Vector3(0, 0, -2);
+        expect(canvas._prepare()).toBe(true);
+    });
+
+    test("a CanvasScaler does not fight the projection", () => {
+        const { canvas } = setup(5);
+        const scaler = canvas.gameObject.addComponent(CanvasScaler);
+        scaler.scaleMode = CanvasScaleMode.ConstantPixelSize;
+        scaler.scaleFactor = 3;
+
+        canvas._prepare();
+
+        // Screen-space scale modes are overlay-only; the world canvas keeps its
+        // authored size and takes its on-screen scale from the camera.
+        expect(canvas.scaleFactor).toBe(1);
+        expect(canvas.width).toBeCloseTo(200);
+    });
+
+    test("switching back to overlay restores screen-sized layout", () => {
+        const { canvas } = setup(5);
+        canvas._prepare();
+        expect(canvas.width).toBeCloseTo(200);
+
+        canvas.renderMode = CanvasRenderMode.ScreenSpaceOverlay;
+        canvas._prepare();
+
+        expect(canvas.width).toBeCloseTo(800);
+        expect(canvas.isRenderable).toBe(true);
+        // Overlay places the canvas rect at the origin again.
+        const origin = canvas.canvasToScreenPoint(new Vector2(0, 0), new Vector2());
+        expect(origin.x).toBeCloseTo(0);
+        expect(origin.y).toBeCloseTo(0);
+    });
+
+    test("overlay canvases are unaffected by the projection path", () => {
+        const canvasGO = new GameObject("HUD");
+        const canvas = canvasGO.addComponent(Canvas);
+        (canvas as any)._cssWidth = 800;
+        (canvas as any)._cssHeight = 600;
+        canvas._prepare();
+
+        expect(canvas.isRenderable).toBe(true);
+        expect(canvas.worldDistance).toBe(0);
+        const p = canvas.screenToCanvasPoint(new Vector2(120, 80), new Vector2());
+        expect(p.x).toBeCloseTo(120);
+        expect(p.y).toBeCloseTo(80);
     });
 });
 

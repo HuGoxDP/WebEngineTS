@@ -508,6 +508,56 @@ export class Camera extends Behaviour {
         return result;
     }
 
+    /**
+     * @internal
+     * Projects a world point into normalized viewport coordinates, without
+     * allocating and without assuming the render surface fills the window.
+     *
+     * Writes `x`/`y` in 0–1 across the viewport with **Y down** (0 = top), the
+     * UI subsystem's convention rather than {@link worldToScreenPoint}'s, and
+     * `z` = distance in front of the camera in world units.
+     *
+     * @param x - world X.
+     * @param y - world Y.
+     * @param z - world Z.
+     * @param out - vector receiving the result; untouched when this returns false.
+     * @returns false when the point is at or behind the eye, where the
+     *          projection mirrors and the result would be meaningless.
+     */
+    public _worldToViewportPoint(x: number, y: number, z: number, out: Vector3): boolean {
+        const cam = this._threeCamera;
+        if (cam === null) return false;
+
+        // The UI resolves before the render pass, so the matrices Three.js keeps
+        // are still the previous frame's — refreshed here so a label tracks the
+        // camera's current position rather than lagging it by a frame. Ancestors
+        // included: the camera is a child of its Transform's object, and a rig
+        // that moved this frame has not been flushed either.
+        cam.updateWorldMatrix(true, false);
+        cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+
+        _tvec3.set(x, y, z).applyMatrix4(cam.matrixWorldInverse);
+
+        // View space looks down −Z, so a point in front of the camera has
+        // negative z there.
+        const distance = -_tvec3.z;
+        if (distance <= 1e-6) return false;
+
+        _tvec3.applyMatrix4(cam.projectionMatrix);
+        out.set((_tvec3.x + 1) * 0.5, (1 - _tvec3.y) * 0.5, distance);
+        return true;
+    }
+
+    /**
+     * @internal
+     * World units spanned vertically by the view volume at `distance`, i.e. how
+     * much world fits on screen there. Constant for an orthographic camera.
+     */
+    public _frustumHeightAt(distance: number): number {
+        if (this._orthographic) return 2 * this._orthographicSize;
+        return 2 * distance * Math.tan((this._fieldOfView * Math.PI) / 360);
+    }
+
     // ==================== PRIVATE HELPERS ====================
 
     /**

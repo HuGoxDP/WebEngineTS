@@ -594,6 +594,11 @@ export class Application {
         // spring-back cannot fight a layout pass that has not run yet.
         ScrollRect._updateAll();
 
+        // Where each canvas sits on the render surface — for a world-space one,
+        // this frame's projection. Ahead of the event pass so a click hit-tests
+        // the position the paint pass is about to use.
+        Canvas._updateTransforms();
+
         // 7c. UI event processing (before UI render so button states are up-to-date)
         EventSystem._update();
 

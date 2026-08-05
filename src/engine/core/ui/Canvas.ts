@@ -4,11 +4,13 @@ import { RectTransform } from "./RectTransform";
 import { CanvasScaler } from "./CanvasScaler";
 import { UIBehaviour } from "./UIBehaviour";
 import { Rect } from "../math/Rect";
+import { Vector2 } from "../math/Vector2";
+import { Vector3 } from "../math/Vector3";
+import { Camera } from "../components/Camera";
 import { profilerHooks } from "../diagnostics/ProfilerHooks";
 import { HASH_SEED, hashBool, hashNumber } from "./UIUtils";
 import type { GameObject } from "../GameObject";
 import type { Transform } from "../Transform";
-import type { Vector2 } from "../math/Vector2";
 
 /**
  * Render mode for the Canvas.
@@ -16,7 +18,28 @@ import type { Vector2 } from "../math/Vector2";
 export enum CanvasRenderMode {
     /** Renders as a 2D overlay on top of the 3D scene. */
     ScreenSpaceOverlay = "ScreenSpaceOverlay",
-    // WorldSpace — planned for a future phase
+    /**
+     * Pins the canvas to its GameObject's world position — a label or callout
+     * attached to part of a 3D model.
+     *
+     * @remarks
+     * Equivalent in purpose to Unity's `RenderMode.WorldSpace`, implemented as a
+     * **projected overlay**: the anchor point is projected to screen space each
+     * frame and the UI is drawn around it, scaled by distance. The whole subtree
+     * stays 2D drawing, so nothing in the UI subsystem touches the 3D renderer.
+     *
+     * What that buys and what it costs, versus Unity's textured quad:
+     * - The UI stays screen-facing and perfectly legible — it never turns edge-on.
+     * - It has no perspective of its own: a callout does not lie *on* a slanted
+     *   surface, it hovers in front of it.
+     * - It is **not depth-occluded**. A label pinned to the far side of a model
+     *   draws over it rather than being hidden. Hide it from script when that
+     *   matters — a raycast against the model is the usual test.
+     *
+     * See {@link Canvas.worldSize}, {@link Canvas.worldScale} and
+     * {@link Canvas.distanceScaling} for how the anchor maps to canvas units.
+     */
+    WorldSpace = "WorldSpace",
 }
 
 /**
@@ -104,6 +127,19 @@ export class Canvas extends Behaviour {
 
     /**
      * @internal
+     * Refreshes every active canvas's placement on the render surface.
+     * Called from Application._loop before the event pass, so a world-space
+     * canvas hit-tests where this frame's camera puts it.
+     */
+    public static _updateTransforms(): void {
+        for (let i = 0; i < Canvas._instances.length; i++) {
+            const c = Canvas._instances[i];
+            if (c.isActiveAndEnabled) c._updateBaseTransform();
+        }
+    }
+
+    /**
+     * @internal
      * Active canvases ordered back-to-front by {@link sortingOrder}.
      */
     public static _sortedInstances(): readonly Canvas[] {
@@ -157,6 +193,23 @@ export class Canvas extends Behaviour {
     private _alpha: number = 1;
     private _pixelRatioOverride: number | null = null;
 
+    // ── world-space projection ───────────────────────────────────────
+
+    private readonly _worldSize: Vector2 = new Vector2(200, 100);
+    private readonly _worldPivot: Vector2 = new Vector2(0.5, 0.5);
+    private _worldScale: number = 0.01;
+    private _distanceScaling: boolean = true;
+    private _worldCamera: Camera | null = null;
+    private _worldDistance: number = 0;
+    private _projected: boolean = true;
+
+    /** Canvas units → CSS pixels, and the CSS-pixel origin of the canvas rect. */
+    private _baseScale: number = 1;
+    private _baseOffsetX: number = 0;
+    private _baseOffsetY: number = 0;
+
+    private readonly _projScratch: Vector3 = new Vector3();
+
     private _htmlCanvas: HTMLCanvasElement | null = null;
     private _ctx2d: CanvasRenderingContext2D | null = null;
     private _graphics: UIBehaviour[] = [];
@@ -196,7 +249,108 @@ export class Canvas extends Behaviour {
 
     /** How the canvas is rendered relative to the scene. */
     public get renderMode(): CanvasRenderMode { return this._renderMode; }
-    public set renderMode(value: CanvasRenderMode) { this._renderMode = value; }
+
+    public set renderMode(value: CanvasRenderMode) {
+        if (this._renderMode === value) return;
+        this._renderMode = value;
+        // The canvas rect every root element is laid out against changes size
+        // with the mode, so nothing cached against the old one is still valid.
+        this._dirty = true;
+        this._adoptSubtree();
+    }
+
+    /**
+     * Size of the canvas rect in canvas units, in
+     * {@link CanvasRenderMode.WorldSpace}.
+     *
+     * @remarks
+     * The "paper size" the UI is composed on — root elements lay out against
+     * `(0, 0, worldSize.x, worldSize.y)` exactly as they lay out against the
+     * screen in overlay mode. Multiply by {@link worldScale} for the size in
+     * world units. Ignored in overlay mode, where the screen supplies the size.
+     */
+    public get worldSize(): Vector2 { return this._worldSize; }
+
+    /**
+     * World units per canvas unit, in {@link CanvasRenderMode.WorldSpace}.
+     *
+     * @remarks
+     * The equivalent of the scale on Unity's world-space canvas Transform, and
+     * kept small for the same reason: at the default `0.01`, a 200×100 canvas is
+     * a 2×1 world-unit panel rather than a 200-unit wall. Only meaningful while
+     * {@link distanceScaling} is on — with it off, size is in CSS pixels.
+     */
+    public get worldScale(): number { return this._worldScale; }
+
+    public set worldScale(value: number) {
+        const v = Number.isFinite(value) ? Math.max(1e-6, value) : this._worldScale;
+        if (this._worldScale === v) return;
+        this._worldScale = v;
+        this._dirty = true;
+    }
+
+    /**
+     * Which point of the canvas rect lands on the projected anchor, normalized.
+     *
+     * @remarks
+     * `(0.5, 0.5)` — the default — centres the panel on the anchor. Because Y
+     * points down, `(0.5, 1)` puts the panel's **bottom** edge on the anchor,
+     * which is how a callout floats above the thing it labels.
+     */
+    public get worldPivot(): Vector2 { return this._worldPivot; }
+
+    /**
+     * Whether a world-space canvas shrinks with distance like a real object.
+     *
+     * @remarks
+     * On (the default) it behaves as a physical panel: {@link worldScale} sets
+     * its world size and perspective does the rest. Off, it keeps a constant
+     * pixel size and only its *position* is projected — the billboard-label
+     * behaviour, which is what keeps a callout legible on a model the user can
+     * zoom away from. One canvas unit is then one CSS pixel.
+     */
+    public get distanceScaling(): boolean { return this._distanceScaling; }
+
+    public set distanceScaling(value: boolean) {
+        if (this._distanceScaling === value) return;
+        this._distanceScaling = value;
+        this._dirty = true;
+    }
+
+    /**
+     * Camera used to project a world-space canvas. `null` (the default) follows
+     * {@link Camera.main}.
+     *
+     * @remarks Equivalent to Unity's `Canvas.worldCamera`.
+     */
+    public get worldCamera(): Camera | null { return this._worldCamera; }
+
+    public set worldCamera(value: Camera | null) {
+        if (this._worldCamera === value) return;
+        this._worldCamera = value;
+        this._dirty = true;
+    }
+
+    /**
+     * Distance from the projecting camera to the anchor, in world units. `0` in
+     * overlay mode or while the anchor is not visible.
+     *
+     * @remarks
+     * Exposed because it is the number a scenario needs to fade or hide distant
+     * labels, and it has already been computed for the projection.
+     */
+    public get worldDistance(): number { return this._worldDistance; }
+
+    /**
+     * Whether the canvas is currently on screen at all.
+     *
+     * @remarks
+     * Always true in overlay mode. In {@link CanvasRenderMode.WorldSpace} it
+     * goes false when the anchor is behind the camera or no camera is available
+     * — the canvas then neither draws nor hit-tests, rather than drawing at a
+     * mirrored position.
+     */
+    public get isRenderable(): boolean { return this._projected; }
 
     /** When the 2D surface is rebuilt. */
     public get repaintMode(): CanvasRepaintMode { return this._repaintMode; }
@@ -257,16 +411,24 @@ export class Canvas extends Behaviour {
     /**
      * CSS pixels per canvas unit, as computed by the {@link CanvasScaler} on
      * this GameObject. `1` when there is no scaler.
+     *
+     * @remarks
+     * Forced to `1` in {@link CanvasRenderMode.WorldSpace}: a world-space canvas
+     * has a fixed authored size ({@link worldSize}) and its on-screen scale comes
+     * from the projection, so matching the screen resolution would fight it.
+     * Unity draws the same line — its scale modes are screen-space only.
      */
     public get scaleFactor(): number { return this._scaleFactor; }
 
     /** Current canvas width in canvas units. */
     public get width(): number {
+        if (this._renderMode === CanvasRenderMode.WorldSpace) return this._worldSize.x;
         return this._scaleFactor > 0 ? this._cssWidth / this._scaleFactor : 0;
     }
 
     /** Current canvas height in canvas units. */
     public get height(): number {
+        if (this._renderMode === CanvasRenderMode.WorldSpace) return this._worldSize.y;
         return this._scaleFactor > 0 ? this._cssHeight / this._scaleFactor : 0;
     }
 
@@ -402,14 +564,32 @@ export class Canvas extends Behaviour {
      * Converts a viewport point (CSS pixels, relative to the render canvas)
      * into canvas units.
      *
+     * @remarks
+     * Inverts the same placement the paint pass applies, so a world-space canvas
+     * hit-tests exactly where it is drawn.
+     *
      * @param point - source point, e.g. `Input.mousePosition`.
      * @param out - vector to receive the result; `point` may be passed here.
      * @returns `out` for chaining.
      */
     public screenToCanvasPoint(point: Vector2, out: Vector2): Vector2 {
-        const s = this._scaleFactor > 0 ? this._scaleFactor : 1;
-        out.x = point.x / s;
-        out.y = point.y / s;
+        const s = this._baseScale > 0 ? this._baseScale : 1;
+        out.x = (point.x - this._baseOffsetX) / s;
+        out.y = (point.y - this._baseOffsetY) / s;
+        return out;
+    }
+
+    /**
+     * Converts a point in canvas units to CSS pixels relative to the render
+     * canvas — the inverse of {@link screenToCanvasPoint}.
+     *
+     * @param point - source point in canvas units.
+     * @param out - vector to receive the result; `point` may be passed here.
+     * @returns `out` for chaining.
+     */
+    public canvasToScreenPoint(point: Vector2, out: Vector2): Vector2 {
+        out.x = point.x * this._baseScale + this._baseOffsetX;
+        out.y = point.y * this._baseScale + this._baseOffsetY;
         return out;
     }
 
@@ -530,7 +710,8 @@ export class Canvas extends Behaviour {
         }
 
         const scaler = this._scaler;
-        const factor = scaler && scaler.isActiveAndEnabled
+        const world = this._renderMode === CanvasRenderMode.WorldSpace;
+        const factor = !world && scaler && scaler.isActiveAndEnabled
             ? scaler._computeScaleFactor(this._cssWidth, this._cssHeight, CanvasScaler._screenDPI())
             : 1;
 
@@ -538,6 +719,56 @@ export class Canvas extends Behaviour {
             this._scaleFactor = factor;
             this._dirty = true;
         }
+    }
+
+    /**
+     * @internal
+     * Places the canvas rect on the render surface: identity in overlay mode,
+     * the projected anchor in world space.
+     *
+     * @remarks
+     * Runs from `Application._loop` before the event pass, so hit-testing and
+     * painting agree within a frame. Idempotent, so a host driving the canvas
+     * itself gets the same result by calling nothing at all.
+     */
+    public _updateBaseTransform(): void {
+        if (this._renderMode !== CanvasRenderMode.WorldSpace) {
+            this._baseScale = this._scaleFactor;
+            this._baseOffsetX = 0;
+            this._baseOffsetY = 0;
+            this._worldDistance = 0;
+            this._projected = true;
+            return;
+        }
+
+        const camera = this._worldCamera ?? Camera.main;
+        const p = this._projScratch;
+        const pos = this.gameObject.transform.position;
+
+        if (!camera || !camera._worldToViewportPoint(pos.x, pos.y, pos.z, p)) {
+            this._projected = false;
+            this._worldDistance = 0;
+            return;
+        }
+
+        this._projected = true;
+        this._worldDistance = p.z;
+
+        // Distance scaling reproduces perspective: the share of the viewport one
+        // world unit covers, times the world size of a canvas unit. With it off
+        // the canvas keeps a constant pixel size and only its position tracks.
+        let scale = 1;
+        if (this._distanceScaling) {
+            const frustumHeight = camera._frustumHeightAt(p.z);
+            const cssPerWorldUnit = frustumHeight > 1e-6 ? this._cssHeight / frustumHeight : 0;
+            scale = this._worldScale * cssPerWorldUnit;
+        }
+        this._baseScale = scale;
+
+        // The anchor lands on worldPivot of the canvas rect, so the rect's
+        // origin sits that far back from it.
+        this._baseOffsetX = p.x * this._cssWidth - this._worldPivot.x * this._worldSize.x * scale;
+        this._baseOffsetY = p.y * this._cssHeight - this._worldPivot.y * this._worldSize.y * scale;
     }
 
     private _renderFrame(): void {
@@ -583,6 +814,10 @@ export class Canvas extends Behaviour {
      * @returns true when the surface must be redrawn this frame.
      */
     public _prepare(): boolean {
+        // Placement first: the hash below covers it, and both the cull test and
+        // the pointer conversion read it.
+        this._updateBaseTransform();
+
         // The visible area is part of layout, not of painting: the cull test in
         // `_paint` reads it, and so does anything asking what is on screen.
         this._canvasRect.set(0, 0, this.width, this.height);
@@ -612,6 +847,13 @@ export class Canvas extends Behaviour {
             hash = hashNumber(hash, this._effectivePixelRatio);
             hash = hashNumber(hash, this._alpha);
             hash = hashNumber(hash, this._graphics.length);
+
+            // A world-space canvas moves with the camera even when nothing in it
+            // changed, so the placement is part of what "unchanged" means.
+            hash = hashBool(hash, this._projected);
+            hash = hashNumber(hash, this._baseScale);
+            hash = hashNumber(hash, this._baseOffsetX);
+            hash = hashNumber(hash, this._baseOffsetY);
         }
 
         for (let i = 0; i < this._graphics.length; i++) {
@@ -738,11 +980,21 @@ export class Canvas extends Behaviour {
     public _paint(ctx: CanvasRenderingContext2D): void {
         // One transform maps canvas units → device pixels: layout math and every
         // component's draw code stay in units and gain HiDPI sharpness for free.
-        const s = this._effectivePixelRatio * this._scaleFactor;
-        ctx.setTransform(s, 0, 0, s, 0, 0);
-        ctx.clearRect(0, 0, this._canvasRect.width, this._canvasRect.height);
+        // In world space it also carries the projected placement, so the same
+        // single setTransform serves both modes.
+        const ratio = this._effectivePixelRatio;
+        const s = ratio * this._baseScale;
+        const ox = ratio * this._baseOffsetX;
+        const oy = ratio * this._baseOffsetY;
 
-        if (this._alpha <= 0) {
+        // Cleared in surface space rather than through the transform: a
+        // world-space canvas rect covers only part of the surface, and clearing
+        // just that part would leave the previous frame's pixels around it.
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, this._backingWidth, this._backingHeight);
+        ctx.setTransform(s, 0, 0, s, ox, oy);
+
+        if (this._alpha <= 0 || !this._projected) {
             this._drawnGraphicCount = 0;
             return;
         }
@@ -770,13 +1022,13 @@ export class Canvas extends Behaviour {
                 const mask = masks[k];
                 const mm = mask.rectTransform._canvasMatrix;
                 const mr = mask._clipRect();
-                ctx.setTransform(s, 0, 0, s, 0, 0);
+                ctx.setTransform(s, 0, 0, s, ox, oy);
                 ctx.transform(mm[0], mm[1], mm[2], mm[3], mm[4], mm[5]);
                 ctx.beginPath();
                 ctx.rect(mr.x, mr.y, mr.width, mr.height);
                 ctx.clip();
             }
-            if (masks.length > 0) ctx.setTransform(s, 0, 0, s, 0, 0);
+            if (masks.length > 0) ctx.setTransform(s, 0, 0, s, ox, oy);
 
             // Composes with the canvas-unit transform already on the context, so
             // components keep drawing in their own local rect and inherit the
