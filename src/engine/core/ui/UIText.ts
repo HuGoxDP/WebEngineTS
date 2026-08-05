@@ -233,6 +233,24 @@ export class UIText extends UIBehaviour {
         }
     }
 
+    public override _drawOverflow(): number {
+        const outline = this.outlineWidth > 0 && this.outlineColor.a > 0 ? this.outlineWidth : 0;
+        if (!this.text) return outline;
+
+        // Both of these can run arbitrarily far past the rect, and bounding them
+        // means measuring the text — far too expensive to do once per element
+        // per frame, so they give up partial repaint instead.
+        if (this.overflow === TextOverflow.Overflow) return Number.POSITIVE_INFINITY;
+        if (!this.wordWrap && this.overflow !== TextOverflow.Ellipsis) {
+            return Number.POSITIVE_INFINITY;
+        }
+
+        // Wrapping breaks inside a word when it has to, so the only way text
+        // escapes sideways is a rect narrower than a single glyph. Two ems of
+        // slack covers that without measuring anything.
+        return Math.max(outline, this.fontSize * 2);
+    }
+
     public override _visualHash(): number {
         let h = hashString(HASH_SEED, this.text);
         h = hashNumber(h, this.fontSize);

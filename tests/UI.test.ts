@@ -986,6 +986,325 @@ describe("Canvas WorldSpace", () => {
     });
 });
 
+// ---------------------------------------------------------------------------
+// Dirty-rect partial repaint
+// ---------------------------------------------------------------------------
+
+describe("Canvas partial repaint", () => {
+    beforeEach(() => Canvas._reset());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        Canvas._reset();
+    });
+
+    /** A canvas sized 800x600 with `n` UIImages placed apart from each other. */
+    function setup(n: number) {
+        const canvasGO = new GameObject("Canvas");
+        const canvas = canvasGO.addComponent(Canvas);
+        vi.spyOn(canvas, "width", "get").mockReturnValue(800);
+        vi.spyOn(canvas, "height", "get").mockReturnValue(600);
+        (canvas as any)._cssWidth = 800;
+        (canvas as any)._cssHeight = 600;
+        (canvas as any)._backingWidth = 800;
+        (canvas as any)._backingHeight = 600;
+
+        const images: UIImage[] = [];
+        for (let i = 0; i < n; i++) {
+            const go = child(`Img${i}`, canvasGO);
+            const rt = go.addComponent(RectTransform);
+            rt.anchorMin.set(0, 0);
+            rt.anchorMax.set(0, 0);
+            rt.pivot.set(0, 0);
+            rt.anchoredPosition.set(i * 200, 0);
+            rt.sizeDelta.set(100, 100);
+            images.push(go.addComponent(UIImage));
+        }
+
+        // First prepare establishes the baseline; the second settles it.
+        canvas._prepare();
+        canvas._prepare();
+        return { canvas, images };
+    }
+
+    test("an unchanged canvas repaints nothing at all", () => {
+        const { canvas } = setup(3);
+        expect(canvas._prepare()).toBe(false);
+    });
+
+    test("one changed element narrows the repaint to its own area", () => {
+        const { canvas, images } = setup(3);
+
+        images[1].color = new Color(1, 0, 0, 1);
+
+        expect(canvas._prepare()).toBe(true);
+        const region = canvas.lastRepaintRegion!;
+        expect(region).not.toBeNull();
+        // The element sits at x 200..300; the region is that plus AA padding.
+        expect(region.x).toBeLessThanOrEqual(200);
+        expect(region.x).toBeGreaterThan(190);
+        expect(region.x + region.width).toBeGreaterThanOrEqual(300);
+        expect(region.x + region.width).toBeLessThan(310);
+    });
+
+    test("only what intersects the region is redrawn", () => {
+        const { canvas, images } = setup(3);
+        images[1].color = new Color(1, 0, 0, 1);
+        canvas._prepare();
+
+        canvas._paint(makeContext().ctx);
+
+        expect(canvas.drawnGraphicCount).toBe(1);
+    });
+
+    test("a moved element repaints both where it was and where it went", () => {
+        const { canvas, images } = setup(3);
+
+        images[0].rectTransform.anchoredPosition.set(500, 0);
+
+        expect(canvas._prepare()).toBe(true);
+        const region = canvas.lastRepaintRegion!;
+        expect(region.x).toBeLessThanOrEqual(0);
+        expect(region.x + region.width).toBeGreaterThanOrEqual(600);
+    });
+
+    test("two changed elements are covered by one union", () => {
+        const { canvas, images } = setup(3);
+
+        images[0].color = new Color(1, 0, 0, 1);
+        images[2].color = new Color(0, 1, 0, 1);
+        canvas._prepare();
+
+        const region = canvas.lastRepaintRegion!;
+        expect(region.x).toBeLessThanOrEqual(0);
+        expect(region.x + region.width).toBeGreaterThanOrEqual(500);
+
+        // The element between them falls inside the union, so it is redrawn too.
+        canvas._paint(makeContext().ctx);
+        expect(canvas.drawnGraphicCount).toBe(3);
+    });
+
+    test("a disabled element repaints the area it vacated", () => {
+        const { canvas, images } = setup(3);
+
+        images[2].enabled = false;
+
+        // Unregistering is a canvas-level change, so this one is a full repaint
+        // — the point of the test is that the vacated area is not left stale.
+        expect(canvas._prepare()).toBe(true);
+    });
+
+    test("turning partial repaint off falls back to the whole surface", () => {
+        const { canvas, images } = setup(3);
+        canvas.partialRepaint = false;
+        canvas._prepare();
+
+        images[1].color = new Color(1, 0, 0, 1);
+
+        expect(canvas._prepare()).toBe(true);
+        expect(canvas.lastRepaintRegion).toBeNull();
+
+        canvas._paint(makeContext().ctx);
+        expect(canvas.drawnGraphicCount).toBe(3);
+    });
+
+    test("a canvas-level change repaints everything", () => {
+        const { canvas } = setup(3);
+
+        canvas.alpha = 0.5;
+
+        expect(canvas._prepare()).toBe(true);
+        expect(canvas.lastRepaintRegion).toBeNull();
+    });
+
+    test("a change entirely off-screen costs no repaint", () => {
+        const { canvas, images } = setup(3);
+
+        images[0].rectTransform.anchoredPosition.set(-5000, -5000);
+        canvas._prepare();
+        canvas._prepare();
+
+        // Now move it further away — still nowhere near the visible canvas.
+        images[0].rectTransform.anchoredPosition.set(-6000, -6000);
+
+        expect(canvas._prepare()).toBe(false);
+    });
+
+    test("an element that outgrew its rect forces a full repaint", () => {
+        const { canvas, images } = setup(3);
+
+        // A button never truncates its caption, so it cannot say how far the
+        // text runs past the box.
+        const btn = child("Btn", canvas.gameObject).addComponent(Button);
+        btn.text = "a very long caption indeed";
+        canvas._prepare();
+        canvas._prepare();
+
+        btn.text = "changed";
+
+        expect(canvas._prepare()).toBe(true);
+        expect(canvas.lastRepaintRegion).toBeNull();
+
+        // The unrelated images are unaffected by the button being unbounded.
+        images[0].color = new Color(1, 0, 0, 1);
+        btn.enabled = false;
+        canvas._prepare();
+        canvas._prepare();
+        images[0].color = new Color(0, 1, 0, 1);
+        expect(canvas._prepare()).toBe(true);
+        expect(canvas.lastRepaintRegion).not.toBeNull();
+    });
+
+    test("wrapped, clipped text stays bounded and keeps the repaint local", () => {
+        const { canvas } = setup(1);
+
+        const go = child("Label", canvas.gameObject);
+        const rt = go.addComponent(RectTransform);
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(400, 400);
+        rt.sizeDelta.set(120, 40);
+        const label = go.addComponent(UIText);
+        label.text = "0";
+        canvas._prepare();
+        canvas._prepare();
+
+        label.text = "1";
+
+        expect(canvas._prepare()).toBe(true);
+        const region = canvas.lastRepaintRegion;
+        expect(region).not.toBeNull();
+        expect(region!.x).toBeGreaterThan(300);
+    });
+
+    test("text set to overflow gives up the optimization instead of clipping", () => {
+        const { canvas } = setup(1);
+
+        const go = child("Label", canvas.gameObject);
+        const rt = go.addComponent(RectTransform);
+        rt.sizeDelta.set(120, 40);
+        const label = go.addComponent(UIText);
+        label.overflow = TextOverflow.Overflow;
+        label.text = "0";
+        canvas._prepare();
+        canvas._prepare();
+
+        label.text = "1";
+
+        expect(canvas._prepare()).toBe(true);
+        expect(canvas.lastRepaintRegion).toBeNull();
+    });
+
+    test("an outline widens the repainted area by its own width", () => {
+        const { canvas } = setup(1);
+
+        const go = child("Label", canvas.gameObject);
+        const rt = go.addComponent(RectTransform);
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(400, 400);
+        rt.sizeDelta.set(120, 40);
+        const label = go.addComponent(UIText);
+        label.fontSize = 4;
+        label.text = "0";
+        label.outlineWidth = 30;
+        canvas._prepare();
+        canvas._prepare();
+
+        label.text = "1";
+        canvas._prepare();
+
+        const region = canvas.lastRepaintRegion!;
+        expect(region.x).toBeLessThanOrEqual(400 - 30);
+    });
+
+    /** Places a component far from the images, at 700,500. */
+    function far(canvas: Canvas, name: string): GameObject {
+        const go = child(name, canvas.gameObject);
+        const rt = go.addComponent(RectTransform);
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(700, 500);
+        rt.sizeDelta.set(80, 30);
+        return go;
+    }
+
+    test("an unbounded element is redrawn even when something else changed", () => {
+        const { canvas, images } = setup(3);
+
+        // A labelled Toggle paints past its own rect by an unknown amount, so
+        // it has to take part in every partial redraw — otherwise the region
+        // clears pixels it painted and nothing draws them back.
+        const toggle = far(canvas, "Toggle").addComponent(Toggle);
+        toggle.label = "Enable shadows";
+        canvas._prepare();
+        canvas._prepare();
+
+        images[0].color = new Color(1, 0, 0, 1);
+        canvas._prepare();
+        canvas._paint(makeContext().ctx);
+
+        // Image 0 plus the toggle, but not images 1 and 2.
+        expect(canvas.drawnGraphicCount).toBe(2);
+    });
+
+    test("an element that opts out of culling is redrawn the same way", () => {
+        const { canvas, images } = setup(3);
+
+        const dropdown = far(canvas, "Dropdown").addComponent(Dropdown);
+        dropdown.options = ["a", "b"];
+        dropdown.open();
+        canvas._prepare();
+        canvas._prepare();
+
+        images[0].color = new Color(1, 0, 0, 1);
+        canvas._prepare();
+        canvas._paint(makeContext().ctx);
+
+        expect(canvas.drawnGraphicCount).toBe(2);
+    });
+
+    test("a closed dropdown is bounded again and can be culled", () => {
+        const { canvas, images } = setup(3);
+
+        far(canvas, "Dropdown").addComponent(Dropdown).options = ["a", "b"];
+        canvas._prepare();
+        canvas._prepare();
+
+        images[0].color = new Color(1, 0, 0, 1);
+        canvas._prepare();
+        canvas._paint(makeContext().ctx);
+
+        expect(canvas.drawnGraphicCount).toBe(1);
+    });
+
+    test("Always mode never narrows the repaint", () => {
+        const { canvas } = setup(3);
+        canvas.repaintMode = CanvasRepaintMode.Always;
+
+        expect(canvas._prepare()).toBe(true);
+        expect(canvas.lastRepaintRegion).toBeNull();
+        expect(canvas._prepare()).toBe(true);
+    });
+
+    test("the painted region covers whole device pixels", () => {
+        const { canvas, images } = setup(3);
+        (canvas as any)._effectivePixelRatio = 2;
+        canvas._prepare();
+
+        images[1].rectTransform.anchoredPosition.set(200.37, 0.21);
+        canvas._prepare();
+        canvas._paint(makeContext().ctx);
+
+        const region = canvas.lastRepaintRegion!;
+        const scale = 2 * canvas.scaleFactor;
+        expect((region.x * scale) % 1).toBeCloseTo(0);
+        expect((region.width * scale) % 1).toBeCloseTo(0);
+    });
+});
+
 describe("Canvas backing-store accounting", () => {
     beforeEach(() => Canvas._reset());
     afterEach(() => Canvas._reset());

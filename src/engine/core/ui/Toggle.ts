@@ -170,6 +170,12 @@ export class Toggle extends Selectable {
         }
     }
 
+    public override _drawOverflow(): number {
+        // The label starts to the right of the box and is never truncated, so
+        // it runs past the rect by however long it happens to be.
+        return this.label ? Number.POSITIVE_INFINITY : 0;
+    }
+
     public override _visualHash(): number {
         let h = hashBool(HASH_SEED, this._isOn);
         h = hashBool(h, this.isHovered);

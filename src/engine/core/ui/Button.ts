@@ -123,6 +123,13 @@ export class Button extends Selectable {
         }
     }
 
+    public override _drawOverflow(): number {
+        // The label is centred and never wrapped or truncated, so a caption
+        // wider than its button runs off both sides by an amount only a
+        // measurement would reveal.
+        return this.text ? Number.POSITIVE_INFINITY : 0;
+    }
+
     public override _visualHash(): number {
         let h = hashColor(HASH_SEED, this._stateColor());
         h = hashNumber(h, this.borderRadius);

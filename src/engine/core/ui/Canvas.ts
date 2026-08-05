@@ -78,6 +78,19 @@ const MAX_HIERARCHY_NODES = 100000;
 const SURFACE_REVALIDATE_MS = 500;
 
 /**
+ * Canvas units added around a repaint region, covering the pixels antialiasing
+ * touches just outside a shape's mathematical bounds.
+ */
+const AA_PADDING = 2;
+
+/**
+ * Half-extent used as the painted bounds of an element that cannot say where it
+ * paints. Large enough to cover any canvas, finite so rect arithmetic stays
+ * free of `NaN`.
+ */
+const UNBOUNDED_EXTENT = 1e7;
+
+/**
  * `getComponentsInChildren` takes a construct signature and `UIBehaviour` is
  * abstract, so the query needs a concrete-looking view of it.
  */
@@ -218,6 +231,13 @@ export class Canvas extends Behaviour {
     private _viewport: VisualViewport | null = null;
 
     private readonly _canvasRect: Rect = new Rect();
+
+    private _partialRepaint: boolean = true;
+
+    /** The region to repaint this frame, or null for the whole surface. */
+    private _region: Rect | null = null;
+    private readonly _regionScratch: Rect = new Rect();
+    private static readonly _boundsScratch: Rect = new Rect();
 
     /** Reusable scratch for the hierarchy-order walk; never live across calls. */
     private readonly _orderScratch: Map<GameObject, number> = new Map();
@@ -360,6 +380,44 @@ export class Canvas extends Behaviour {
         this._repaintMode = value;
         this._dirty = true;
     }
+
+    /**
+     * Whether a repaint may be narrowed to the part of the surface that
+     * changed, instead of clearing and redrawing everything. Defaults to `true`.
+     *
+     * @remarks
+     * A score label ticking once a frame otherwise costs a full-HUD redraw.
+     * With this on, the canvas unions the old and new bounds of the elements
+     * that changed, clips to that, and redraws only what intersects it — so the
+     * cost tracks what moved rather than what exists.
+     *
+     * Only applies in {@link CanvasRepaintMode.OnDemand}, which is where the
+     * per-element change detection lives. The canvas falls back to a full
+     * repaint by itself whenever the region cannot be trusted: a resize, a
+     * scaler change, the canvas {@link alpha}, a change to the set of graphics
+     * or their order, a world-space projection change, or any element whose
+     * painted area is unbounded (see `UIBehaviour._drawOverflow`).
+     *
+     * Turn it off if a custom {@link UIBehaviour} paints outside its rect
+     * without reporting how far — the symptom is stale pixels left behind.
+     */
+    public get partialRepaint(): boolean { return this._partialRepaint; }
+
+    public set partialRepaint(value: boolean) {
+        if (this._partialRepaint === value) return;
+        this._partialRepaint = value;
+        this._dirty = true;
+    }
+
+    /**
+     * The region redrawn by the most recent repaint, in canvas units, or `null`
+     * when the whole surface was redrawn.
+     *
+     * @remarks
+     * Diagnostic: what {@link partialRepaint} actually managed to narrow the
+     * last frame to. Read it, never mutate it.
+     */
+    public get lastRepaintRegion(): Rect | null { return this._region; }
 
     /**
      * Draw order relative to other canvases. Higher values render on top.
@@ -838,7 +896,6 @@ export class Canvas extends Behaviour {
 
         const onDemand = this._repaintMode === CanvasRepaintMode.OnDemand;
         let hash = HASH_SEED;
-        let unknown = false;
 
         if (onDemand) {
             hash = hashNumber(hash, this._cssWidth);
@@ -856,42 +913,144 @@ export class Canvas extends Behaviour {
             hash = hashNumber(hash, this._baseOffsetY);
         }
 
-        for (let i = 0; i < this._graphics.length; i++) {
-            const g = this._graphics[i];
-            const active = g.isActiveAndEnabled;
-
-            if (onDemand) hash = hashBool(hash, active);
-            if (!active) continue;
-
-            if (onDemand) {
-                // The local rect plus the transform is the element's full
-                // placement — the bounds alone would miss a pure rotation.
-                const rt = g.rectTransform;
-                const local = rt._resolvedLocalRect;
-                const m = rt._canvasMatrix;
-
-                hash = hashNumber(hash, local.x);
-                hash = hashNumber(hash, local.y);
-                hash = hashNumber(hash, local.width);
-                hash = hashNumber(hash, local.height);
-                for (let k = 0; k < 6; k++) hash = hashNumber(hash, m[k]);
-                hash = hashNumber(hash, g._groupAlpha());
-
-                const gh = g._visualHash();
-                if (Number.isNaN(gh)) unknown = true;
-                else hash = hashNumber(hash, gh);
-            }
-        }
-
         if (!onDemand) {
             this._dirty = false;
+            this._region = null;
             return true;
         }
 
-        const changed = this._dirty || unknown || hash !== this._lastHash;
+        // A canvas-level change (a resize, a scaler, the projection, the set of
+        // graphics) moves everything at once, so it is never worth localizing.
+        let full = this._dirty || hash !== this._lastHash;
         this._lastHash = hash;
+
+        const partial = this._partialRepaint;
+        const region = this._regionScratch;
+        let regionValid = false;
+        let anyChanged = false;
+
+        for (let i = 0; i < this._graphics.length; i++) {
+            const g = this._graphics[i];
+
+            if (!g.isActiveAndEnabled) {
+                // A graphic that just went away has to have its old area
+                // repainted, even though it contributes nothing to draw.
+                if (g._repaintValid) {
+                    g._repaintValid = false;
+                    anyChanged = true;
+                    if (regionValid) Canvas._union(region, g._repaintBounds);
+                    else { region.copy(g._repaintBounds); regionValid = true; }
+                }
+                continue;
+            }
+
+            // The local rect plus the transform is the element's full
+            // placement — the bounds alone would miss a pure rotation.
+            const rt = g.rectTransform;
+            const local = rt._resolvedLocalRect;
+            const m = rt._canvasMatrix;
+
+            let gh = HASH_SEED;
+            gh = hashNumber(gh, local.x);
+            gh = hashNumber(gh, local.y);
+            gh = hashNumber(gh, local.width);
+            gh = hashNumber(gh, local.height);
+            for (let k = 0; k < 6; k++) gh = hashNumber(gh, m[k]);
+            gh = hashNumber(gh, g._groupAlpha());
+
+            const visual = g._visualHash();
+            const unknown = Number.isNaN(visual);
+            if (!unknown) gh = hashNumber(gh, visual);
+
+            const overflow = g._drawOverflow();
+            gh = hashNumber(gh, overflow);
+
+            const changed = unknown || !g._repaintValid || gh !== g._repaintHash;
+            if (changed) {
+                anyChanged = true;
+
+                // Unbounded elements cannot say where they painted, so there is
+                // no region that provably covers them.
+                if (!g._allowCulling || !Number.isFinite(overflow)) full = true;
+                else if (partial && !full) {
+                    if (g._repaintValid) {
+                        if (regionValid) Canvas._union(region, g._repaintBounds);
+                        else { region.copy(g._repaintBounds); regionValid = true; }
+                    }
+                    Canvas._inflate(Canvas._boundsScratch, rt._resolvedBounds, overflow + AA_PADDING);
+                    if (regionValid) Canvas._union(region, Canvas._boundsScratch);
+                    else { region.copy(Canvas._boundsScratch); regionValid = true; }
+                }
+            }
+
+            g._repaintHash = gh;
+            g._repaintValid = true;
+
+            if (Number.isFinite(overflow)) {
+                Canvas._inflate(g._repaintBounds, rt._resolvedBounds, overflow + AA_PADDING);
+            } else {
+                // Unbounded: it may have painted anywhere, so it takes part in
+                // every partial redraw. Left unchanged it would be cleared by a
+                // region another element dirtied and never drawn back.
+                g._repaintBounds.set(-UNBOUNDED_EXTENT, -UNBOUNDED_EXTENT,
+                    UNBOUNDED_EXTENT * 2, UNBOUNDED_EXTENT * 2);
+            }
+        }
+
         this._dirty = false;
-        return changed;
+
+        if (full) {
+            this._region = null;
+            return true;
+        }
+        if (!anyChanged) {
+            this._region = null;
+            return false;
+        }
+        if (!partial || !regionValid) {
+            this._region = null;
+            return true;
+        }
+
+        // Nothing outside the canvas can be seen, so a change that happened
+        // entirely off-screen costs no repaint at all.
+        if (!Canvas._intersect(region, this._canvasRect)) {
+            this._region = null;
+            return false;
+        }
+
+        this._region = region;
+        return true;
+    }
+
+    /** Grows `target` to also contain `other`. */
+    private static _union(target: Rect, other: Rect): void {
+        const x0 = Math.min(target.x, other.x);
+        const y0 = Math.min(target.y, other.y);
+        const x1 = Math.max(target.x + target.width, other.x + other.width);
+        const y1 = Math.max(target.y + target.height, other.y + other.height);
+        target.set(x0, y0, x1 - x0, y1 - y0);
+    }
+
+    /** Writes `source` grown by `pad` on every side into `out`. */
+    private static _inflate(out: Rect, source: Rect, pad: number): void {
+        out.set(
+            source.x - pad,
+            source.y - pad,
+            source.width + pad * 2,
+            source.height + pad * 2,
+        );
+    }
+
+    /** Clips `target` to `bounds`. Returns false when nothing is left. */
+    private static _intersect(target: Rect, bounds: Rect): boolean {
+        const x0 = Math.max(target.x, bounds.x);
+        const y0 = Math.max(target.y, bounds.y);
+        const x1 = Math.min(target.x + target.width, bounds.x + bounds.width);
+        const y1 = Math.min(target.y + target.height, bounds.y + bounds.height);
+        if (x1 <= x0 || y1 <= y0) return false;
+        target.set(x0, y0, x1 - x0, y1 - y0);
+        return true;
     }
 
     /**
@@ -987,18 +1146,41 @@ export class Canvas extends Behaviour {
         const ox = ratio * this._baseOffsetX;
         const oy = ratio * this._baseOffsetY;
 
-        // Cleared in surface space rather than through the transform: a
-        // world-space canvas rect covers only part of the surface, and clearing
-        // just that part would leave the previous frame's pixels around it.
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, this._backingWidth, this._backingHeight);
-        ctx.setTransform(s, 0, 0, s, ox, oy);
+        // A partial repaint owns only its region, so everything below — the
+        // clear, the cull test and the clip — is expressed against it. Snapped
+        // outward to whole device pixels first, or a fractional edge would clear
+        // and redraw slightly different pixels and leave a seam.
+        const region = this._region;
+        if (region !== null && s > 0) {
+            Canvas._snapToPixels(region, s, ox, oy);
+            ctx.setTransform(s, 0, 0, s, ox, oy);
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(region.x, region.y, region.width, region.height);
+            ctx.clip();
+            ctx.clearRect(region.x, region.y, region.width, region.height);
+        } else {
+            // Cleared in surface space rather than through the transform: a
+            // world-space canvas rect covers only part of the surface, and
+            // clearing just that part would leave the previous frame's pixels
+            // around it.
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, this._backingWidth, this._backingHeight);
+            ctx.setTransform(s, 0, 0, s, ox, oy);
+        }
+
+        const clipped = region !== null && s > 0;
 
         if (this._alpha <= 0 || !this._projected) {
+            if (clipped) ctx.restore();
             this._drawnGraphicCount = 0;
             return;
         }
         ctx.globalAlpha = this._alpha;
+
+        // Everything that could paint into the region has to be redrawn, since
+        // the region was just cleared — including elements that did not change.
+        const visible = clipped ? region! : this._canvasRect;
 
         let drawn = 0;
         for (let i = 0; i < this._graphics.length; i++) {
@@ -1006,7 +1188,12 @@ export class Canvas extends Behaviour {
             if (!g.isActiveAndEnabled) continue;
 
             const rt = g.rectTransform;
-            if (g._allowCulling && !rt._resolvedBounds.overlaps(this._canvasRect)) continue;
+
+            // Against the painted bounds, not the layout ones: an outline or a
+            // label reaching into the region has to be drawn back after the
+            // clear, even though its rect is outside.
+            const bounds = clipped ? g._repaintBounds : rt._resolvedBounds;
+            if (g._allowCulling && !bounds.overlaps(visible)) continue;
 
             const groupAlpha = g._groupAlpha();
             if (groupAlpha <= 0) continue;
@@ -1039,7 +1226,20 @@ export class Canvas extends Behaviour {
             drawn++;
         }
 
+        if (clipped) ctx.restore();
         this._drawnGraphicCount = drawn;
+    }
+
+    /**
+     * Grows `region` (canvas units) outward until its edges land on whole
+     * device pixels under the `scale`/`offset` transform.
+     */
+    private static _snapToPixels(region: Rect, scale: number, ox: number, oy: number): void {
+        const x0 = (Math.floor(region.x * scale + ox) - ox) / scale;
+        const y0 = (Math.floor(region.y * scale + oy) - oy) / scale;
+        const x1 = (Math.ceil((region.x + region.width) * scale + ox) - ox) / scale;
+        const y1 = (Math.ceil((region.y + region.height) * scale + oy) - oy) / scale;
+        region.set(x0, y0, x1 - x0, y1 - y0);
     }
 
     private _applyZIndex(): void {

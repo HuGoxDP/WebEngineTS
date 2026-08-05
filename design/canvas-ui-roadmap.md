@@ -12,8 +12,9 @@ surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout group
 `ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup` — followed by the control
 library (`RectMask2D`, `ScrollRect`, `Scrollbar`, `Sprite`/9-slice, `Dropdown`, radial fill,
 `Selectable` transitions + focus, keyboard navigation). §4.8, `AspectRatioFitter` and §6.4
-(`WorldSpace`, projected) and §6.2 (shared tint cache) landed 2026-08-05.
-Next: §6.1 dirty-rect partial repaint.
+(`WorldSpace`, projected), §6.2 (shared tint cache) and §6.1 (dirty-rect partial
+repaint) landed 2026-08-05.
+Next: §5.2 (compose `Button` from Image + Text) or §5.0i (`InputField`).
 
 ---
 
@@ -28,7 +29,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, **linear + radial fill**), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | auto-size, rich text |
 | Interaction | `Selectable` base (+ transitions, focus, **keyboard navigation**) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | `InputField`, gamepad nav |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
-| Repaint | `OnDemand` + `_visualHash`, **event-driven surface sync** | layout dirty flags, dirty-rect partial repaint |
+| Repaint | `OnDemand` + `_visualHash`, event-driven surface sync, **dirty-rect partial repaint** | layout dirty flags |
 | Draw order | **hierarchy-ordered**, `sortingOrder` first | — |
 
 The subsystem is a **solid HUD toolkit** and a **weak general UI toolkit**. Everything
@@ -472,18 +473,51 @@ not because it is scheduled.
 
 ## 6. Stage 3 — larger bets
 
-### 6.1 Dirty-rect partial repaint — **P2, M**
+### 6.1 Dirty-rect partial repaint — **DONE (2026-08-05)** ✅
 
-Today any single change repaints the entire surface: `_paint` clears the whole canvas
-(`Canvas.ts:541`) and redraws every visible graphic. A one-character score update costs a
-full-HUD redraw.
+Any single change repainted the entire surface: `_paint` cleared the whole canvas and
+redrew every visible graphic, so a one-character score update cost a full-HUD redraw.
+
+**Shipped:** `Canvas.partialRepaint` (default **on**, `OnDemand` only) plus the
+`UIBehaviour._drawOverflow()` contract and per-graphic change detection. `_prepare` now
+hashes each graphic separately instead of folding everything into one canvas-wide hash,
+unions the old and new painted bounds of the ones that changed, and `_paint` clips and
+clears that region and redraws only what intersects it. `Canvas.lastRepaintRegion` exposes
+what it managed to narrow to.
+
+Design as originally sketched below, with these findings from building it:
+
+- **The two directions are not symmetric.** Over-*including* graphics in the redraw is
+  always safe — the clip means an extra graphic can only paint inside the region. Only the
+  region itself has to be exact.
+- **Two ways an element escapes its bounds, both handled.** An element that *changed* and
+  cannot bound its paint forces a full repaint; an element that *did not change* but is
+  unbounded must still be redrawn, or the region clears pixels it painted and nothing draws
+  them back. The second is the subtler one — it is handled by giving unbounded elements an
+  effectively infinite `_repaintBounds`, so they join every partial redraw.
+- **`_allowCulling === false` now also means "unbounded".** A component that says "don't
+  cull me" is saying its paint is not its rect; an open `Dropdown` gets the right behaviour
+  for free, and a closed one is bounded again and can still be culled.
+- **`UIText` measurement was too expensive to use.** `preferredWidth`/`preferredHeight` are
+  *not* cached (they measure on every read), so bounding text spill exactly would have put a
+  measurement per label per frame into the frame loop. Instead the unbounded configurations
+  return `Infinity`: `TextOverflow.Overflow`, and an unwrapped line under anything but
+  `Ellipsis`. The defaults (`wordWrap` on, `Clip`) are bounded, so the common HUD label —
+  the case the whole feature exists for — keeps the optimization. `Button` and `Toggle`
+  labels are never truncated, so they report `Infinity` whenever they carry text.
+- **The region is snapped outward to whole device pixels.** A fractional edge clears and
+  redraws slightly different pixels and leaves a seam.
+- Full-repaint fallbacks: canvas size, `scaleFactor`, `pixelRatio`, `alpha`, the graphic set
+  and its order, the world-space projection, and `setDirty()`.
+- A change that lands entirely outside the canvas rect now costs **no** repaint at all,
+  which the old single-hash design could not tell from a visible one.
 
 Fix: track the union of changed elements' rects (previous ∪ current), `clip()` to it, and
 redraw only intersecting graphics. Needs §4.1's per-element change detection to know which
 those are. Alternative with less machinery: split static and dynamic elements across two
 stacked canvases — but that doubles backing-store memory (§4.8), so measure first.
 
-**Design notes from the 2026-08-05 pass** (found while sizing it; not yet implemented):
+**Design notes from sizing it**, kept because they are what the implementation is built on:
 
 - The two directions are *not* symmetric, and only one of them has to be exact. Because the
   paint is clipped to the dirty region, **over-including graphics in the redraw is always
@@ -661,7 +695,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~5.0h~~ | ~~Radial fill methods~~ | **done** | S | — |
 | 5.2 | Compose `Button` from Image + Text | P2 | M | 5.1, 5.0a |
 | ~~5.3~~ | ~~Keyboard navigation + focus~~ (gamepad still open) | **done** | M | — |
-| 6.1 | Dirty-rect partial repaint | P2 | M | 4.1 |
+| ~~6.1~~ | ~~Dirty-rect partial repaint~~ + `_drawOverflow` contract | **done** | M | 4.1 |
 | ~~6.2~~ | ~~Shared tint cache~~ (+ LRU bound, profiler visibility) | **done** | M | — |
 | ~~6.4~~ | ~~`WorldSpace` render mode (projected)~~ | **done** | L | 4.4 |
 | 6.5 | Compressed-texture sprite support | P2 | L | 2.6 |

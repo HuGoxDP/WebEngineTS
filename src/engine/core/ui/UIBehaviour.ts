@@ -3,6 +3,7 @@ import { RectTransform } from "./RectTransform";
 import { UIEvent } from "./UIEvent";
 import { CanvasGroup } from "./CanvasGroup";
 import { RectMask2D } from "./RectMask2D";
+import { Rect as RectImpl } from "../math/Rect";
 import type { Canvas } from "./Canvas";
 import type { PointerEventData } from "./PointerEventData";
 import type { Rect } from "../math/Rect";
@@ -74,6 +75,20 @@ export abstract class UIBehaviour extends Behaviour {
      * rather than the order components happened to be enabled in.
      */
     public _hierarchyIndex: number = 0;
+
+    /**
+     * @internal
+     * Change-detection state owned by the owning {@link Canvas}: the hash and
+     * the painted bounds this graphic was last seen with. Written only by
+     * `Canvas._prepare`, and meaningless while {@link _repaintValid} is false.
+     */
+    public _repaintHash: number = 0;
+
+    /** @internal See {@link _repaintHash}. */
+    public _repaintValid: boolean = false;
+
+    /** @internal See {@link _repaintHash}. */
+    public readonly _repaintBounds: RectImpl = new RectImpl();
 
     constructor(gameObject: GameObject) {
         super(gameObject);
@@ -356,9 +371,33 @@ export abstract class UIBehaviour extends Behaviour {
      * Whether the Canvas may skip {@link _draw} when the element's rect lies
      * fully outside the canvas. Components that do work other than drawing in
      * {@link _draw} (such as polling input) must return `false`.
+     *
+     * @remarks
+     * Returning `false` also means "my painted area is not my rect", so the
+     * canvas treats such an element as unbounded for
+     * {@link Canvas.partialRepaint} — see {@link _drawOverflow}.
      */
     public get _allowCulling(): boolean {
         return true;
+    }
+
+    /**
+     * @internal
+     * How far outside its layout rect this element paints, in canvas units.
+     *
+     * @remarks
+     * {@link Canvas.partialRepaint} redraws only the region that changed, and
+     * derives that region from each element's bounds — so an element that
+     * paints beyond them (a stroked outline, a label wider than its box) has to
+     * say by how much, or it leaves stale pixels behind when it changes.
+     *
+     * Return `Infinity` when the painted area cannot be bounded cheaply; the
+     * canvas then falls back to a full repaint whenever this element changes,
+     * which is correct but gives up the optimization. `0` — the default —
+     * asserts that everything is drawn inside the rect.
+     */
+    public _drawOverflow(): number {
+        return 0;
     }
 
     /**
