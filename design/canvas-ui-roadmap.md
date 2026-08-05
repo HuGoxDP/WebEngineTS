@@ -483,6 +483,31 @@ redraw only intersecting graphics. Needs §4.1's per-element change detection to
 those are. Alternative with less machinery: split static and dynamic elements across two
 stacked canvases — but that doubles backing-store memory (§4.8), so measure first.
 
+**Design notes from the 2026-08-05 pass** (found while sizing it; not yet implemented):
+
+- The two directions are *not* symmetric, and only one of them has to be exact. Because the
+  paint is clipped to the dirty region, **over-including graphics in the redraw is always
+  safe** — an extra graphic can only paint inside the clip. What must be exact is the dirty
+  region itself: it has to cover everywhere a changed element painted before *and* after.
+  So the whole correctness question reduces to "can this element's painted area be bounded?"
+- **It cannot, from the layout rect alone.** `UIText` paints outside its rect in ordinary
+  configurations: an outline strokes half its width beyond every glyph, `TextOverflow.Overflow`
+  spills past the bottom edge, and with `wordWrap` off a long line runs past the right edge
+  under `Clip` too (only `Ellipsis` truncates horizontally). `_resolvedBounds` is the rect's
+  AABB and knows none of this, so a naive union leaves stale pixels behind — the exact silent
+  visual regression §9 warns about.
+- Proposed contract: `UIBehaviour._drawOverflow` (canvas units, default `0`), overridden by
+  `UIText` as `max(outlineWidth, preferredWidth − rect.width, preferredHeight − rect.height)`
+  — all three already available, the last two from §6.3a and cached. A uniform inflation
+  over-estimates for centred alignment, which is the safe direction. Reserve `Infinity` for
+  "unbounded", meaning a *changed* element of that kind forces a full repaint.
+- Also needs: a small AA pad (fractional coordinates touch pixels just outside the AABB);
+  full repaint whenever a canvas-level input changes (size, `scaleFactor`, `pixelRatio`,
+  `alpha`, sort order, the graphic set, and now the world-space base transform); and
+  `_allowCulling === false` graphics always included in the redraw set.
+- Per-graphic previous hash + previous bounds have to be stored (the canvas hashes into a
+  single value today), and they must be maintained on full repaints too.
+
 ### 6.2 Shared tint cache for `UIImage` — **DONE (2026-08-05)** ✅
 
 `_buildTinted` allocated a full-size offscreen canvas **per image instance**, released only
