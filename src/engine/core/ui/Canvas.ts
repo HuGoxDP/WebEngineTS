@@ -4,6 +4,7 @@ import { RectTransform } from "./RectTransform";
 import { CanvasScaler } from "./CanvasScaler";
 import { UIBehaviour } from "./UIBehaviour";
 import { Rect } from "../math/Rect";
+import { profilerHooks } from "../diagnostics/ProfilerHooks";
 import { HASH_SEED, hashBool, hashNumber } from "./UIUtils";
 import type { GameObject } from "../GameObject";
 import type { Transform } from "../Transform";
@@ -85,6 +86,7 @@ const UI_BEHAVIOUR_TYPE = UIBehaviour as unknown as new (...args: never[]) => UI
 export class Canvas extends Behaviour {
 
     private static _instances: Canvas[] = [];
+    private static _live: Canvas[] = [];
     private static _orderDirty: boolean = false;
 
     /**
@@ -109,10 +111,36 @@ export class Canvas extends Behaviour {
         return Canvas._instances;
     }
 
+    /**
+     * Number of canvases holding a backing store, including disabled ones.
+     *
+     * @remarks
+     * Disabling a Canvas hides its surface but does not free it, so this counts
+     * every canvas that still owns memory — see {@link backingStoreBytes}.
+     */
+    public static get liveCanvasCount(): number { return Canvas._live.length; }
+
+    /**
+     * Summed {@link backingStoreBytes} of every live canvas, in bytes.
+     *
+     * @remarks
+     * What {@link MemoryProfiler} reports as UI surface memory. Two full-screen
+     * canvases cost twice one, which is the trade-off behind giving a panel its
+     * own Canvas rather than a {@link CanvasGroup}.
+     */
+    public static get totalBackingStoreBytes(): number {
+        let total = 0;
+        for (let i = 0; i < Canvas._live.length; i++) {
+            total += Canvas._live[i].backingStoreBytes;
+        }
+        return total;
+    }
+
     /** @internal */
     public static _reset(): void {
         // HTML elements are cleaned up in onDestroy of each instance.
         Canvas._instances.length = 0;
+        Canvas._live.length = 0;
         Canvas._orderDirty = false;
     }
 
@@ -144,6 +172,8 @@ export class Canvas extends Behaviour {
 
     private _cssWidth: number = 0;
     private _cssHeight: number = 0;
+    private _backingWidth: number = 0;
+    private _backingHeight: number = 0;
     private _cssLeft: number = Number.NaN;
     private _cssTop: number = Number.NaN;
     private _scaleFactor: number = 1;
@@ -240,6 +270,19 @@ export class Canvas extends Behaviour {
         return this._scaleFactor > 0 ? this._cssHeight / this._scaleFactor : 0;
     }
 
+    /**
+     * Memory held by this canvas's backing store, in bytes.
+     *
+     * @remarks
+     * The surface is allocated at `cssSize × pixelRatio` and browsers back it
+     * with an RGBA8 GPU surface, so a full-screen 1920×1080 canvas at
+     * {@link pixelRatio} 2 costs ~33 MB — comparable to a large texture, and
+     * invisible in the JS heap. `0` before the surface exists (no DOM).
+     */
+    public get backingStoreBytes(): number {
+        return this._backingWidth * this._backingHeight * 4;
+    }
+
     /** Number of graphics drawn during the most recent repaint. */
     public get drawnGraphicCount(): number { return this._drawnGraphicCount; }
 
@@ -255,6 +298,10 @@ export class Canvas extends Behaviour {
     // ── lifecycle ────────────────────────────────────────────────────
 
     protected override onAwake(): void {
+        // Tracked before the DOM check so the accounting covers every canvas the
+        // engine knows about, whether or not it got a surface.
+        if (!Canvas._live.includes(this)) Canvas._live.push(this);
+
         if (typeof document === "undefined") return;
 
         this._htmlCanvas = document.createElement("canvas");
@@ -317,6 +364,9 @@ export class Canvas extends Behaviour {
     protected override onDestroy(): void {
         const idx = Canvas._instances.indexOf(this);
         if (idx >= 0) Canvas._instances.splice(idx, 1);
+
+        const live = Canvas._live.indexOf(this);
+        if (live >= 0) Canvas._live.splice(live, 1);
 
         this._resizeObserver?.disconnect();
         this._resizeObserver = null;
@@ -441,6 +491,9 @@ export class Canvas extends Behaviour {
             this._htmlCanvas.height = backingH;
             this._dirty = true;
         }
+
+        this._backingWidth = backingW;
+        this._backingHeight = backingH;
 
         if (this._cssWidth !== cssW || this._cssHeight !== cssH) {
             style.width = `${cssW}px`;
@@ -746,3 +799,6 @@ export class Canvas extends Behaviour {
 
 // Break the Canvas ↔ RectTransform circular import at module-load.
 RectTransform._registerCanvasCtor(Canvas as unknown as new (...args: any[]) => Canvas & { width: number; height: number });
+
+profilerHooks.uiCanvasCount = () => Canvas.liveCanvasCount;
+profilerHooks.uiCanvasBytes = () => Canvas.totalBackingStoreBytes;

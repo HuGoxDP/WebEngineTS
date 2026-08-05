@@ -44,6 +44,7 @@ import {
     RectTransformEdge,
 } from "../src/engine/core/ui/RectTransform";
 import { cssColor, roundedRectPath } from "../src/engine/core/ui/UIUtils";
+import { profilerHooks } from "../src/engine/core/diagnostics/ProfilerHooks";
 import { GameObject } from "../src/engine/core/GameObject";
 import { Color } from "../src/engine/core/math/Color";
 
@@ -724,6 +725,64 @@ describe("Canvas registration", () => {
         expect(Array.from(canvas._graphicList)).toContain(img);
         img.enabled = false;
         expect(Array.from(canvas._graphicList)).not.toContain(img);
+    });
+});
+
+describe("Canvas backing-store accounting", () => {
+    beforeEach(() => Canvas._reset());
+    afterEach(() => Canvas._reset());
+
+    /**
+     * There is no DOM under vitest, so no surface is ever allocated and the
+     * measured size stays 0. The sizes a browser would have written are stamped
+     * in directly to exercise the accounting itself.
+     */
+    function makeSizedCanvas(name: string, w: number, h: number): Canvas {
+        const canvas = new GameObject(name).addComponent(Canvas);
+        (canvas as any)._backingWidth = w;
+        (canvas as any)._backingHeight = h;
+        return canvas;
+    }
+
+    test("a canvas reports its surface as RGBA8 bytes", () => {
+        const canvas = makeSizedCanvas("HUD", 1920, 1080);
+        expect(canvas.backingStoreBytes).toBe(1920 * 1080 * 4);
+    });
+
+    test("a canvas with no surface costs nothing", () => {
+        const canvas = new GameObject("Canvas").addComponent(Canvas);
+        expect(canvas.backingStoreBytes).toBe(0);
+    });
+
+    test("the total sums every canvas — the cost of a second full-screen one", () => {
+        makeSizedCanvas("HUD", 1920, 1080);
+        makeSizedCanvas("Overlay", 1920, 1080);
+
+        expect(Canvas.liveCanvasCount).toBe(2);
+        expect(Canvas.totalBackingStoreBytes).toBe(2 * 1920 * 1080 * 4);
+    });
+
+    test("a disabled canvas still holds its surface", () => {
+        const canvas = makeSizedCanvas("HUD", 800, 600);
+        canvas.enabled = false;
+
+        expect(Canvas.liveCanvasCount).toBe(1);
+        expect(Canvas.totalBackingStoreBytes).toBe(800 * 600 * 4);
+    });
+
+    test("destroying a canvas releases it from the accounting", () => {
+        const canvas = makeSizedCanvas("HUD", 800, 600);
+        canvas.destroyImmediate();
+
+        expect(Canvas.liveCanvasCount).toBe(0);
+        expect(Canvas.totalBackingStoreBytes).toBe(0);
+    });
+
+    test("MemoryProfiler reads the totals through the profiler hooks", () => {
+        makeSizedCanvas("HUD", 1024, 768);
+
+        expect(profilerHooks.uiCanvasCount?.()).toBe(1);
+        expect(profilerHooks.uiCanvasBytes?.()).toBe(1024 * 768 * 4);
     });
 });
 

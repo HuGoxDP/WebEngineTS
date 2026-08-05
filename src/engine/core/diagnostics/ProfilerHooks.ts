@@ -25,4 +25,6 @@ export const profilerHooks: {
     shadowCasterCount?: () => number;
     particleSystemCount?: () => number;
     aliveParticleCount?: () => number;
+    uiCanvasCount?: () => number;
+    uiCanvasBytes?: () => number;
 } = {};

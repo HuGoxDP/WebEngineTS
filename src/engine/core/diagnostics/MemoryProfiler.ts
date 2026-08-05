@@ -54,6 +54,16 @@ export interface MemoryReport {
          * are not engine textures, so they are counted separately here.
          */
         estimatedRenderTargetVramBytes: number;
+        /**
+         * Estimated memory held by UI overlay surfaces, in bytes — the sum of
+         * every live `Canvas` backing store (`width × height × 4` at the device
+         * pixel ratio). Browsers back these with GPU surfaces, so a multi-canvas
+         * UI costs real VRAM that none of the counters above can see. `0` when
+         * the UI subsystem is unused.
+         */
+        estimatedUICanvasBytes: number;
+        /** Number of live UI canvases behind {@link estimatedUICanvasBytes}. */
+        uiCanvasCount: number;
     } | null;
 
     /** Three.js renderer draw call info (last frame). */
@@ -303,11 +313,14 @@ export class MemoryProfiler {
             console.log(`GPU Textures: ${r.renderer.textures} | Geometries: ${r.renderer.geometries}`);
             const vramTotal = r.renderer.estimatedTextureVramBytes
                 + r.renderer.estimatedGeometryVramBytes
-                + r.renderer.estimatedRenderTargetVramBytes;
+                + r.renderer.estimatedRenderTargetVramBytes
+                + r.renderer.estimatedUICanvasBytes;
             console.log(
                 `Est. VRAM: ~${f(r.renderer.estimatedTextureVramBytes)} textures`
                 + ` + ~${f(r.renderer.estimatedGeometryVramBytes)} geometry`
                 + ` + ~${f(r.renderer.estimatedRenderTargetVramBytes)} render targets`
+                + ` + ~${f(r.renderer.estimatedUICanvasBytes)} UI surfaces`
+                + ` (${r.renderer.uiCanvasCount})`
                 + ` = ~${f(vramTotal)}`
             );
         } else {
@@ -513,6 +526,8 @@ export class MemoryProfiler {
             estimatedTextureVramBytes: MemoryProfiler._estimateTextureVram(),
             estimatedGeometryVramBytes: MemoryProfiler._estimateGeometryVram(),
             estimatedRenderTargetVramBytes: MemoryProfiler._estimateRenderTargetVram(),
+            estimatedUICanvasBytes: profilerHooks.uiCanvasBytes?.() ?? 0,
+            uiCanvasCount: profilerHooks.uiCanvasCount?.() ?? 0,
         };
     }
 
@@ -763,10 +778,13 @@ export class MemoryProfiler {
         const texVram = MemoryProfiler._estimateTextureVram();
         const geoVram = MemoryProfiler._estimateGeometryVram();
         const rtVram = MemoryProfiler._estimateRenderTargetVram();
+        const uiBytes = profilerHooks.uiCanvasBytes?.() ?? 0;
+        const uiCount = profilerHooks.uiCanvasCount?.() ?? 0;
         _L.push(`Est. tex VRAM:   ${f(texVram)}`);
         _L.push(`Est. geo VRAM:   ${f(geoVram)}`);
         _L.push(`Est. RT VRAM:    ${f(rtVram)}`);
-        _L.push(`Est. VRAM total: ${f(texVram + geoVram + rtVram)}`);
+        _L.push(`UI surfaces:     ${f(uiBytes)} (${uiCount} canvas${uiCount === 1 ? "" : "es"})`);
+        _L.push(`Est. VRAM total: ${f(texVram + geoVram + rtVram + uiBytes)}`);
         _L.push(`Shader programs: ${info?.programs?.length ?? "—"}`);
 
         _L.push(``);

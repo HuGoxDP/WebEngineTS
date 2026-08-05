@@ -9,8 +9,10 @@ Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see �
 **Status:** Everything through §4.7 landed 2026-08-03 — Stage 0, the rect cache, the
 2D affine pipeline (rotation/scale), the full layout API, the `UIEvent` + pointer/drag
 surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout groups with
-`ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup`. Next: §5.1b
-§6.4 `WorldSpace` render mode, or §6.1 dirty-rect partial repaint.
+`ContentSizeFitter` and `GridLayoutGroup`, and `CanvasGroup` — followed by the control
+library (`RectMask2D`, `ScrollRect`, `Scrollbar`, `Sprite`/9-slice, `Dropdown`, radial fill,
+`Selectable` transitions + focus, keyboard navigation). §4.8 landed 2026-08-05.
+Next: §6.4 `WorldSpace` render mode, or §6.1 dirty-rect partial repaint.
 
 ---
 
@@ -380,15 +382,23 @@ canvas-wide, so fading one panel means giving it its own canvas — which costs 
 full-screen backing store (§4.8). Cheap to build once §4.4's matrix walk exists (the alpha
 multiplies down the same traversal) and constantly needed in practice.
 
-### 4.8 Report overlay canvas memory in `MemoryProfiler` — **P1, S** ⚑
+### 4.8 Report overlay canvas memory in `MemoryProfiler` — **DONE (2026-08-05)** ✅
 
-Each `Canvas` allocates its own full-screen backing store at DPR (`Canvas.ts:396-399`):
-1920×1080 at DPR 2 is ~33 MB, and browsers back these with GPU surfaces. `MemoryProfiler`
-reports texture, geometry and render-target VRAM but knows nothing about them — so a
-multi-canvas UI is invisible in exactly the metric the thesis added to be complete.
+Each `Canvas` allocates its own full-screen backing store at DPR: 1920×1080 at DPR 2 is
+~33 MB, and browsers back these with GPU surfaces. `MemoryProfiler` reported texture,
+geometry and render-target VRAM but knew nothing about them — so a multi-canvas UI was
+invisible in exactly the metric the thesis added to be complete.
 
-Fix: sum `width × height × 4` over live canvases into `MemoryReport.renderer` as a fourth
-estimate. Small, and it closes a real hole in the P0.1 diagnostics claim.
+**Shipped:** `Canvas.backingStoreBytes` (per canvas) and `Canvas.totalBackingStoreBytes` /
+`Canvas.liveCanvasCount` (all canvases) feed `MemoryReport.renderer.estimatedUICanvasBytes`
++ `uiCanvasCount` as a fourth estimate, counted into the VRAM total in `logReport`, the
+overlay's Memory tab, and `BenchmarkResult.memory` + its CSV column.
+
+Two decisions worth recording. The count covers **disabled** canvases too — disabling one
+hides the surface but does not free it, and the whole point of the metric is to show what a
+second canvas actually costs. And `MemoryProfiler` reaches the UI subsystem through
+`profilerHooks` (`uiCanvasBytes` / `uiCanvasCount`), the same zero-import registry `Camera`
+and `Light` use, so diagnostics still import nothing from `ui/`.
 
 ---
 
@@ -540,7 +550,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~4.5~~ | ~~Full RectTransform API surface~~ + anchor-reference fix | **done** | M | — |
 | ~~4.6~~ | ~~Layout groups + size protocol + `GridLayoutGroup`~~ | **done** | L | — |
 | ~~4.7~~ | ~~`CanvasGroup`~~ | **done** | S | — |
-| 4.8 | Overlay canvas memory in `MemoryProfiler` ⚑ | P1 | S | — |
+| ~~4.8~~ | ~~Overlay canvas memory in `MemoryProfiler`~~ ⚑ | **done** | S | — |
 | ~~5.0a~~ | ~~`Sprite` asset type~~ (atlas sub-rects + border) | **done** | M | — |
 | ~~5.0b~~ | ~~9-slice / tiled image~~ | **done** | M | — |
 | ~~5.0c~~ | ~~`Slider`~~ | **done** | M | — |
@@ -593,8 +603,8 @@ that constraint has been lifted — see §1.)
 6. Stage 3 (§6) as appetite allows; **§6.4 WorldSpace** is the highest-value item there for
    the educational domain and the one most worth pulling forward.
 
-**§4.8** (overlay canvas memory in `MemoryProfiler`) is independent of all of the above and
-can be slotted in at any point — it is an S-sized diagnostics gap, not a dependency.
+**§4.8** (overlay canvas memory in `MemoryProfiler`) was independent of all of the above and
+was slotted in on 2026-08-05.
 
 ## 9. Risks
 
