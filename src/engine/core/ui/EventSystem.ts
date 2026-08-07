@@ -1,5 +1,7 @@
 import { Input } from "../Input";
 import { KeyCode } from "../KeyCode";
+import { Time } from "../Time";
+import { Gamepad, GamepadButton } from "../input/Gamepad";
 import { NavigationDirection } from "./Navigation";
 import { Vector2 } from "../math/Vector2";
 import { Touch, TouchPhase } from "../input/Touch";
@@ -93,6 +95,43 @@ export class EventSystem {
      * binds those keys to gameplay.
      */
     public static keyboardNavigation: boolean = true;
+
+    /**
+     * Whether a gamepad's D-pad and left stick move focus, and its face buttons
+     * submit and cancel.
+     *
+     * @remarks
+     * The counterpart to {@link keyboardNavigation}, on for the same reason.
+     * Any connected pad drives the UI, so a scenario does not have to ask which
+     * one the user picked up. Turn it off when the pad is bound to gameplay and
+     * the UI is pointer-only.
+     */
+    public static gamepadNavigation: boolean = true;
+
+    /**
+     * Seconds a direction must be held before it starts repeating.
+     *
+     * @remarks
+     * Equivalent to Unity's `StandaloneInputModule.repeatDelay`. Without a
+     * delay, holding the stick skips several controls before the user can react.
+     */
+    public static gamepadRepeatDelay: number = 0.5;
+
+    /**
+     * Focus moves per second while a direction stays held, after
+     * {@link gamepadRepeatDelay}.
+     *
+     * @remarks Equivalent to Unity's `inputActionsPerSecond`.
+     */
+    public static gamepadRepeatRate: number = 10;
+
+    /**
+     * How far the stick must be pushed before it counts as a direction (0–1).
+     */
+    public static gamepadDeadzone: number = 0.5;
+
+    private static _navDirection: NavigationDirection | null = null;
+    private static _navRepeatTimer: number = 0;
 
     private static _selectables: Set<Selectable> = new Set();
     private static _selected: Selectable | null = null;
@@ -234,6 +273,94 @@ export class EventSystem {
 
         EventSystem._retireVanishedPointers();
         if (EventSystem.keyboardNavigation) EventSystem._processKeyboard();
+        if (EventSystem.gamepadNavigation) EventSystem._processGamepad();
+    }
+
+    /**
+     * Moves and activates focus from any connected gamepad.
+     *
+     * @remarks
+     * The D-pad and the left stick feed one direction, so holding either
+     * repeats at the same rate. A held direction is deliberately not the same
+     * as a tapped one: it waits {@link gamepadRepeatDelay} and then steps at
+     * {@link gamepadRepeatRate}, or the focus would race across the UI.
+     *
+     * The stick's Y axis is `+1` **down** in the W3C standard mapping, which is
+     * the same direction Y grows on this canvas — so pushing down moves focus
+     * down with no flip anywhere.
+     *
+     * Like the keyboard path, this does nothing while nothing holds focus:
+     * a scenario decides what the first focused control is.
+     */
+    private static _processGamepad(): void {
+        let x = 0;
+        let y = 0;
+        let submit = false;
+        let cancel = false;
+
+        for (const pad of Gamepad.all) {
+            if (!pad.connected) continue;
+
+            if (pad.getButtonDown(GamepadButton.A)) submit = true;
+            if (pad.getButtonDown(GamepadButton.B)) cancel = true;
+
+            const stick = pad.leftStick;
+            if (Math.abs(stick.x) > Math.abs(x)) x = stick.x;
+            if (Math.abs(stick.y) > Math.abs(y)) y = stick.y;
+
+            if (pad.getButton(GamepadButton.DPadLeft)) x = -1;
+            else if (pad.getButton(GamepadButton.DPadRight)) x = 1;
+            if (pad.getButton(GamepadButton.DPadUp)) y = -1;
+            else if (pad.getButton(GamepadButton.DPadDown)) y = 1;
+        }
+
+        const selected = EventSystem._selected;
+
+        if (cancel && selected) {
+            EventSystem._setSelected(null);
+            EventSystem._navDirection = null;
+            return;
+        }
+
+        if (submit && selected) {
+            selected._submit();
+            return;
+        }
+
+        EventSystem._processNavigationAxis(x, y);
+    }
+
+    /** Turns a held stick/D-pad direction into repeating focus moves. */
+    private static _processNavigationAxis(x: number, y: number): void {
+        const dead = EventSystem.gamepadDeadzone;
+
+        // One axis at a time, the stronger one — a diagonal push should pick a
+        // direction rather than move twice.
+        let direction: NavigationDirection | null = null;
+        if (Math.abs(x) >= dead && Math.abs(x) >= Math.abs(y)) {
+            direction = x < 0 ? NavigationDirection.Left : NavigationDirection.Right;
+        } else if (Math.abs(y) >= dead) {
+            direction = y < 0 ? NavigationDirection.Up : NavigationDirection.Down;
+        }
+
+        if (direction === null) {
+            EventSystem._navDirection = null;
+            return;
+        }
+
+        if (direction !== EventSystem._navDirection) {
+            EventSystem._navDirection = direction;
+            EventSystem._navRepeatTimer = EventSystem.gamepadRepeatDelay;
+            EventSystem._selected?.navigate(direction);
+            return;
+        }
+
+        EventSystem._navRepeatTimer -= Time.deltaTime;
+        if (EventSystem._navRepeatTimer > 0) return;
+
+        const rate = EventSystem.gamepadRepeatRate;
+        EventSystem._navRepeatTimer = rate > 0 ? 1 / rate : EventSystem.gamepadRepeatDelay;
+        EventSystem._selected?.navigate(direction);
     }
 
     /**
@@ -294,6 +421,8 @@ export class EventSystem {
         EventSystem._pointers.clear();
         EventSystem._stale.length = 0;
         EventSystem._pointerOverUI = false;
+        EventSystem._navDirection = null;
+        EventSystem._navRepeatTimer = 0;
     }
 
     private constructor() {}

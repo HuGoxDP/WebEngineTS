@@ -13,8 +13,8 @@ surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout group
 library (`RectMask2D`, `ScrollRect`, `Scrollbar`, `Sprite`/9-slice, `Dropdown`, radial fill,
 `Selectable` transitions + focus, keyboard navigation). §4.8, `AspectRatioFitter` and §6.4
 (`WorldSpace`, projected), §6.2 (shared tint cache) and §6.1 (dirty-rect partial
-repaint) landed 2026-08-05.
-Next: §5.2 (compose `Button` from Image + Text) or §5.0i (`InputField`).
+repaint) and the gamepad half of §5.3 landed 2026-08-05.
+Next: §5.0i (`InputField`) — §5.2 is gated on the editor (see its note).
 
 ---
 
@@ -27,7 +27,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Root | `Canvas` (overlay + **`WorldSpace`**, projected), `CanvasScaler` (3 modes, all Unity-accurate), `CanvasGroup` | depth-occluded world UI (textured quad) |
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter`, **`AspectRatioFitter`** | anchor presets |
 | Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, **linear + radial fill**), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | auto-size, rich text |
-| Interaction | `Selectable` base (+ transitions, focus, **keyboard navigation**) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | `InputField`, gamepad nav |
+| Interaction | `Selectable` base (+ transitions, focus, **keyboard + gamepad navigation**) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | `InputField` |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
 | Repaint | `OnDemand` + `_visualHash`, event-driven surface sync, **dirty-rect partial repaint** | layout dirty flags |
 | Draw order | **hierarchy-ordered**, `sortingOrder` first | — |
@@ -428,7 +428,7 @@ Ordered by value per unit of effort for the educational-scenario use case.
 | `Dropdown` | P2 | M | Needs `ScrollRect` for long lists |
 | `InputField` | P3 | L | Caret, selection, clipboard, IME, mobile keyboard. Consider a hidden DOM `<input>` overlay instead of drawing it — far less code, correct IME behaviour for free |
 | Radial fill (`Radial90/180/360`) | P2 | S | `ImageFillMethod` has only Horizontal/Vertical; cooldown dials need radial |
-| UI tween helpers (fade/color/scale) | P3 | S | Button transitions currently snap; needs §4.4 for scale |
+| UI tween helpers (fade/color/scale) | P3 | S | *Partly moot:* `Selectable` transitions already fade over `ColorBlock.fadeDuration`. What is left is general-purpose tweens for scenario code |
 
 ### 5.1 `Selectable` base + a real event surface — **P1, M**
 
@@ -456,11 +456,26 @@ Breaking change for `btn.text` / `btn.fontSize` / `btn.textColor` — keep them 
 accessors to an auto-created child so nothing in existing scenarios breaks. Do this after
 §5.1, and only if the editor makes the child hierarchy manageable.
 
-### 5.3 Keyboard / gamepad navigation and focus — **P2, M**
+### 5.3 Keyboard / gamepad navigation and focus — **DONE (gamepad 2026-08-05)** ✅
 
-No focus concept exists. Needed for accessibility, for gamepad-driven scenarios, and for the
-platform's likely accessibility requirements. Depends on `Selectable`; the automatic
-"find nearest selectable in direction" search must use Y-down directions (§3.4).
+No focus concept existed. Needed for accessibility, for gamepad-driven scenarios, and for
+the platform's likely accessibility requirements. Keyboard focus + navigation landed with
+`Selectable`; the automatic "find nearest selectable in direction" search uses Y-down
+directions (§3.4).
+
+**Gamepad shipped 2026-08-05:** `EventSystem.gamepadNavigation` (on by default), D-pad and
+left stick moving focus, `A` submitting and `B` cancelling. Notes worth keeping:
+- **Any connected pad drives the UI**, so a scenario never has to ask which one the user
+  picked up.
+- **Held is not the same as tapped.** A held direction waits `gamepadRepeatDelay` and then
+  steps at `gamepadRepeatRate` (Unity's `repeatDelay` / `inputActionsPerSecond`), or focus
+  races across the UI before the user can react. The D-pad feeds the same axis as the stick,
+  so holding either repeats identically — `getButtonDown` alone would never repeat.
+- **A diagonal push picks the stronger axis** rather than moving twice.
+- **Y-down costs nothing here for once:** the W3C standard mapping already has `+1` =
+  *down* on the vertical axis, which is the direction Y grows on this canvas.
+- Like the keyboard path, it does nothing while nothing holds focus — consistent with the
+  existing behaviour, and it leaves "what is focused first" to the scenario.
 
 ### 5.4 Accessibility surface — **P3, M**
 
@@ -694,7 +709,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~5.0g~~ | ~~`Dropdown`~~ | **done** | M | — |
 | ~~5.0h~~ | ~~Radial fill methods~~ | **done** | S | — |
 | 5.2 | Compose `Button` from Image + Text | P2 | M | 5.1, 5.0a |
-| ~~5.3~~ | ~~Keyboard navigation + focus~~ (gamepad still open) | **done** | M | — |
+| ~~5.3~~ | ~~Keyboard **and gamepad** navigation + focus~~ | **done** | M | — |
 | ~~6.1~~ | ~~Dirty-rect partial repaint~~ + `_drawOverflow` contract | **done** | M | 4.1 |
 | ~~6.2~~ | ~~Shared tint cache~~ (+ LRU bound, profiler visibility) | **done** | M | — |
 | ~~6.4~~ | ~~`WorldSpace` render mode (projected)~~ | **done** | L | 4.4 |

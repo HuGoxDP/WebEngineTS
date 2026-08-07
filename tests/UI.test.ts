@@ -49,6 +49,7 @@ import { profilerHooks } from "../src/engine/core/diagnostics/ProfilerHooks";
 import { Camera } from "../src/engine/core/components/Camera";
 import { Vector3 } from "../src/engine/core/math/Vector3";
 import { TintCache } from "../src/engine/core/ui/TintCache";
+import { Gamepad, GamepadButton } from "../src/engine/core/input/Gamepad";
 import { GameObject } from "../src/engine/core/GameObject";
 import { Color } from "../src/engine/core/math/Color";
 
@@ -6000,6 +6001,235 @@ describe("Keyboard navigation", () => {
 
         expect(a.navigate(NavigationDirection.Right)).toBe(true);
         expect(a.navigate(NavigationDirection.Left)).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Gamepad navigation
+// ---------------------------------------------------------------------------
+
+describe("Gamepad navigation", () => {
+    let pads: any[];
+
+    /** A button at a position, sized 100x50, with automatic navigation. */
+    function makeButton(name: string, x: number, y: number): Button {
+        const btn = new GameObject(name).addComponent(Button);
+        const rt = btn.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(x, y);
+        rt.sizeDelta.set(100, 50);
+        return btn;
+    }
+
+    /** A connected pad with no buttons pressed and both sticks centred. */
+    function pad(): any {
+        return {
+            connected: true,
+            id: "Mock Gamepad",
+            buttons: new Array(20).fill(null).map(() => ({ pressed: false, value: 0 })),
+            axes: [0, 0, 0, 0],
+        };
+    }
+
+    /** Runs one engine pass with the pad in its current state. */
+    function step(dt: number = 0): void {
+        Gamepad._update();
+        (Time as any)._deltaTime = dt;
+        EventSystem._update();
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        Selectable._reset();
+        Gamepad._reset();
+        pads = [pad(), null, null, null];
+
+        (globalThis as unknown as { window: unknown }).window = {
+            innerWidth: 800,
+            innerHeight: 600,
+        };
+        vi.stubGlobal("navigator", { getGamepads: () => pads });
+        vi.spyOn(Touch, "touches", "get").mockReturnValue([]);
+        vi.spyOn(Input, "getMouseButton").mockReturnValue(false);
+        vi.spyOn(Input, "mousePosition", "get").mockReturnValue(new Vector2(700, 500));
+        vi.spyOn(Input, "getKeyDown").mockReturnValue(false);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+        delete (globalThis as unknown as { window?: unknown }).window;
+        EventSystem._reset();
+        Selectable._reset();
+        Canvas._reset();
+        Gamepad._reset();
+        EventSystem.gamepadNavigation = true;
+    });
+
+    test("the D-pad moves focus to the neighbour in that direction", () => {
+        const left = makeButton("L", 0, 0);
+        const right = makeButton("R", 200, 0);
+        left.select();
+
+        pads[0].buttons[GamepadButton.DPadRight].pressed = true;
+        step();
+
+        expect(EventSystem.currentSelected).toBe(right);
+    });
+
+    test("pushing the stick down moves focus down the screen", () => {
+        const top = makeButton("T", 0, 0);
+        const bottom = makeButton("B", 0, 200);
+        top.select();
+
+        // +1 on the vertical axis is "down" in the standard mapping, and Y also
+        // grows downward here, so no flip belongs anywhere in between.
+        pads[0].axes[1] = 1;
+        step();
+
+        expect(EventSystem.currentSelected).toBe(bottom);
+    });
+
+    test("a held direction waits out the repeat delay before stepping again", () => {
+        const a = makeButton("A", 0, 0);
+        const b = makeButton("B", 200, 0);
+        makeButton("C", 400, 0);
+        a.select();
+
+        pads[0].buttons[GamepadButton.DPadRight].pressed = true;
+        step();
+        expect(EventSystem.currentSelected).toBe(b);
+
+        // Still inside the delay: focus must not run ahead.
+        step(0.2);
+        expect(EventSystem.currentSelected).toBe(b);
+    });
+
+    test("holding past the delay repeats at the configured rate", () => {
+        const a = makeButton("A", 0, 0);
+        makeButton("B", 200, 0);
+        const c = makeButton("C", 400, 0);
+        a.select();
+
+        pads[0].buttons[GamepadButton.DPadRight].pressed = true;
+        step();
+        step(EventSystem.gamepadRepeatDelay);
+
+        expect(EventSystem.currentSelected).toBe(c);
+    });
+
+    test("releasing and pushing again moves immediately", () => {
+        const a = makeButton("A", 0, 0);
+        const b = makeButton("B", 200, 0);
+        const c = makeButton("C", 400, 0);
+        a.select();
+
+        pads[0].buttons[GamepadButton.DPadRight].pressed = true;
+        step();
+        expect(EventSystem.currentSelected).toBe(b);
+
+        pads[0].buttons[GamepadButton.DPadRight].pressed = false;
+        step();
+
+        pads[0].buttons[GamepadButton.DPadRight].pressed = true;
+        step();
+        expect(EventSystem.currentSelected).toBe(c);
+    });
+
+    test("a diagonal push picks one direction rather than moving twice", () => {
+        const origin = makeButton("O", 0, 0);
+        const right = makeButton("R", 200, 0);
+        makeButton("D", 0, 200);
+        origin.select();
+
+        // Mostly right, a little down.
+        pads[0].axes[0] = 0.9;
+        pads[0].axes[1] = 0.6;
+        step();
+
+        expect(EventSystem.currentSelected).toBe(right);
+    });
+
+    test("a stick inside the deadzone does nothing", () => {
+        const a = makeButton("A", 0, 0);
+        makeButton("B", 200, 0);
+        a.select();
+
+        pads[0].axes[0] = 0.3;
+        step();
+
+        expect(EventSystem.currentSelected).toBe(a);
+    });
+
+    test("A submits the focused control", () => {
+        const a = makeButton("A", 0, 0);
+        let clicks = 0;
+        a.onClick.addListener(() => { clicks++; });
+        a.select();
+
+        pads[0].buttons[GamepadButton.A].pressed = true;
+        step();
+
+        expect(clicks).toBe(1);
+    });
+
+    test("B drops focus", () => {
+        const a = makeButton("A", 0, 0);
+        a.select();
+
+        pads[0].buttons[GamepadButton.B].pressed = true;
+        step();
+
+        expect(EventSystem.currentSelected).toBeNull();
+    });
+
+    test("a second pad drives the UI just as well", () => {
+        const a = makeButton("A", 0, 0);
+        const b = makeButton("B", 200, 0);
+        a.select();
+
+        pads[1] = pad();
+        pads[1].buttons[GamepadButton.DPadRight].pressed = true;
+        step();
+
+        expect(EventSystem.currentSelected).toBe(b);
+    });
+
+    test("nothing happens while nothing holds focus", () => {
+        makeButton("A", 0, 0);
+
+        pads[0].buttons[GamepadButton.DPadRight].pressed = true;
+        step();
+
+        expect(EventSystem.currentSelected).toBeNull();
+    });
+
+    test("turning gamepad navigation off leaves the pad to the scenario", () => {
+        const a = makeButton("A", 0, 0);
+        const b = makeButton("B", 200, 0);
+        a.select();
+        EventSystem.gamepadNavigation = false;
+
+        pads[0].buttons[GamepadButton.DPadRight].pressed = true;
+        step();
+
+        expect(EventSystem.currentSelected).toBe(a);
+        expect(b.isSelected).toBe(false);
+    });
+
+    test("a disconnected pad is ignored", () => {
+        const a = makeButton("A", 0, 0);
+        makeButton("B", 200, 0);
+        a.select();
+
+        pads[0].connected = false;
+        pads[0].buttons[GamepadButton.DPadRight].pressed = true;
+        step();
+
+        expect(EventSystem.currentSelected).toBe(a);
     });
 });
 
