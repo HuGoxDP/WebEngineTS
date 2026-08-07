@@ -21,6 +21,7 @@ import { EventSystem } from "./ui/EventSystem.ts";
 import { LayoutGroup } from "./ui/LayoutGroup.ts";
 import { ContentSizeFitter } from "./ui/ContentSizeFitter.ts";
 import { AspectRatioFitter } from "./ui/AspectRatioFitter.ts";
+import { UITween } from "./ui/UITween.ts";
 import { ScrollRect } from "./ui/ScrollRect.ts";
 import { Selectable } from "./ui/Selectable.ts";
 import { ParticleSystem } from "./particles/ParticleSystem.ts";
@@ -583,6 +584,10 @@ export class Application {
         // 7b. UI layout — groups arrange their children, then fitters resize to
         // the result. Ahead of input so a click hit-tests the positions that
         // will actually be drawn this frame.
+        // Tweens first: a tweened size or position must be laid out and drawn on
+        // the same frame it changed, not one behind.
+        UITween._updateAll();
+
         LayoutGroup._updateAll();
         ContentSizeFitter._updateAll();
 

@@ -18,7 +18,7 @@ Every **P1** item in §7 is now done, and the P2 work that is actually engine-si
 left is either deliberately deferred by the plan itself (§5.2 gated on the editor, §3.5
 until an import path exists, §6.5 resolved as "warn and document", §6.6 scoped as an
 engine-wide task, §4.1's observable-`Vector2` follow-up) or long tail (§6.3b rich text,
-§5.4 accessibility, §5.0j tweens).
+§5.4 accessibility).
 
 ---
 
@@ -432,7 +432,7 @@ Ordered by value per unit of effort for the educational-scenario use case.
 | `Dropdown` | P2 | M | Needs `ScrollRect` for long lists |
 | ~~`InputField`~~ | **done** | L | Hidden DOM `<input>` overlay, as recommended — see §5.5 |
 | Radial fill (`Radial90/180/360`) | P2 | S | `ImageFillMethod` has only Horizontal/Vertical; cooldown dials need radial |
-| UI tween helpers (fade/color/scale) | P3 | S | *Partly moot:* `Selectable` transitions already fade over `ColorBlock.fadeDuration`. What is left is general-purpose tweens for scenario code |
+| ~~UI tween helpers (fade/color/scale)~~ | **done** | S | `UITween` — see §5.6 |
 
 ### 5.1 `Selectable` base + a real event surface — **P1, M**
 
@@ -520,6 +520,34 @@ work for controls, driven by the existing `_updateAll` rather than a new loop dr
 `Selectable._consumesKeyboard` — without which the EventSystem's own Space and arrows would
 fight the typing. Tab and Escape are deliberately still taken, since they are how the user
 gets back out.
+
+### 5.6 UI tween helpers — **DONE (2026-08-05)** ✅
+
+The original note here — "button transitions currently snap" — went stale when §5.1b landed:
+`Selectable` already fades between state colours over `ColorBlock.fadeDuration`. What was
+actually missing was general-purpose motion for *scenario* code.
+
+**Shipped:** `UITween` with `fade` / `color` / `scale` / `move` / `rotate`, five easing
+shapes (`Linear` / `In` / `Out` / `InOut` / `Back`), and a `UITweenHandle` carrying
+`onComplete`, `cancel()`, `complete()` and `progress`.
+
+Deliberately small — this is the juice layer, not an animation system; anything richer
+belongs in an `AnimationCurve` driven by scenario code. Decisions:
+- **Unscaled by default.** A pause menu fading in while `Time.timeScale` is 0 has to keep
+  moving, and that is the common case for UI. `unscaled = false` opts back in to game time.
+- **Driven before the layout pass**, so a tweened size or position is laid out and drawn on
+  the frame it changed rather than one behind.
+- **`cancel()` leaves the value where it reached and does not raise `onComplete`** —
+  cancelling normally means something else is about to drive that property. `complete()`
+  jumps to the end and does raise it.
+- **A zero-length tween applies immediately**, before the call returns, because callers
+  reasonably treat `duration = 0` as an assignment.
+- The active list is walked backwards, so a tween started from an `onComplete` handler — the
+  way sequences are written — is never skipped.
+
+Y-down shows up twice, per §3.4: a larger `move` target `y` slides an element **down**, and a
+positive `rotate` angle turns **clockwise**. Note also that `Back` overshoots, which is
+invisible on `fade` because alpha is clamped to 0–1 — it is meant for `scale` and `move`.
 
 ### 5.4 Accessibility surface — **P3, M**
 
@@ -768,7 +796,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | 6.5 | Compressed-texture sprite support | P2 | L | 2.6 |
 | 6.6 | Serializable components (engine-wide) | P2 | M | — |
 | ~~5.0i~~ | ~~`InputField`~~ (hidden DOM `<input>`) | **done** | L | 5.1, 5.3 |
-| 5.0j | UI tween helpers | P3 | S | 4.4 |
+| ~~5.0j~~ | ~~UI tween helpers~~ (`UITween`) | **done** | S | 4.4 |
 | 5.4 | Accessibility / ARIA mirror | P3 | M | 5.3 |
 | 6.3b | Rich text | P3 | L | 6.3a |
 

@@ -280,6 +280,8 @@ export { ScrollRect, ScrollMovementType } from "./core/ui/ScrollRect";
 export { Scrollbar, ScrollbarDirection } from "./core/ui/Scrollbar";
 export { Dropdown } from "./core/ui/Dropdown";
 export { InputField, InputFieldContentType } from "./core/ui/InputField";
+export { UITween, UITweenHandle, UIEase } from "./core/ui/UITween";
+export type { IFadeable, ITintable } from "./core/ui/UITween";
 export { EventSystem } from "./core/ui/EventSystem";
 export { UIEvent } from "./core/ui/UIEvent";
 export { PointerEventData } from "./core/ui/PointerEventData";
@@ -468,6 +470,7 @@ import { ScrollRect, ScrollMovementType } from "./core/ui/ScrollRect";
 import { Scrollbar, ScrollbarDirection } from "./core/ui/Scrollbar";
 import { Dropdown } from "./core/ui/Dropdown";
 import { InputField, InputFieldContentType } from "./core/ui/InputField";
+import { UITween, UITweenHandle, UIEase } from "./core/ui/UITween";
 import { EventSystem } from "./core/ui/EventSystem";
 import { UIEvent } from "./core/ui/UIEvent";
 import { PointerEventData } from "./core/ui/PointerEventData";
@@ -591,6 +594,7 @@ const WebEngineTS = {
     CanvasGroup, RectMask2D, MaskPadding, ScrollRect, ScrollMovementType,
     Scrollbar, ScrollbarDirection, Dropdown,
     InputField, InputFieldContentType,
+    UITween, UITweenHandle, UIEase,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,

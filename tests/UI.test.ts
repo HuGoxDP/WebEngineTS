@@ -51,6 +51,7 @@ import { Vector3 } from "../src/engine/core/math/Vector3";
 import { TintCache } from "../src/engine/core/ui/TintCache";
 import { Gamepad, GamepadButton } from "../src/engine/core/input/Gamepad";
 import { InputField, InputFieldContentType } from "../src/engine/core/ui/InputField";
+import { UITween, UIEase } from "../src/engine/core/ui/UITween";
 import { GameObject } from "../src/engine/core/GameObject";
 import { Color } from "../src/engine/core/math/Color";
 
@@ -6022,6 +6023,246 @@ describe("Keyboard navigation", () => {
 
         expect(a.navigate(NavigationDirection.Right)).toBe(true);
         expect(a.navigate(NavigationDirection.Left)).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// UITween
+// ---------------------------------------------------------------------------
+
+describe("UITween", () => {
+    beforeEach(() => {
+        UITween._reset();
+        Canvas._reset();
+    });
+    afterEach(() => {
+        UITween._reset();
+        Canvas._reset();
+        vi.restoreAllMocks();
+    });
+
+    /** Advances the tween driver by `dt` seconds of unscaled time. */
+    function step(dt: number): void {
+        (Time as any)._deltaTime = dt;
+        (Time as any)._unscaledDeltaTime = dt;
+        UITween._updateAll();
+    }
+
+    function makeRect(): RectTransform {
+        return new GameObject("Tweened").addComponent(RectTransform);
+    }
+
+    test("a fade reaches its target and then stops running", () => {
+        const group = new GameObject("Panel").addComponent(CanvasGroup);
+        group.alpha = 1;
+
+        const tween = UITween.fade(group, 0, 1, UIEase.Linear);
+        expect(tween.isPlaying).toBe(true);
+
+        step(0.5);
+        expect(group.alpha).toBeCloseTo(0.5);
+
+        step(0.5);
+        expect(group.alpha).toBeCloseTo(0);
+        expect(tween.isPlaying).toBe(false);
+        expect(UITween.activeCount).toBe(0);
+    });
+
+    test("onComplete fires once, at the end", () => {
+        const group = new GameObject("Panel").addComponent(CanvasGroup);
+        let completions = 0;
+        UITween.fade(group, 0, 1, UIEase.Linear).onComplete.addListener(() => { completions++; });
+
+        step(0.5);
+        expect(completions).toBe(0);
+
+        step(0.6);
+        step(0.6);
+        expect(completions).toBe(1);
+    });
+
+    test("a colour tween interpolates every channel", () => {
+        const img = new GameObject("Img").addComponent(UIImage);
+        img.color = new Color(0, 0, 0, 1);
+
+        UITween.color(img, new Color(1, 0.5, 0, 0), 1, UIEase.Linear);
+        step(0.5);
+
+        expect(img.color.r).toBeCloseTo(0.5);
+        expect(img.color.g).toBeCloseTo(0.25);
+        expect(img.color.a).toBeCloseTo(0.5);
+    });
+
+    test("the target colour is copied, so the caller may reuse it", () => {
+        const img = new GameObject("Img").addComponent(UIImage);
+        img.color = new Color(0, 0, 0, 1);
+        const target = new Color(1, 1, 1, 1);
+
+        UITween.color(img, target, 1, UIEase.Linear);
+        target.set(0, 0, 0, 0);
+        step(1);
+
+        expect(img.color.r).toBeCloseTo(1);
+    });
+
+    test("scale and move drive the RectTransform", () => {
+        const rt = makeRect();
+        rt.localScale.set(1, 1);
+        rt.anchoredPosition.set(0, 0);
+
+        UITween.scale(rt, new Vector2(2, 3), 1, UIEase.Linear);
+        UITween.move(rt, new Vector2(100, 50), 1, UIEase.Linear);
+        step(0.5);
+
+        expect(rt.localScale.x).toBeCloseTo(1.5);
+        expect(rt.localScale.y).toBeCloseTo(2);
+        expect(rt.anchoredPosition.x).toBeCloseTo(50);
+        expect(rt.anchoredPosition.y).toBeCloseTo(25);
+    });
+
+    test("a rotation tween turns clockwise for a positive angle (Y-down)", () => {
+        const rt = makeRect();
+        rt.localRotation = 0;
+
+        UITween.rotate(rt, 90, 1, UIEase.Linear);
+        step(0.5);
+
+        expect(rt.localRotation).toBeCloseTo(45);
+    });
+
+    test("cancel leaves the target where it got to and skips onComplete", () => {
+        const group = new GameObject("Panel").addComponent(CanvasGroup);
+        group.alpha = 1;
+        let completions = 0;
+        const tween = UITween.fade(group, 0, 1, UIEase.Linear);
+        tween.onComplete.addListener(() => { completions++; });
+
+        step(0.5);
+        tween.cancel();
+        step(0.5);
+
+        expect(group.alpha).toBeCloseTo(0.5);
+        expect(completions).toBe(0);
+        expect(UITween.activeCount).toBe(0);
+    });
+
+    test("complete jumps to the end immediately", () => {
+        const group = new GameObject("Panel").addComponent(CanvasGroup);
+        group.alpha = 1;
+        let completions = 0;
+        const tween = UITween.fade(group, 0.25, 10, UIEase.Linear);
+        tween.onComplete.addListener(() => { completions++; });
+
+        tween.complete();
+
+        expect(group.alpha).toBeCloseTo(0.25);
+        expect(completions).toBe(1);
+        expect(tween.isPlaying).toBe(false);
+    });
+
+    test("a zero-length tween lands before the call returns", () => {
+        const group = new GameObject("Panel").addComponent(CanvasGroup);
+        group.alpha = 1;
+
+        UITween.fade(group, 0, 0);
+
+        expect(group.alpha).toBeCloseTo(0);
+        expect(UITween.activeCount).toBe(0);
+    });
+
+    test("tweens run on unscaled time by default, so a paused UI still animates", () => {
+        const group = new GameObject("Panel").addComponent(CanvasGroup);
+        group.alpha = 1;
+        UITween.fade(group, 0, 1, UIEase.Linear);
+
+        // Time.timeScale = 0 → deltaTime is 0 but unscaledDeltaTime is not.
+        (Time as any)._deltaTime = 0;
+        (Time as any)._unscaledDeltaTime = 0.5;
+        UITween._updateAll();
+
+        expect(group.alpha).toBeCloseTo(0.5);
+    });
+
+    test("a scaled tween stops with the game", () => {
+        const group = new GameObject("Panel").addComponent(CanvasGroup);
+        group.alpha = 1;
+        UITween.fade(group, 0, 1, UIEase.Linear, false);
+
+        (Time as any)._deltaTime = 0;
+        (Time as any)._unscaledDeltaTime = 0.5;
+        UITween._updateAll();
+
+        expect(group.alpha).toBeCloseTo(1);
+    });
+
+    test("easing shapes differ, and all of them start and end in the same place", () => {
+        const values: number[] = [];
+        for (const ease of [UIEase.Linear, UIEase.In, UIEase.Out, UIEase.InOut, UIEase.Back]) {
+            const rt = makeRect();
+            rt.localScale.set(0, 0);
+            UITween.scale(rt, new Vector2(1, 1), 1, ease);
+
+            // Sampled off-centre: every symmetric shape agrees with Linear at
+            // exactly halfway, so the midpoint proves nothing.
+            step(0.25);
+            values.push(rt.localScale.x);
+
+            step(0.8);
+            expect(rt.localScale.x).toBeCloseTo(1);
+            UITween._reset();
+        }
+
+        expect(new Set(values.map(v => v.toFixed(4))).size).toBe(values.length);
+    });
+
+    test("Back overshoots before settling", () => {
+        const rt = makeRect();
+        rt.localScale.set(0, 0);
+
+        // On scale, not alpha: alpha is clamped to 0–1, so an overshoot there
+        // is invisible by design.
+        UITween.scale(rt, new Vector2(1, 1), 1, UIEase.Back);
+        step(0.8);
+        expect(rt.localScale.x).toBeGreaterThan(1);
+
+        step(0.3);
+        expect(rt.localScale.x).toBeCloseTo(1);
+    });
+
+    test("cancelAll stops everything at once", () => {
+        const a = new GameObject("A").addComponent(CanvasGroup);
+        const b = new GameObject("B").addComponent(CanvasGroup);
+        UITween.fade(a, 0, 1);
+        UITween.fade(b, 0, 1);
+        expect(UITween.activeCount).toBe(2);
+
+        UITween.cancelAll();
+
+        expect(UITween.activeCount).toBe(0);
+    });
+
+    test("a tween started from onComplete is not skipped", () => {
+        const group = new GameObject("Panel").addComponent(CanvasGroup);
+        group.alpha = 0;
+        UITween.fade(group, 1, 1, UIEase.Linear).onComplete.addListener(() => {
+            UITween.fade(group, 0, 1, UIEase.Linear);
+        });
+
+        step(1);
+        expect(group.alpha).toBeCloseTo(1);
+        expect(UITween.activeCount).toBe(1);
+
+        step(0.5);
+        expect(group.alpha).toBeCloseTo(0.5);
+    });
+
+    test("progress reports how far along a tween is", () => {
+        const group = new GameObject("Panel").addComponent(CanvasGroup);
+        const tween = UITween.fade(group, 0, 2, UIEase.Linear);
+
+        step(0.5);
+
+        expect(tween.progress).toBeCloseTo(0.25);
     });
 });
 
