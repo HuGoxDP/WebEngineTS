@@ -3,6 +3,8 @@ import { Vector3 } from "../math/Vector3";
 import { Vector4 } from "../math/Vector4";
 import { Quaternion } from "../math/Quaternion";
 import { Color } from "../math/Color";
+import { Rect } from "../math/Rect";
+import { Bounds } from "../math/Bounds";
 import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
@@ -73,6 +75,18 @@ export class ValueSerializer {
         if (value instanceof Vector4) return { $type: "Vector4", x: value.x, y: value.y, z: value.z, w: value.w };
         if (value instanceof Quaternion) return { $type: "Quaternion", x: value.x, y: value.y, z: value.z, w: value.w };
         if (value instanceof Color) return { $type: "Color", r: value.r, g: value.g, b: value.b, a: value.a };
+        if (value instanceof Rect) {
+            return { $type: "Rect", x: value.x, y: value.y, width: value.width, height: value.height };
+        }
+        if (value instanceof Bounds) {
+            const c = value.center;
+            const e = value.extents;
+            return {
+                $type: "Bounds",
+                cx: c.x, cy: c.y, cz: c.z,
+                ex: e.x, ey: e.y, ez: e.z,
+            };
+        }
 
         // GameObject reference — needs scene context to compute a path.
         // We can't import GameObject here without creating a circular dep,
@@ -136,6 +150,14 @@ export class ValueSerializer {
                     return new Quaternion(+(obj.x ?? 0), +(obj.y ?? 0), +(obj.z ?? 0), +(obj.w ?? 1));
                 case "Color": case FieldType.Color:
                     return new Color(+(obj.r ?? 1), +(obj.g ?? 1), +(obj.b ?? 1), +(obj.a ?? 1));
+                case "Rect": case FieldType.Rect:
+                    return new Rect(+(obj.x ?? 0), +(obj.y ?? 0), +(obj.width ?? 0), +(obj.height ?? 0));
+                case "Bounds": case FieldType.Bounds:
+                    return new Bounds(
+                        new Vector3(+(obj.cx ?? 0), +(obj.cy ?? 0), +(obj.cz ?? 0)),
+                        // Bounds takes a full size, not the half-extents it stores.
+                        new Vector3(+(obj.ex ?? 0) * 2, +(obj.ey ?? 0) * 2, +(obj.ez ?? 0) * 2),
+                    );
                 case "GameObjectRef":
                     // Defer until the second pass — we only have a path right now.
                     if (ctx && ctx.currentComponent && ctx.currentField && Array.isArray(obj.path)) {

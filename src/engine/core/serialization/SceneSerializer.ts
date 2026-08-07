@@ -233,9 +233,39 @@ export class SceneSerializer {
             const value = ValueSerializer.deserialize(json.fields[f.name], f.type, ctx);
             ctx.currentComponent = null;
             ctx.currentField = null;
-            (comp as any)[f.name] = value;
+            SceneSerializer._assign(comp, f.name, value);
         }
         return comp;
+    }
+
+    /**
+     * Writes one deserialized value onto a component.
+     *
+     * @remarks
+     * Compound values are copied **into** the field's existing instance rather
+     * than replacing it, which matters for two reasons the built-in components
+     * hit constantly: a field declared `readonly` (`Selectable.colors`) cannot
+     * be replaced without breaking its own contract, and anything holding a
+     * reference to the old vector — a cached snapshot, a layout group — would
+     * keep writing to an object nothing reads any more.
+     *
+     * Falls back to plain assignment when the field is empty, holds a different
+     * type, or is an accessor with no backing instance to copy into.
+     */
+    private static _assign(comp: Component, field: string, value: unknown): void {
+        const target = (comp as any)[field];
+
+        if (value !== null
+            && typeof value === "object"
+            && target !== null
+            && typeof target === "object"
+            && target.constructor === (value as object).constructor
+            && typeof (target as { copy?: unknown }).copy === "function") {
+            (target as { copy: (v: unknown) => unknown }).copy(value);
+            return;
+        }
+
+        (comp as any)[field] = value;
     }
 
     /** Walks every collected GameObjectRef and assigns the resolved object. */

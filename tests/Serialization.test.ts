@@ -1,9 +1,12 @@
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
 import { GameObject } from "../src/engine/core/GameObject";
 import { Behaviour } from "../src/engine/core/Behaviour";
 import { SceneManager } from "../src/engine/core/SceneManager";
 import { Vector3 } from "../src/engine/core/math/Vector3";
 import { Color } from "../src/engine/core/math/Color";
+import { Rect } from "../src/engine/core/math/Rect";
+import { Bounds } from "../src/engine/core/math/Bounds";
+import { TypeRegistry } from "../src/engine/core/reflection/TypeRegistry";
 import { Serializable, SerializedField } from "../src/engine/core/reflection/Decorators";
 import { FieldType } from "../src/engine/core/reflection/Types";
 import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
@@ -302,3 +305,146 @@ describe("SceneSerializer — GameObject cross-references (Phase 11b)", () => {
     });
 });
 
+
+// ---------------------------------------------------------------------------
+// Serializer foundations for built-in components (unity-parity Stage 1)
+// ---------------------------------------------------------------------------
+
+@Serializable({ typeName: "Test.RectAndBounds" })
+class RectBoundsScript extends Behaviour {
+    @SerializedField({ type: FieldType.Rect })
+    public viewport: Rect = new Rect(0, 0, 1, 1);
+
+    @SerializedField({ type: FieldType.Bounds })
+    public box: Bounds = new Bounds(new Vector3(0, 0, 0), new Vector3(1, 1, 1));
+}
+
+@Serializable({ typeName: "Test.ReadonlyCompound" })
+class ReadonlyCompoundScript extends Behaviour {
+    @SerializedField({ type: FieldType.Color })
+    public readonly tint: Color = new Color(1, 1, 1, 1);
+
+    @SerializedField({ type: FieldType.Vector3 })
+    public readonly offset: Vector3 = new Vector3(0, 0, 0);
+}
+
+describe("ValueSerializer — Rect and Bounds", () => {
+    beforeEach(destroyScene);
+
+    test("a Rect field round-trips", () => {
+        const go = new GameObject("Cam");
+        const script = go.addComponent(RectBoundsScript);
+        script.viewport.set(0.25, 0.5, 0.5, 0.25);
+
+        const restored = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(go),
+        );
+        const back = restored.getComponent(RectBoundsScript)!;
+
+        expect(back.viewport.x).toBeCloseTo(0.25);
+        expect(back.viewport.y).toBeCloseTo(0.5);
+        expect(back.viewport.width).toBeCloseTo(0.5);
+        expect(back.viewport.height).toBeCloseTo(0.25);
+    });
+
+    test("a Bounds field round-trips its centre and size", () => {
+        const go = new GameObject("Collider");
+        const script = go.addComponent(RectBoundsScript);
+        script.box = new Bounds(new Vector3(1, 2, 3), new Vector3(4, 6, 8));
+
+        const restored = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(go),
+        );
+        const back = restored.getComponent(RectBoundsScript)!;
+
+        expect(back.box.center.x).toBeCloseTo(1);
+        expect(back.box.center.y).toBeCloseTo(2);
+        expect(back.box.center.z).toBeCloseTo(3);
+        expect(back.box.size.x).toBeCloseTo(4);
+        expect(back.box.size.y).toBeCloseTo(6);
+        expect(back.box.size.z).toBeCloseTo(8);
+    });
+});
+
+describe("SceneSerializer — compound fields are written in place", () => {
+    beforeEach(destroyScene);
+
+    test("a readonly compound field keeps its instance and takes the values", () => {
+        const go = new GameObject("Styled");
+        const script = go.addComponent(ReadonlyCompoundScript);
+        script.tint.set(0.25, 0.5, 0.75, 0.5);
+        script.offset.set(7, 8, 9);
+
+        const json = SceneSerializer.serializeGameObject(go);
+        const restored = SceneSerializer.deserializeGameObject(json);
+        const back = restored.getComponent(ReadonlyCompoundScript)!;
+
+        // The instance the constructor created is still the one in the field...
+        const instance = back.tint;
+        expect(back.tint).toBe(instance);
+        // ...and it carries the loaded values.
+        expect(back.tint.r).toBeCloseTo(0.25);
+        expect(back.tint.a).toBeCloseTo(0.5);
+        expect(back.offset.x).toBeCloseTo(7);
+        expect(back.offset.z).toBeCloseTo(9);
+    });
+
+    test("an aliased reference to the field sees the loaded values", () => {
+        const go = new GameObject("Styled");
+        const script = go.addComponent(ReadonlyCompoundScript);
+        script.offset.set(1, 1, 1);
+        const json = SceneSerializer.serializeGameObject(go);
+
+        const restored = SceneSerializer.deserializeGameObject(json);
+        const back = restored.getComponent(ReadonlyCompoundScript)!;
+
+        // What a cached snapshot or a layout group would have grabbed.
+        const alias = back.offset;
+        expect(alias.x).toBeCloseTo(1);
+        expect(alias).toBe(back.offset);
+    });
+
+    test("a null field still assigns rather than copying", () => {
+        const go = new GameObject("Follower");
+        go.addComponent(FollowTarget);
+
+        const restored = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(go),
+        );
+
+        expect(restored.getComponent(FollowTarget)!.target).toBeNull();
+    });
+});
+
+describe("TypeRegistry — stable names", () => {
+    test("an explicit typeName is what lands in the JSON", () => {
+        const go = new GameObject("Named");
+        go.addComponent(RectBoundsScript);
+
+        const json = SceneSerializer.serializeGameObject(go);
+
+        expect(json.components[0].type).toBe("Test.RectAndBounds");
+    });
+
+    test("registering a second class under one name is refused, not silently accepted", () => {
+        const errors: unknown[] = [];
+        const spy = vi.spyOn(console, "error").mockImplementation((...a) => { errors.push(a); });
+
+        class Impostor extends Behaviour {}
+        Serializable({ typeName: "Test.RectAndBounds" })(Impostor as any);
+
+        expect(errors.length).toBe(1);
+        // The original class still owns the name.
+        expect(TypeRegistry.get("Test.RectAndBounds")).toBe(RectBoundsScript as any);
+        spy.mockRestore();
+    });
+
+    test("re-registering the same class is not an error", () => {
+        const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+        Serializable({ typeName: "Test.RectAndBounds" })(RectBoundsScript as any);
+
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
+    });
+});

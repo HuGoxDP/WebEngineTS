@@ -16,6 +16,10 @@ export enum FieldType {
     Vector4     = "Vector4",
     Quaternion  = "Quaternion",
     Color       = "Color",
+    /** A 2D rectangle — UI rects, camera viewports, sprite regions. */
+    Rect        = "Rect",
+    /** An axis-aligned 3D box — collider and renderer bounds. */
+    Bounds      = "Bounds",
     Enum        = "Enum",
     /** Reference to another GameObject (serialized by id). */
     GameObject  = "GameObject",

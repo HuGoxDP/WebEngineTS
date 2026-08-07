@@ -21,8 +21,30 @@ export class TypeRegistry {
     private static _byName: Map<string, AnyConstructor> = new Map();
     private static _byCtor: WeakMap<AnyConstructor, ClassMeta> = new WeakMap();
 
-    /** Registers a class under `typeName` and attaches its metadata. */
+    /**
+     * Registers a class under `typeName` and attaches its metadata.
+     *
+     * @remarks
+     * Two classes may not share a name. A collision silently makes one of them
+     * unloadable — every scene referring to it would rebuild the *other* class
+     * — so it is reported rather than accepted. The usual causes are a
+     * copy-pasted `typeName` and a minifier rewriting class names, which is why
+     * built-in components always pass an explicit one.
+     *
+     * Re-registering the same constructor is allowed: a module evaluated twice
+     * (two bundle copies, or a hot reload) is not an error.
+     */
     public static register(typeName: string, ctor: AnyConstructor, meta: ClassMeta): void {
+        const existing = TypeRegistry._byName.get(typeName);
+        if (existing && existing !== ctor) {
+            console.error(
+                `[TypeRegistry] Type name "${typeName}" is already registered to a different `
+                + `class. Give one of them an explicit @Serializable({ typeName }) — otherwise `
+                + `scenes referring to it will load the wrong component.`,
+            );
+            return;
+        }
+
         TypeRegistry._byName.set(typeName, ctor);
         TypeRegistry._byCtor.set(ctor, meta);
     }
