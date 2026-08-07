@@ -21,6 +21,10 @@ import { GridLayoutGroup, GridConstraint, GridStartCorner } from "../src/engine/
 import { ContentSizeFitter, FitMode } from "../src/engine/core/ui/ContentSizeFitter";
 import { AspectRatioFitter, AspectMode } from "../src/engine/core/ui/AspectRatioFitter";
 import { RectMask2D } from "../src/engine/core/ui/RectMask2D";
+import { Rigidbody, RigidbodyConstraints } from "../src/engine/physics/Rigidbody";
+import { BoxCollider } from "../src/engine/physics/BoxCollider";
+import { SphereCollider } from "../src/engine/physics/SphereCollider";
+import { CapsuleCollider } from "../src/engine/physics/CapsuleCollider";
 import { Serializable, SerializedField } from "../src/engine/core/reflection/Decorators";
 import { FieldType } from "../src/engine/core/reflection/Types";
 import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
@@ -762,5 +766,101 @@ describe("Built-in components — UI layout", () => {
             expect(row.getComponent(LayoutElement)!.preferredHeight).toBe(40);
             expect(row.getComponent(RectTransform)).not.toBeNull();
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Built-in physics components (unity-parity Stage 1)
+// ---------------------------------------------------------------------------
+
+describe("Built-in components — physics", () => {
+    beforeEach(destroyScene);
+
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("a Rigidbody round-trips its dynamics settings", () => {
+        const go = new GameObject("Crate");
+        const body = go.addComponent(Rigidbody);
+        body.mass = 12.5;
+        body.drag = 0.4;
+        body.angularDrag = 0.9;
+        body.useGravity = false;
+        body.isKinematic = true;
+        body.constraints = RigidbodyConstraints.FreezeRotation;
+
+        const back = roundTrip(go).getComponent(Rigidbody)!;
+
+        expect(back.mass).toBeCloseTo(12.5);
+        expect(back.drag).toBeCloseTo(0.4);
+        expect(back.angularDrag).toBeCloseTo(0.9);
+        expect(back.useGravity).toBe(false);
+        expect(back.isKinematic).toBe(true);
+        expect(back.constraints).toBe(RigidbodyConstraints.FreezeRotation);
+    });
+
+    test("a BoxCollider round-trips its centre and size", () => {
+        const go = new GameObject("Crate");
+        const box = go.addComponent(BoxCollider);
+        box.center = new Vector3(0, 0.5, 0);
+        box.size = new Vector3(2, 3, 4);
+        box.isTrigger = true;
+
+        const back = roundTrip(go).getComponent(BoxCollider)!;
+
+        expect(back.center.y).toBeCloseTo(0.5);
+        expect(back.size.x).toBeCloseTo(2);
+        expect(back.size.z).toBeCloseTo(4);
+        expect(back.isTrigger).toBe(true);
+    });
+
+    test("a collider's setter runs, so the physics shape follows the loaded size", () => {
+        const go = new GameObject("Crate");
+        go.addComponent(BoxCollider).size = new Vector3(5, 6, 7);
+
+        const back = roundTrip(go).getComponent(BoxCollider)!;
+
+        // The setter is what pushes the size into the shape; writing the field
+        // in place would leave the shape at its default.
+        const shape = (back as any)._shape;
+        expect(shape.scale.x).toBeCloseTo(5);
+        expect(shape.scale.z).toBeCloseTo(7);
+    });
+
+    test("a SphereCollider round-trips its radius", () => {
+        const go = new GameObject("Ball");
+        const sphere = go.addComponent(SphereCollider);
+        sphere.radius = 2.5;
+        sphere.center = new Vector3(1, 0, -1);
+
+        const back = roundTrip(go).getComponent(SphereCollider)!;
+
+        expect(back.radius).toBeCloseTo(2.5);
+        expect(back.center.x).toBeCloseTo(1);
+        expect(back.center.z).toBeCloseTo(-1);
+    });
+
+    test("a CapsuleCollider round-trips radius and height", () => {
+        const go = new GameObject("Player");
+        const capsule = go.addComponent(CapsuleCollider);
+        capsule.radius = 0.4;
+        capsule.height = 1.8;
+
+        const back = roundTrip(go).getComponent(CapsuleCollider)!;
+
+        expect(back.radius).toBeCloseTo(0.4);
+        expect(back.height).toBeCloseTo(1.8);
+    });
+
+    test("a body and its collider reload together", () => {
+        const go = new GameObject("Crate");
+        go.addComponent(Rigidbody).mass = 3;
+        go.addComponent(BoxCollider).size = new Vector3(1, 1, 1);
+
+        const back = roundTrip(go);
+
+        expect(back.getComponent(Rigidbody)!.mass).toBeCloseTo(3);
+        expect(back.getComponent(BoxCollider)).not.toBeNull();
     });
 });

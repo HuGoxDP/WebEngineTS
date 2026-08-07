@@ -4,6 +4,8 @@ import { Vector3 } from "../core/math/Vector3";
 import { Quaternion } from "../core/math/Quaternion";
 import { PhysicsWorld } from "./PhysicsWorld";
 import type { PhysicMaterial } from "./PhysicMaterial";
+import { Serializable, SerializedField } from "../core/reflection/Decorators";
+import { FieldType } from "../core/reflection/Types";
 import type { GameObject } from "../core/GameObject";
 
 /**
@@ -44,6 +46,7 @@ export enum RigidbodyConstraints {
  * Attach to a GameObject along with one or more {@link Collider} components
  * to enable physics-driven motion.
  */
+@Serializable({ typeName: "Rigidbody", category: "Physics" })
 export class Rigidbody extends Behaviour {
     /** @internal The cannon-es body. */
     public _body: CANNON.Body;
@@ -63,6 +66,7 @@ export class Rigidbody extends Behaviour {
     // ==================== PROPERTIES ====================
 
     /** Mass of the rigidbody in kilograms. */
+    @SerializedField()
     public get mass(): number { return this._body.mass; }
     public set mass(value: number) {
         this._body.mass = value;
@@ -70,14 +74,17 @@ export class Rigidbody extends Behaviour {
     }
 
     /** Drag coefficient applied to linear velocity each step. */
+    @SerializedField()
     public get drag(): number { return this._body.linearDamping; }
     public set drag(value: number) { this._body.linearDamping = value; }
 
     /** Drag coefficient applied to angular velocity each step. */
+    @SerializedField()
     public get angularDrag(): number { return this._body.angularDamping; }
     public set angularDrag(value: number) { this._body.angularDamping = value; }
 
     /** If true, the body is not affected by forces but can be moved via Transform. */
+    @SerializedField()
     public get isKinematic(): boolean { return this._isKinematic; }
     public set isKinematic(value: boolean) {
         this._isKinematic = value;
@@ -89,6 +96,7 @@ export class Rigidbody extends Behaviour {
      * Whether this body is affected by gravity.
      * When false, an anti-gravity force is applied each step to counteract world gravity.
      */
+    @SerializedField()
     public get useGravity(): boolean { return this._useGravity; }
     public set useGravity(value: boolean) {
         this._useGravity = value;
@@ -115,6 +123,7 @@ export class Rigidbody extends Behaviour {
     }
 
     /** Constraints on the rigidbody's position and rotation. */
+    @SerializedField({ type: FieldType.Enum, enumValues: RigidbodyConstraints as unknown as Record<string, number> })
     public get constraints(): RigidbodyConstraints { return this._constraints; }
     public set constraints(value: RigidbodyConstraints) {
         this._constraints = value;

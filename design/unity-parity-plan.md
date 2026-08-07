@@ -245,9 +245,22 @@ class's methods. Those are merged key-by-key into the instance the component alr
 A test asserts `padding instanceof LayoutPadding` after a round trip, since the failure is
 otherwise invisible until something calls `padding.set()`.
 
-Remaining for step 1: renderers, colliders + `Rigidbody`, `LODGroup`, the UI *graphics and
-controls* (`UIImage`, `UIText`, `Button`, …, which need Stage 2's asset identity before
-`sprite` can round-trip), then `@ExecutionOrder`.
+**Progress — physics is serializable (2026-08-05).** `Rigidbody` (mass, both drags, gravity,
+kinematic, constraints) and the `Box` / `Sphere` / `Capsule` colliders, with `isTrigger`
+inherited from the `Collider` base.
+
+Decorating these replaced the rule the previous step had guessed at. A collider's `center`
+and `size` are **accessors whose setters resize the cannon-es shape**, so writing the field
+in place would have loaded a component whose reported size and real collision volume
+disagreed — the kind of defect that surfaces as "physics is subtly wrong" much later. The
+loader now decides by **descriptor**: a property with a setter is always assigned through it,
+because the setter is the component's own definition of what storing means. Only plain data
+fields are written in place. That covers `Camera`'s defensive clone and
+`AspectRatioFitter`'s clamp under one rule, and retires the two-reads heuristic.
+
+Remaining for step 1: renderers and `LODGroup`, the UI *graphics and controls* (`UIImage`,
+`UIText`, `Button`, …) — all of which are defined by an asset or component reference and
+want Stage 2 first — then `@ExecutionOrder`.
 
 1. Apply `@Serializable` / `@SerializedField` to **every** built-in component — `Transform`,
    `Camera`, lights, renderers, colliders, `Rigidbody`, the UI components, `LODGroup`.

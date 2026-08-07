@@ -2,6 +2,8 @@ import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { Collider } from "./Collider";
 import { Vector3 } from "../core/math/Vector3";
+import { Serializable, SerializedField } from "../core/reflection/Decorators";
+import { FieldType } from "../core/reflection/Types";
 import type { GameObject } from "../core/GameObject";
 
 /**
@@ -12,6 +14,7 @@ import type { GameObject } from "../core/GameObject";
  * The box is axis-aligned in local space, centered at {@link center}
  * with half-extents defined by {@link size}.
  */
+@Serializable({ typeName: "BoxCollider", category: "Physics" })
 export class BoxCollider extends Collider {
     private _center: Vector3 = new Vector3(0, 0, 0);
     private _size: Vector3 = new Vector3(1, 1, 1);
@@ -32,6 +35,7 @@ export class BoxCollider extends Collider {
     }
 
     /** Local-space center of the box. */
+    @SerializedField({ type: FieldType.Vector3 })
     public get center(): Vector3 { return this._center; }
     public set center(value: Vector3) {
         this._center.copy(value);
@@ -40,6 +44,7 @@ export class BoxCollider extends Collider {
     }
 
     /** Size of the box in local space (full extents, not half-extents). */
+    @SerializedField({ type: FieldType.Vector3 })
     public get size(): Vector3 { return this._size; }
     public set size(value: Vector3) {
         this._size.copy(value);

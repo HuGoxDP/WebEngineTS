@@ -5,6 +5,8 @@ import { Physics } from "./Physics";
 import { Rigidbody } from "./Rigidbody";
 import { PhysicsWorld } from "./PhysicsWorld";
 import type { PhysicMaterial } from "./PhysicMaterial";
+import { Serializable, SerializedField } from "../core/reflection/Decorators";
+import { FieldType } from "../core/reflection/Types";
 import type { GameObject } from "../core/GameObject";
 import { Vector3 } from "../core/math/Vector3";
 
@@ -52,6 +54,7 @@ export abstract class Collider extends Behaviour {
      * When enabled, this collider acts as a trigger and does not participate
      * in physical collisions. Trigger events are sent instead of collision events.
      */
+    @SerializedField()
     public get isTrigger(): boolean { return this._isTrigger; }
     public set isTrigger(value: boolean) {
         this._isTrigger = value;

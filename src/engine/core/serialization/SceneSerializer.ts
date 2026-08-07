@@ -249,23 +249,26 @@ export class SceneSerializer {
      * reference to the old vector — a cached snapshot, a layout group — would
      * keep writing to an object nothing reads any more.
      *
-     * Falls back to plain assignment when the field is empty, holds a different
-     * type, or is a **cloning accessor** — `Camera.backgroundColor` and
-     * `Transform.localPosition` hand back a fresh copy on every read, so
-     * copying into what they return would write to a throwaway and drop the
-     * value silently. Two reads tell the two apart: a plain field returns the
-     * same instance twice, a cloning getter does not.
+     * **A property with a setter is always assigned through it**, whatever its
+     * type. The setter is the component's own definition of what storing means
+     * — `BoxCollider.center` resizes the physics shape, `Camera.backgroundColor`
+     * clones defensively, `AspectRatioFitter.aspectRatio` clamps — and writing
+     * past it produces a component whose visible state and real state disagree.
+     * Only plain data fields are written in place.
      */
     private static _assign(comp: Component, field: string, value: unknown): void {
-        const target = (comp as any)[field];
+        if (SceneSerializer._hasSetter(comp, field)) {
+            (comp as any)[field] = value;
+            return;
+        }
 
-        if (value !== null
-            && typeof value === "object"
-            && target !== null
-            && typeof target === "object"
+        const target = (comp as any)[field];
+        const isObject = value !== null && typeof value === "object"
+            && target !== null && typeof target === "object";
+
+        if (isObject
             && target.constructor === (value as object).constructor
-            && typeof (target as { copy?: unknown }).copy === "function"
-            && target === (comp as any)[field]) {
+            && typeof (target as { copy?: unknown }).copy === "function") {
             (target as { copy: (v: unknown) => unknown }).copy(value);
             return;
         }
@@ -274,13 +277,9 @@ export class SceneSerializer {
         // no `copy` and comes back from JSON as a bare object, so assigning it
         // would strip the instance of its methods. Its values are merged into
         // the instance the component already owns instead.
-        if (value !== null
-            && typeof value === "object"
+        if (isObject
             && (value as object).constructor === Object
-            && target !== null
-            && typeof target === "object"
-            && (target as object).constructor !== Object
-            && target === (comp as any)[field]) {
+            && (target as object).constructor !== Object) {
             for (const key of Object.keys(value as object)) {
                 if (key in (target as object)) {
                     (target as any)[key] = (value as any)[key];
@@ -290,6 +289,17 @@ export class SceneSerializer {
         }
 
         (comp as any)[field] = value;
+    }
+
+    /** Whether `field` resolves to an accessor with a setter, own or inherited. */
+    private static _hasSetter(comp: Component, field: string): boolean {
+        let level: object | null = comp;
+        while (level !== null && level !== Object.prototype) {
+            const descriptor = Object.getOwnPropertyDescriptor(level, field);
+            if (descriptor) return typeof descriptor.set === "function";
+            level = Object.getPrototypeOf(level);
+        }
+        return false;
     }
 
     /** Walks every collected GameObjectRef and assigns the resolved object. */

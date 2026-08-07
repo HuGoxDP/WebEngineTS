@@ -2,6 +2,8 @@ import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { Collider } from "./Collider";
 import { Vector3 } from "../core/math/Vector3";
+import { Serializable, SerializedField } from "../core/reflection/Decorators";
+import { FieldType } from "../core/reflection/Types";
 import type { GameObject } from "../core/GameObject";
 
 /**
@@ -11,6 +13,7 @@ import type { GameObject } from "../core/GameObject";
  * Equivalent to Unity's `CapsuleCollider`.
  * The capsule is oriented along the Y axis by default.
  */
+@Serializable({ typeName: "CapsuleCollider", category: "Physics" })
 export class CapsuleCollider extends Collider {
     private _center: Vector3 = new Vector3(0, 0, 0);
     private _radius: number = 0.5;
@@ -32,6 +35,7 @@ export class CapsuleCollider extends Collider {
     }
 
     /** Local-space center of the capsule. */
+    @SerializedField({ type: FieldType.Vector3 })
     public get center(): Vector3 { return this._center; }
     public set center(value: Vector3) {
         this._center.copy(value);
@@ -40,6 +44,7 @@ export class CapsuleCollider extends Collider {
     }
 
     /** Radius of the capsule's hemisphere caps. */
+    @SerializedField()
     public get radius(): number { return this._radius; }
     public set radius(value: number) {
         this._radius = value;
@@ -51,6 +56,7 @@ export class CapsuleCollider extends Collider {
      * Total height of the capsule (including caps).
      * Must be >= 2 * radius; clamped if smaller.
      */
+    @SerializedField()
     public get height(): number { return this._height; }
     public set height(value: number) {
         this._height = Math.max(value, this._radius * 2);
