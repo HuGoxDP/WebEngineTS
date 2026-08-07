@@ -14,9 +14,11 @@ library (`RectMask2D`, `ScrollRect`, `Scrollbar`, `Sprite`/9-slice, `Dropdown`, 
 `Selectable` transitions + focus, keyboard navigation). §4.8, `AspectRatioFitter` and §6.4
 (`WorldSpace`, projected), §6.2 (shared tint cache) and §6.1 (dirty-rect partial
 repaint), the gamepad half of §5.3 and §5.0i (`InputField`) landed 2026-08-05.
-Every **P1/P2** item in §7 is now done. What is left is the long tail: §5.2 (gated on the
-editor), §6.3b rich text, §5.4 accessibility, §5.0j tweens, §3.5 the Unity-import helper,
-§6.6 engine-wide serialization, and the §4.1 observable-`Vector2` follow-up.
+Every **P1** item in §7 is now done, and the P2 work that is actually engine-side. What is
+left is either deliberately deferred by the plan itself (§5.2 gated on the editor, §3.5
+until an import path exists, §6.5 resolved as "warn and document", §6.6 scoped as an
+engine-wide task, §4.1's observable-`Vector2` follow-up) or long tail (§6.3b rich text,
+§5.4 accessibility, §5.0j tweens).
 
 ---
 
@@ -568,6 +570,14 @@ Design as originally sketched below, with these findings from building it:
   and its order, the world-space projection, and `setDirty()`.
 - A change that lands entirely outside the canvas rect now costs **no** repaint at all,
   which the old single-hash design could not tell from a visible one.
+
+**Follow-up, same day:** `Button` and `Toggle` were the only *built-in* controls left
+reporting `Infinity`, purely because they drew an untruncated label. Both now clip their
+label to their own rect — which they arguably should have done anyway; a caption running
+across its neighbours is not a feature — so both are bounded and a hover state repaints just
+the control instead of the whole HUD. Clipping rather than eliding, because an ellipsis
+would mean measuring the label on every repaint, and `TextOverflow.Clip` is already the
+`UIText` default for the same reason. `InputField` was built clipped from the start.
 
 Fix: track the union of changed elements' rects (previous ∪ current), `clip()` to it, and
 redraw only intersecting graphics. Needs §4.1's per-element change detection to know which

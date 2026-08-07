@@ -1131,12 +1131,18 @@ describe("Canvas partial repaint", () => {
         expect(canvas._prepare()).toBe(false);
     });
 
-    test("an element that outgrew its rect forces a full repaint", () => {
-        const { canvas, images } = setup(3);
+    test("a control that clips its own label keeps the repaint local", () => {
+        const { canvas } = setup(1);
 
-        // A button never truncates its caption, so it cannot say how far the
-        // text runs past the box.
+        // A Button clips its caption to its box, so however long the caption
+        // is, the button cannot paint outside itself.
         const btn = child("Btn", canvas.gameObject).addComponent(Button);
+        const rt = btn.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(400, 400);
+        rt.sizeDelta.set(120, 40);
         btn.text = "a very long caption indeed";
         canvas._prepare();
         canvas._prepare();
@@ -1144,16 +1150,29 @@ describe("Canvas partial repaint", () => {
         btn.text = "changed";
 
         expect(canvas._prepare()).toBe(true);
-        expect(canvas.lastRepaintRegion).toBeNull();
+        const region = canvas.lastRepaintRegion;
+        expect(region).not.toBeNull();
+        expect(region!.x).toBeGreaterThan(300);
+    });
 
-        // The unrelated images are unaffected by the button being unbounded.
-        images[0].color = new Color(1, 0, 0, 1);
-        btn.enabled = false;
+    test("an element that cannot bound its paint forces a full repaint", () => {
+        const { canvas } = setup(1);
+
+        const go = child("Spill", canvas.gameObject);
+        const rt = go.addComponent(RectTransform);
+        rt.sizeDelta.set(120, 40);
+        const label = go.addComponent(UIText);
+        // No wrapping and no ellipsis: the line runs off the side by whatever
+        // a measurement would have revealed, which is too costly to ask for.
+        label.wordWrap = false;
+        label.text = "0";
         canvas._prepare();
         canvas._prepare();
-        images[0].color = new Color(0, 1, 0, 1);
+
+        label.text = "1";
+
         expect(canvas._prepare()).toBe(true);
-        expect(canvas.lastRepaintRegion).not.toBeNull();
+        expect(canvas.lastRepaintRegion).toBeNull();
     });
 
     test("wrapped, clipped text stays bounded and keeps the repaint local", () => {
@@ -1236,11 +1255,12 @@ describe("Canvas partial repaint", () => {
     test("an unbounded element is redrawn even when something else changed", () => {
         const { canvas, images } = setup(3);
 
-        // A labelled Toggle paints past its own rect by an unknown amount, so
+        // An unwrapped label paints past its own rect by an unknown amount, so
         // it has to take part in every partial redraw — otherwise the region
         // clears pixels it painted and nothing draws them back.
-        const toggle = far(canvas, "Toggle").addComponent(Toggle);
-        toggle.label = "Enable shadows";
+        const label = far(canvas, "Spill").addComponent(UIText);
+        label.wordWrap = false;
+        label.text = "a caption wider than its rect";
         canvas._prepare();
         canvas._prepare();
 
@@ -6002,6 +6022,54 @@ describe("Keyboard navigation", () => {
 
         expect(a.navigate(NavigationDirection.Right)).toBe(true);
         expect(a.navigate(NavigationDirection.Left)).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Control labels stay inside their control
+// ---------------------------------------------------------------------------
+
+describe("Control label clipping", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    test("a Button clips its caption to its own box", () => {
+        const btn = new GameObject("Btn").addComponent(Button);
+        btn.text = "a caption far wider than this button";
+
+        const mock = makeContext();
+        btn._draw(mock.ctx, btn.rectTransform._resolvedLocalRect);
+
+        expect(mock.ops).toContain("clip");
+        expect(mock.texts).toContain("a caption far wider than this button");
+    });
+
+    test("a Button with no caption clips nothing", () => {
+        const btn = new GameObject("Btn").addComponent(Button);
+
+        const mock = makeContext();
+        btn._draw(mock.ctx, btn.rectTransform._resolvedLocalRect);
+
+        expect(mock.ops).not.toContain("clip");
+    });
+
+    test("a Toggle clips its label to its own rect", () => {
+        const toggle = new GameObject("Toggle").addComponent(Toggle);
+        toggle.label = "a label far wider than this toggle";
+
+        const mock = makeContext();
+        toggle._draw(mock.ctx, toggle.rectTransform._resolvedLocalRect);
+
+        expect(mock.ops).toContain("clip");
+    });
+
+    test("both are bounded, so they keep partial repaint", () => {
+        const btn = new GameObject("Btn").addComponent(Button);
+        btn.text = "anything at all";
+        const toggle = new GameObject("Toggle").addComponent(Toggle);
+        toggle.label = "anything at all";
+
+        expect(btn._drawOverflow()).toBe(0);
+        expect(toggle._drawOverflow()).toBe(0);
     });
 });
 

@@ -111,6 +111,13 @@ export class Button extends Selectable {
         ctx.fill();
 
         if (this.text) {
+            // Clipped to the button: a caption wider than its box is cut at the
+            // edges rather than running across whatever sits beside it. This is
+            // also what keeps the control bounded — see {@link _drawOverflow}.
+            ctx.save();
+            roundedRectPath(ctx, rect.x, rect.y, rect.width, rect.height, this.borderRadius);
+            ctx.clip();
+
             ctx.fillStyle = cssColor(this.textColor);
             ctx.font = `${this.fontSize}px ${this.fontFamily}`;
             ctx.textAlign = "center";
@@ -120,14 +127,9 @@ export class Button extends Selectable {
                 rect.x + rect.width  * 0.5,
                 rect.y + rect.height * 0.5,
             );
-        }
-    }
 
-    public override _drawOverflow(): number {
-        // The label is centred and never wrapped or truncated, so a caption
-        // wider than its button runs off both sides by an amount only a
-        // measurement would reveal.
-        return this.text ? Number.POSITIVE_INFINITY : 0;
+            ctx.restore();
+        }
     }
 
     public override _visualHash(): number {

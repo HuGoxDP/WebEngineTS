@@ -153,6 +153,14 @@ export class Toggle extends Selectable {
         if (this._isOn) this._drawCheck(ctx, bx, by, size);
 
         if (this.label) {
+            // Clipped to the control: a long label is cut at the right edge
+            // instead of running across its neighbours, and the control stays
+            // bounded — see {@link _drawOverflow}.
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(rect.x, rect.y, rect.width, rect.height);
+            ctx.clip();
+
             ctx.fillStyle = cssColor(this.labelColor);
             ctx.font = `${this.fontSize}px ${this.fontFamily}`;
             ctx.textAlign = "left";
@@ -162,18 +170,14 @@ export class Toggle extends Selectable {
                 bx + size + this.labelSpacing,
                 rect.y + rect.height * 0.5,
             );
+
+            ctx.restore();
         }
 
         if (!this.isInteractable()) {
             ctx.fillStyle = cssColor(this.disabledColor);
             ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
         }
-    }
-
-    public override _drawOverflow(): number {
-        // The label starts to the right of the box and is never truncated, so
-        // it runs past the rect by however long it happens to be.
-        return this.label ? Number.POSITIVE_INFINITY : 0;
     }
 
     public override _visualHash(): number {
