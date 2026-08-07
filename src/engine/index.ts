@@ -255,6 +255,7 @@ export {
 export { UIBehaviour } from "./core/ui/UIBehaviour";
 export { UIImage, ImageFillMethod, ImageFillOrigin, ImageType } from "./core/ui/UIImage";
 export { UIText, TextAlignment, VerticalAlignment, TextOverflow } from "./core/ui/UIText";
+export type { RichStyle, RichToken, RichLine } from "./core/ui/RichText";
 export { Button, ButtonState } from "./core/ui/Button";
 export { Selectable, SelectableState } from "./core/ui/Selectable";
 export { SelectableTransition, ColorBlock, SpriteState } from "./core/ui/SelectableTransition";

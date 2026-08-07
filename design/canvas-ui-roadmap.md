@@ -17,8 +17,8 @@ repaint), the gamepad half of §5.3 and §5.0i (`InputField`) landed 2026-08-05.
 Every **P1** item in §7 is now done, and the P2 work that is actually engine-side. What is
 left is either deliberately deferred by the plan itself (§5.2 gated on the editor, §3.5
 until an import path exists, §6.5 resolved as "warn and document", §6.6 scoped as an
-engine-wide task, §4.1's observable-`Vector2` follow-up) or long tail (§6.3b rich text,
-§5.4 accessibility).
+engine-wide task, §4.1's observable-`Vector2` follow-up) or explicitly unscheduled (§5.4
+accessibility, "listed so the cost is known before it is demanded").
 
 ---
 
@@ -30,7 +30,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 |---|---|---|
 | Root | `Canvas` (overlay + **`WorldSpace`**, projected), `CanvasScaler` (3 modes, all Unity-accurate), `CanvasGroup` | depth-occluded world UI (textured quad) |
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter`, **`AspectRatioFitter`** | anchor presets |
-| Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, linear + radial fill), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking, **auto-size**) | rich text |
+| Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, linear + radial fill), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking, auto-size, **rich text**) | — |
 | Interaction | `Selectable` base (+ transitions, focus, keyboard + gamepad navigation) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`/**`InputField`**, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | — |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
 | Repaint | `OnDemand` + `_visualHash`, event-driven surface sync, **dirty-rect partial repaint** | layout dirty flags |
@@ -683,8 +683,27 @@ reason: this memory is invisible to every texture counter.
   size joins `_visualHash` so a re-fit repaints. Contradicts `ContentSizeFitter` by
   construction — one sizes the text to the box, the other the box to the text — which the
   JSDoc says outright.
-- Rich text (`<b>`, `<color>`) — a real tokenizer plus per-run measurement; L, and rarely
-  worth it before everything above.
+- ~~Rich text (`<b>`, `<color>`)~~ — **done 2026-08-05.** `<b>`, `<i>`, `<color=…>` and
+  `<size=…>`, behind `UIText.richText` (off by default, since a HUD label showing a number
+  should not pay for a tokenizer pass). The tokenizer and line breaker live in their own
+  module (`ui/RichText.ts`) because they are a separate, pure concern — context in, geometry
+  out — and testable without a component.
+
+  Decisions worth recording:
+  - **A token is a word plus its trailing space**, so wrapping only ever decides *between*
+    tokens. A style change splits a token but does **not** create a wrap point, or
+    `<b>un</b>likely` would break in the middle of the word.
+  - **An unrecognized or malformed tag stays literal**, matching Unity. A stray `<` in a
+    chemistry caption shows up as itself rather than swallowing the rest of the string, and
+    an unbalanced `</b>` is ignored rather than corrupting everything after it.
+  - **Mixed sizes share a baseline.** The 2D context aligns a whole `fillText` call, so the
+    x advance is computed per token and each run is drawn left-aligned at its own position,
+    offset down by `lineMaxSize - tokenSize`.
+  - **`Ellipsis` degrades to `Clip` while rich text is on** — eliding across styled runs
+    means re-measuring the tail of every line, and the plain path is right there for labels
+    that need it. Stated in the JSDoc rather than left to be discovered.
+  - `preferredWidth` / `getPreferredHeight` / `bestFit` all measure through the same
+    tokenizer, so layout groups and auto-sizing see the markup rather than the raw string.
 
 ### 6.4 `CanvasRenderMode.WorldSpace` — **DONE (projected overlay), 2026-08-05** ✅
 
@@ -806,7 +825,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~5.0i~~ | ~~`InputField`~~ (hidden DOM `<input>`) | **done** | L | 5.1, 5.3 |
 | ~~5.0j~~ | ~~UI tween helpers~~ (`UITween`) | **done** | S | 4.4 |
 | 5.4 | Accessibility / ARIA mirror | P3 | M | 5.3 |
-| 6.3b | Rich text | P3 | L | 6.3a |
+| ~~6.3b~~ | ~~Rich text~~ (`<b>`, `<i>`, `<color>`, `<size>`) | **done** | L | 6.3a |
 
 Rough totals: stage 0 ≈ 4–5 days · stage 1 ≈ 4–5 weeks · stage 2 ≈ 5–6 weeks ·
 stage 3 ≈ 4+ weeks.

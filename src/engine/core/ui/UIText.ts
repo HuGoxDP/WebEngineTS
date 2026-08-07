@@ -1,6 +1,7 @@
 import { UIBehaviour } from "./UIBehaviour";
 import { Color } from "../math/Color";
 import { HASH_SEED, cssColor, fontGeneration, hashBool, hashColor, hashNumber, hashString } from "./UIUtils";
+import { RichText, type RichLine } from "./RichText";
 import type { Rect } from "../math/Rect";
 import type { GameObject } from "../GameObject";
 
@@ -146,6 +147,30 @@ export class UIText extends UIBehaviour {
     public bestFitMaxSize: number = 40;
 
     /**
+     * Whether `<b>`, `<i>`, `<color=…>` and `<size=…>` markup is interpreted.
+     *
+     * @remarks
+     * Equivalent to Unity's `Text.supportRichText`, and off by default here
+     * because it costs a tokenizer pass and per-run measurement — a HUD label
+     * showing a number should not pay for it.
+     *
+     * ```ts
+     * label.richText = true;
+     * label.text = "Mass: <b>5.2</b> <color=#8cf>kg</color>";
+     * ```
+     *
+     * Colours accept `#rgb`, `#rrggbb`, `#rrggbbaa` and the common names.
+     * An unrecognized or malformed tag is left as literal text rather than
+     * dropped, so a stray `<` shows up as itself instead of swallowing the rest
+     * of the string.
+     *
+     * `TextOverflow.Ellipsis` degrades to {@link TextOverflow.Clip} while this
+     * is on — eliding across styled runs would have to re-measure the tail of
+     * every line, and the plain path exists for labels that need it.
+     */
+    public richText: boolean = false;
+
+    /**
      * Width in canvas units this label would like, ignoring its current rect.
      *
      * @remarks
@@ -157,6 +182,13 @@ export class UIText extends UIBehaviour {
     public get preferredWidth(): number {
         const ctx = measureContext();
         if (!ctx || !this.text) return 0;
+
+        if (this.richText) {
+            const tokens = RichText.tokenize(ctx, this.text, this.fontSize, this.fontFamily);
+            // Unwrapped, so each hard-break paragraph is measured whole — the
+            // same question the plain path answers.
+            return RichText.widestLine(RichText.layout(ctx, tokens, 0, false, this.fontFamily));
+        }
 
         ctx.font = this._font();
         let widest = 0;
@@ -187,6 +219,12 @@ export class UIText extends UIBehaviour {
     public getPreferredHeight(width: number): number {
         const ctx = measureContext();
         if (!ctx || !this.text) return 0;
+
+        if (this.richText) {
+            const tokens = RichText.tokenize(ctx, this.text, this.fontSize, this.fontFamily);
+            const lines = RichText.layout(ctx, tokens, width, this.wordWrap && width > 0, this.fontFamily);
+            return lines.length * this.fontSize * this.lineHeight;
+        }
 
         const font = this._font();
         ctx.font = font;
@@ -229,6 +267,11 @@ export class UIText extends UIBehaviour {
     private _cacheWrap: boolean = true;
     private _cacheFontGeneration: number = -1;
 
+    /** Cached rich-text layout, keyed by everything that can change it. */
+    private _richLines: RichLine[] | null = null;
+    private _richText: string | null = null;
+    private _richKey: string = "";
+
     /** Cached {@link bestFit} result, keyed the same way. */
     private _fitSize: number = 0;
     private _fitText: string | null = null;
@@ -248,6 +291,11 @@ export class UIText extends UIBehaviour {
         if (rect.width <= 0 || rect.height <= 0 || !this.text) return;
 
         const size = this._resolveFontSize(ctx, rect);
+        if (this.richText) {
+            this._drawRich(ctx, rect, size);
+            return;
+        }
+
         const font = this._fontAt(size);
         ctx.font = font;
         ctx.textAlign = this.alignment as CanvasTextAlign;
@@ -320,6 +368,7 @@ export class UIText extends UIBehaviour {
         h = hashNumber(h, this.outlineWidth);
         h = hashColor(h, this.outlineColor);
         h = hashString(h, this.overflow);
+        h = hashBool(h, this.richText);
         h = hashBool(h, this.bestFit);
         if (this.bestFit) {
             h = hashNumber(h, this.bestFitMinSize);
@@ -332,6 +381,80 @@ export class UIText extends UIBehaviour {
     }
 
     // ── private ──────────────────────────────────────────────────────
+
+    /**
+     * Draws marked-up text run by run.
+     *
+     * @remarks
+     * The 2D context can only align a whole `fillText` call, so with mixed
+     * fonts on one line the x advance is computed here and every token is drawn
+     * left-aligned at its own position. Tokens sit on a common baseline, which
+     * is what keeps a `<size=24>` run from floating above its neighbours.
+     */
+    private _drawRich(ctx: CanvasRenderingContext2D, rect: Rect, size: number): void {
+        const lines = this._resolveRichLines(ctx, rect.width, size);
+
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+
+        const stroke = this.outlineWidth > 0 && this.outlineColor.a > 0;
+        if (stroke) {
+            ctx.strokeStyle = cssColor(this.outlineColor);
+            ctx.lineWidth = this.outlineWidth;
+            ctx.lineJoin = "round";
+        }
+
+        const lineH = size * this.lineHeight;
+        let y = this._textStartY(rect, lines.length * lineH);
+        const bottom = rect.y + rect.height;
+        const clips = this.overflow !== TextOverflow.Overflow;
+        const baseFill = cssColor(this.color);
+
+        for (const line of lines) {
+            if (clips && y + lineH > bottom) break;
+
+            let x = rect.x;
+            if (this.alignment === TextAlignment.Center) {
+                x = rect.x + (rect.width - line.width) * 0.5;
+            } else if (this.alignment === TextAlignment.Right) {
+                x = rect.x + rect.width - line.width;
+            }
+
+            for (const token of line.tokens) {
+                if (token.text.length === 0) continue;
+
+                ctx.font = RichText.fontFor(token, this.fontFamily);
+                // Sat on the line's baseline rather than its top edge, so runs
+                // of different sizes line up along the bottom of the glyphs.
+                const dy = line.maxSize - token.size;
+
+                if (stroke) ctx.strokeText(token.text, x, y + dy);
+                ctx.fillStyle = token.style.color ? cssColor(token.style.color) : baseFill;
+                ctx.fillText(token.text, x, y + dy);
+                x += token.width;
+            }
+
+            y += lineH;
+        }
+    }
+
+    /** Tokenizes and wraps, reusing the result while nothing relevant changed. */
+    private _resolveRichLines(
+        ctx: CanvasRenderingContext2D,
+        maxWidth: number,
+        size: number,
+    ): RichLine[] {
+        const key = `${size}|${this.fontFamily}|${this.wordWrap}|${maxWidth}|${fontGeneration()}`;
+        if (this._richLines && this._richText === this.text && this._richKey === key) {
+            return this._richLines;
+        }
+
+        const tokens = RichText.tokenize(ctx, this.text, size, this.fontFamily);
+        this._richLines = RichText.layout(ctx, tokens, maxWidth, this.wordWrap, this.fontFamily);
+        this._richText = this.text;
+        this._richKey = key;
+        return this._richLines;
+    }
 
     private _font(): string {
         return this._fontAt(this.fontSize);
@@ -399,6 +522,13 @@ export class UIText extends UIBehaviour {
 
     /** Whether the text laid out at `size` fits inside `rect`. */
     private _fitsAt(ctx: CanvasRenderingContext2D, size: number, rect: Rect): boolean {
+        if (this.richText) {
+            const tokens = RichText.tokenize(ctx, this.text, size, this.fontFamily);
+            const laid = RichText.layout(ctx, tokens, rect.width, this.wordWrap, this.fontFamily);
+            if (laid.length * size * this.lineHeight > rect.height) return false;
+            return RichText.widestLine(laid) <= rect.width;
+        }
+
         ctx.font = this._fontAt(size);
 
         const lines = this.wordWrap

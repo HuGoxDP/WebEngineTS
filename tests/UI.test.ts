@@ -6027,6 +6027,364 @@ describe("Keyboard navigation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Rich text
+// ---------------------------------------------------------------------------
+
+describe("Rich text", () => {
+    /** A context whose width tracks both the character count and the font size. */
+    function richContext() {
+        const state = { font: "16px sans-serif" };
+        const fonts: string[] = [];
+        const fills: string[] = [];
+        const texts: string[] = [];
+        const positions: number[][] = [];
+
+        const ctx = {
+            get font() { return state.font; },
+            set font(v: string) { state.font = v; fonts.push(v); },
+            fillStyle: "", strokeStyle: "", textAlign: "", textBaseline: "",
+            lineWidth: 0, lineJoin: "",
+            measureText: (s: string) => {
+                const px = Number.parseFloat(state.font.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? "16");
+                return { width: s.length * px * 0.5 };
+            },
+            fillText: (t: string, x: number, y: number) => {
+                texts.push(t);
+                positions.push([x, y]);
+                fills.push(ctx.fillStyle as string);
+            },
+            strokeText: () => {},
+        };
+
+        return { ctx: ctx as unknown as CanvasRenderingContext2D, fonts, fills, texts, positions };
+    }
+
+    function makeLabel(w: number, h: number): UIText {
+        const go = new GameObject("Label");
+        const rt = go.addComponent(RectTransform);
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(0, 0);
+        rt.sizeDelta.set(w, h);
+        const label = go.addComponent(UIText);
+        label.richText = true;
+        label.fontSize = 16;
+        label.fontFamily = "sans-serif";
+        return label;
+    }
+
+    afterEach(() => {
+        UIText._setMeasureContext(undefined);
+        vi.restoreAllMocks();
+    });
+
+    test("markup is off by default, so tags stay literal", () => {
+        const go = new GameObject("Label");
+        go.addComponent(RectTransform).sizeDelta.set(400, 100);
+        const label = go.addComponent(UIText);
+        label.text = "a <b>b</b> c";
+
+        expect(label.richText).toBe(false);
+
+        const mock = makeContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+        expect(mock.texts.join("")).toContain("<b>");
+    });
+
+    test("tags are consumed and never drawn", () => {
+        const label = makeLabel(400, 100);
+        label.text = "Mass: <b>5.2</b> kg";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        const drawn = mock.texts.join("");
+        expect(drawn).not.toContain("<b>");
+        expect(drawn).not.toContain("</b>");
+        expect(drawn).toContain("5.2");
+        expect(drawn).toContain("Mass:");
+    });
+
+    test("a bold run is drawn with a bold font, its neighbours are not", () => {
+        const label = makeLabel(400, 100);
+        label.text = "plain <b>bold</b> plain";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        const boldIndex = mock.texts.findIndex(t => t.startsWith("bold"));
+        expect(boldIndex).toBeGreaterThanOrEqual(0);
+        // Fonts are pushed as they are set, one per drawn token.
+        expect(mock.fonts.some(f => f.includes("bold"))).toBe(true);
+        expect(mock.fonts.some(f => !f.includes("bold"))).toBe(true);
+    });
+
+    test("italic is a separate switch and the two combine", () => {
+        const label = makeLabel(400, 100);
+        label.text = "<b><i>both</i></b>";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        expect(mock.fonts.some(f => f.includes("italic") && f.includes("bold"))).toBe(true);
+    });
+
+    test("a colour tag tints only its own run", () => {
+        const label = makeLabel(400, 100);
+        label.color = new Color(1, 1, 1, 1);
+        label.text = "white <color=#ff0000>red</color> white";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        const redIndex = mock.texts.findIndex(t => t.startsWith("red"));
+        expect(mock.fills[redIndex]).toContain("255,0,0");
+        expect(mock.fills[0]).not.toContain("255,0,0");
+    });
+
+    test("named colours work as well as hex", () => {
+        const label = makeLabel(400, 100);
+        label.text = "<color=cyan>c</color>";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        expect(mock.fills[0]).toContain("0,255,255");
+    });
+
+    test("short hex and hex with alpha are both accepted", () => {
+        const a = makeLabel(400, 100);
+        a.text = "<color=#f00>x</color>";
+        const mockA = richContext();
+        a._draw(mockA.ctx, a.rectTransform._resolvedLocalRect);
+        expect(mockA.fills[0]).toContain("255,0,0");
+
+        const b = makeLabel(400, 100);
+        b.text = "<color=#00ff0080>x</color>";
+        const mockB = richContext();
+        b._draw(mockB.ctx, b.rectTransform._resolvedLocalRect);
+        expect(mockB.fills[0]).toContain("0,255,0");
+    });
+
+    test("a size tag changes only its own run", () => {
+        const label = makeLabel(400, 100);
+        label.text = "small <size=32>big</size>";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        expect(mock.fonts.some(f => f.includes("32px"))).toBe(true);
+        expect(mock.fonts.some(f => f.includes("16px"))).toBe(true);
+    });
+
+    test("an unknown tag is left as literal text", () => {
+        const label = makeLabel(400, 100);
+        label.text = "5 <sub>2</sub> mol";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        expect(mock.texts.join("")).toContain("<sub>");
+    });
+
+    test("a stray angle bracket does not swallow the rest of the string", () => {
+        const label = makeLabel(400, 100);
+        label.text = "a < b and c > d";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        const drawn = mock.texts.join("");
+        expect(drawn).toContain("d");
+        expect(drawn).toContain("<");
+    });
+
+    test("an unbalanced closing tag is ignored rather than corrupting the rest", () => {
+        const label = makeLabel(400, 100);
+        label.text = "</b>plain <b>bold</b></b></b> plain";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        expect(mock.texts.join("")).toContain("plain");
+        expect(mock.fonts.some(f => !f.includes("bold"))).toBe(true);
+    });
+
+    test("wrapping breaks between words, across a style change", () => {
+        // 8 units per character at 16px; a 100-wide box holds ~12 characters.
+        const label = makeLabel(100, 200);
+        label.text = "alpha <b>beta</b> gamma delta";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        // More than one line means it wrapped rather than running off the side.
+        const lineYs = new Set(mock.positions.map(p => p[1]));
+        expect(lineYs.size).toBeGreaterThan(1);
+    });
+
+    test("a style change inside a word does not become a wrap point", () => {
+        const label = makeLabel(400, 100);
+        label.text = "<b>un</b>likely";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        // Both halves sit on one line, adjacent.
+        const ys = new Set(mock.positions.map(p => p[1]));
+        expect(ys.size).toBe(1);
+        expect(mock.texts).toEqual(["un", "likely"]);
+    });
+
+    test("an explicit newline still breaks the line", () => {
+        const label = makeLabel(400, 200);
+        label.text = "first\n<b>second</b>";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        const ys = new Set(mock.positions.map(p => p[1]));
+        expect(ys.size).toBe(2);
+    });
+
+    test("centred text places the whole line, mixed styles included", () => {
+        const label = makeLabel(400, 100);
+        label.alignment = TextAlignment.Center;
+        label.text = "<b>ab</b>cd";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        // Line is 4 chars at 8 units = 32 wide, centred in 400 → starts at 184.
+        expect(mock.positions[0][0]).toBeCloseTo(184);
+        expect(mock.positions[1][0]).toBeCloseTo(184 + 16);
+    });
+
+    test("right alignment ends the line at the rect's right edge", () => {
+        const label = makeLabel(400, 100);
+        label.alignment = TextAlignment.Right;
+        label.text = "abcd";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        expect(mock.positions[0][0]).toBeCloseTo(400 - 32);
+    });
+
+    test("runs of different sizes share a baseline", () => {
+        const label = makeLabel(400, 100);
+        label.verticalAlignment = VerticalAlignment.Top;
+        label.text = "a<size=32>B</size>";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        // The larger run sits at the line top; the smaller is pushed down by
+        // the difference, so their glyph bottoms line up.
+        const [small, big] = mock.positions;
+        expect(big[1]).toBeLessThan(small[1]);
+        expect(small[1] - big[1]).toBeCloseTo(32 - 16);
+    });
+
+    test("preferredWidth measures the marked-up text, not the tags", () => {
+        UIText._setMeasureContext(richContext().ctx);
+        const label = makeLabel(400, 100);
+        label.text = "<b>abcd</b>";
+
+        // 4 characters at 16px, 8 units each — the tags contribute nothing.
+        expect(label.preferredWidth).toBeCloseTo(32);
+    });
+
+    test("preferredHeight counts the wrapped lines", () => {
+        UIText._setMeasureContext(richContext().ctx);
+        const label = makeLabel(100, 400);
+        label.text = "alpha beta gamma delta epsilon";
+
+        const height = label.getPreferredHeight(100);
+
+        expect(height).toBeGreaterThan(label.fontSize * label.lineHeight);
+    });
+
+    test("bestFit searches with the markup applied", () => {
+        UIText._setMeasureContext(richContext().ctx);
+        const label = makeLabel(120, 30);
+        label.text = "<size=60>huge</size> and more text besides";
+        label.bestFit = true;
+        label.bestFitMinSize = 4;
+        label.bestFitMaxSize = 40;
+
+        const size = label.effectiveFontSize;
+
+        expect(size).toBeGreaterThanOrEqual(4);
+        expect(size).toBeLessThan(40);
+    });
+
+    test("turning rich text on changes the visual hash", () => {
+        const label = makeLabel(400, 100);
+        label.text = "<b>x</b>";
+        const on = label._visualHash();
+
+        label.richText = false;
+
+        expect(label._visualHash()).not.toBe(on);
+    });
+
+    test("the layout is cached while nothing relevant changes", () => {
+        const label = makeLabel(400, 100);
+        label.text = "<b>abc</b> def";
+
+        const first = richContext();
+        label._draw(first.ctx, label.rectTransform._resolvedLocalRect);
+        const tokenCount = first.texts.length;
+
+        const second = richContext();
+        label._draw(second.ctx, label.rectTransform._resolvedLocalRect);
+
+        // Same output, and the tokenizer did not have to run again.
+        expect(second.texts.length).toBe(tokenCount);
+        expect((label as any)._richText).toBe("<b>abc</b> def");
+    });
+
+    test("changing the text re-tokenizes", () => {
+        const label = makeLabel(400, 100);
+        label.text = "<b>one</b>";
+        const first = richContext();
+        label._draw(first.ctx, label.rectTransform._resolvedLocalRect);
+
+        label.text = "<i>two</i> three";
+        const second = richContext();
+        label._draw(second.ctx, label.rectTransform._resolvedLocalRect);
+
+        expect(second.texts.join("")).toContain("three");
+        expect(second.fonts.some(f => f.includes("italic"))).toBe(true);
+    });
+
+    test("an over-wide word is broken between characters", () => {
+        const label = makeLabel(40, 200);
+        label.text = "<b>supercalifragilistic</b>";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        const ys = new Set(mock.positions.map(p => p[1]));
+        expect(ys.size).toBeGreaterThan(1);
+        expect(mock.texts.join("")).toBe("supercalifragilistic");
+    });
+
+    test("lines past the bottom edge are clipped by default", () => {
+        const label = makeLabel(40, 20);
+        label.text = "alpha beta gamma delta epsilon zeta";
+
+        const mock = richContext();
+        label._draw(mock.ctx, label.rectTransform._resolvedLocalRect);
+
+        const ys = new Set(mock.positions.map(p => p[1]));
+        expect(ys.size).toBe(1);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // UIText.bestFit
 //
 // The shared mock measures a fixed 10 units per character, which cannot model a
