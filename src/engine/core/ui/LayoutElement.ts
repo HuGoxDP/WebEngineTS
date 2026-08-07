@@ -1,4 +1,6 @@
 import { Behaviour } from "../Behaviour";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 import type { RectTransform } from "./RectTransform";
 
@@ -36,27 +38,34 @@ const BEHAVIOUR_TYPE = Behaviour as unknown as new (...args: never[]) => Behavio
  * el.flexibleWidth = 1;      // ...that soaks up spare width
  * ```
  */
+@Serializable({ typeName: "LayoutElement", category: "UI" })
 export class LayoutElement extends Behaviour {
 
     /** Smallest width this element may be shrunk to. `-1` leaves it unset. */
+    @SerializedField()
     public minWidth: number = UNSET;
 
     /** Smallest height this element may be shrunk to. `-1` leaves it unset. */
+    @SerializedField()
     public minHeight: number = UNSET;
 
     /** Width this element would like. `-1` defers to the element itself. */
+    @SerializedField()
     public preferredWidth: number = UNSET;
 
     /** Height this element would like. `-1` defers to the element itself. */
+    @SerializedField()
     public preferredHeight: number = UNSET;
 
     /**
      * Share of leftover width this element claims, relative to its siblings.
      * `0` (the default) takes none.
      */
+    @SerializedField()
     public flexibleWidth: number = 0;
 
     /** Share of leftover height this element claims. `0` takes none. */
+    @SerializedField()
     public flexibleHeight: number = 0;
 
     /**
@@ -66,6 +75,7 @@ export class LayoutElement extends Behaviour {
      * The element keeps whatever position it had, which is how a floating badge
      * or a drag ghost sits inside a laid-out panel.
      */
+    @SerializedField()
     public ignoreLayout: boolean = false;
 
     constructor(gameObject: GameObject) {

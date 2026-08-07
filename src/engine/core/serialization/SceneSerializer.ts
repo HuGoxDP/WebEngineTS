@@ -270,6 +270,25 @@ export class SceneSerializer {
             return;
         }
 
+        // A settings struct — `LayoutPadding`, `ColorBlock`, `Navigation` — has
+        // no `copy` and comes back from JSON as a bare object, so assigning it
+        // would strip the instance of its methods. Its values are merged into
+        // the instance the component already owns instead.
+        if (value !== null
+            && typeof value === "object"
+            && (value as object).constructor === Object
+            && target !== null
+            && typeof target === "object"
+            && (target as object).constructor !== Object
+            && target === (comp as any)[field]) {
+            for (const key of Object.keys(value as object)) {
+                if (key in (target as object)) {
+                    (target as any)[key] = (value as any)[key];
+                }
+            }
+            return;
+        }
+
         (comp as any)[field] = value;
     }
 

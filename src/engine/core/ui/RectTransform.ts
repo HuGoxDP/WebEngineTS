@@ -4,6 +4,8 @@ import { Rect } from "../math/Rect";
 import { Time } from "../Time";
 import type { Canvas } from "./Canvas";
 import type { Component as ComponentType } from "../Component";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 import type { Transform } from "../Transform";
 
@@ -78,9 +80,11 @@ export enum RectTransformEdge {
  * rt.anchoredPosition.set(-10, -10);
  * ```
  */
+@Serializable({ typeName: "RectTransform", category: "UI" })
 export class RectTransform extends Component {
 
     /** Offset of the rect's pivot from the anchor reference point, in canvas units. */
+    @SerializedField({ type: FieldType.Vector2 })
     public anchoredPosition: Vector2 = new Vector2(0, 0);
 
     /**
@@ -88,6 +92,7 @@ export class RectTransform extends Component {
      * When anchors are a point (min === max) this is the absolute size.
      * When anchors are stretched, this is the delta added to the anchor area.
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public sizeDelta: Vector2 = new Vector2(100, 100);
 
     /**
@@ -97,6 +102,7 @@ export class RectTransform extends Component {
      * Because Y points down, this is the **top**-left corner of the anchor
      * rectangle — the opposite of Unity, where `anchorMin` is bottom-left.
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public anchorMin: Vector2 = new Vector2(0.5, 0.5);
 
     /**
@@ -106,6 +112,7 @@ export class RectTransform extends Component {
      * Because Y points down, this is the **bottom**-right corner of the anchor
      * rectangle — the opposite of Unity, where `anchorMax` is top-right.
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public anchorMax: Vector2 = new Vector2(0.5, 0.5);
 
     /**
@@ -115,6 +122,7 @@ export class RectTransform extends Component {
      * `(0.5, 0.5)` = center, `(0, 0)` = top-left, `(1, 1)` = bottom-right.
      * The Y axis is inverted relative to Unity, where `(0, 0)` is bottom-left.
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public pivot: Vector2 = new Vector2(0.5, 0.5);
 
     /**
@@ -129,6 +137,7 @@ export class RectTransform extends Component {
      * it), and `Transform.localRotation` / `localScale` return clones, so
      * reading them once per element per frame would allocate in the draw path.
      */
+    @SerializedField()
     public localRotation: number = 0;
 
     /**
@@ -138,6 +147,7 @@ export class RectTransform extends Component {
      * Scales the element and everything under it. Negative values mirror.
      * See {@link localRotation} for why this is not `Transform.localScale`.
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public localScale: Vector2 = new Vector2(1, 1);
 
     // ── ancestor-lookup cache ────────────────────────────────────────

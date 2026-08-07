@@ -1,6 +1,8 @@
 import { Behaviour } from "../Behaviour";
 import { Rect } from "../math/Rect";
 import { RectTransform, RectTransformAxis } from "./RectTransform";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /** How an {@link AspectRatioFitter} derives the element's size. */
@@ -53,6 +55,7 @@ export enum AspectMode {
  * group's placement. Put the fitter on a child of the laid-out element, not on
  * the element itself, when both are wanted.
  */
+@Serializable({ typeName: "AspectRatioFitter", category: "UI" })
 export class AspectRatioFitter extends Behaviour {
 
     private static _instances: AspectRatioFitter[] = [];
@@ -79,6 +82,7 @@ export class AspectRatioFitter extends Behaviour {
     private static readonly _scratch: Rect = new Rect();
 
     /** How the size is derived. Defaults to {@link AspectMode.None}. */
+    @SerializedField({ type: FieldType.Enum })
     public aspectMode: AspectMode = AspectMode.None;
 
     private _aspectRatio: number = 1;
@@ -94,6 +98,7 @@ export class AspectRatioFitter extends Behaviour {
      * Clamped to a small positive number: a zero or negative ratio would make
      * the derived axis zero-sized or inside-out, and Unity clamps it the same way.
      */
+    @SerializedField()
     public get aspectRatio(): number { return this._aspectRatio; }
 
     public set aspectRatio(value: number) {

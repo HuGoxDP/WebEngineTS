@@ -2,6 +2,8 @@ import { Behaviour } from "../Behaviour";
 import { Rect } from "../math/Rect";
 import { RectTransform } from "./RectTransform";
 import { LayoutUtility } from "./LayoutElement";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /** How a {@link ContentSizeFitter} sizes one axis. */
@@ -35,6 +37,7 @@ export enum FitMode {
  * fitter.verticalFit = FitMode.PreferredSize;   // as tall as the text needs
  * ```
  */
+@Serializable({ typeName: "ContentSizeFitter", category: "UI" })
 export class ContentSizeFitter extends Behaviour {
 
     private static _instances: ContentSizeFitter[] = [];
@@ -61,9 +64,11 @@ export class ContentSizeFitter extends Behaviour {
     private static readonly _scratch: Rect = new Rect();
 
     /** How the width is derived from the content. */
+    @SerializedField({ type: FieldType.Enum })
     public horizontalFit: FitMode = FitMode.Unconstrained;
 
     /** How the height is derived from the content. */
+    @SerializedField({ type: FieldType.Enum })
     public verticalFit: FitMode = FitMode.Unconstrained;
 
     constructor(gameObject: GameObject) {

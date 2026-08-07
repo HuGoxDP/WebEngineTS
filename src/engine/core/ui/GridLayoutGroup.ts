@@ -1,5 +1,7 @@
 import { LayoutGroup } from "./LayoutGroup";
 import { Vector2 } from "../math/Vector2";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -51,24 +53,31 @@ export enum GridConstraint {
  * grid.constraintCount = 4;
  * ```
  */
+@Serializable({ typeName: "GridLayoutGroup", category: "UI" })
 export class GridLayoutGroup extends LayoutGroup {
 
     /** Size of every cell, in canvas units. */
+    @SerializedField({ type: FieldType.Vector2 })
     public readonly cellSize: Vector2 = new Vector2(100, 100);
 
     /** Gap between cells on each axis, in canvas units. */
+    @SerializedField({ type: FieldType.Vector2 })
     public readonly spacing: Vector2 = new Vector2(0, 0);
 
     /** The corner filling starts from. */
+    @SerializedField({ type: FieldType.Enum })
     public startCorner: GridStartCorner = GridStartCorner.UpperLeft;
 
     /** Whether filling advances along rows or down columns. */
+    @SerializedField({ type: FieldType.Enum })
     public startAxis: GridStartAxis = GridStartAxis.Horizontal;
 
     /** How the row and column counts are decided. */
+    @SerializedField({ type: FieldType.Enum })
     public constraint: GridConstraint = GridConstraint.Flexible;
 
     /** Row or column count for the fixed constraints. Clamped to at least 1. */
+    @SerializedField()
     public constraintCount: number = 2;
 
     constructor(gameObject: GameObject) {

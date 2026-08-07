@@ -1,4 +1,6 @@
 import { Behaviour } from "../Behaviour";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -27,6 +29,7 @@ import type { GameObject } from "../GameObject";
  * group.interactable = false; // and inert while it fades
  * ```
  */
+@Serializable({ typeName: "CanvasGroup", category: "UI" })
 export class CanvasGroup extends Behaviour {
 
     /**
@@ -57,6 +60,7 @@ export class CanvasGroup extends Behaviour {
      * @remarks
      * Multiplies with any group above it and with `Canvas.alpha`.
      */
+    @SerializedField()
     public get alpha(): number { return this._alpha; }
 
     public set alpha(value: number) {
@@ -70,12 +74,15 @@ export class CanvasGroup extends Behaviour {
      * `false` still blocks the pointer from reaching what is behind — see
      * {@link blocksRaycasts} to let it through instead.
      */
+    @SerializedField()
     public interactable: boolean = true;
 
     /** Whether elements in this branch are hit-tested at all. */
+    @SerializedField()
     public blocksRaycasts: boolean = true;
 
     /** Whether to stop inheriting from groups further up the hierarchy. */
+    @SerializedField()
     public ignoreParentGroups: boolean = false;
 
     constructor(gameObject: GameObject) {

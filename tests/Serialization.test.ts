@@ -13,6 +13,14 @@ import { DirectionalLight } from "../src/engine/core/components/DirectionalLight
 import { PointLight } from "../src/engine/core/components/PointLight";
 import { SpotLight } from "../src/engine/core/components/SpotLight";
 import { AmbientLight } from "../src/engine/core/components/AmbientLight";
+import { RectTransform } from "../src/engine/core/ui/RectTransform";
+import { CanvasGroup } from "../src/engine/core/ui/CanvasGroup";
+import { LayoutElement } from "../src/engine/core/ui/LayoutElement";
+import { VerticalLayoutGroup, LayoutPadding, LayoutAnchor } from "../src/engine/core/ui/LayoutGroup";
+import { GridLayoutGroup, GridConstraint, GridStartCorner } from "../src/engine/core/ui/GridLayoutGroup";
+import { ContentSizeFitter, FitMode } from "../src/engine/core/ui/ContentSizeFitter";
+import { AspectRatioFitter, AspectMode } from "../src/engine/core/ui/AspectRatioFitter";
+import { RectMask2D } from "../src/engine/core/ui/RectMask2D";
 import { Serializable, SerializedField } from "../src/engine/core/reflection/Decorators";
 import { FieldType } from "../src/engine/core/reflection/Types";
 import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
@@ -587,5 +595,172 @@ describe("Built-in components — lights", () => {
         expect(back.shadows).toBe(LightShadows.Soft);
         expect(back.shadowResolution).toBe(LightShadowResolution.High);
         expect(back.shadowBias).toBeCloseTo(0.007);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Built-in UI layout components (unity-parity Stage 1; unblocks UI §6.6)
+// ---------------------------------------------------------------------------
+
+describe("Built-in components — UI layout", () => {
+    beforeEach(destroyScene);
+
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("a RectTransform round-trips its whole placement", () => {
+        const go = new GameObject("Panel");
+        const rt = go.addComponent(RectTransform);
+        rt.anchorMin.set(0, 0.25);
+        rt.anchorMax.set(1, 0.75);
+        rt.pivot.set(0.25, 0.5);
+        rt.anchoredPosition.set(12, -34);
+        rt.sizeDelta.set(320, 180);
+        rt.localRotation = 30;
+        rt.localScale.set(1.5, 2);
+
+        const back = roundTrip(go).getComponent(RectTransform)!;
+
+        expect(back.anchorMin.y).toBeCloseTo(0.25);
+        expect(back.anchorMax.x).toBeCloseTo(1);
+        expect(back.pivot.x).toBeCloseTo(0.25);
+        expect(back.anchoredPosition.x).toBeCloseTo(12);
+        expect(back.anchoredPosition.y).toBeCloseTo(-34);
+        expect(back.sizeDelta.x).toBeCloseTo(320);
+        expect(back.localRotation).toBeCloseTo(30);
+        expect(back.localScale.y).toBeCloseTo(2);
+    });
+
+    test("the loaded RectTransform keeps its own Vector2 instances", () => {
+        const go = new GameObject("Panel");
+        go.addComponent(RectTransform).sizeDelta.set(50, 60);
+
+        const back = roundTrip(go).getComponent(RectTransform)!;
+        const instance = back.sizeDelta;
+
+        expect(back.sizeDelta).toBe(instance);
+        expect(instance.x).toBeCloseTo(50);
+    });
+
+    test("a CanvasGroup round-trips its alpha and flags", () => {
+        const go = new GameObject("Fade");
+        const group = go.addComponent(CanvasGroup);
+        group.alpha = 0.35;
+        group.interactable = false;
+        group.blocksRaycasts = false;
+        group.ignoreParentGroups = true;
+
+        const back = roundTrip(go).getComponent(CanvasGroup)!;
+
+        expect(back.alpha).toBeCloseTo(0.35);
+        expect(back.interactable).toBe(false);
+        expect(back.blocksRaycasts).toBe(false);
+        expect(back.ignoreParentGroups).toBe(true);
+    });
+
+    test("a LayoutElement round-trips every size override", () => {
+        const go = new GameObject("Row");
+        const el = go.addComponent(LayoutElement);
+        el.minWidth = 10;
+        el.preferredHeight = 44;
+        el.flexibleWidth = 2;
+        el.ignoreLayout = true;
+
+        const back = roundTrip(go).getComponent(LayoutElement)!;
+
+        expect(back.minWidth).toBe(10);
+        expect(back.preferredHeight).toBe(44);
+        expect(back.flexibleWidth).toBe(2);
+        expect(back.ignoreLayout).toBe(true);
+    });
+
+    test("a layout group's padding struct keeps its class, not a bare object", () => {
+        const go = new GameObject("List");
+        const group = go.addComponent(VerticalLayoutGroup);
+        group.padding.set(4, 8, 12, 16);
+        group.spacing = 6;
+        group.childAlignment = LayoutAnchor.MiddleCenter;
+        group.reverseArrangement = true;
+
+        const back = roundTrip(go).getComponent(VerticalLayoutGroup)!;
+
+        expect(back.padding).toBeInstanceOf(LayoutPadding);
+        expect(typeof back.padding.set).toBe("function");
+        expect(back.padding.left).toBe(4);
+        expect(back.padding.bottom).toBe(16);
+        expect(back.spacing).toBe(6);
+        expect(back.childAlignment).toBe(LayoutAnchor.MiddleCenter);
+        expect(back.reverseArrangement).toBe(true);
+    });
+
+    test("a GridLayoutGroup round-trips its cells and constraint", () => {
+        const go = new GameObject("Grid");
+        const grid = go.addComponent(GridLayoutGroup);
+        grid.cellSize.set(64, 48);
+        grid.spacing.set(5, 7);
+        grid.constraint = GridConstraint.FixedColumnCount;
+        grid.constraintCount = 3;
+        grid.startCorner = GridStartCorner.LowerRight;
+
+        const back = roundTrip(go).getComponent(GridLayoutGroup)!;
+
+        expect(back.cellSize.x).toBeCloseTo(64);
+        expect(back.spacing.y).toBeCloseTo(7);
+        expect(back.constraint).toBe(GridConstraint.FixedColumnCount);
+        expect(back.constraintCount).toBe(3);
+        expect(back.startCorner).toBe(GridStartCorner.LowerRight);
+    });
+
+    test("the fitters round-trip their modes", () => {
+        const go = new GameObject("Fitted");
+        const csf = go.addComponent(ContentSizeFitter);
+        csf.horizontalFit = FitMode.PreferredSize;
+        csf.verticalFit = FitMode.MinSize;
+        const arf = go.addComponent(AspectRatioFitter);
+        arf.aspectMode = AspectMode.FitInParent;
+        arf.aspectRatio = 16 / 9;
+
+        const copy = roundTrip(go);
+
+        expect(copy.getComponent(ContentSizeFitter)!.horizontalFit).toBe(FitMode.PreferredSize);
+        expect(copy.getComponent(ContentSizeFitter)!.verticalFit).toBe(FitMode.MinSize);
+        expect(copy.getComponent(AspectRatioFitter)!.aspectMode).toBe(AspectMode.FitInParent);
+        expect(copy.getComponent(AspectRatioFitter)!.aspectRatio).toBeCloseTo(16 / 9);
+    });
+
+    test("a RectMask2D round-trips its padding struct", () => {
+        const go = new GameObject("Masked");
+        const mask = go.addComponent(RectMask2D);
+        mask.padding.left = 3;
+        mask.padding.bottom = 9;
+
+        const back = roundTrip(go).getComponent(RectMask2D)!;
+
+        expect(back.padding.left).toBe(3);
+        expect(back.padding.bottom).toBe(9);
+    });
+
+    test("a whole laid-out panel survives as a hierarchy", () => {
+        const root = new GameObject("Panel");
+        root.addComponent(RectTransform).sizeDelta.set(400, 300);
+        root.addComponent(VerticalLayoutGroup).spacing = 8;
+
+        for (let i = 0; i < 3; i++) {
+            const row = new GameObject(`Row${i}`);
+            row.transform.parent = root.transform;
+            row.addComponent(RectTransform);
+            row.addComponent(LayoutElement).preferredHeight = 40;
+        }
+
+        const back = roundTrip(root);
+
+        expect(back.transform.childCount).toBe(3);
+        expect(back.getComponent(VerticalLayoutGroup)!.spacing).toBe(8);
+        for (let i = 0; i < 3; i++) {
+            const row = back.transform.getChild(i).gameObject;
+            expect(row.getComponent(LayoutElement)!.preferredHeight).toBe(40);
+            expect(row.getComponent(RectTransform)).not.toBeNull();
+        }
     });
 });

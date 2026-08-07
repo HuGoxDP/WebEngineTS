@@ -232,8 +232,22 @@ loader now distinguishes the two by reading the property twice — a plain field
 same instance, a cloning getter does not — and assigns through the setter in that case.
 `Transform.localPosition` behaves the same way, so this would have bitten again immediately.
 
-Remaining for step 1: renderers, colliders + `Rigidbody`, `LODGroup`, the UI components
-(which is what canvas-ui-roadmap §6.6 is waiting on), then `@ExecutionOrder`.
+**Progress — the UI layout core is serializable (2026-08-05).** `RectTransform`,
+`CanvasGroup`, `LayoutElement`, the layout groups (`Horizontal`/`Vertical`/`Grid`),
+`ContentSizeFitter`, `AspectRatioFitter` and `RectMask2D`. That is the half of
+canvas-ui-roadmap §6.6 the engine can deliver before Stage 2: a whole laid-out panel now
+survives save → load, hierarchy and all.
+
+It needed one more serializer rule. A **settings struct** — `LayoutPadding`, `MaskPadding`,
+and later `ColorBlock` and `Navigation` — has no `copy` method and comes back from JSON as a
+bare object, so assigning it would leave the field holding something without any of the
+class's methods. Those are merged key-by-key into the instance the component already owns.
+A test asserts `padding instanceof LayoutPadding` after a round trip, since the failure is
+otherwise invisible until something calls `padding.set()`.
+
+Remaining for step 1: renderers, colliders + `Rigidbody`, `LODGroup`, the UI *graphics and
+controls* (`UIImage`, `UIText`, `Button`, …, which need Stage 2's asset identity before
+`sprite` can round-trip), then `@ExecutionOrder`.
 
 1. Apply `@Serializable` / `@SerializedField` to **every** built-in component — `Transform`,
    `Camera`, lights, renderers, colliders, `Rigidbody`, the UI components, `LODGroup`.

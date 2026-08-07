@@ -1,6 +1,8 @@
 import { Behaviour } from "../Behaviour";
 import { RectTransform } from "./RectTransform";
 import { LayoutUtility } from "./LayoutElement";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -68,9 +70,11 @@ export abstract class LayoutGroup extends Behaviour {
     }
 
     /** Inner margins, in canvas units. */
+    @SerializedField({ type: FieldType.Object })
     public readonly padding: LayoutPadding = new LayoutPadding();
 
     /** Where the arranged block sits when it does not fill the group. */
+    @SerializedField({ type: FieldType.Enum })
     public childAlignment: LayoutAnchor = LayoutAnchor.UpperLeft;
 
     /** Scratch reused across rebuilds; a group lays out one child list at a time. */
@@ -250,21 +254,26 @@ export class LayoutPadding {
 export abstract class LinearLayoutGroup extends LayoutGroup {
 
     /** Gap between adjacent children, in canvas units. */
+    @SerializedField()
     public spacing: number = 0;
 
     /**
      * Whether children are stretched across the axis the group does not lay
      * out along — the width of a vertical list, the height of a row.
      */
+    @SerializedField()
     public childForceExpandCross: boolean = true;
 
     /** Whether spare width along the layout axis is handed to the children. */
+    @SerializedField()
     public childForceExpandWidth: boolean = false;
 
     /** Whether spare height along the layout axis is handed to the children. */
+    @SerializedField()
     public childForceExpandHeight: boolean = false;
 
     /** Lay children out last-to-first. */
+    @SerializedField()
     public reverseArrangement: boolean = false;
 
     /** Whether this group stacks along Y rather than X. */
@@ -422,6 +431,7 @@ export abstract class LinearLayoutGroup extends LayoutGroup {
  *
  * @remarks Equivalent to Unity's `HorizontalLayoutGroup`.
  */
+@Serializable({ typeName: "HorizontalLayoutGroup", category: "UI" })
 export class HorizontalLayoutGroup extends LinearLayoutGroup {
     protected override get isVertical(): boolean { return false; }
 }
@@ -433,6 +443,7 @@ export class HorizontalLayoutGroup extends LinearLayoutGroup {
  * Equivalent to Unity's `VerticalLayoutGroup`. "Top to bottom" is increasing Y
  * here; {@link LinearLayoutGroup.reverseArrangement} stacks the other way.
  */
+@Serializable({ typeName: "VerticalLayoutGroup", category: "UI" })
 export class VerticalLayoutGroup extends LinearLayoutGroup {
     protected override get isVertical(): boolean { return true; }
 }

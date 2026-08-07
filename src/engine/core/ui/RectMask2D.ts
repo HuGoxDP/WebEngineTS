@@ -2,6 +2,8 @@ import { Behaviour } from "../Behaviour";
 import { Rect } from "../math/Rect";
 import { Vector2 } from "../math/Vector2";
 import { RectTransform } from "./RectTransform";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -25,6 +27,7 @@ import type { GameObject } from "../GameObject";
  * view.padding.set(4, 4, 4, 4);   // inset the window slightly
  * ```
  */
+@Serializable({ typeName: "RectMask2D", category: "UI" })
 export class RectMask2D extends Behaviour {
 
     /**
@@ -48,6 +51,7 @@ export class RectMask2D extends Behaviour {
     }
 
     /** Inset of the clipping window from this element's rect, in canvas units. */
+    @SerializedField({ type: FieldType.Object })
     public readonly padding: MaskPadding = new MaskPadding();
 
     private _rectTransform: RectTransform | null = null;
