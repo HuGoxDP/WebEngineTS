@@ -115,6 +115,14 @@ export class UIImage extends UIBehaviour {
      * Assigning a bare {@link Texture2D} still works and wraps it as a
      * whole-texture sprite, so existing scenarios need no change. Assign a
      * {@link Sprite} to draw one region of an atlas, or to nine-slice.
+     *
+     * **Do not use a compressed (KTX2/Basis) texture here.** The canvas draws
+     * through the 2D context, which can only read pixels the CPU holds; a
+     * transcoded texture's pixels live only on the GPU, so there is nothing to
+     * draw and the element falls back to a flat {@link color} fill (with a
+     * console warning, once per texture). KTX2 is the right choice for 3D
+     * materials, where its VRAM saving is the whole point — UI sprites should
+     * stay uncompressed PNG/WebP.
      */
     public get sprite(): Sprite | null { return this._sprite; }
 

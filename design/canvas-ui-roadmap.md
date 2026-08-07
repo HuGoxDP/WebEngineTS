@@ -760,12 +760,21 @@ Known limitation, by construction: **no depth occlusion.** A label pinned to the
 a model draws over it. Scenarios that care must hide it themselves (a raycast against the
 model is the usual test) — or the textured quad becomes worth building.
 
-### 6.5 Compressed-texture sprites — **P2, L**
+### 6.5 Compressed-texture sprites — **RESOLVED as documented (2026-08-05)** ✅
 
-The proper fix for §2.6. Either keep a CPU-side copy of the source image for
-UI-flagged textures (memory cost, defeats KTX2's purpose), or decode on demand for UI use.
-Realistically: **document that UI sprites should not be KTX2**, warn at runtime, and revisit
-only if a scenario actually needs it.
+The proper fix for §2.6 would be either keeping a CPU-side copy of the source image for
+UI-flagged textures (memory cost, and it defeats KTX2's purpose) or decoding on demand for
+UI use. The plan's own conclusion was the third option: **document that UI sprites should
+not be KTX2**, warn at runtime, and revisit only if a scenario actually needs it.
+
+Both halves are now shipped. The runtime warning landed with §2.6 (once per texture, naming
+the texture and what to do about it). The documentation half landed 2026-08-05 on the two
+places an author reads *before* hitting it — `UIImage.sprite` and the `Sprite` class — rather
+than only in a console message after the fact.
+
+Reopen this only if a scenario genuinely needs a compressed UI sprite. Nothing does today,
+and the trade is bad by construction: the format exists to keep pixels off the CPU, and the
+2D context can only draw pixels the CPU holds.
 
 ### 6.6 Serialization of UI components — **P2, M** (engine-wide, not UI-specific)
 
@@ -820,7 +829,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~6.1~~ | ~~Dirty-rect partial repaint~~ + `_drawOverflow` contract | **done** | M | 4.1 |
 | ~~6.2~~ | ~~Shared tint cache~~ (+ LRU bound, profiler visibility) | **done** | M | — |
 | ~~6.4~~ | ~~`WorldSpace` render mode (projected)~~ | **done** | L | 4.4 |
-| 6.5 | Compressed-texture sprite support | P2 | L | 2.6 |
+| ~~6.5~~ | ~~Compressed-texture sprites~~ — resolved as warn + document | **done** | L | 2.6 |
 | 6.6 | Serializable components (engine-wide) | P2 | M | — |
 | ~~5.0i~~ | ~~`InputField`~~ (hidden DOM `<input>`) | **done** | L | 5.1, 5.3 |
 | ~~5.0j~~ | ~~UI tween helpers~~ (`UITween`) | **done** | S | 4.4 |

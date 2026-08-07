@@ -69,6 +69,13 @@ export class SpriteBorder {
  * context's source rectangles and the rest of this UI. Unity measures sprite
  * rects from the bottom-left, so a rect ported from it needs its Y flipped.
  *
+ * **The source texture must be uncompressed.** The canvas draws through the 2D
+ * context, which can only read pixels the CPU holds, while a KTX2/Basis texture
+ * is transcoded straight to the GPU. A compressed source therefore cannot be
+ * drawn at all — {@link UIImage} warns once and falls back to a flat colour
+ * fill. Keep KTX2 for 3D materials, where the VRAM saving is the point, and
+ * author UI art as PNG or WebP.
+ *
  * ```ts
  * const panel = new Sprite(atlas, new Rect(0, 0, 48, 48));
  * panel.border.setAll(16);          // 16px corners that never stretch
