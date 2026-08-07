@@ -2,6 +2,8 @@
 
 import * as THREE from "three";
 import { Light } from "./Light.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -31,6 +33,7 @@ import type { GameObject } from "../GameObject.ts";
  * lightGo.transform.rotation = Quaternion.euler(50, -30, 0);
  * ```
  */
+@Serializable({ typeName: "DirectionalLight", category: "Rendering" })
 export class DirectionalLight extends Light {
 
     // ==================== CONSTRUCTOR ====================
@@ -121,6 +124,7 @@ export class DirectionalLight extends Light {
      * @remarks Equivalent to Unity's `QualitySettings.shadowDistance`
      * (applied per-light for simplicity).
      */
+    @SerializedField()
     public get shadowDistance(): number {
         const light = this._internalThreeLight as THREE.DirectionalLight | null;
         if (light === null) return 200;
@@ -146,6 +150,7 @@ export class DirectionalLight extends Light {
      *
      * @default 20
      */
+    @SerializedField()
     public get shadowFrustumSize(): number {
         const light = this._internalThreeLight as THREE.DirectionalLight | null;
         if (light === null) return 20;

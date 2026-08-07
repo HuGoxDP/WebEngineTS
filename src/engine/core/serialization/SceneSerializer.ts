@@ -250,7 +250,11 @@ export class SceneSerializer {
      * keep writing to an object nothing reads any more.
      *
      * Falls back to plain assignment when the field is empty, holds a different
-     * type, or is an accessor with no backing instance to copy into.
+     * type, or is a **cloning accessor** — `Camera.backgroundColor` and
+     * `Transform.localPosition` hand back a fresh copy on every read, so
+     * copying into what they return would write to a throwaway and drop the
+     * value silently. Two reads tell the two apart: a plain field returns the
+     * same instance twice, a cloning getter does not.
      */
     private static _assign(comp: Component, field: string, value: unknown): void {
         const target = (comp as any)[field];
@@ -260,7 +264,8 @@ export class SceneSerializer {
             && target !== null
             && typeof target === "object"
             && target.constructor === (value as object).constructor
-            && typeof (target as { copy?: unknown }).copy === "function") {
+            && typeof (target as { copy?: unknown }).copy === "function"
+            && target === (comp as any)[field]) {
             (target as { copy: (v: unknown) => unknown }).copy(value);
             return;
         }

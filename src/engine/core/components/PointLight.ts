@@ -2,6 +2,8 @@
 
 import * as THREE from "three";
 import { Light } from "./Light.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -33,6 +35,7 @@ import type { GameObject } from "../GameObject.ts";
  * sunGo.transform.position = Vector3.zero;
  * ```
  */
+@Serializable({ typeName: "PointLight", category: "Rendering" })
 export class PointLight extends Light {
 
     // ==================== PRIVATE FIELDS ====================
@@ -101,6 +104,7 @@ export class PointLight extends Light {
      *
      * @default 10
      */
+    @SerializedField()
     public get range(): number {
         return this._range;
     }
@@ -127,6 +131,7 @@ export class PointLight extends Light {
      *
      * @default 2
      */
+    @SerializedField()
     public get decay(): number {
         return this._decay;
     }

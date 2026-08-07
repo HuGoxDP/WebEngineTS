@@ -7,6 +7,12 @@ import { Color } from "../src/engine/core/math/Color";
 import { Rect } from "../src/engine/core/math/Rect";
 import { Bounds } from "../src/engine/core/math/Bounds";
 import { TypeRegistry } from "../src/engine/core/reflection/TypeRegistry";
+import { Camera, CameraClearFlags } from "../src/engine/core/components/Camera";
+import { LightShadows, LightShadowResolution } from "../src/engine/core/components/Light";
+import { DirectionalLight } from "../src/engine/core/components/DirectionalLight";
+import { PointLight } from "../src/engine/core/components/PointLight";
+import { SpotLight } from "../src/engine/core/components/SpotLight";
+import { AmbientLight } from "../src/engine/core/components/AmbientLight";
 import { Serializable, SerializedField } from "../src/engine/core/reflection/Decorators";
 import { FieldType } from "../src/engine/core/reflection/Types";
 import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
@@ -446,5 +452,140 @@ describe("TypeRegistry — stable names", () => {
 
         expect(spy).not.toHaveBeenCalled();
         spy.mockRestore();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Built-in components round-trip (unity-parity Stage 1)
+// ---------------------------------------------------------------------------
+
+describe("Built-in components — Camera", () => {
+    beforeEach(destroyScene);
+
+    /** Saves and reloads `go`, returning the rebuilt copy. */
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("a Camera survives save and load", () => {
+        const go = new GameObject("Main Camera");
+        const cam = go.addComponent(Camera);
+        cam.fieldOfView = 42;
+        cam.nearClipPlane = 0.7;
+        cam.farClipPlane = 900;
+        cam.depth = 3;
+        cam.backgroundColor = new Color(0.1, 0.2, 0.3, 1);
+        cam.viewport = new Rect(0.1, 0.2, 0.5, 0.6);
+        cam.clearFlags = CameraClearFlags.Depth;
+
+        const back = roundTrip(go).getComponent(Camera)!;
+
+        expect(back).not.toBeNull();
+        expect(back.fieldOfView).toBeCloseTo(42);
+        expect(back.nearClipPlane).toBeCloseTo(0.7);
+        expect(back.farClipPlane).toBeCloseTo(900);
+        expect(back.depth).toBe(3);
+        expect(back.clearFlags).toBe(CameraClearFlags.Depth);
+    });
+
+    test("a cloning accessor still receives its value", () => {
+        // Camera.backgroundColor and .viewport hand back a clone on every read,
+        // so the loader must assign rather than copy into what it read.
+        const go = new GameObject("Cam");
+        const cam = go.addComponent(Camera);
+        cam.backgroundColor = new Color(0.25, 0.5, 0.75, 1);
+        cam.viewport = new Rect(0.25, 0.25, 0.5, 0.5);
+
+        const back = roundTrip(go).getComponent(Camera)!;
+
+        expect(back.backgroundColor.r).toBeCloseTo(0.25);
+        expect(back.backgroundColor.b).toBeCloseTo(0.75);
+        expect(back.viewport.x).toBeCloseTo(0.25);
+        expect(back.viewport.width).toBeCloseTo(0.5);
+    });
+
+    test("an orthographic camera stays orthographic", () => {
+        const go = new GameObject("Ortho");
+        const cam = go.addComponent(Camera);
+        cam.orthographic = true;
+        cam.orthographicSize = 12;
+
+        const back = roundTrip(go).getComponent(Camera)!;
+
+        expect(back.orthographic).toBe(true);
+        expect(back.orthographicSize).toBeCloseTo(12);
+    });
+});
+
+describe("Built-in components — lights", () => {
+    beforeEach(destroyScene);
+
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("a DirectionalLight keeps its own fields and the ones it inherits", () => {
+        const go = new GameObject("Sun");
+        const light = go.addComponent(DirectionalLight);
+        light.color = new Color(1, 0.9, 0.8, 1);
+        light.intensity = 2.5;
+        light.shadowDistance = 75;
+
+        const back = roundTrip(go).getComponent(DirectionalLight)!;
+
+        expect(back.intensity).toBeCloseTo(2.5);
+        expect(back.shadowDistance).toBeCloseTo(75);
+        expect(back.color.g).toBeCloseTo(0.9);
+    });
+
+    test("a PointLight round-trips range and decay", () => {
+        const go = new GameObject("Lamp");
+        const light = go.addComponent(PointLight);
+        light.range = 17;
+        light.decay = 1.5;
+
+        const back = roundTrip(go).getComponent(PointLight)!;
+
+        expect(back.range).toBeCloseTo(17);
+        expect(back.decay).toBeCloseTo(1.5);
+    });
+
+    test("a SpotLight round-trips its cone", () => {
+        const go = new GameObject("Spot");
+        const light = go.addComponent(SpotLight);
+        light.spotAngle = 45;
+        light.innerSpotAngle = 20;
+
+        const back = roundTrip(go).getComponent(SpotLight)!;
+
+        expect(back.spotAngle).toBeCloseTo(45);
+        expect(back.innerSpotAngle).toBeCloseTo(20);
+    });
+
+    test("each light type reloads as its own class, not the base", () => {
+        const go = new GameObject("Rig");
+        go.addComponent(AmbientLight);
+        const child = new GameObject("Child");
+        child.transform.parent = go.transform;
+        child.addComponent(PointLight);
+
+        const back = roundTrip(go);
+
+        expect(back.getComponent(AmbientLight)).not.toBeNull();
+        expect(back.transform.getChild(0).gameObject.getComponent(PointLight)).not.toBeNull();
+    });
+
+    test("shadow settings survive as enums", () => {
+        const go = new GameObject("Sun");
+        const light = go.addComponent(DirectionalLight);
+        light.shadows = LightShadows.Soft;
+        light.shadowResolution = LightShadowResolution.High;
+        light.shadowBias = 0.007;
+
+        const back = roundTrip(go).getComponent(DirectionalLight)!;
+
+        expect(back.shadows).toBe(LightShadows.Soft);
+        expect(back.shadowResolution).toBe(LightShadowResolution.High);
+        expect(back.shadowBias).toBeCloseTo(0.007);
     });
 });

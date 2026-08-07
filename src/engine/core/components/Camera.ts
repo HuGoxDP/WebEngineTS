@@ -3,6 +3,8 @@
 import * as THREE from "three";
 import { Behaviour } from "../Behaviour.ts";
 import { profilerHooks } from "../diagnostics/ProfilerHooks.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import { Color } from "../math/Color.ts";
 import { Rect } from "../math/Rect.ts";
 import { Matrix4x4 } from "../math/Matrix4x4.ts";
@@ -66,6 +68,7 @@ export enum CameraClearFlags {
  * camGo.transform.lookAt(Vector3.zero);
  * ```
  */
+@Serializable({ typeName: "Camera", category: "Rendering" })
 export class Camera extends Behaviour {
 
     // ==================== STATIC CAMERA REGISTRY ====================
@@ -228,6 +231,7 @@ export class Camera extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Camera.orthographic`.
      */
+    @SerializedField()
     public get orthographic(): boolean {
         return this._orthographic;
     }
@@ -243,6 +247,7 @@ export class Camera extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Camera.fieldOfView`.
      */
+    @SerializedField()
     public get fieldOfView(): number {
         return this._fieldOfView;
     }
@@ -260,6 +265,7 @@ export class Camera extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Camera.orthographicSize`.
      */
+    @SerializedField()
     public get orthographicSize(): number {
         return this._orthographicSize;
     }
@@ -276,6 +282,7 @@ export class Camera extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Camera.nearClipPlane`.
      */
+    @SerializedField()
     public get nearClipPlane(): number {
         return this._nearClipPlane;
     }
@@ -293,6 +300,7 @@ export class Camera extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Camera.farClipPlane`.
      */
+    @SerializedField()
     public get farClipPlane(): number {
         return this._farClipPlane;
     }
@@ -333,6 +341,7 @@ export class Camera extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Camera.rect`.
      */
+    @SerializedField({ type: FieldType.Rect })
     public get viewport(): Rect {
         return this._viewport.clone();
     }
@@ -346,6 +355,7 @@ export class Camera extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Camera.backgroundColor`.
      */
+    @SerializedField({ type: FieldType.Color })
     public get backgroundColor(): Color {
         return this._backgroundColor.clone();
     }
@@ -359,6 +369,7 @@ export class Camera extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Camera.clearFlags`.
      */
+    @SerializedField({ type: FieldType.Enum, enumValues: CameraClearFlags as unknown as Record<string, number> })
     public get clearFlags(): CameraClearFlags {
         return this._clearFlags;
     }
@@ -373,6 +384,7 @@ export class Camera extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Camera.depth`.
      */
+    @SerializedField()
     public get depth(): number {
         return this._depth;
     }
@@ -386,6 +398,7 @@ export class Camera extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Camera.cullingMask`.
      */
+    @SerializedField()
     public get cullingMask(): number {
         return this._cullingMask;
     }

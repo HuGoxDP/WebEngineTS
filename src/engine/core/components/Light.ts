@@ -4,6 +4,8 @@ import * as THREE from "three";
 import { Behaviour } from "../Behaviour.ts";
 import { profilerHooks } from "../diagnostics/ProfilerHooks.ts";
 import { Color } from "../math/Color.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 // ==================== ENUMS ====================
@@ -198,6 +200,7 @@ export abstract class Light extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Light.color`.
      */
+    @SerializedField({ type: FieldType.Color })
     public get color(): Color {
         return this._color.clone();
     }
@@ -212,6 +215,7 @@ export abstract class Light extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Light.intensity`.
      */
+    @SerializedField()
     public get intensity(): number {
         return this._intensity;
     }
@@ -226,6 +230,7 @@ export abstract class Light extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Light.bounceIntensity`.
      */
+    @SerializedField()
     public get bounceIntensity(): number {
         return this._bounceIntensity;
     }
@@ -239,6 +244,7 @@ export abstract class Light extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Light.shadowStrength`.
      */
+    @SerializedField()
     public get shadowStrength(): number {
         return this._shadowStrength;
     }
@@ -254,6 +260,7 @@ export abstract class Light extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Light.shadows`.
      */
+    @SerializedField({ type: FieldType.Enum, enumValues: LightShadows as unknown as Record<string, string> })
     public get shadows(): LightShadows {
         return this._shadows;
     }
@@ -269,6 +276,7 @@ export abstract class Light extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Light.shadowResolution`.
      */
+    @SerializedField({ type: FieldType.Enum, enumValues: LightShadowResolution as unknown as Record<string, number> })
     public get shadowResolution(): LightShadowResolution {
         return this._shadowResolution;
     }
@@ -287,6 +295,7 @@ export abstract class Light extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Light.shadowBias`.
      */
+    @SerializedField()
     public get shadowBias(): number {
         return this._shadowBias;
     }
@@ -301,6 +310,7 @@ export abstract class Light extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Light.shadowNormalBias`.
      */
+    @SerializedField()
     public get shadowNormalBias(): number {
         return this._shadowNormalBias;
     }

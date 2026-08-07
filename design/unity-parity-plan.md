@@ -219,6 +219,22 @@ once, so these went first:
   step 2 exists to prevent, so the registry now reports it instead of letting it through.
   Re-registering the *same* class stays legal (two bundle copies, hot reload).
 
+**Progress — step 1 begun 2026-08-05: `Camera` and the light family are serializable.**
+Ten fields on `Camera`, eight on the `Light` base (inherited by all four subclasses via
+`getAllFields`' prototype walk) plus each subclass's own. Every one registers under an
+**explicit** `typeName`, never the class name, so a minifier cannot rename a component out of
+every saved scene.
+
+One defect found by decorating rather than by reasoning: `Camera.backgroundColor` and
+`Camera.viewport` are accessors that **return a clone on every read**. The in-place copy
+above would have written the loaded value into a throwaway and dropped it silently. The
+loader now distinguishes the two by reading the property twice — a plain field returns the
+same instance, a cloning getter does not — and assigns through the setter in that case.
+`Transform.localPosition` behaves the same way, so this would have bitten again immediately.
+
+Remaining for step 1: renderers, colliders + `Rigidbody`, `LODGroup`, the UI components
+(which is what canvas-ui-roadmap §6.6 is waiting on), then `@ExecutionOrder`.
+
 1. Apply `@Serializable` / `@SerializedField` to **every** built-in component — `Transform`,
    `Camera`, lights, renderers, colliders, `Rigidbody`, the UI components, `LODGroup`.
 2. Add a **stable type name** per component, independent of the class name, so renaming a class

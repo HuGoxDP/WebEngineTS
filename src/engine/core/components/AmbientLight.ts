@@ -2,6 +2,7 @@
 
 import * as THREE from "three";
 import { Light } from "./Light.ts";
+import { Serializable } from "../reflection/Decorators.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -31,6 +32,7 @@ import type { GameObject } from "../GameObject.ts";
  * ambient.color = new Color(0.4, 0.4, 0.6); // cool blue tint
  * ```
  */
+@Serializable({ typeName: "AmbientLight", category: "Rendering" })
 export class AmbientLight extends Light {
 
     // ==================== CONSTRUCTOR ====================

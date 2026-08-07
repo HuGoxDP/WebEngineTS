@@ -2,6 +2,8 @@
 
 import * as THREE from "three";
 import { Light } from "./Light.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -33,6 +35,7 @@ import type { GameObject } from "../GameObject.ts";
  * flashlightGo.transform.rotation = Quaternion.euler(30, 0, 0);
  * ```
  */
+@Serializable({ typeName: "SpotLight", category: "Rendering" })
 export class SpotLight extends Light {
 
     // ==================== PRIVATE FIELDS ====================
@@ -142,6 +145,7 @@ export class SpotLight extends Light {
      * @remarks Equivalent to Unity's `Light.range`.
      * @default 10
      */
+    @SerializedField()
     public get range(): number {
         return this._range;
     }
@@ -160,6 +164,7 @@ export class SpotLight extends Light {
      *
      * @default 2
      */
+    @SerializedField()
     public get decay(): number {
         return this._decay;
     }
@@ -181,6 +186,7 @@ export class SpotLight extends Light {
      *
      * @default 60
      */
+    @SerializedField()
     public get spotAngle(): number {
         return this._spotAngle;
     }
@@ -207,6 +213,7 @@ export class SpotLight extends Light {
      *
      * @default 40
      */
+    @SerializedField()
     public get innerSpotAngle(): number {
         return this._innerSpotAngle;
     }
