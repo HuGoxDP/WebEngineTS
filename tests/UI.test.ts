@@ -6027,6 +6027,183 @@ describe("Keyboard navigation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// UIText.bestFit
+//
+// The shared mock measures a fixed 10 units per character, which cannot model a
+// font-size search. These tests use one whose width scales with `ctx.font`.
+// ---------------------------------------------------------------------------
+
+describe("UIText bestFit", () => {
+    let measured = 0;
+
+    /** A context whose text width tracks the font size, as a real one does. */
+    function fontAwareContext(): CanvasRenderingContext2D {
+        const state = { font: "16px sans-serif" };
+        return {
+            get font() { return state.font; },
+            set font(v: string) { state.font = v; },
+            fillStyle: "", strokeStyle: "", textAlign: "", textBaseline: "",
+            lineWidth: 0, lineJoin: "",
+            measureText: (s: string) => {
+                measured++;
+                const px = Number.parseFloat(state.font.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? "16");
+                return { width: s.length * px * 0.5 };
+            },
+            fillText: () => {},
+            strokeText: () => {},
+        } as unknown as CanvasRenderingContext2D;
+    }
+
+    function makeLabel(w: number, h: number): UIText {
+        const go = new GameObject("Label");
+        const rt = go.addComponent(RectTransform);
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(0, 0);
+        rt.sizeDelta.set(w, h);
+        return go.addComponent(UIText);
+    }
+
+    beforeEach(() => {
+        measured = 0;
+        UIText._setMeasureContext(fontAwareContext());
+    });
+
+    afterEach(() => {
+        UIText._setMeasureContext(undefined);
+        vi.restoreAllMocks();
+    });
+
+    test("off by default, so the font size is honoured as written", () => {
+        const label = makeLabel(200, 40);
+        label.fontSize = 22;
+
+        expect(label.bestFit).toBe(false);
+        expect(label.effectiveFontSize).toBe(22);
+    });
+
+    test("shrinks the text until it fits a small box", () => {
+        const label = makeLabel(100, 24);
+        label.text = "a caption of some length";
+        label.fontSize = 40;
+        label.bestFit = true;
+        label.bestFitMinSize = 4;
+        label.bestFitMaxSize = 40;
+
+        const size = label.effectiveFontSize;
+
+        expect(size).toBeLessThan(40);
+        expect(size).toBeGreaterThanOrEqual(4);
+    });
+
+    test("grows the text to fill a large box, up to the maximum", () => {
+        const label = makeLabel(1000, 1000);
+        label.text = "Hi";
+        label.bestFit = true;
+        label.bestFitMinSize = 8;
+        label.bestFitMaxSize = 32;
+
+        expect(label.effectiveFontSize).toBe(32);
+    });
+
+    test("never shrinks below the minimum, even when nothing fits", () => {
+        const label = makeLabel(10, 8);
+        label.text = "far too much text for this tiny box";
+        label.bestFit = true;
+        label.bestFitMinSize = 12;
+        label.bestFitMaxSize = 40;
+
+        expect(label.effectiveFontSize).toBe(12);
+    });
+
+    test("a crossed-over min and max still yields a usable size", () => {
+        const label = makeLabel(200, 40);
+        label.text = "text";
+        label.bestFit = true;
+        label.bestFitMinSize = 30;
+        label.bestFitMaxSize = 10;
+
+        const size = label.effectiveFontSize;
+        expect(Number.isFinite(size)).toBe(true);
+        expect(size).toBeGreaterThan(0);
+    });
+
+    test("longer text resolves to a smaller size", () => {
+        const label = makeLabel(200, 60);
+        label.bestFit = true;
+        label.bestFitMinSize = 4;
+        label.bestFitMaxSize = 40;
+
+        label.text = "short";
+        const small = label.effectiveFontSize;
+
+        label.text = "a considerably longer caption than the first one";
+        const large = label.effectiveFontSize;
+
+        expect(large).toBeLessThan(small);
+    });
+
+    test("the search is cached, so a static label measures once", () => {
+        const label = makeLabel(200, 60);
+        label.text = "a caption";
+        label.bestFit = true;
+
+        label.effectiveFontSize;
+        const afterFirst = measured;
+        expect(afterFirst).toBeGreaterThan(0);
+
+        label.effectiveFontSize;
+        label.effectiveFontSize;
+
+        expect(measured).toBe(afterFirst);
+    });
+
+    test("resizing the box re-runs the search", () => {
+        const label = makeLabel(400, 100);
+        label.text = "a caption";
+        label.bestFit = true;
+        label.bestFitMinSize = 4;
+        label.bestFitMaxSize = 40;
+        const wide = label.effectiveFontSize;
+
+        label.rectTransform.sizeDelta.set(80, 100);
+
+        expect(label.effectiveFontSize).toBeLessThan(wide);
+    });
+
+    test("drawing uses the fitted size, not the authored one", () => {
+        const label = makeLabel(100, 24);
+        label.text = "a caption of some length";
+        label.fontSize = 40;
+        label.bestFit = true;
+        label.bestFitMinSize = 4;
+
+        const ctx = fontAwareContext();
+        label._draw(ctx, label.rectTransform._resolvedLocalRect);
+
+        const drawn = Number.parseFloat(ctx.font.match(/(\d+(?:\.\d+)?)px/)![1]);
+        expect(drawn).toBeLessThan(40);
+        expect(drawn).toBe(label.effectiveFontSize);
+    });
+
+    test("a change of fitted size marks the canvas for repaint", () => {
+        const label = makeLabel(200, 60);
+        label.text = "short";
+        label.bestFit = true;
+        label.bestFitMinSize = 4;
+        label.bestFitMaxSize = 40;
+        label._draw(fontAwareContext(), label.rectTransform._resolvedLocalRect);
+        const before = label._visualHash();
+
+        label.text = "a considerably longer caption than the first one";
+        label._draw(fontAwareContext(), label.rectTransform._resolvedLocalRect);
+
+        expect(label._visualHash()).not.toBe(before);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // UITween
 // ---------------------------------------------------------------------------
 

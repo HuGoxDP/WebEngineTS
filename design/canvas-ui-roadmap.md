@@ -30,7 +30,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 |---|---|---|
 | Root | `Canvas` (overlay + **`WorldSpace`**, projected), `CanvasScaler` (3 modes, all Unity-accurate), `CanvasGroup` | depth-occluded world UI (textured quad) |
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter`, **`AspectRatioFitter`** | anchor presets |
-| Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, **linear + radial fill**), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | auto-size, rich text |
+| Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, linear + radial fill), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking, **auto-size**) | rich text |
 | Interaction | `Selectable` base (+ transitions, focus, keyboard + gamepad navigation) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`/**`InputField`**, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | — |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
 | Repaint | `OnDemand` + `_visualHash`, event-driven surface sync, **dirty-rect partial repaint** | layout dirty flags |
@@ -675,7 +675,14 @@ reason: this memory is invisible to every texture counter.
 - Overflow modes: ellipsis and clip. Today lines past the bottom edge simply stop being
   drawn (`UIText.ts:112`) with no visual indication, and a single word wider than the rect
   overflows the rect entirely — `_wrapText` (`UIText.ts:178`) never breaks within a word.
-- `bestFit` auto-sizing (binary search over font size against the measured cache).
+- ~~`bestFit` auto-sizing~~ — **done 2026-08-05.** Binary search over whole font sizes in
+  `[bestFitMinSize, bestFitMaxSize]`, cached against text, rect size, wrap, font and the
+  font-loading generation, so a static label searches once rather than per frame. Whole
+  sizes only: the fit test is monotonic in size and a sub-pixel result is not worth the
+  extra measuring passes. `effectiveFontSize` reads back what it settled on, and the fitted
+  size joins `_visualHash` so a re-fit repaints. Contradicts `ContentSizeFitter` by
+  construction — one sizes the text to the box, the other the box to the text — which the
+  JSDoc says outright.
 - Rich text (`<b>`, `<color>`) — a real tokenizer plus per-run measurement; L, and rarely
   worth it before everything above.
 
@@ -783,6 +790,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | 5.1a | ~~Multi-listener `UIEvent` + pointer/drag events~~ | **done** | M | — |
 | ~~5.1b~~ | ~~`Selectable` base + transition modes + focus~~ | **done** | M | — |
 | ~~6.3a~~ | ~~`UIText` preferred sizes + overflow/ellipsis + word breaking~~ | **done** | S | — |
+| ~~6.3c~~ | ~~`UIText.bestFit` auto-sizing~~ | **done** | S | 6.3a |
 | ~~2.6~~ | ~~Warn on compressed-texture sprites~~ | **done** | XS | — |
 | 3.5 | Unity-import layout compat helper | P2 | M | 3.1–3.3 |
 | ~~5.0f~~ | ~~`ScrollRect` + `Scrollbar`~~ | **done** | L | — |

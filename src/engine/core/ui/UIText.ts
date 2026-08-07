@@ -1,6 +1,6 @@
 import { UIBehaviour } from "./UIBehaviour";
 import { Color } from "../math/Color";
-import { HASH_SEED, cssColor, fontGeneration, hashColor, hashNumber, hashString } from "./UIUtils";
+import { HASH_SEED, cssColor, fontGeneration, hashBool, hashColor, hashNumber, hashString } from "./UIUtils";
 import type { Rect } from "../math/Rect";
 import type { GameObject } from "../GameObject";
 
@@ -123,6 +123,29 @@ export class UIText extends UIBehaviour {
     public overflow: TextOverflow = TextOverflow.Clip;
 
     /**
+     * Whether the font size shrinks (and grows) so the text fills its rect.
+     *
+     * @remarks
+     * Equivalent to Unity's `Text.resizeTextForBestFit`. Picks the largest size
+     * in `[`{@link bestFitMinSize}`, `{@link bestFitMaxSize}`]` at which the
+     * wrapped text still fits, so a label whose content varies — a translated
+     * caption, a live readout — stays inside its box without an author guessing
+     * a size.
+     *
+     * {@link fontSize} is ignored while this is on; read
+     * {@link effectiveFontSize} for the size actually drawn. Combining this with
+     * a `ContentSizeFitter` is contradictory — one sizes the text to the box,
+     * the other the box to the text — and the fitter will win.
+     */
+    public bestFit: boolean = false;
+
+    /** Smallest size {@link bestFit} may shrink to, in canvas units. */
+    public bestFitMinSize: number = 10;
+
+    /** Largest size {@link bestFit} may grow to, in canvas units. */
+    public bestFitMaxSize: number = 40;
+
+    /**
      * Width in canvas units this label would like, ignoring its current rect.
      *
      * @remarks
@@ -174,6 +197,22 @@ export class UIText extends UIBehaviour {
     }
 
     /**
+     * The size the label is actually drawn at, in canvas units.
+     *
+     * @remarks
+     * Equal to {@link fontSize} unless {@link bestFit} is on, in which case it
+     * is the size the fit search settled on. `0` before the label has been
+     * measured once, and without a measuring context.
+     */
+    public get effectiveFontSize(): number {
+        if (!this.bestFit) return this.fontSize;
+
+        const ctx = measureContext();
+        if (!ctx || !this.text) return this.fontSize;
+        return this._resolveFontSize(ctx, this.rectTransform._resolvedLocalRect);
+    }
+
+    /**
      * @internal
      * Overrides the context used for measurement. Exists so tests can measure
      * deterministically without a DOM; pass `undefined` to restore the default.
@@ -190,6 +229,17 @@ export class UIText extends UIBehaviour {
     private _cacheWrap: boolean = true;
     private _cacheFontGeneration: number = -1;
 
+    /** Cached {@link bestFit} result, keyed the same way. */
+    private _fitSize: number = 0;
+    private _fitText: string | null = null;
+    private _fitWidth: number = -1;
+    private _fitHeight: number = -1;
+    private _fitMin: number = -1;
+    private _fitMax: number = -1;
+    private _fitWrap: boolean = true;
+    private _fitStyle: string = "";
+    private _fitGeneration: number = -1;
+
     constructor(gameObject: GameObject) {
         super(gameObject);
     }
@@ -197,13 +247,14 @@ export class UIText extends UIBehaviour {
     public override _draw(ctx: CanvasRenderingContext2D, rect: Rect): void {
         if (rect.width <= 0 || rect.height <= 0 || !this.text) return;
 
-        const font = this._font();
+        const size = this._resolveFontSize(ctx, rect);
+        const font = this._fontAt(size);
         ctx.font = font;
         ctx.textAlign = this.alignment as CanvasTextAlign;
         ctx.textBaseline = "top";
 
         const lines = this._resolveLines(ctx, font, rect.width);
-        const lineH = this.fontSize * this.lineHeight;
+        const lineH = size * this.lineHeight;
         const x = this._textX(rect);
         let y = this._textStartY(rect, lines.length * lineH);
 
@@ -269,13 +320,99 @@ export class UIText extends UIBehaviour {
         h = hashNumber(h, this.outlineWidth);
         h = hashColor(h, this.outlineColor);
         h = hashString(h, this.overflow);
+        h = hashBool(h, this.bestFit);
+        if (this.bestFit) {
+            h = hashNumber(h, this.bestFitMinSize);
+            h = hashNumber(h, this.bestFitMaxSize);
+            // The resolved size is the only input the rect feeds into drawing,
+            // and the canvas hashes the rect separately, so this is enough.
+            h = hashNumber(h, this._fitSize);
+        }
         return hashNumber(h, fontGeneration());
     }
 
     // ── private ──────────────────────────────────────────────────────
 
     private _font(): string {
-        return `${this.fontStyle} ${this.fontSize}px ${this.fontFamily}`;
+        return this._fontAt(this.fontSize);
+    }
+
+    private _fontAt(size: number): string {
+        return `${this.fontStyle} ${size}px ${this.fontFamily}`;
+    }
+
+    /**
+     * The size to draw at: {@link fontSize}, or the best-fit search result.
+     *
+     * @remarks
+     * Cached against everything the search depends on, so the binary search
+     * runs when the text or the box changes and not once per frame.
+     */
+    private _resolveFontSize(ctx: CanvasRenderingContext2D, rect: Rect): number {
+        if (!this.bestFit) return this.fontSize;
+
+        const min = Math.max(1, Math.min(this.bestFitMinSize, this.bestFitMaxSize));
+        const max = Math.max(min, this.bestFitMaxSize);
+        const generation = fontGeneration();
+
+        if (this._fitText === this.text
+            && this._fitWidth === rect.width
+            && this._fitHeight === rect.height
+            && this._fitMin === min
+            && this._fitMax === max
+            && this._fitWrap === this.wordWrap
+            && this._fitStyle === `${this.fontStyle}|${this.fontFamily}|${this.lineHeight}`
+            && this._fitGeneration === generation) {
+            return this._fitSize;
+        }
+
+        // Binary search over whole sizes: the fit test is monotonic in size, and
+        // a sub-pixel font size is not worth the extra measuring passes.
+        let low = min;
+        let high = Math.floor(max);
+        let best = min;
+
+        while (low <= high) {
+            const mid = (low + high) >> 1;
+            if (this._fitsAt(ctx, mid, rect)) {
+                best = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        this._fitSize = best;
+        this._fitText = this.text;
+        this._fitWidth = rect.width;
+        this._fitHeight = rect.height;
+        this._fitMin = min;
+        this._fitMax = max;
+        this._fitWrap = this.wordWrap;
+        this._fitStyle = `${this.fontStyle}|${this.fontFamily}|${this.lineHeight}`;
+        this._fitGeneration = generation;
+
+        // The wrap cache was filled at trial sizes during the search.
+        this._cacheText = null;
+        return best;
+    }
+
+    /** Whether the text laid out at `size` fits inside `rect`. */
+    private _fitsAt(ctx: CanvasRenderingContext2D, size: number, rect: Rect): boolean {
+        ctx.font = this._fontAt(size);
+
+        const lines = this.wordWrap
+            ? this._wrapText(ctx, this.text, rect.width)
+            : this.text.split("\n");
+
+        if (lines.length * size * this.lineHeight > rect.height) return false;
+
+        // Wrapping already bounds the width, except where a single glyph is
+        // wider than the rect — which the height test cannot catch.
+        for (const line of lines) {
+            if (ctx.measureText(line).width > rect.width) return false;
+        }
+        return true;
     }
 
     /** Returns the wrapped lines, re-measuring only when an input changed. */
