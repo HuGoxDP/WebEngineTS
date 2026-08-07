@@ -44,7 +44,12 @@ const ELLIPSIS = "…";
  */
 let _measureCtx: CanvasRenderingContext2D | null | undefined;
 
-function measureContext(): CanvasRenderingContext2D | null {
+/**
+ * @internal
+ * The shared off-screen context every UI component measures text with. Shared
+ * so one stub (see {@link UIText._setMeasureContext}) covers all of them.
+ */
+export function measureContext(): CanvasRenderingContext2D | null {
     if (_measureCtx === undefined) {
         _measureCtx = typeof document !== "undefined"
             ? document.createElement("canvas").getContext("2d")

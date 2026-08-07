@@ -509,6 +509,21 @@ export class Canvas extends Behaviour {
     /** Whether the last frame triggered an actual repaint. */
     public get repaintedLastFrame(): boolean { return this._repaintedLastFrame; }
 
+    /**
+     * @internal
+     * Viewport position of the surface's left edge, in CSS pixels. What a DOM
+     * element held over a UI element (an `InputField`'s hidden `<input>`) has to
+     * offset by, since the overlay is `position: fixed` at the render canvas.
+     */
+    public get _surfaceLeft(): number {
+        return Number.isFinite(this._cssLeft) ? this._cssLeft : 0;
+    }
+
+    /** @internal See {@link _surfaceLeft}. */
+    public get _surfaceTop(): number {
+        return Number.isFinite(this._cssTop) ? this._cssTop : 0;
+    }
+
     /** @internal The 2D rendering context. */
     public get _context(): CanvasRenderingContext2D | null { return this._ctx2d; }
 

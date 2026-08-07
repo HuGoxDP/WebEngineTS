@@ -13,8 +13,10 @@ surface, `Slider`/`Toggle`/`ToggleGroup`, `UIText` measurement, the layout group
 library (`RectMask2D`, `ScrollRect`, `Scrollbar`, `Sprite`/9-slice, `Dropdown`, radial fill,
 `Selectable` transitions + focus, keyboard navigation). §4.8, `AspectRatioFitter` and §6.4
 (`WorldSpace`, projected), §6.2 (shared tint cache) and §6.1 (dirty-rect partial
-repaint) and the gamepad half of §5.3 landed 2026-08-05.
-Next: §5.0i (`InputField`) — §5.2 is gated on the editor (see its note).
+repaint), the gamepad half of §5.3 and §5.0i (`InputField`) landed 2026-08-05.
+Every **P1/P2** item in §7 is now done. What is left is the long tail: §5.2 (gated on the
+editor), §6.3b rich text, §5.4 accessibility, §5.0j tweens, §3.5 the Unity-import helper,
+§6.6 engine-wide serialization, and the §4.1 observable-`Vector2` follow-up.
 
 ---
 
@@ -27,7 +29,7 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Root | `Canvas` (overlay + **`WorldSpace`**, projected), `CanvasScaler` (3 modes, all Unity-accurate), `CanvasGroup` | depth-occluded world UI (textured quad) |
 | Layout | `RectTransform` (full API), `LayoutElement`, Horizontal/Vertical/**Grid** groups, `ContentSizeFitter`, **`AspectRatioFitter`** | anchor presets |
 | Graphics | `UIImage` (solid/sprite/radius, atlas sub-rects, 9-slice, tiled, **linear + radial fill**), `Sprite`, `UIText` (wrap, outline, align, preferred sizes, overflow, word breaking) | auto-size, rich text |
-| Interaction | `Selectable` base (+ transitions, focus, **keyboard + gamepad navigation**) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | `InputField` |
+| Interaction | `Selectable` base (+ transitions, focus, keyboard + gamepad navigation) under `Button`/`Slider`/`Toggle`/`Scrollbar`/`Dropdown`/**`InputField`**, `ToggleGroup`, `ScrollRect`, `VirtualJoystick`, `EventSystem`, `UIEvent`, pointer + drag events | — |
 | Clipping | **`RectMask2D`** (draw + hit-test, follows rotation) | soft edges |
 | Repaint | `OnDemand` + `_visualHash`, event-driven surface sync, **dirty-rect partial repaint** | layout dirty flags |
 | Draw order | **hierarchy-ordered**, `sortingOrder` first | — |
@@ -426,7 +428,7 @@ Ordered by value per unit of effort for the educational-scenario use case.
 | `RectMask2D` | P1 | M | Nothing clips to parent bounds today. Prerequisite for `ScrollRect`. Maps to `ctx.clip()` on the element matrix — cheap in the 2D context |
 | `ScrollRect` + `Scrollbar` | P2 | L | Needs `RectMask2D` + drag events + inertia |
 | `Dropdown` | P2 | M | Needs `ScrollRect` for long lists |
-| `InputField` | P3 | L | Caret, selection, clipboard, IME, mobile keyboard. Consider a hidden DOM `<input>` overlay instead of drawing it — far less code, correct IME behaviour for free |
+| ~~`InputField`~~ | **done** | L | Hidden DOM `<input>` overlay, as recommended — see §5.5 |
 | Radial fill (`Radial90/180/360`) | P2 | S | `ImageFillMethod` has only Horizontal/Vertical; cooldown dials need radial |
 | UI tween helpers (fade/color/scale) | P3 | S | *Partly moot:* `Selectable` transitions already fade over `ColorBlock.fadeDuration`. What is left is general-purpose tweens for scenario code |
 
@@ -476,6 +478,46 @@ left stick moving focus, `A` submitting and `B` cancelling. Notes worth keeping:
   *down* on the vertical axis, which is the direction Y grows on this canvas.
 - Like the keyboard path, it does nothing while nothing holds focus — consistent with the
   existing behaviour, and it leaves "what is focused first" to the scenario.
+
+### 5.5 `InputField` — **DONE (2026-08-05)** ✅
+
+Shipped as the table recommends: **a hidden DOM `<input>` held over the field**, not a
+hand-drawn text editor. The field is *drawn* on the canvas like every other control —
+background, value, placeholder, selection highlight, blinking caret, horizontal scroll when
+the value outgrows the box — but every keystroke goes through the real element.
+
+That is the whole point, and worth stating so nobody "simplifies" it later: writing text
+entry on raw key events means writing IME composition for CJK input, dead keys, the
+clipboard, autofill, selection gestures and the mobile virtual keyboard. The browser
+already does all of it correctly. The element is `opacity: 0` rather than hidden or
+off-screen, because a displaced element cannot be focused reliably and mobile browsers
+scroll the *focused* element into view — which is exactly what should happen to the field
+the user tapped. `pointer-events: none` keeps the canvas hit-test in charge of clicks.
+
+API: `text`, `placeholder`, `characterLimit`, `contentType`
+(Standard / IntegerNumber / DecimalNumber / Password / EmailAddress), `readOnly`,
+`caretPosition` / `selectionAnchorPosition` / `selectedText`, `caretBlinkRate`,
+`activate()` / `deactivate()` / `selectAll()`, and `onValueChanged` / `onEndEdit` on top of
+the inherited `onSubmit`.
+
+Decisions worth recording:
+- **The element is the source of truth while editing.** Value and selection are pulled from
+  it each frame rather than tracked in parallel, so IME composition and a paste land in the
+  drawn field without special cases.
+- **Filtering writes back.** A rejected character is removed from the element too, or it and
+  the drawn field would disagree about what the value is.
+- **Numeric fields are `type="text"` with an `inputMode` hint**, not `type="number"`: a
+  number input will hold `"12e5"` and report an empty value for it.
+- **The field clips its own drawing**, so it reports `_drawOverflow() === 0` and keeps
+  §6.1's partial repaint — which matters here more than anywhere, since a blinking caret
+  repaints twice a second for as long as the field has focus.
+
+Three small prerequisites, patched first: `Selectable._onFocusGained` / `_onFocusLost`
+(the EventSystem had no focus notification at all), `Selectable._onControlUpdate` (per-frame
+work for controls, driven by the existing `_updateAll` rather than a new loop driver), and
+`Selectable._consumesKeyboard` — without which the EventSystem's own Space and arrows would
+fight the typing. Tab and Escape are deliberately still taken, since they are how the user
+gets back out.
 
 ### 5.4 Accessibility surface — **P3, M**
 
@@ -715,7 +757,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~6.4~~ | ~~`WorldSpace` render mode (projected)~~ | **done** | L | 4.4 |
 | 6.5 | Compressed-texture sprite support | P2 | L | 2.6 |
 | 6.6 | Serializable components (engine-wide) | P2 | M | — |
-| 5.0i | `InputField` | P3 | L | 5.1, 5.3 |
+| ~~5.0i~~ | ~~`InputField`~~ (hidden DOM `<input>`) | **done** | L | 5.1, 5.3 |
 | 5.0j | UI tween helpers | P3 | S | 4.4 |
 | 5.4 | Accessibility / ARIA mirror | P3 | M | 5.3 |
 | 6.3b | Rich text | P3 | L | 6.3a |

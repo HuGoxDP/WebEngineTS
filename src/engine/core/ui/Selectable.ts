@@ -42,14 +42,17 @@ export abstract class Selectable extends UIBehaviour {
 
     /**
      * @internal
-     * Advances every control's transition. Called from Application._loop after
-     * the input pass has settled the states it reads.
+     * Advances every control's transition and per-frame work. Called from
+     * Application._loop after the input pass has settled the states it reads.
      */
     public static _updateAll(): void {
         const all = Selectable._instances;
+        const dt = Time.deltaTime;
         for (let i = 0; i < all.length; i++) {
             const c = all[i];
-            if (c.isActiveAndEnabled) c._applyTransition(Time.deltaTime);
+            if (!c.isActiveAndEnabled) continue;
+            c._applyTransition(dt);
+            c._onControlUpdate(dt);
         }
     }
 
@@ -248,6 +251,33 @@ export abstract class Selectable extends UIBehaviour {
     public _submit(): void {
         if (this.isInteractable()) this.onSubmit.invoke(undefined);
     }
+
+    /**
+     * @internal
+     * Whether this control needs the keys navigation would otherwise take.
+     *
+     * A text field types with the arrows, Enter and Space, so the EventSystem
+     * stands aside while one holds focus — all but Tab and Escape, which are
+     * how the user gets back out.
+     */
+    public get _consumesKeyboard(): boolean {
+        return false;
+    }
+
+    /** @internal Called by the EventSystem when this control gains focus. */
+    public _onFocusGained(): void {}
+
+    /** @internal Called by the EventSystem when this control loses focus. */
+    public _onFocusLost(): void {}
+
+    /**
+     * @internal
+     * Per-frame work for controls that need it, driven by {@link _updateAll}
+     * alongside the transitions. Empty by default.
+     *
+     * @param dt - seconds since the last frame.
+     */
+    public _onControlUpdate(dt: number): void {}
 
     private static readonly _dirScratch: Vector2 = new Vector2();
     private static readonly _rectScratch: Rect = new Rect();

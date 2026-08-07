@@ -50,6 +50,7 @@ import { Camera } from "../src/engine/core/components/Camera";
 import { Vector3 } from "../src/engine/core/math/Vector3";
 import { TintCache } from "../src/engine/core/ui/TintCache";
 import { Gamepad, GamepadButton } from "../src/engine/core/input/Gamepad";
+import { InputField, InputFieldContentType } from "../src/engine/core/ui/InputField";
 import { GameObject } from "../src/engine/core/GameObject";
 import { Color } from "../src/engine/core/math/Color";
 
@@ -6001,6 +6002,421 @@ describe("Keyboard navigation", () => {
 
         expect(a.navigate(NavigationDirection.Right)).toBe(true);
         expect(a.navigate(NavigationDirection.Left)).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// InputField
+//
+// Typing goes through a real hidden <input>, so these tests stand one in for it
+// and drive its events the way a browser would.
+// ---------------------------------------------------------------------------
+
+describe("InputField", () => {
+    let element: any;
+
+    class FakeInput {
+        public value = "";
+        public type = "text";
+        public inputMode = "";
+        public readOnly = false;
+        public autocomplete = "";
+        public spellcheck = true;
+        public selectionStart: number | null = 0;
+        public selectionEnd: number | null = 0;
+        public style: Record<string, string> = {};
+        public parentElement: any = null;
+        public focused = false;
+        public readonly listeners = new Map<string, ((e: any) => void)[]>();
+
+        public addEventListener(kind: string, fn: (e: any) => void): void {
+            const list = this.listeners.get(kind) ?? [];
+            list.push(fn);
+            this.listeners.set(kind, list);
+        }
+
+        public removeEventListener(kind: string, fn: (e: any) => void): void {
+            const list = this.listeners.get(kind) ?? [];
+            const i = list.indexOf(fn);
+            if (i >= 0) list.splice(i, 1);
+        }
+
+        public setSelectionRange(from: number, to: number): void {
+            this.selectionStart = from;
+            this.selectionEnd = to;
+        }
+
+        public focus(): void { this.focused = true; }
+        public blur(): void { this.focused = false; }
+
+        /** Types `value`, exactly as the browser would report it. */
+        public emitInput(value: string, caret?: number): void {
+            this.value = value;
+            const at = caret ?? value.length;
+            this.selectionStart = at;
+            this.selectionEnd = at;
+            for (const fn of this.listeners.get("input") ?? []) fn({});
+        }
+
+        public emitKeyDown(key: string): any {
+            const e = { key, prevented: false, preventDefault(): void { this.prevented = true; } };
+            for (const fn of this.listeners.get("keydown") ?? []) fn(e);
+            return e;
+        }
+    }
+
+    function makeField(): InputField {
+        const field = new GameObject("Field").addComponent(InputField);
+        const rt = field.rectTransform;
+        rt.anchorMin.set(0, 0);
+        rt.anchorMax.set(0, 0);
+        rt.pivot.set(0, 0);
+        rt.anchoredPosition.set(0, 0);
+        rt.sizeDelta.set(200, 40);
+        return field;
+    }
+
+    beforeEach(() => {
+        Canvas._reset();
+        EventSystem._reset();
+        Selectable._reset();
+        element = null;
+
+        (globalThis as unknown as { document: unknown }).document = {
+            createElement: () => { element = new FakeInput(); return element; },
+            body: {
+                appendChild: (el: any) => { el.parentElement = { removeChild: (c: any) => { c.parentElement = null; } }; },
+            },
+        };
+        UIText._setMeasureContext(makeContext().ctx);
+    });
+
+    afterEach(() => {
+        delete (globalThis as unknown as { document?: unknown }).document;
+        UIText._setMeasureContext(undefined);
+        vi.restoreAllMocks();
+        EventSystem._reset();
+        Selectable._reset();
+        Canvas._reset();
+    });
+
+    test("focusing the field starts an edit and focuses the hidden input", () => {
+        const field = makeField();
+
+        field.activate();
+
+        expect(field.isEditing).toBe(true);
+        expect(element).not.toBeNull();
+        expect(element.focused).toBe(true);
+    });
+
+    test("typing updates the value and raises onValueChanged", () => {
+        const field = makeField();
+        const seen: string[] = [];
+        field.onValueChanged.addListener(v => seen.push(v));
+        field.activate();
+
+        element.emitInput("hello");
+
+        expect(field.text).toBe("hello");
+        expect(seen).toEqual(["hello"]);
+    });
+
+    test("the caret follows the hidden input's selection", () => {
+        const field = makeField();
+        field.activate();
+
+        element.emitInput("hello", 2);
+
+        expect(field.caretPosition).toBe(2);
+        expect(field.selectionAnchorPosition).toBe(2);
+    });
+
+    test("a character limit truncates and is pushed back to the element", () => {
+        const field = makeField();
+        field.characterLimit = 3;
+        field.activate();
+
+        element.emitInput("abcdef");
+
+        expect(field.text).toBe("abc");
+        expect(element.value).toBe("abc");
+    });
+
+    test("an integer field rejects letters as they are typed", () => {
+        const field = makeField();
+        field.contentType = InputFieldContentType.IntegerNumber;
+        field.activate();
+
+        element.emitInput("12a3");
+
+        expect(field.text).toBe("123");
+        // The element is corrected too, or it and the drawn field would disagree.
+        expect(element.value).toBe("123");
+    });
+
+    test("a decimal field keeps one point and normalizes a comma", () => {
+        const field = makeField();
+        field.contentType = InputFieldContentType.DecimalNumber;
+        field.activate();
+
+        element.emitInput("-1,5.2");
+
+        expect(field.text).toBe("-1.52");
+    });
+
+    test("a leading sign is kept but a later one is not", () => {
+        const field = makeField();
+        field.contentType = InputFieldContentType.IntegerNumber;
+        field.activate();
+
+        element.emitInput("-12-3");
+
+        expect(field.text).toBe("-123");
+    });
+
+    test("assigning text filters it the same way typing does", () => {
+        const field = makeField();
+        field.contentType = InputFieldContentType.IntegerNumber;
+
+        field.text = "4a2";
+
+        expect(field.text).toBe("42");
+    });
+
+    test("changing contentType re-filters what is already there", () => {
+        const field = makeField();
+        field.text = "abc123";
+
+        field.contentType = InputFieldContentType.IntegerNumber;
+
+        expect(field.text).toBe("123");
+    });
+
+    test("Enter commits: onSubmit, onEndEdit, and the edit is over", () => {
+        const field = makeField();
+        let submits = 0;
+        const ended: string[] = [];
+        field.onSubmit.addListener(() => { submits++; });
+        field.onEndEdit.addListener(v => ended.push(v));
+        field.activate();
+        element.emitInput("done");
+
+        const e = element.emitKeyDown("Enter");
+
+        expect(e.prevented).toBe(true);
+        expect(submits).toBe(1);
+        expect(ended).toEqual(["done"]);
+        expect(field.isEditing).toBe(false);
+    });
+
+    test("losing focus ends the edit and reports the final value", () => {
+        const field = makeField();
+        const ended: string[] = [];
+        field.onEndEdit.addListener(v => ended.push(v));
+        field.activate();
+        element.emitInput("typed");
+
+        EventSystem._setSelected(null);
+
+        expect(field.isEditing).toBe(false);
+        expect(ended).toEqual(["typed"]);
+    });
+
+    test("deactivate ends the edit and detaches the element", () => {
+        const field = makeField();
+        field.activate();
+        const el = element;
+
+        field.deactivate();
+
+        expect(field.isEditing).toBe(false);
+        expect(el.focused).toBe(false);
+        expect(el.parentElement).toBeNull();
+    });
+
+    test("focus moving to another field ends the first edit", () => {
+        const a = makeField();
+        const b = makeField();
+        a.activate();
+        const first = element;
+        expect(a.isEditing).toBe(true);
+
+        b.activate();
+
+        expect(a.isEditing).toBe(false);
+        expect(b.isEditing).toBe(true);
+        expect(first.parentElement).toBeNull();
+    });
+
+    test("a non-interactable field cannot be activated", () => {
+        const field = makeField();
+        field.interactable = false;
+
+        field.activate();
+
+        expect(field.isEditing).toBe(false);
+    });
+
+    test("a disabled field ends its edit rather than staying live", () => {
+        const field = makeField();
+        field.activate();
+
+        field.enabled = false;
+
+        expect(field.isEditing).toBe(false);
+    });
+
+    test("an editing field takes the keys navigation would use", () => {
+        const field = makeField();
+        expect(field._consumesKeyboard).toBe(false);
+
+        field.activate();
+
+        expect(field._consumesKeyboard).toBe(true);
+    });
+
+    test("selectAll spans the whole value", () => {
+        const field = makeField();
+        field.text = "abcd";
+        field.activate();
+
+        field.selectAll();
+
+        expect(field.selectedText).toBe("abcd");
+    });
+
+    test("caretPosition is clamped to the value", () => {
+        const field = makeField();
+        field.text = "abc";
+
+        field.caretPosition = 99;
+        expect(field.caretPosition).toBe(3);
+
+        field.caretPosition = -5;
+        expect(field.caretPosition).toBe(0);
+    });
+
+    test("a password field draws bullets, never the value", () => {
+        const field = makeField();
+        field.contentType = InputFieldContentType.Password;
+        field.text = "secret";
+
+        const mock = makeContext();
+        field._draw(mock.ctx, field.rectTransform._resolvedLocalRect);
+
+        expect(mock.texts.join("")).not.toContain("secret");
+        expect(mock.texts.some(t => t.includes("•"))).toBe(true);
+    });
+
+    test("the placeholder shows only while empty and unfocused", () => {
+        const field = makeField();
+        field.placeholder = "Sample mass";
+
+        const empty = makeContext();
+        field._draw(empty.ctx, field.rectTransform._resolvedLocalRect);
+        expect(empty.texts).toContain("Sample mass");
+
+        field.text = "5";
+        const filled = makeContext();
+        field._draw(filled.ctx, field.rectTransform._resolvedLocalRect);
+        expect(filled.texts).not.toContain("Sample mass");
+    });
+
+    test("the caret blinks, so the visual hash has to change over time", () => {
+        const field = makeField();
+        field.caretBlinkRate = 2;
+        field.activate();
+
+        const on = field._visualHash();
+        field._onControlUpdate(0.3);
+        const off = field._visualHash();
+
+        expect(off).not.toBe(on);
+    });
+
+    test("a blink rate of zero keeps the caret solid", () => {
+        const field = makeField();
+        field.caretBlinkRate = 0;
+        field.activate();
+
+        const before = field._visualHash();
+        field._onControlUpdate(5);
+
+        expect(field._visualHash()).toBe(before);
+    });
+
+    test("the field clips its own drawing, so it stays bounded for partial repaint", () => {
+        const field = makeField();
+        field.text = "a very long value that runs well past the box";
+
+        expect(field._drawOverflow()).toBe(0);
+
+        const mock = makeContext();
+        field._draw(mock.ctx, field.rectTransform._resolvedLocalRect);
+        expect(mock.ops).toContain("clip");
+    });
+
+    test("clicking places the caret at the nearest character boundary", () => {
+        const field = makeField();
+        field.text = "abcdef";
+        field.activate();
+
+        // The stub measures 10 units per character, and the field pads by 8.
+        const data = new PointerEventData();
+        data.position.set(8 + 25, 10);
+        field.onPointerDown.invoke(data);
+
+        expect(field.caretPosition).toBe(3);
+    });
+
+    test("dragging extends the selection from where the press landed", () => {
+        const field = makeField();
+        field.text = "abcdef";
+        field.activate();
+
+        const down = new PointerEventData();
+        down.position.set(8, 10);
+        field.onPointerDown.invoke(down);
+
+        const move = new PointerEventData();
+        move.position.set(8 + 40, 10);
+        field.onDrag.invoke(move);
+
+        expect(field.selectedText).toBe("abcd");
+    });
+
+    test("a read-only field still shows its value and marks the element read-only", () => {
+        const field = makeField();
+        field.readOnly = true;
+        field.text = "fixed";
+
+        field.activate();
+
+        expect(field.text).toBe("fixed");
+        expect(element.readOnly).toBe(true);
+    });
+
+    test("the hidden element type follows the content type", () => {
+        const field = makeField();
+        field.contentType = InputFieldContentType.Password;
+        field.activate();
+        expect(element.type).toBe("password");
+
+        field.deactivate();
+        field.contentType = InputFieldContentType.EmailAddress;
+        field.activate();
+        expect(element.type).toBe("email");
+    });
+
+    test("a numeric field asks for a numeric keyboard without using type=number", () => {
+        const field = makeField();
+        field.contentType = InputFieldContentType.DecimalNumber;
+
+        field.activate();
+
+        expect(element.type).toBe("text");
+        expect(element.inputMode).toBe("decimal");
     });
 });
 

@@ -214,7 +214,15 @@ export class EventSystem {
 
     /** @internal Moves focus. Called by Selectable.select(). */
     public static _setSelected(control: Selectable | null): void {
+        const previous = EventSystem._selected;
+        if (previous === control) return;
+
+        // Assigned before the callbacks, so a handler that moves focus again
+        // (an input field committing its value, say) is not undone by this call
+        // finishing afterwards.
         EventSystem._selected = control;
+        previous?._onFocusLost();
+        control?._onFocusGained();
     }
 
     /** @internal Every registered control, for the navigation search. */
@@ -382,15 +390,19 @@ export class EventSystem {
 
         if (!selected) return;
 
+        if (Input.getKeyDown(KeyCode.Escape)) {
+            EventSystem._setSelected(null);
+            return;
+        }
+
+        // A text field types with these; Tab and Escape above are what let the
+        // user leave it, so they are never taken away.
+        if (selected._consumesKeyboard) return;
+
         if (Input.getKeyDown(KeyCode.Enter)
             || Input.getKeyDown(KeyCode.NumpadEnter)
             || Input.getKeyDown(KeyCode.Space)) {
             selected._submit();
-            return;
-        }
-
-        if (Input.getKeyDown(KeyCode.Escape)) {
-            EventSystem._setSelected(null);
             return;
         }
 

@@ -279,6 +279,7 @@ export { RectMask2D, MaskPadding } from "./core/ui/RectMask2D";
 export { ScrollRect, ScrollMovementType } from "./core/ui/ScrollRect";
 export { Scrollbar, ScrollbarDirection } from "./core/ui/Scrollbar";
 export { Dropdown } from "./core/ui/Dropdown";
+export { InputField, InputFieldContentType } from "./core/ui/InputField";
 export { EventSystem } from "./core/ui/EventSystem";
 export { UIEvent } from "./core/ui/UIEvent";
 export { PointerEventData } from "./core/ui/PointerEventData";
@@ -466,6 +467,7 @@ import { RectMask2D, MaskPadding } from "./core/ui/RectMask2D";
 import { ScrollRect, ScrollMovementType } from "./core/ui/ScrollRect";
 import { Scrollbar, ScrollbarDirection } from "./core/ui/Scrollbar";
 import { Dropdown } from "./core/ui/Dropdown";
+import { InputField, InputFieldContentType } from "./core/ui/InputField";
 import { EventSystem } from "./core/ui/EventSystem";
 import { UIEvent } from "./core/ui/UIEvent";
 import { PointerEventData } from "./core/ui/PointerEventData";
@@ -588,6 +590,7 @@ const WebEngineTS = {
     AspectRatioFitter, AspectMode,
     CanvasGroup, RectMask2D, MaskPadding, ScrollRect, ScrollMovementType,
     Scrollbar, ScrollbarDirection, Dropdown,
+    InputField, InputFieldContentType,
 
     // Scenario
     Scenario, ScenarioBehaviour, ScenarioAssets,
