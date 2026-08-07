@@ -55,11 +55,97 @@ export function Serializable(opts: SerializableOptions = {}) {
             typeName,
             fields: [...fields],
             category: opts.category,
+            // @ExecutionOrder may have run first (decorators apply bottom-up),
+            // so an order already declared is carried into the metadata.
+            executionOrder: _executionOrder.get(target),
         };
         _classMeta.set(target, meta);
         TypeRegistry.register(typeName, target, meta);
         return target;
     };
+}
+
+// ==================== EXECUTION ORDER ====================
+
+/** @internal Per-constructor update order. Absent means the default, `0`. */
+const _executionOrder: WeakMap<AnyConstructor, number> = new WeakMap();
+
+/**
+ * Distinct orders any class has declared, ascending, always including `0`.
+ *
+ * @remarks
+ * The update loop walks the hierarchy once per entry. It stays a single-element
+ * array until a scenario actually declares an order, which is what keeps the
+ * default path free of any per-component ordering work.
+ */
+let _passes: number[] = [0];
+
+/**
+ * Sets when this component's `update` / `fixedUpdate` / `lateUpdate` run
+ * relative to other components.
+ *
+ * @remarks
+ * Equivalent to Unity's `[DefaultExecutionOrder]`. Lower values run earlier;
+ * everything undecorated sits at `0`, and negative values run before it. The
+ * order is **global**, not per-GameObject: every script at `-100` in the scene
+ * updates before every script at `0`, wherever they sit in the hierarchy.
+ *
+ * Within one order, components keep hierarchy order — parents before children,
+ * siblings in child-index order — which is what the engine did before any
+ * ordering existed, so adding this decorator to one class cannot reshuffle the
+ * rest.
+ *
+ * ```ts
+ * @ExecutionOrder(-100)          // sample input before anything reads it
+ * class InputAggregator extends ScriptableBehaviour { ... }
+ * ```
+ *
+ * @param order - relative order; lower runs first.
+ */
+export function ExecutionOrder(order: number) {
+    return function <T extends AnyConstructor>(target: T): T {
+        const value = Number.isFinite(order) ? Math.trunc(order) : 0;
+        _executionOrder.set(target, value);
+
+        if (!_passes.includes(value)) {
+            _passes.push(value);
+            _passes.sort((a, b) => a - b);
+        }
+
+        const meta = _classMeta.get(target);
+        if (meta) meta.executionOrder = value;
+        return target;
+    };
+}
+
+/**
+ * The update order of an instance's class. `0` unless {@link ExecutionOrder}
+ * was applied to it or to a base class.
+ *
+ * @param instance - the component to ask about.
+ */
+export function getExecutionOrder(instance: object): number {
+    let ctor = instance?.constructor as AnyConstructor | undefined;
+    while (ctor && ctor !== Object) {
+        const order = _executionOrder.get(ctor);
+        if (order !== undefined) return order;
+        ctor = Object.getPrototypeOf(ctor) as AnyConstructor | undefined;
+    }
+    return 0;
+}
+
+/**
+ * @internal
+ * The orders the update loop has to walk, ascending. One entry — the common
+ * case — means no ordering work is needed at all.
+ */
+export function _executionOrderPasses(): readonly number[] {
+    return _passes;
+}
+
+/** @internal Drops every declared order. For tests. */
+export function _resetExecutionOrders(): void {
+    _passes = [0];
 }
 
 // ==================== FIELD DECORATORS ====================

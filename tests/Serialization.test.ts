@@ -25,7 +25,10 @@ import { Rigidbody, RigidbodyConstraints } from "../src/engine/physics/Rigidbody
 import { BoxCollider } from "../src/engine/physics/BoxCollider";
 import { SphereCollider } from "../src/engine/physics/SphereCollider";
 import { CapsuleCollider } from "../src/engine/physics/CapsuleCollider";
-import { Serializable, SerializedField } from "../src/engine/core/reflection/Decorators";
+import {
+    Serializable, SerializedField, ExecutionOrder, getExecutionOrder, getClassMeta,
+} from "../src/engine/core/reflection/Decorators";
+import { ScriptableBehaviour } from "../src/engine/core/ScriptableBehaviour";
 import { FieldType } from "../src/engine/core/reflection/Types";
 import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
@@ -862,5 +865,109 @@ describe("Built-in components — physics", () => {
 
         expect(back.getComponent(Rigidbody)!.mass).toBeCloseTo(3);
         expect(back.getComponent(BoxCollider)).not.toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// @ExecutionOrder (unity-parity Stage 1, item 4)
+// ---------------------------------------------------------------------------
+
+describe("ExecutionOrder", () => {
+    let log: string[];
+
+    class Recorder extends ScriptableBehaviour {
+        public tag: string = "?";
+        public override update(): void { log.push(this.tag); }
+    }
+
+    @ExecutionOrder(-100)
+    class EarlyScript extends Recorder {}
+
+    @ExecutionOrder(100)
+    class LateScript extends Recorder {}
+
+    class DefaultScript extends Recorder {}
+
+    /** A root GameObject carrying one recorder, tagged for the log. */
+    function make<T extends Recorder>(
+        ctor: new (go: GameObject) => T,
+        tag: string,
+        parent?: GameObject,
+    ): GameObject {
+        const go = new GameObject(tag);
+        if (parent) go.transform.parent = parent.transform;
+        go.addComponent(ctor).tag = tag;
+        return go;
+    }
+
+    beforeEach(() => {
+        destroyScene();
+        log = [];
+    });
+
+    test("a lower order runs before a higher one, whatever the hierarchy says", () => {
+        // Declared last-first in the tree, so hierarchy order alone would
+        // produce the opposite result.
+        make(LateScript, "late");
+        make(DefaultScript, "default");
+        make(EarlyScript, "early");
+
+        SceneManager.activeScene._update();
+
+        expect(log).toEqual(["early", "default", "late"]);
+    });
+
+    test("within one order, hierarchy order still decides", () => {
+        const a = make(DefaultScript, "a");
+        make(DefaultScript, "a.child", a);
+        make(DefaultScript, "b");
+
+        SceneManager.activeScene._update();
+
+        expect(log).toEqual(["a", "a.child", "b"]);
+    });
+
+    test("ordering applies to fixedUpdate and lateUpdate too", () => {
+        class LateRecorder extends ScriptableBehaviour {
+            public tag: string = "?";
+            public override lateUpdate(): void { log.push(this.tag); }
+        }
+        @ExecutionOrder(-50)
+        class EarlyLate extends LateRecorder {}
+
+        const b = new GameObject("b");
+        b.addComponent(LateRecorder).tag = "normal";
+        const a = new GameObject("a");
+        a.addComponent(EarlyLate).tag = "early";
+
+        // lateUpdate is gated on start() having run, which the update pass is
+        // what triggers — same as Unity, and why this is not just one call.
+        SceneManager.activeScene._update();
+        log.length = 0;
+        SceneManager.activeScene._lateUpdate();
+
+        expect(log).toEqual(["early", "normal"]);
+    });
+
+    test("an undecorated script sits at zero", () => {
+        const go = new GameObject("Plain");
+        const script = go.addComponent(DefaultScript);
+
+        expect(getExecutionOrder(script)).toBe(0);
+    });
+
+    test("a subclass inherits its base class's order", () => {
+        class DerivedEarly extends EarlyScript {}
+        const go = new GameObject("Derived");
+
+        expect(getExecutionOrder(go.addComponent(DerivedEarly))).toBe(-100);
+    });
+
+    test("the order reaches the class metadata for an inspector to read", () => {
+        @ExecutionOrder(25)
+        @Serializable({ typeName: "Test.Ordered" })
+        class OrderedScript extends ScriptableBehaviour {}
+
+        expect(getClassMeta(OrderedScript as any)!.executionOrder).toBe(25);
     });
 });

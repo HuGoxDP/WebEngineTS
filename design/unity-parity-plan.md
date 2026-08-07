@@ -258,9 +258,30 @@ because the setter is the component's own definition of what storing means. Only
 fields are written in place. That covers `Camera`'s defensive clone and
 `AspectRatioFitter`'s clamp under one rule, and retires the two-reads heuristic.
 
-Remaining for step 1: renderers and `LODGroup`, the UI *graphics and controls* (`UIImage`,
-`UIText`, `Button`, …) — all of which are defined by an asset or component reference and
-want Stage 2 first — then `@ExecutionOrder`.
+**Progress — `@ExecutionOrder` landed 2026-08-05 (Stage 1 item 4).** Global, Unity's
+`[DefaultExecutionOrder]` semantics: lower runs first, everything undecorated sits at `0`,
+and within one order the hierarchy still decides — so adding the decorator to one class
+cannot reshuffle anything else.
+
+Implemented as **passes over the existing hierarchy walk**, not as a sorted global registry.
+A registry would have replaced hierarchy order with registration order for the equal-order
+case, silently changing the order every existing scenario already runs in. Instead the loop
+walks the tree once per *distinct declared order*, and that list stays `[0]` until a scenario
+actually declares one — so the default path does no ordering work at all, not even a lookup
+per component.
+
+**Stage 1 is now done except for the components that need Stage 2.** Serializing:
+`Camera`, all four lights, `RectTransform`, `CanvasGroup`, `LayoutElement`, the three layout
+groups, `ContentSizeFitter`, `AspectRatioFitter`, `RectMask2D`, `Rigidbody`, and the three
+colliders. Still waiting on asset identity: renderers (`mesh`, `materials`), `LODGroup`
+(renderer references), and the UI graphics and controls (`sprite`).
+
+**Round-trip tests are the regression net Stage 1 asked for** — 53 cases in
+`tests/Serialization.test.ts`. Worth recording what they caught, since the plan's own
+argument for doing Stage 1 first was that it would tell you whether the rest is worth
+walking: **three separate defects in the value-assignment rule**, none of them findable by
+reading the code, each found by decorating one more real component. The answer that gives is
+encouraging — the tests were cheap to write and they work.
 
 1. Apply `@Serializable` / `@SerializedField` to **every** built-in component — `Transform`,
    `Camera`, lights, renderers, colliders, `Rigidbody`, the UI components, `LODGroup`.

@@ -69,6 +69,11 @@ export interface ClassMeta {
     fields: FieldMeta[];
     /** Inspector category label (e.g., "Physics", "Gameplay"). */
     category?: string;
+    /**
+     * Update-loop order for this class, from {@link ExecutionOrder}. Lower runs
+     * first; `0` when unset, which is where every undecorated script sits.
+     */
+    executionOrder?: number;
 }
 
 /** Options accepted by `@Serializable`. */

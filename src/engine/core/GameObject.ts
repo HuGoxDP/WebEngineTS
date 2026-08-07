@@ -7,6 +7,7 @@ import { Component } from "./Component.ts";
 import { Behaviour } from "./Behaviour.ts";
 import { ScriptableBehaviour } from "./ScriptableBehaviour.ts";
 import { EngineSettings } from "./EngineSettings.ts";
+import { getExecutionOrder } from "./reflection/Decorators.ts";
 import type { Scene } from "./Scene.ts";
 import { Bounds } from "./math/Bounds.ts";
 import { Vector3 } from "./math/Vector3.ts";
@@ -539,18 +540,20 @@ export class GameObject extends EngineObject {
      * Runs the Update loop on this GameObject and its children.
      * Called by {@link Scene._update} for root objects.
      */
-    public _systemUpdate(): void {
+    public _systemUpdate(order: number | null = null): void {
         if (!this._activeSelf) return;
 
         for (const component of this._components) {
-            if (component instanceof ScriptableBehaviour) {
-                component._systemUpdate();
-            }
+            if (!(component instanceof ScriptableBehaviour)) continue;
+            // `null` means "every order in one pass" — the default, and the only
+            // path taken until a scenario declares an @ExecutionOrder.
+            if (order !== null && getExecutionOrder(component) !== order) continue;
+            component._systemUpdate();
         }
 
         const count = this.transform.childCount;
         for (let i = 0; i < count; i++) {
-            this.transform.getChild(i).gameObject._systemUpdate();
+            this.transform.getChild(i).gameObject._systemUpdate(order);
         }
     }
 
@@ -558,18 +561,20 @@ export class GameObject extends EngineObject {
      * @internal
      * Runs the FixedUpdate loop on this GameObject and its children.
      */
-    public _systemFixedUpdate(): void {
+    public _systemFixedUpdate(order: number | null = null): void {
         if (!this._activeSelf) return;
 
         for (const component of this._components) {
-            if (component instanceof ScriptableBehaviour) {
-                component._systemFixedUpdate();
-            }
+            if (!(component instanceof ScriptableBehaviour)) continue;
+            // `null` means "every order in one pass" — the default, and the only
+            // path taken until a scenario declares an @ExecutionOrder.
+            if (order !== null && getExecutionOrder(component) !== order) continue;
+            component._systemFixedUpdate();
         }
 
         const count = this.transform.childCount;
         for (let i = 0; i < count; i++) {
-            this.transform.getChild(i).gameObject._systemFixedUpdate();
+            this.transform.getChild(i).gameObject._systemFixedUpdate(order);
         }
     }
 
@@ -577,18 +582,20 @@ export class GameObject extends EngineObject {
      * @internal
      * Runs the LateUpdate loop on this GameObject and its children.
      */
-    public _systemLateUpdate(): void {
+    public _systemLateUpdate(order: number | null = null): void {
         if (!this._activeSelf) return;
 
         for (const component of this._components) {
-            if (component instanceof ScriptableBehaviour) {
-                component._systemLateUpdate();
-            }
+            if (!(component instanceof ScriptableBehaviour)) continue;
+            // `null` means "every order in one pass" — the default, and the only
+            // path taken until a scenario declares an @ExecutionOrder.
+            if (order !== null && getExecutionOrder(component) !== order) continue;
+            component._systemLateUpdate();
         }
 
         const count = this.transform.childCount;
         for (let i = 0; i < count; i++) {
-            this.transform.getChild(i).gameObject._systemLateUpdate();
+            this.transform.getChild(i).gameObject._systemLateUpdate(order);
         }
     }
 

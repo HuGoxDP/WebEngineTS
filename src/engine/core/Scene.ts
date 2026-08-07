@@ -1,6 +1,7 @@
 // path: src/engine/core/Scene.ts
 
 import * as THREE from "three";
+import { _executionOrderPasses } from "./reflection/Decorators.ts";
 import type { GameObject } from "./GameObject.ts";
 import type { Component } from "./Component.ts";
 
@@ -289,9 +290,25 @@ export class Scene {
      * Called by Application at a fixed timestep.
      */
     public _fixedUpdate(): void {
-        for (let i = 0; i < this._rootGameObjects.length; i++) {
-            const go = this._rootGameObjects[i];
-            if (go.activeSelf) go._systemFixedUpdate();
+        const passes = _executionOrderPasses();
+
+        // One pass is the default: no class has declared an @ExecutionOrder, so
+        // every component belongs to the same group and none has to be checked.
+        if (passes.length === 1) {
+            for (let i = 0; i < this._rootGameObjects.length; i++) {
+                const go = this._rootGameObjects[i];
+                if (go.activeSelf) go._systemFixedUpdate(null);
+            }
+            return;
+        }
+
+        // Otherwise the hierarchy is walked once per order, ascending. Within an
+        // order the walk is unchanged, so hierarchy order still decides.
+        for (let p = 0; p < passes.length; p++) {
+            for (let i = 0; i < this._rootGameObjects.length; i++) {
+                const go = this._rootGameObjects[i];
+                if (go.activeSelf) go._systemFixedUpdate(passes[p]);
+            }
         }
     }
 
@@ -301,9 +318,25 @@ export class Scene {
      * Called by Application once per frame.
      */
     public _update(): void {
-        for (let i = 0; i < this._rootGameObjects.length; i++) {
-            const go = this._rootGameObjects[i];
-            if (go.activeSelf) go._systemUpdate();
+        const passes = _executionOrderPasses();
+
+        // One pass is the default: no class has declared an @ExecutionOrder, so
+        // every component belongs to the same group and none has to be checked.
+        if (passes.length === 1) {
+            for (let i = 0; i < this._rootGameObjects.length; i++) {
+                const go = this._rootGameObjects[i];
+                if (go.activeSelf) go._systemUpdate(null);
+            }
+            return;
+        }
+
+        // Otherwise the hierarchy is walked once per order, ascending. Within an
+        // order the walk is unchanged, so hierarchy order still decides.
+        for (let p = 0; p < passes.length; p++) {
+            for (let i = 0; i < this._rootGameObjects.length; i++) {
+                const go = this._rootGameObjects[i];
+                if (go.activeSelf) go._systemUpdate(passes[p]);
+            }
         }
     }
 
@@ -313,9 +346,25 @@ export class Scene {
      * Called by Application once per frame, after Update.
      */
     public _lateUpdate(): void {
-        for (let i = 0; i < this._rootGameObjects.length; i++) {
-            const go = this._rootGameObjects[i];
-            if (go.activeSelf) go._systemLateUpdate();
+        const passes = _executionOrderPasses();
+
+        // One pass is the default: no class has declared an @ExecutionOrder, so
+        // every component belongs to the same group and none has to be checked.
+        if (passes.length === 1) {
+            for (let i = 0; i < this._rootGameObjects.length; i++) {
+                const go = this._rootGameObjects[i];
+                if (go.activeSelf) go._systemLateUpdate(null);
+            }
+            return;
+        }
+
+        // Otherwise the hierarchy is walked once per order, ascending. Within an
+        // order the walk is unchanged, so hierarchy order still decides.
+        for (let p = 0; p < passes.length; p++) {
+            for (let i = 0; i < this._rootGameObjects.length; i++) {
+                const go = this._rootGameObjects[i];
+                if (go.activeSelf) go._systemLateUpdate(passes[p]);
+            }
         }
     }
 
