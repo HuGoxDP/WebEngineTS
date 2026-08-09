@@ -547,7 +547,21 @@ unchanged asset costs nothing.
 
 ### Stage 4 — Prefabs and the generated Inspector (**L**)
 
-1. Prefab **instances** with per-instance override diffs (today `Prefab` is a snapshot only).
+1. ~~Prefab **instances** with per-instance override diffs~~ — **done 2026-08-05.**
+   `PrefabDiff.compare` / `.apply` (`serialization/PrefabOverride.ts`) express an instance as
+   *prefab + differences* rather than as a copy, addressed by property path (which GameObject,
+   which component and index, which field). `Prefab.getOverrides`,
+   `instantiateWithOverrides` and `revert` are the live API. A test pins the behaviour that
+   makes the model worth having: edit the prefab, and an instance rebuilt from its overrides
+   picks the change up on untouched fields while keeping its own.
+
+   Two decisions: **structural changes are not overrides** — a child added to an instance is
+   a different shape, not a different value, and Unity treats it separately — and **revert is
+   destroy-and-recreate**, because a field-by-field revert would leave a component the prefab
+   does not have still attached, which is not what reverting means.
+
+   The diff module is pure (two snapshots in, differences out), so the editor can reuse it
+   for "modified" markers without touching live objects.
 2. Nested prefabs and prefab variants.
 3. **Inspector generated from serialization metadata**, with custom-drawer escape hatches.
 4. **Undo** as serialized-state diffs.

@@ -2322,3 +2322,157 @@ describe("SceneSerializer — component references", () => {
         expect(backCanvas.worldCamera).toBe(backCam);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Prefab overrides (unity-parity Stage 4, step 1)
+// ---------------------------------------------------------------------------
+
+describe("Prefab — per-instance overrides", () => {
+    beforeEach(destroyScene);
+
+    /** A prefab with a script and one child, as an authored asset would be. */
+    function makePrefab(): Prefab {
+        const root = new GameObject("Enemy");
+        root.addComponent(TestScript).speed = 5;
+
+        const child = new GameObject("Weapon");
+        child.transform.parent = root.transform;
+        child.addComponent(AnotherScript).value = 1;
+
+        const prefab = Prefab.fromGameObject(root);
+        root.destroy();
+        return prefab;
+    }
+
+    test("an untouched instance has no overrides", () => {
+        const prefab = makePrefab();
+
+        expect(prefab.getOverrides(prefab.instantiate())).toEqual([]);
+    });
+
+    test("a changed field is reported with its property path", () => {
+        const prefab = makePrefab();
+        const instance = prefab.instantiate();
+        instance.getComponent(TestScript)!.speed = 12;
+
+        const overrides = prefab.getOverrides(instance);
+
+        expect(overrides.length).toBe(1);
+        expect(overrides[0].path).toEqual([]);
+        expect(overrides[0].component).toBe("TestScript");
+        expect(overrides[0].field).toBe("speed");
+        expect(overrides[0].value).toBe(12);
+    });
+
+    test("a change on a child carries the child's path", () => {
+        const prefab = makePrefab();
+        const instance = prefab.instantiate();
+        instance.transform.getChild(0).gameObject.getComponent(AnotherScript)!.value = 99;
+
+        const overrides = prefab.getOverrides(instance);
+
+        expect(overrides.length).toBe(1);
+        expect(overrides[0].path).toEqual([0]);
+        expect(overrides[0].value).toBe(99);
+    });
+
+    test("name, active and the transform are overridable too", () => {
+        const prefab = makePrefab();
+        const instance = prefab.instantiate();
+        instance.name = "Boss";
+        instance.setActive(false);
+        instance.transform.localPosition = new Vector3(5, 0, 0);
+
+        const fields = prefab.getOverrides(instance).map(o => o.field);
+
+        expect(fields).toContain("name");
+        expect(fields).toContain("active");
+        expect(fields).toContain("transform.position");
+    });
+
+    test("an instance is rebuilt from the prefab plus its differences", () => {
+        const prefab = makePrefab();
+        const instance = prefab.instantiate();
+        instance.name = "Boss";
+        instance.getComponent(TestScript)!.speed = 12;
+        instance.transform.getChild(0).gameObject.getComponent(AnotherScript)!.value = 99;
+
+        const overrides = prefab.getOverrides(instance);
+        const rebuilt = prefab.instantiateWithOverrides(overrides);
+
+        expect(rebuilt.name).toBe("Boss");
+        expect(rebuilt.getComponent(TestScript)!.speed).toBe(12);
+        expect(rebuilt.transform.getChild(0).gameObject.getComponent(AnotherScript)!.value)
+            .toBe(99);
+    });
+
+    test("an edit to the prefab reaches an instance rebuilt from it", () => {
+        const prefab = makePrefab();
+        const instance = prefab.instantiate();
+        instance.getComponent(TestScript)!.speed = 12;
+        const overrides = prefab.getOverrides(instance);
+
+        // The whole point of storing differences rather than a copy: the
+        // untouched field follows the prefab, the overridden one does not.
+        (prefab as any)._snapshot.components[0].fields.label = "elite";
+
+        const rebuilt = prefab.instantiateWithOverrides(overrides);
+
+        expect(rebuilt.getComponent(TestScript)!.label).toBe("elite");
+        expect(rebuilt.getComponent(TestScript)!.speed).toBe(12);
+    });
+
+    test("applying overrides does not modify the prefab", () => {
+        const prefab = makePrefab();
+        const instance = prefab.instantiate();
+        instance.getComponent(TestScript)!.speed = 12;
+
+        prefab.instantiateWithOverrides(prefab.getOverrides(instance));
+
+        expect(prefab.instantiate().getComponent(TestScript)!.speed).toBe(5);
+    });
+
+    test("revert discards the instance's own values", () => {
+        const prefab = makePrefab();
+        const instance = prefab.instantiate();
+        instance.getComponent(TestScript)!.speed = 12;
+
+        const reverted = prefab.revert(instance);
+
+        expect(reverted.getComponent(TestScript)!.speed).toBe(5);
+        expect(prefab.getOverrides(reverted)).toEqual([]);
+    });
+
+    test("revert keeps the instance where it was in the hierarchy", () => {
+        const prefab = makePrefab();
+        const parent = new GameObject("Spawner");
+        const instance = prefab.instantiate();
+        instance.transform.parent = parent.transform;
+
+        const reverted = prefab.revert(instance);
+
+        expect(reverted.transform.parent).toBe(parent.transform);
+    });
+
+    test("a structural change is not reported as an override", () => {
+        const prefab = makePrefab();
+        const instance = prefab.instantiate();
+
+        // An extra child is a different shape, not a different value.
+        const extra = new GameObject("Shield");
+        extra.transform.parent = instance.transform;
+
+        expect(prefab.getOverrides(instance)).toEqual([]);
+    });
+
+    test("a compound value counts as one override, not several", () => {
+        const prefab = makePrefab();
+        const instance = prefab.instantiate();
+        instance.getComponent(TestScript)!.tint = new Color(1, 0, 0, 1);
+
+        const overrides = prefab.getOverrides(instance);
+
+        expect(overrides.length).toBe(1);
+        expect(overrides[0].field).toBe("tint");
+    });
+});

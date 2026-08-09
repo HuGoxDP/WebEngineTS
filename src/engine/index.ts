@@ -78,6 +78,8 @@ export type {
     SerializedAsset,
 } from "./core/serialization/SceneSerializer";
 export { Prefab } from "./core/serialization/Prefab";
+export { PrefabDiff } from "./core/serialization/PrefabOverride";
+export type { PrefabOverride } from "./core/serialization/PrefabOverride";
 
 // =====================
 // POST-PROCESSING
