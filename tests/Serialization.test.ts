@@ -51,6 +51,9 @@ import { InputField, InputFieldContentType } from "../src/engine/core/ui/InputFi
 import { VirtualJoystick } from "../src/engine/core/ui/VirtualJoystick";
 import { ToggleGroup } from "../src/engine/core/ui/ToggleGroup";
 import { SpriteRenderer } from "../src/engine/core/components/SpriteRenderer";
+import {
+    LineRenderer, LineAlignment, LineTextureMode,
+} from "../src/engine/core/components/LineRenderer";
 import { Vector2 } from "../src/engine/core/math/Vector2";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
 
@@ -1690,6 +1693,72 @@ describe("Built-in components — SpriteRenderer", () => {
         const back = roundTrip(go).getComponent(SpriteRenderer)!;
 
         expect(back.sprite).toBe(texture);
+    });
+});
+
+describe("Built-in components — LineRenderer", () => {
+    beforeEach(destroyScene);
+
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("the line's shape round-trips point for point", () => {
+        const go = new GameObject("Orbit");
+        const line = go.addComponent(LineRenderer);
+        line.positions = [
+            new Vector3(0, 0, 0),
+            new Vector3(1, 2, 3),
+            new Vector3(-4, 5, -6),
+        ];
+
+        const back = roundTrip(go).getComponent(LineRenderer)!;
+
+        expect(back.positionCount).toBe(3);
+        expect(back.positions[1].x).toBeCloseTo(1);
+        expect(back.positions[1].y).toBeCloseTo(2);
+        expect(back.positions[2].z).toBeCloseTo(-6);
+    });
+
+    test("its widths, colours and modes round-trip", () => {
+        const go = new GameObject("Orbit");
+        const line = go.addComponent(LineRenderer);
+        line.startWidth = 0.5;
+        line.endWidth = 0.1;
+        line.widthMultiplier = 2;
+        line.startColor = new Color(1, 0, 0, 1);
+        line.endColor = new Color(0, 0, 1, 1);
+        line.useWorldSpace = false;
+        line.loop = true;
+        line.alignment = LineAlignment.TransformZ;
+        line.textureMode = LineTextureMode.Tile;
+        line.numCornerVertices = 4;
+
+        const back = roundTrip(go).getComponent(LineRenderer)!;
+
+        expect(back.startWidth).toBeCloseTo(0.5);
+        expect(back.endWidth).toBeCloseTo(0.1);
+        expect(back.widthMultiplier).toBeCloseTo(2);
+        expect(back.startColor.r).toBeCloseTo(1);
+        expect(back.endColor.b).toBeCloseTo(1);
+        expect(back.useWorldSpace).toBe(false);
+        expect(back.loop).toBe(true);
+        expect(back.alignment).toBe(LineAlignment.TransformZ);
+        expect(back.textureMode).toBe(LineTextureMode.Tile);
+        expect(back.numCornerVertices).toBe(4);
+    });
+
+    test("the positions property copies both ways", () => {
+        const go = new GameObject("Orbit");
+        const line = go.addComponent(LineRenderer);
+        const source = [new Vector3(1, 1, 1)];
+
+        line.positions = source;
+        source[0].set(9, 9, 9);
+        expect(line.positions[0].x).toBeCloseTo(1);
+
+        line.positions[0].set(5, 5, 5);
+        expect(line.positions[0].x).toBeCloseTo(1);
     });
 });
 

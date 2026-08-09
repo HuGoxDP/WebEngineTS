@@ -419,9 +419,15 @@ So a `MeshRenderer` is the one built-in whose defining data the engine currently
 honest way to store. Decorating it would produce a component that reloads without its mesh
 *and* without its material — strictly worse than not claiming to support it.
 
-`LineRenderer` is a smaller, separate case: its positions are private with no bulk accessor,
-so serializing it needs a `positions` property first. That is a public-API change and does
-not belong inside a serialization patch.
+`LineRenderer` **landed 2026-08-05**, and the blocker was smaller than it looked: it already
+had `getPositions()` / `setPositions()`; what it lacked was a *property*, since a method pair
+cannot be a serialized field. A `positions` accessor delegating to those two was enough, and
+it is a better API in TS regardless. The line's shape, widths, colours and modes all
+round-trip.
+
+**With it, every built-in component the engine can express honestly is serializable.** What
+remains is `MeshRenderer` / `MeshFilter` / `LODGroup`, blocked on material and mesh identity
+as described above — a Stage 3 mechanism, not more decoration.
 
 1. **GUIDs.** Every asset gets a stable id, stored in a sidecar (`foo.png.meta`, JSON).
 2. **`AssetDatabase`** — GUID ↔ path ↔ loaded object, with rename/move tolerance.

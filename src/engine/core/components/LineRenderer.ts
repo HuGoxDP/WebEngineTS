@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { Renderer } from "../rendering/Renderer.ts";
 import { Color } from "../math/Color";
 import { Vector3 } from "../math/Vector3";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -71,6 +73,7 @@ export interface CurveKey {
  * line.endColor = Color.blue;
  * ```
  */
+@Serializable({ typeName: "LineRenderer", category: "Rendering" })
 export class LineRenderer extends Renderer {
     /**
      * @internal - НЕ використовувати напряму!
@@ -210,6 +213,7 @@ export class LineRenderer extends Renderer {
     /**
      * Ширина лінії на початку.
      */
+    @SerializedField()
     public get startWidth(): number {
         return this._startWidth;
     }
@@ -222,6 +226,7 @@ export class LineRenderer extends Renderer {
     /**
      * Ширина лінії в кінці.
      */
+    @SerializedField()
     public get endWidth(): number {
         return this._endWidth;
     }
@@ -234,6 +239,7 @@ export class LineRenderer extends Renderer {
     /**
      * Множник ширини (застосовується до всіх значень ширини).
      */
+    @SerializedField()
     public get widthMultiplier(): number {
         return this._widthMultiplier;
     }
@@ -248,6 +254,7 @@ export class LineRenderer extends Renderer {
     /**
      * Колір на початку лінії.
      */
+    @SerializedField({ type: FieldType.Color })
     public get startColor(): Color {
         return this._startColor.clone();
     }
@@ -260,6 +267,7 @@ export class LineRenderer extends Renderer {
     /**
      * Колір в кінці лінії.
      */
+    @SerializedField({ type: FieldType.Color })
     public get endColor(): Color {
         return this._endColor.clone();
     }
@@ -276,6 +284,7 @@ export class LineRenderer extends Renderer {
      * Якщо true - точки в світовому просторі.
      * Якщо false - точки відносно Transform.
      */
+    @SerializedField()
     public get useWorldSpace(): boolean {
         return this._useWorldSpace;
     }
@@ -288,6 +297,7 @@ export class LineRenderer extends Renderer {
     /**
      * Чи замикати лінію (з'єднати останню точку з першою).
      */
+    @SerializedField()
     public get loop(): boolean {
         return this._loop;
     }
@@ -300,6 +310,7 @@ export class LineRenderer extends Renderer {
     /**
      * Режим вирівнювання лінії.
      */
+    @SerializedField({ type: FieldType.Enum })
     public get alignment(): LineAlignment {
         return this._alignment;
     }
@@ -312,6 +323,7 @@ export class LineRenderer extends Renderer {
     /**
      * Режим текстурування.
      */
+    @SerializedField({ type: FieldType.Enum })
     public get textureMode(): LineTextureMode {
         return this._textureMode;
     }
@@ -324,6 +336,7 @@ export class LineRenderer extends Renderer {
     /**
      * Кількість вершин для згладжування кутів.
      */
+    @SerializedField()
     public get numCornerVertices(): number {
         return this._numCornerVertices;
     }
@@ -336,6 +349,7 @@ export class LineRenderer extends Renderer {
     /**
      * Кількість вершин для закінчень лінії.
      */
+    @SerializedField()
     public get numCapVertices(): number {
         return this._numCapVertices;
     }
@@ -375,6 +389,24 @@ export class LineRenderer extends Renderer {
         
         // Оновлюємо лінію одразу
         this.updateLine();
+    }
+
+    /**
+     * Every point of the line, in order.
+     *
+     * @remarks
+     * The property form of {@link getPositions} / {@link setPositions}, and what
+     * serialization reads — a method pair cannot be a serialized field. Both
+     * sides copy, so the returned array can be modified freely without the line
+     * changing behind the caller's back.
+     */
+    @SerializedField({ type: FieldType.Array, elementType: FieldType.Vector3 })
+    public get positions(): Vector3[] {
+        return this.getPositions();
+    }
+
+    public set positions(value: Vector3[]) {
+        this.setPositions(value);
     }
 
     /**
