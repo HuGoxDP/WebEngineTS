@@ -5,6 +5,8 @@ import { UIEvent } from "./UIEvent";
 import { HASH_SEED, cssColor, hashBool, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
 import type { PointerEventData } from "./PointerEventData";
 import type { Rect } from "../math/Rect";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -41,24 +43,31 @@ export enum ScrollbarDirection {
  * Clicking the track jumps one page toward the pointer; dragging the handle
  * tracks it directly.
  */
+@Serializable({ typeName: "Scrollbar", category: "UI" })
 export class Scrollbar extends Selectable {
 
     /** Track color behind the handle. */
+    @SerializedField({ type: FieldType.Color })
     public backgroundColor: Color = new Color(0.16, 0.16, 0.16, 1);
 
     /** Handle color. */
+    @SerializedField({ type: FieldType.Color })
     public handleColor: Color = new Color(0.45, 0.45, 0.45, 1);
 
     /** Handle color while hovered or dragged. */
+    @SerializedField({ type: FieldType.Color })
     public handleHighlightColor: Color = new Color(0.60, 0.60, 0.60, 1);
 
     /** Tint drawn over the control when it is not interactable. */
+    @SerializedField({ type: FieldType.Color })
     public disabledColor: Color = new Color(0.35, 0.35, 0.35, 0.6);
 
     /** Corner radius of track and handle, in canvas units. */
+    @SerializedField()
     public borderRadius: number = 4;
 
     /** Which way the handle travels as {@link value} grows. */
+    @SerializedField({ type: FieldType.Enum })
     public direction: ScrollbarDirection = ScrollbarDirection.TopToBottom;
 
     /**
@@ -66,6 +75,7 @@ export class Scrollbar extends Selectable {
      *
      * @remarks Equivalent to Unity's `Scrollbar.numberOfSteps`.
      */
+    @SerializedField()
     public numberOfSteps: number = 0;
 
     /** Fired whenever {@link value} changes. */
@@ -82,6 +92,7 @@ export class Scrollbar extends Selectable {
     }
 
     /** Position within the range, `0`–`1`. */
+    @SerializedField()
     public get value(): number { return this._value; }
 
     public set value(input: number) {
@@ -109,6 +120,7 @@ export class Scrollbar extends Selectable {
      * `1` means everything is visible and there is nothing to scroll. Feed it
      * `viewportSize / contentSize` to make the handle read as a proportion.
      */
+    @SerializedField()
     public get size(): number { return this._size; }
 
     public set size(value: number) {

@@ -39,6 +39,10 @@ import {
     UIText, TextAlignment, VerticalAlignment, TextOverflow,
 } from "../src/engine/core/ui/UIText";
 import { Sprite } from "../src/engine/core/graphics/Sprite";
+import { Button } from "../src/engine/core/ui/Button";
+import { Toggle } from "../src/engine/core/ui/Toggle";
+import { Slider, SliderDirection } from "../src/engine/core/ui/Slider";
+import { Scrollbar, ScrollbarDirection } from "../src/engine/core/ui/Scrollbar";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
 
 @Serializable()
@@ -1316,5 +1320,134 @@ describe("Built-in components — UI graphics", () => {
         expect(back.bestFit).toBe(true);
         expect(back.bestFitMinSize).toBe(8);
         expect(back.bestFitMaxSize).toBe(36);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Built-in UI controls
+// ---------------------------------------------------------------------------
+
+describe("Built-in components — UI controls", () => {
+    beforeEach(destroyScene);
+
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("a Button round-trips its caption and every state colour", () => {
+        const go = new GameObject("Go");
+        const btn = go.addComponent(Button);
+        btn.text = "Start";
+        btn.fontSize = 20;
+        btn.fontFamily = "Georgia";
+        btn.borderRadius = 9;
+        btn.normalColor = new Color(0.1, 0.1, 0.1, 1);
+        btn.highlightedColor = new Color(0.2, 0.2, 0.2, 1);
+        btn.pressedColor = new Color(0.3, 0.3, 0.3, 1);
+        btn.textColor = new Color(1, 0.5, 0, 1);
+        btn.interactable = false;
+
+        const back = roundTrip(go).getComponent(Button)!;
+
+        expect(back.text).toBe("Start");
+        expect(back.fontSize).toBe(20);
+        expect(back.fontFamily).toBe("Georgia");
+        expect(back.borderRadius).toBe(9);
+        expect(back.normalColor.r).toBeCloseTo(0.1);
+        expect(back.pressedColor.g).toBeCloseTo(0.3);
+        expect(back.textColor.g).toBeCloseTo(0.5);
+        // interactable comes from the Selectable base.
+        expect(back.interactable).toBe(false);
+    });
+
+    test("a Toggle round-trips its state without announcing it as a click", () => {
+        const go = new GameObject("Grid");
+        const toggle = go.addComponent(Toggle);
+        toggle.label = "Show gridlines";
+        toggle.boxSize = 24;
+        toggle.isOn = true;
+
+        let notified = 0;
+        const back = roundTrip(go).getComponent(Toggle)!;
+        back.onValueChanged.addListener(() => { notified++; });
+
+        expect(back.isOn).toBe(true);
+        expect(back.label).toBe("Show gridlines");
+        expect(back.boxSize).toBe(24);
+        // Loading state is not the user toggling it.
+        expect(notified).toBe(0);
+    });
+
+    test("a Slider round-trips its range, value and direction", () => {
+        const go = new GameObject("Mass");
+        const slider = go.addComponent(Slider);
+        slider.minValue = 10;
+        slider.maxValue = 90;
+        slider.value = 42;
+        slider.wholeNumbers = true;
+        slider.direction = SliderDirection.BottomToTop;
+        slider.handleSize = 26;
+
+        const back = roundTrip(go).getComponent(Slider)!;
+
+        expect(back.minValue).toBe(10);
+        expect(back.maxValue).toBe(90);
+        expect(back.value).toBe(42);
+        expect(back.wholeNumbers).toBe(true);
+        expect(back.direction).toBe(SliderDirection.BottomToTop);
+        expect(back.handleSize).toBe(26);
+    });
+
+    test("a Slider's range is restored before its value, so the value is not clamped away", () => {
+        const go = new GameObject("Wide");
+        const slider = go.addComponent(Slider);
+        slider.maxValue = 1000;
+        slider.value = 750;
+
+        const back = roundTrip(go).getComponent(Slider)!;
+
+        // With the default 0..1 range still in force, 750 would clamp to 1.
+        expect(back.value).toBe(750);
+    });
+
+    test("a Scrollbar round-trips its position and handle size", () => {
+        const go = new GameObject("Bar");
+        const bar = go.addComponent(Scrollbar);
+        bar.value = 0.25;
+        bar.size = 0.4;
+        bar.numberOfSteps = 5;
+        bar.direction = ScrollbarDirection.LeftToRight;
+
+        const back = roundTrip(go).getComponent(Scrollbar)!;
+
+        expect(back.value).toBeCloseTo(0.25);
+        expect(back.size).toBeCloseTo(0.4);
+        expect(back.numberOfSteps).toBe(5);
+        expect(back.direction).toBe(ScrollbarDirection.LeftToRight);
+    });
+
+    test("a whole control panel reloads with its controls intact", () => {
+        const root = new GameObject("Panel");
+        root.addComponent(RectTransform);
+        root.addComponent(VerticalLayoutGroup).spacing = 6;
+
+        const label = new GameObject("Title");
+        label.transform.parent = root.transform;
+        label.addComponent(UIText).text = "Experiment";
+
+        const slider = new GameObject("Mass");
+        slider.transform.parent = root.transform;
+        slider.addComponent(Slider).value = 0.5;
+
+        const button = new GameObject("Run");
+        button.transform.parent = root.transform;
+        button.addComponent(Button).text = "Run";
+
+        const back = roundTrip(root);
+
+        expect(back.transform.childCount).toBe(3);
+        expect(back.transform.getChild(0).gameObject.getComponent(UIText)!.text).toBe("Experiment");
+        expect(back.transform.getChild(1).gameObject.getComponent(Slider)!.value).toBeCloseTo(0.5);
+        expect(back.transform.getChild(2).gameObject.getComponent(Button)!.text).toBe("Run");
     });
 });

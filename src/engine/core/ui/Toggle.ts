@@ -4,6 +4,8 @@ import { UIEvent } from "./UIEvent";
 import { HASH_SEED, cssColor, hashBool, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
 import type { ToggleGroup } from "./ToggleGroup";
 import type { Rect } from "../math/Rect";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -23,42 +25,55 @@ import type { GameObject } from "../GameObject";
  * toggle.onValueChanged.addListener(on => grid.setActive(on));
  * ```
  */
+@Serializable({ typeName: "Toggle", category: "UI" })
 export class Toggle extends Selectable {
 
     /** Box fill color when off. */
+    @SerializedField({ type: FieldType.Color })
     public backgroundColor: Color = new Color(0.18, 0.18, 0.18, 1);
 
     /** Box fill color when on. */
+    @SerializedField({ type: FieldType.Color })
     public checkedColor: Color = new Color(0.30, 0.60, 0.95, 1);
 
     /** Box outline color. */
+    @SerializedField({ type: FieldType.Color })
     public borderColor: Color = new Color(0.55, 0.55, 0.55, 1);
 
     /** Checkmark color. */
+    @SerializedField({ type: FieldType.Color })
     public checkColor: Color = Color.white.clone();
 
     /** Label color. */
+    @SerializedField({ type: FieldType.Color })
     public labelColor: Color = Color.white.clone();
 
     /** Tint applied over the whole control when `interactable` is false. */
+    @SerializedField({ type: FieldType.Color })
     public disabledColor: Color = new Color(0.35, 0.35, 0.35, 0.6);
 
     /** Side length of the box in canvas units. */
+    @SerializedField()
     public boxSize: number = 20;
 
     /** Corner radius of the box. `boxSize / 2` gives a round radio button. */
+    @SerializedField()
     public borderRadius: number = 4;
 
     /** Gap between the box and the label, in canvas units. */
+    @SerializedField()
     public labelSpacing: number = 8;
 
     /** Text drawn beside the box. Empty draws the box alone. */
+    @SerializedField()
     public label: string = "";
 
     /** Label font size in canvas units. */
+    @SerializedField()
     public fontSize: number = 16;
 
     /** Label font family. */
+    @SerializedField()
     public fontFamily: string = "Arial, sans-serif";
 
     /** Fired whenever {@link isOn} changes, by click or by assignment. */
@@ -82,6 +97,7 @@ export class Toggle extends Selectable {
      * Assigning fires {@link onValueChanged} only when the state actually
      * changes. Inside a {@link group}, turning one on turns its siblings off.
      */
+    @SerializedField()
     public get isOn(): boolean { return this._isOn; }
 
     public set isOn(value: boolean) {

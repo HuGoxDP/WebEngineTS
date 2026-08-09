@@ -5,6 +5,8 @@ import { UIEvent } from "./UIEvent";
 import { HASH_SEED, cssColor, hashBool, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
 import type { PointerEventData } from "./PointerEventData";
 import type { Rect } from "../math/Rect";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -41,30 +43,39 @@ export enum SliderDirection {
  * slider.onValueChanged.addListener(v => setTemperature(v));
  * ```
  */
+@Serializable({ typeName: "Slider", category: "UI" })
 export class Slider extends Selectable {
 
     /** Track color behind the fill. */
+    @SerializedField({ type: FieldType.Color })
     public backgroundColor: Color = new Color(0.20, 0.20, 0.20, 1);
 
     /** Color of the filled portion, from the low end up to {@link value}. */
+    @SerializedField({ type: FieldType.Color })
     public fillColor: Color = new Color(0.30, 0.60, 0.95, 1);
 
     /** Handle color. */
+    @SerializedField({ type: FieldType.Color })
     public handleColor: Color = Color.white.clone();
 
     /** Tint applied to the whole control when `interactable` is false. */
+    @SerializedField({ type: FieldType.Color })
     public disabledColor: Color = new Color(0.35, 0.35, 0.35, 0.6);
 
     /** Handle diameter in canvas units. */
+    @SerializedField()
     public handleSize: number = 20;
 
     /** Track thickness in canvas units, across the fill axis. */
+    @SerializedField()
     public trackThickness: number = 6;
 
     /** Which way the fill grows. */
+    @SerializedField({ type: FieldType.Enum })
     public direction: SliderDirection = SliderDirection.LeftToRight;
 
     /** Snap {@link value} to integers. */
+    @SerializedField()
     public wholeNumbers: boolean = false;
 
     /** Fired whenever {@link value} changes, by drag or by assignment. */
@@ -84,6 +95,7 @@ export class Slider extends Selectable {
     }
 
     /** Lowest value the slider can take. */
+    @SerializedField()
     public get minValue(): number { return this._minValue; }
 
     public set minValue(value: number) {
@@ -93,6 +105,7 @@ export class Slider extends Selectable {
     }
 
     /** Highest value the slider can take. */
+    @SerializedField()
     public get maxValue(): number { return this._maxValue; }
 
     public set maxValue(value: number) {
@@ -106,6 +119,7 @@ export class Slider extends Selectable {
      * {@link wholeNumbers} is set. Assigning fires {@link onValueChanged} only
      * when the stored value actually moves.
      */
+    @SerializedField()
     public get value(): number { return this._value; }
 
     public set value(input: number) {

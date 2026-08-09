@@ -10,6 +10,8 @@ import { Rect } from "../math/Rect";
 import { Vector2 } from "../math/Vector2";
 import type { UIImage } from "./UIImage";
 import type { Sprite } from "../graphics/Sprite";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /** Interaction state of a {@link Selectable}. */
@@ -69,6 +71,7 @@ export abstract class Selectable extends UIBehaviour {
      * controls draw their own states. Set it, together with
      * {@link targetGraphic}, when composing a control out of child graphics.
      */
+    @SerializedField({ type: FieldType.Enum })
     public transition: SelectableTransition = SelectableTransition.None;
 
     /** Colors used by {@link SelectableTransition.ColorTint}. */
@@ -113,6 +116,7 @@ export abstract class Selectable extends UIBehaviour {
      * Read {@link isInteractable} rather than this field when deciding whether
      * to act — a `CanvasGroup` above the element can veto it.
      */
+    @SerializedField()
     public interactable: boolean = true;
 
     /**

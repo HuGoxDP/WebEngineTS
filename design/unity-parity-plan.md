@@ -343,6 +343,24 @@ This is the general shape of the remaining work: **a field is an asset reference
 thing behind it is loaded as a file.** Materials are the next case and are the same problem
 — usually built in code, so they need either an identity of their own or value serialization.
 
+**The UI controls followed (2026-08-05):** `Selectable`'s `interactable` and `transition`
+(inherited by every control), then `Button`, `Toggle`, `Slider` and `Scrollbar`. A control
+panel — layout group, label, slider, button — now reloads intact.
+
+Two things worth pinning, and both have tests:
+- **Loading state is not the user acting.** A restored `Toggle` does not fire
+  `onValueChanged`; it goes through the property, and the property only notifies on an
+  actual change. A scenario that wires handlers in `Start` would otherwise see a burst of
+  fake input on load.
+- **Field order matters and is now depended on.** `Slider.value` clamps to
+  `[minValue, maxValue]`, so restoring it before the range would silently clamp `750` to `1`.
+  `getAllFields` walks in declaration order, and the range is declared first, so it works —
+  but that was luck until a test made it a requirement.
+
+`Selectable.targetGraphic` stays out: it is a reference to another **component**, which the
+serializer has no representation for. GameObject references exist; component references do
+not, and inventing one belongs with prefabs (Stage 4) rather than here.
+
 1. **GUIDs.** Every asset gets a stable id, stored in a sidecar (`foo.png.meta`, JSON).
 2. **`AssetDatabase`** — GUID ↔ path ↔ loaded object, with rename/move tolerance.
 3. **References by GUID** in serialized scenes: `{ guid, localId }` replacing path strings.

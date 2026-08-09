@@ -3,6 +3,8 @@ import { Color } from "../math/Color";
 import { UIEvent } from "./UIEvent";
 import { HASH_SEED, cssColor, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
 import type { Rect } from "../math/Rect";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -32,33 +34,43 @@ export type ButtonState = SelectableState;
  * btn.onClick = () => loadScene();
  * ```
  */
+@Serializable({ typeName: "Button", category: "UI" })
 export class Button extends Selectable {
 
     /** Background color when the button is idle. */
+    @SerializedField({ type: FieldType.Color })
     public normalColor: Color     = new Color(0.25, 0.25, 0.25, 1);
 
     /** Background color when the pointer hovers over the button. */
+    @SerializedField({ type: FieldType.Color })
     public highlightedColor: Color = new Color(0.40, 0.40, 0.40, 1);
 
     /** Background color while the button is held down. */
+    @SerializedField({ type: FieldType.Color })
     public pressedColor: Color    = new Color(0.15, 0.15, 0.15, 1);
 
     /** Background color when `interactable` is false. */
+    @SerializedField({ type: FieldType.Color })
     public disabledColor: Color   = new Color(0.20, 0.20, 0.20, 0.5);
 
     /** Corner radius in canvas units. */
+    @SerializedField()
     public borderRadius: number = 4;
 
     /** Label text drawn centred on the button. */
+    @SerializedField()
     public text: string = "";
 
     /** Font size for the button label. */
+    @SerializedField()
     public fontSize: number = 16;
 
     /** Label color. */
+    @SerializedField({ type: FieldType.Color })
     public textColor: Color = Color.white.clone();
 
     /** Font family. */
+    @SerializedField()
     public fontFamily: string = "Arial, sans-serif";
 
     private readonly _onClick: UIEvent<void> = new UIEvent<void>();
