@@ -351,6 +351,7 @@ export class Canvas extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Canvas.worldCamera`.
      */
+    @SerializedField({ type: FieldType.Component })
     public get worldCamera(): Camera | null { return this._worldCamera; }
 
     public set worldCamera(value: Camera | null) {

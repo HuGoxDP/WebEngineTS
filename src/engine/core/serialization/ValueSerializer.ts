@@ -18,6 +18,17 @@ import type { GameObject } from "../GameObject";
 export interface SerializeContext {
     /** Map of every GameObject in the scene to its hierarchical path. */
     goToPath: Map<GameObject, number[]>;
+    /**
+     * The registered type name of a component, or null if its class carries no
+     * `@Serializable`. Supplied by the SceneSerializer, which owns the registry
+     * lookup — this module deliberately knows nothing about components.
+     */
+    componentTypeName(component: object): string | null;
+    /**
+     * Which of its GameObject's components of that same type this one is.
+     * `0` unless the object genuinely carries several.
+     */
+    componentIndex(owner: GameObject, component: object): number;
 }
 
 /** Marker emitted in deserialize for a `GameObjectRef` field. */
@@ -33,6 +44,17 @@ export interface DeserializeContext {
      * resolved `GameObject | null` to `(component as any)[field]`.
      */
     pendingGORefs: Array<{ component: object; field: string; path: number[] }>;
+    /**
+     * Component references collected during deserialize, resolved in the same
+     * deferred pass as {@link pendingGORefs} once every GameObject exists.
+     */
+    pendingComponentRefs: Array<{
+        component: object;
+        field: string;
+        path: number[];
+        typeName: string;
+        index: number;
+    }>;
     /**
      * Asset references whose asset was not loaded when the scene was rebuilt.
      * Surfaced on the result so a caller can preload them and re-resolve, since
@@ -133,6 +155,29 @@ export class ValueSerializer {
             const guid = AssetDatabase.guidOf(value as object);
             if (guid === null) return null;
             return { $type: "AssetRef", guid, path: AssetDatabase.pathOf(guid) ?? undefined };
+        }
+
+        // Component reference — the owning GameObject's path plus which
+        // component on it. The index disambiguates a GameObject carrying two of
+        // the same type, which is legal and would otherwise resolve to the
+        // first one silently.
+        if (ctx && type === FieldType.Component && typeof value === "object") {
+            const owner = (value as { gameObject?: GameObject }).gameObject;
+            if (!owner) return null;
+
+            const path = ctx.goToPath.get(owner);
+            const typeName = ctx.componentTypeName(value as object);
+            // A reference out of the saved subtree, or to a class no registry
+            // knows, cannot be rebuilt — nulled rather than written as a
+            // half-reference that fails later.
+            if (!path || typeName === null) return null;
+
+            return {
+                $type: "ComponentRef",
+                path,
+                component: typeName,
+                index: ctx.componentIndex(owner, value as object),
+            };
         }
 
         // GameObject reference — needs scene context to compute a path.
@@ -239,6 +284,20 @@ export class ValueSerializer {
                             component: ctx.currentComponent,
                             field: ctx.currentField,
                             guid,
+                        });
+                    }
+                    return null;
+                }
+                case "ComponentRef": {
+                    // Deferred for the same reason a GameObject reference is:
+                    // the object it points at may not exist yet.
+                    if (ctx && ctx.currentComponent && ctx.currentField && Array.isArray(obj.path)) {
+                        ctx.pendingComponentRefs.push({
+                            component: ctx.currentComponent,
+                            field: ctx.currentField,
+                            path: (obj.path as number[]).slice(),
+                            typeName: String(obj.component ?? ""),
+                            index: Number(obj.index ?? 0),
                         });
                     }
                     return null;

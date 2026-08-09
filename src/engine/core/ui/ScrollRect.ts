@@ -71,6 +71,7 @@ export class ScrollRect extends UIBehaviour {
     }
 
     /** The RectTransform being moved. Nothing scrolls until this is set. */
+    @SerializedField({ type: FieldType.Component })
     public content: RectTransform | null = null;
 
     /** Whether the content may move along X. */

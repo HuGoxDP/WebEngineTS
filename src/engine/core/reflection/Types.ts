@@ -23,6 +23,12 @@ export enum FieldType {
     Enum        = "Enum",
     /** Reference to another GameObject (serialized by id). */
     GameObject  = "GameObject",
+    /**
+     * Reference to a component on another GameObject — a `ScrollRect`'s content
+     * RectTransform, a `Canvas`'s camera. Serialized as the owner's path plus
+     * the component's type, so it survives a round trip inside one scene.
+     */
+    Component   = "Component",
     /** Reference to a loadable asset (serialized by its `AssetDatabase` id). */
     Asset       = "Asset",
     /**

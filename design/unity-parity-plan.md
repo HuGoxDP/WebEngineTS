@@ -373,9 +373,23 @@ authoring machine had" — a scene authored on a HiDPI laptop would render at 2�
 phone that opened it. An asymmetric accessor is a trap for any generic serializer, and it is
 worth checking for one before decorating a property rather than after.
 
-Component references (`ScrollRect.content`, `Canvas.worldCamera`, `Selectable.targetGraphic`)
-remain the one category with no representation at all. They are what Stage 4's prefabs need
-anyway, so they are best solved once, there.
+**Component references landed 2026-08-05** — `FieldType.Component`, serialized as the owning
+GameObject's path plus the component's registered type name and an index. That last part
+matters: a GameObject may legally carry two `UIImage`s, and without the index a reference to
+the second would silently resolve to the first.
+
+They resolve in the **same deferred pass** the GameObject references already used, since the
+object being pointed at may not exist yet when the field is read. `ScrollRect.content`,
+`Selectable.targetGraphic`, `Canvas.worldCamera` and `Toggle.group` are decorated, so a
+scroll view, a composed button, a world-space canvas and a radio group all survive a round
+trip with their wiring intact — including references that cross between scene roots.
+
+The one deliberate limit: a reference **out of the saved subtree** serializes as null rather
+than as a half-reference that fails later. Saving one GameObject is saving one GameObject;
+what it points at outside itself is not part of that document.
+
+This was listed as Stage 4 (prefab) work. It turned out to be a natural extension of the
+existing deferred pass rather than new machinery, and prefabs will want it either way.
 
 ### Where Stage 1 actually stops, and why
 

@@ -100,6 +100,7 @@ export abstract class Selectable extends UIBehaviour {
      * Left null the transition does nothing, which is why the self-drawing
      * controls are unaffected by any of this.
      */
+    @SerializedField({ type: FieldType.Component })
     public targetGraphic: UIImage | null = null;
 
     /** The tint currently applied, mid-fade included. */

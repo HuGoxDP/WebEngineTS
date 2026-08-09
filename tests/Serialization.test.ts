@@ -1692,3 +1692,127 @@ describe("Built-in components — SpriteRenderer", () => {
         expect(back.sprite).toBe(texture);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Component references
+// ---------------------------------------------------------------------------
+
+describe("SceneSerializer — component references", () => {
+    beforeEach(() => {
+        destroyScene();
+        Canvas._reset();
+    });
+    afterEach(() => Canvas._reset());
+
+    test("a ScrollRect keeps pointing at its content after a round trip", () => {
+        const root = new GameObject("Scroll");
+        root.addComponent(RectTransform);
+        const scroll = root.addComponent(ScrollRect);
+
+        const content = new GameObject("Content");
+        content.transform.parent = root.transform;
+        const contentRT = content.addComponent(RectTransform);
+        scroll.content = contentRT;
+
+        const back = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(root),
+        );
+
+        const backScroll = back.getComponent(ScrollRect)!;
+        const backContent = back.transform.getChild(0).gameObject.getComponent(RectTransform)!;
+
+        expect(backScroll.content).toBe(backContent);
+        // The rebuilt one, not the original still sitting in the scene.
+        expect(backScroll.content).not.toBe(contentRT);
+    });
+
+    test("a Selectable keeps its target graphic", () => {
+        const root = new GameObject("Button");
+        const btn = root.addComponent(Button);
+
+        const bg = new GameObject("Background");
+        bg.transform.parent = root.transform;
+        btn.targetGraphic = bg.addComponent(UIImage);
+
+        const back = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(root),
+        );
+
+        expect(back.getComponent(Button)!.targetGraphic)
+            .toBe(back.transform.getChild(0).gameObject.getComponent(UIImage));
+    });
+
+    test("a Toggle keeps its group, so radio behaviour survives a load", () => {
+        const root = new GameObject("Question");
+        const group = root.addComponent(ToggleGroup);
+
+        const a = new GameObject("A");
+        a.transform.parent = root.transform;
+        a.addComponent(Toggle).group = group;
+
+        const b = new GameObject("B");
+        b.transform.parent = root.transform;
+        b.addComponent(Toggle).group = group;
+
+        const back = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(root),
+        );
+
+        const backGroup = back.getComponent(ToggleGroup)!;
+        const backA = back.transform.getChild(0).gameObject.getComponent(Toggle)!;
+        const backB = back.transform.getChild(1).gameObject.getComponent(Toggle)!;
+
+        expect(backA.group).toBe(backGroup);
+        expect(backB.group).toBe(backGroup);
+    });
+
+    test("the right one is picked when a GameObject carries two of a type", () => {
+        const root = new GameObject("Panel");
+        const first = root.addComponent(UIImage);
+        const second = root.addComponent(UIImage);
+        expect(first).not.toBe(second);
+
+        const btn = root.addComponent(Button);
+        btn.targetGraphic = second;
+
+        const back = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(root),
+        );
+
+        const images = back.getComponents(UIImage);
+        expect(images.length).toBe(2);
+        // The second one, not whichever came first.
+        expect(back.getComponent(Button)!.targetGraphic).toBe(images[1]);
+    });
+
+    test("a reference outside the saved subtree drops to null", () => {
+        const outside = new GameObject("Elsewhere");
+        const graphic = outside.addComponent(UIImage);
+
+        const root = new GameObject("Button");
+        root.addComponent(Button).targetGraphic = graphic;
+
+        const json = SceneSerializer.serializeGameObject(root);
+
+        expect(json.components.find(c => c.type === "Button")!.fields.targetGraphic).toBeNull();
+    });
+
+    test("a whole scene keeps references that cross between roots", () => {
+        const canvasGO = new GameObject("UI");
+        const canvas = canvasGO.addComponent(Canvas);
+        canvas.renderMode = CanvasRenderMode.WorldSpace;
+
+        const camGO = new GameObject("Cam");
+        const cam = camGO.addComponent(Camera);
+        canvas.worldCamera = cam;
+
+        const restored = SceneSerializer.deserializeScene(
+            SceneSerializer.serializeScene(SceneManager.activeScene),
+        );
+
+        const backCanvas = restored.find(r => r.name === "UI")!.getComponent(Canvas)!;
+        const backCam = restored.find(r => r.name === "Cam")!.getComponent(Camera)!;
+
+        expect(backCanvas.worldCamera).toBe(backCam);
+    });
+});

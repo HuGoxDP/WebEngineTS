@@ -89,6 +89,7 @@ export class SceneSerializer {
         try {
             const ctx: DeserializeContext = {
                 pendingGORefs: [],
+                pendingComponentRefs: [],
                 pendingAssetRefs: [],
                 currentComponent: null,
                 currentField: null,
@@ -123,6 +124,7 @@ export class SceneSerializer {
         try {
             const ctx: DeserializeContext = {
                 pendingGORefs: [],
+                pendingComponentRefs: [],
                 pendingAssetRefs: [],
                 currentComponent: null,
                 currentField: null,
@@ -147,7 +149,21 @@ export class SceneSerializer {
             }
         };
         for (let i = 0; i < roots.length; i++) walk(roots[i], [i]);
-        return { goToPath };
+
+        return {
+            goToPath,
+            componentTypeName: (component) => TypeRegistry.getTypeName(component),
+            componentIndex: (owner, component) => {
+                const list = (owner as unknown as { _components: Component[] })._components;
+                const name = TypeRegistry.getTypeName(component);
+                let index = 0;
+                for (const candidate of list) {
+                    if (candidate === component) return index;
+                    if (TypeRegistry.getTypeName(candidate) === name) index++;
+                }
+                return 0;
+            },
+        };
     }
 
     private static _serializeGO(go: GameObject, ctx: SerializeContext): SerializedGameObject {
@@ -356,7 +372,32 @@ export class SceneSerializer {
             const target = SceneSerializer._lookupByPath(roots, ref.path);
             (ref.component as any)[ref.field] = target;
         }
+
+        for (const ref of ctx.pendingComponentRefs) {
+            const owner = SceneSerializer._lookupByPath(roots, ref.path);
+            const target = owner === null
+                ? null
+                : SceneSerializer._findComponent(owner, ref.typeName, ref.index);
+            SceneSerializer._assign(ref.component as Component, ref.field, target);
+        }
+
         SceneSerializer._pending = ctx.pendingAssetRefs.slice();
+    }
+
+    /** The `index`-th component of `typeName` on `go`, or null. */
+    private static _findComponent(
+        go: GameObject,
+        typeName: string,
+        index: number,
+    ): Component | null {
+        const list = (go as unknown as { _components: Component[] })._components;
+        let seen = 0;
+        for (const candidate of list) {
+            if (TypeRegistry.getTypeName(candidate) !== typeName) continue;
+            if (seen === index) return candidate;
+            seen++;
+        }
+        return null;
     }
 
     /** Walks a path of sibling indices and returns the target GameObject (or null). */

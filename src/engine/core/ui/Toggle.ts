@@ -124,6 +124,7 @@ export class Toggle extends Selectable {
      * @remarks
      * Members of a group behave as radio buttons: at most one is on.
      */
+    @SerializedField({ type: FieldType.Component })
     public get group(): ToggleGroup | null { return this._group; }
 
     public set group(value: ToggleGroup | null) {
