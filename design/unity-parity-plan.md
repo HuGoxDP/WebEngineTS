@@ -377,6 +377,38 @@ Component references (`ScrollRect.content`, `Canvas.worldCamera`, `Selectable.ta
 remain the one category with no representation at all. They are what Stage 4's prefabs need
 anyway, so they are best solved once, there.
 
+### Where Stage 1 actually stops, and why
+
+`SpriteRenderer` and the `Renderer` base (`receiveShadows`, `shadowCastingMode`) landed
+2026-08-05 — `SpriteRenderer`'s sprite is a `Texture2D`, which `Resources` *does* load, so it
+has a real identity.
+
+**`MeshRenderer`, `MeshFilter` and `LODGroup` cannot be finished at this stage, and it is not
+a matter of effort.** Checked rather than assumed: `Resources` registers decoders for
+`Texture2D`, `JsonAsset`, `TextAsset`, `BinaryAsset` and `AudioClip` — **not** `Mesh` and
+**not** `Material`. So:
+
+- **A material has no identity**, because it is never loaded from a file; it is constructed
+  in code. Referencing it by id yields null.
+- **A material could be value-serialized**, and probably should be — but doing that per
+  renderer would silently break sharing, which is the entire meaning of `sharedMaterial`.
+  Preserving sharing means an inline sub-asset table in the scene JSON (mint an id per
+  distinct material, emit its values once, reference it by id). That is a real mechanism and
+  it belongs in one piece with **Stage 3's importers**, where a material becomes a file with
+  an id anyway.
+- **A mesh can be neither.** It has no identity for the same reason, and value-serializing
+  vertex and index buffers into a scene file is not something to do on purpose.
+- `LODGroup` additionally holds **renderer references**, which is the component-reference gap
+  above.
+
+So a `MeshRenderer` is the one built-in whose defining data the engine currently has no
+honest way to store. Decorating it would produce a component that reloads without its mesh
+*and* without its material — strictly worse than not claiming to support it.
+
+`LineRenderer` is a smaller, separate case: its positions are private with no bulk accessor,
+so serializing it needs a `positions` property first. That is a public-API change and does
+not belong inside a serialization patch.
+
 1. **GUIDs.** Every asset gets a stable id, stored in a sidecar (`foo.png.meta`, JSON).
 2. **`AssetDatabase`** — GUID ↔ path ↔ loaded object, with rename/move tolerance.
 3. **References by GUID** in serialized scenes: `{ guid, localId }` replacing path strings.

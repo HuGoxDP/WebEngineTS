@@ -5,6 +5,8 @@ import { Renderer } from "../rendering/Renderer.ts";
 import { Color } from "../math/Color.ts";
 import { Vector2 } from "../math/Vector2.ts";
 import { Texture2D } from "../graphics/Texture2D.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -49,6 +51,7 @@ export enum SpriteBillboardMode {
  * sr.setAtlasRect(4, 4, 5);
  * ```
  */
+@Serializable({ typeName: "SpriteRenderer", category: "Rendering" })
 export class SpriteRenderer extends Renderer {
 
     // ==================== INTERNAL THREE.JS STATE ====================
@@ -146,6 +149,7 @@ export class SpriteRenderer extends Renderer {
      *
      * @remarks Equivalent to Unity's `SpriteRenderer.sprite`.
      */
+    @SerializedField({ type: FieldType.Asset })
     public get sprite(): Texture2D | null {
         return this._sprite;
     }
@@ -162,6 +166,7 @@ export class SpriteRenderer extends Renderer {
      *
      * @remarks Equivalent to Unity's `SpriteRenderer.color`.
      */
+    @SerializedField({ type: FieldType.Color })
     public get color(): Color {
         return this._color.clone();
     }
@@ -176,6 +181,7 @@ export class SpriteRenderer extends Renderer {
      *
      * @remarks Equivalent to Unity's `SpriteRenderer.flipX`.
      */
+    @SerializedField()
     public get flipX(): boolean {
         return this._flipX;
     }
@@ -190,6 +196,7 @@ export class SpriteRenderer extends Renderer {
      *
      * @remarks Equivalent to Unity's `SpriteRenderer.flipY`.
      */
+    @SerializedField()
     public get flipY(): boolean {
         return this._flipY;
     }
@@ -202,6 +209,7 @@ export class SpriteRenderer extends Renderer {
     /**
      * Billboard rendering mode.
      */
+    @SerializedField({ type: FieldType.Enum })
     public get billboardMode(): SpriteBillboardMode {
         return this._billboardMode;
     }
@@ -222,6 +230,7 @@ export class SpriteRenderer extends Renderer {
      *
      * @remarks Equivalent to Unity's Sprite import setting `Pixels Per Unit`.
      */
+    @SerializedField()
     public get pixelsPerUnit(): number {
         return this._pixelsPerUnit;
     }
@@ -237,6 +246,7 @@ export class SpriteRenderer extends Renderer {
      *
      * @remarks Equivalent to Unity's `SpriteRenderer.sortingOrder`.
      */
+    @SerializedField()
     public get sortingOrder(): number {
         return this._sortingOrder;
     }
@@ -254,6 +264,7 @@ export class SpriteRenderer extends Renderer {
      *
      * @remarks Equivalent to Unity's Sprite pivot setting.
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public get pivot(): Vector2 {
         return this._pivot.clone();
     }
@@ -269,6 +280,7 @@ export class SpriteRenderer extends Renderer {
      *
      * @remarks Default 0.01 (discard fully transparent pixels).
      */
+    @SerializedField()
     public get alphaTest(): number {
         return this._alphaTest;
     }

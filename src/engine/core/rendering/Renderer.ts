@@ -4,6 +4,8 @@ import * as THREE from "three";
 import { Behaviour } from "../Behaviour.ts";
 import { Material } from "../graphics/Material.ts";
 import { Bounds } from "../math/Bounds.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 // ==================== CACHED THREE.JS OBJECTS ====================
@@ -369,6 +371,7 @@ export abstract class Renderer extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Renderer.receiveShadows`.
      */
+    @SerializedField()
     public get receiveShadows(): boolean {
         return this._receiveShadows;
     }
@@ -384,6 +387,7 @@ export abstract class Renderer extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Renderer.shadowCastingMode`.
      */
+    @SerializedField({ type: FieldType.Enum })
     public get shadowCastingMode(): ShadowCastingMode {
         return this._shadowCastingMode;
     }

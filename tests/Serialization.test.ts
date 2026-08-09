@@ -50,6 +50,8 @@ import { Dropdown } from "../src/engine/core/ui/Dropdown";
 import { InputField, InputFieldContentType } from "../src/engine/core/ui/InputField";
 import { VirtualJoystick } from "../src/engine/core/ui/VirtualJoystick";
 import { ToggleGroup } from "../src/engine/core/ui/ToggleGroup";
+import { SpriteRenderer } from "../src/engine/core/components/SpriteRenderer";
+import { Vector2 } from "../src/engine/core/math/Vector2";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
 
 @Serializable()
@@ -1625,5 +1627,68 @@ describe("Built-in components — Canvas and remaining controls", () => {
         go.addComponent(ToggleGroup).allowSwitchOff = true;
 
         expect(roundTrip(go).getComponent(ToggleGroup)!.allowSwitchOff).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Renderers that are expressible today
+// ---------------------------------------------------------------------------
+
+describe("Built-in components — SpriteRenderer", () => {
+    beforeEach(() => {
+        destroyScene();
+        AssetDatabase.clear();
+    });
+    afterEach(() => AssetDatabase.clear());
+
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("round-trips its own settings and the Renderer base's", () => {
+        const go = new GameObject("Billboard");
+        const sr = go.addComponent(SpriteRenderer);
+        sr.color = new Color(0.5, 0.6, 0.7, 0.8);
+        sr.flipX = true;
+        sr.pixelsPerUnit = 50;
+        sr.sortingOrder = 3;
+        sr.pivot = new Vector2(0, 1);
+        sr.alphaTest = 0.4;
+        sr.receiveShadows = false;
+
+        const back = roundTrip(go).getComponent(SpriteRenderer)!;
+
+        expect(back.color.b).toBeCloseTo(0.7);
+        expect(back.flipX).toBe(true);
+        expect(back.flipY).toBe(false);
+        expect(back.pixelsPerUnit).toBe(50);
+        expect(back.sortingOrder).toBe(3);
+        expect(back.pivot.y).toBe(1);
+        expect(back.alphaTest).toBeCloseTo(0.4);
+        expect(back.receiveShadows).toBe(false);
+    });
+
+    test("its texture round-trips by id, since textures are loadable", () => {
+        // Enough of a Texture2D for the setter, which sizes the quad from the
+        // decoded bitmap.
+        const texture: any = {
+            name: "spark",
+            width: 64,
+            height: 64,
+            _internalThreeTexture: {
+                image: { width: 64, height: 64 },
+                repeat: { x: 1, y: 1, set: () => {} },
+                offset: { x: 0, y: 0, set: () => {} },
+            },
+        };
+        AssetDatabase.setManifest([{ guid: "tex-spark", path: "vfx/spark.png" }]);
+        AssetDatabase._bind("vfx/spark.png", texture);
+
+        const go = new GameObject("Spark");
+        go.addComponent(SpriteRenderer).sprite = texture;
+
+        const back = roundTrip(go).getComponent(SpriteRenderer)!;
+
+        expect(back.sprite).toBe(texture);
     });
 });
