@@ -23,8 +23,14 @@ export enum FieldType {
     Enum        = "Enum",
     /** Reference to another GameObject (serialized by id). */
     GameObject  = "GameObject",
-    /** Reference to a loadable asset (serialized by path). */
+    /** Reference to a loadable asset (serialized by its `AssetDatabase` id). */
     Asset       = "Asset",
+    /**
+     * A {@link Sprite} — a texture reference plus the sub-rect, border and
+     * pivot around it. Not an {@link Asset}: the texture has an identity, the
+     * framing of it is a value that lives in the scene.
+     */
+    Sprite      = "Sprite",
     /** Array of a single element type. `elementType` must be set. */
     Array       = "Array",
     /** Arbitrary JSON-compatible object. */

@@ -327,6 +327,22 @@ Remaining for Stage 2: sidecar `.meta` generation and the manifest in the scenar
 (both ScenarioCreator work), and migrating `ScenarioAssets` to resolve through the database
 while keeping the path API as a shim.
 
+**`Sprite` needed its own answer (2026-08-05).** A `Sprite` is *not* a loadable asset — it is
+a **framing** of one: a texture reference plus a sub-rect, border and pivot, usually
+constructed in code rather than loaded from a file. Serializing it as an asset reference
+would have produced null (it has no identity of its own); serializing it through the generic
+object fallback would have flattened its texture into a meaningless plain object.
+
+So `FieldType.Sprite` serializes the framing as a value with the *texture* referenced by id.
+Two sprites cut from one atlas therefore share the texture on load and differ only in their
+rect, which is the point of an atlas. The unresolved-reference path carries the framing
+alongside the id, so a sprite whose texture arrives late is rebuilt whole rather than as a
+bare texture.
+
+This is the general shape of the remaining work: **a field is an asset reference only if the
+thing behind it is loaded as a file.** Materials are the next case and are the same problem
+— usually built in code, so they need either an identity of their own or value serialization.
+
 1. **GUIDs.** Every asset gets a stable id, stored in a sidecar (`foo.png.meta`, JSON).
 2. **`AssetDatabase`** — GUID ↔ path ↔ loaded object, with rename/move tolerance.
 3. **References by GUID** in serialized scenes: `{ guid, localId }` replacing path strings.

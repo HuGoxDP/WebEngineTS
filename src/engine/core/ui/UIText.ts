@@ -3,6 +3,8 @@ import { Color } from "../math/Color";
 import { HASH_SEED, cssColor, fontGeneration, hashBool, hashColor, hashNumber, hashString } from "./UIUtils";
 import { RichText, type RichLine } from "./RichText";
 import type { Rect } from "../math/Rect";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /** Horizontal text alignment options. */
@@ -78,42 +80,54 @@ export function measureContext(): CanvasRenderingContext2D | null {
  * label.outlineWidth = 2;   // readable over a bright 3D scene
  * ```
  */
+@Serializable({ typeName: "UIText", category: "UI" })
 export class UIText extends UIBehaviour {
 
     /** The string to display. Supports `\n` for line breaks. */
+    @SerializedField()
     public text: string = "Text";
 
     /** Font size in canvas units. */
+    @SerializedField()
     public fontSize: number = 16;
 
     /** Font family (CSS font-family syntax). */
+    @SerializedField()
     public fontFamily: string = "Arial, sans-serif";
 
     /** Font style (CSS font-style: 'normal', 'italic', 'bold', 'bold italic'). */
+    @SerializedField()
     public fontStyle: string = "normal";
 
     /** Text color. */
+    @SerializedField({ type: FieldType.Color })
     public color: Color = Color.white.clone();
 
     /** Horizontal alignment. */
+    @SerializedField({ type: FieldType.Enum })
     public alignment: TextAlignment = TextAlignment.Left;
 
     /** Vertical alignment. */
+    @SerializedField({ type: FieldType.Enum })
     public verticalAlignment: VerticalAlignment = VerticalAlignment.Top;
 
     /** Whether text wraps within the rect. */
+    @SerializedField()
     public wordWrap: boolean = true;
 
     /** Line height multiplier (1 = normal). */
+    @SerializedField()
     public lineHeight: number = 1.2;
 
     /**
      * Width of the outline stroked behind the glyphs, in canvas units.
      * `0` disables it.
      */
+    @SerializedField()
     public outlineWidth: number = 0;
 
     /** Outline color, used when {@link outlineWidth} is greater than zero. */
+    @SerializedField({ type: FieldType.Color })
     public outlineColor: Color = new Color(0, 0, 0, 1);
 
     /**
@@ -121,6 +135,7 @@ export class UIText extends UIBehaviour {
      *
      * @default TextOverflow.Clip
      */
+    @SerializedField({ type: FieldType.Enum })
     public overflow: TextOverflow = TextOverflow.Clip;
 
     /**
@@ -138,12 +153,15 @@ export class UIText extends UIBehaviour {
      * a `ContentSizeFitter` is contradictory — one sizes the text to the box,
      * the other the box to the text — and the fitter will win.
      */
+    @SerializedField()
     public bestFit: boolean = false;
 
     /** Smallest size {@link bestFit} may shrink to, in canvas units. */
+    @SerializedField()
     public bestFitMinSize: number = 10;
 
     /** Largest size {@link bestFit} may grow to, in canvas units. */
+    @SerializedField()
     public bestFitMaxSize: number = 40;
 
     /**
@@ -168,6 +186,7 @@ export class UIText extends UIBehaviour {
      * is on — eliding across styled runs would have to re-measure the tail of
      * every line, and the plain path exists for labels that need it.
      */
+    @SerializedField()
     public richText: boolean = false;
 
     /**

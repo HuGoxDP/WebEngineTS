@@ -32,6 +32,13 @@ import { ScriptableBehaviour } from "../src/engine/core/ScriptableBehaviour";
 import { FieldType } from "../src/engine/core/reflection/Types";
 import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
 import { AssetDatabase } from "../src/engine/core/assets/AssetDatabase";
+import {
+    UIImage, ImageType, ImageFillMethod, ImageFillOrigin,
+} from "../src/engine/core/ui/UIImage";
+import {
+    UIText, TextAlignment, VerticalAlignment, TextOverflow,
+} from "../src/engine/core/ui/UIText";
+import { Sprite } from "../src/engine/core/graphics/Sprite";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
 
 @Serializable()
@@ -1153,5 +1160,161 @@ describe("SceneSerializer — asset references by id", () => {
         const json = SceneSerializer.serializeGameObject(go);
 
         expect(json.components[0].fields.asset).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// UI graphics — sprites reference their texture by id
+// ---------------------------------------------------------------------------
+
+describe("Built-in components — UI graphics", () => {
+    /** A texture stand-in with an identity, as Resources would have bound it. */
+    function boundTexture(guid: string, path: string): any {
+        const texture = { name: path, width: 128, height: 128 };
+        AssetDatabase.setManifest([{ guid, path }]);
+        AssetDatabase._bind(path, texture);
+        return texture;
+    }
+
+    beforeEach(() => {
+        destroyScene();
+        AssetDatabase.clear();
+    });
+    afterEach(() => AssetDatabase.clear());
+
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("a UIImage round-trips its own settings", () => {
+        const go = new GameObject("Icon");
+        const img = go.addComponent(UIImage);
+        img.color = new Color(0.2, 0.4, 0.6, 0.8);
+        img.type = ImageType.Tiled;
+        img.fillAmount = 0.6;
+        img.fillMethod = ImageFillMethod.Radial360;
+        img.fillOrigin = ImageFillOrigin.Top;
+        img.fillClockwise = false;
+        img.borderRadius = 7;
+        img.preserveAspect = true;
+        img.imageSmoothing = false;
+
+        const back = roundTrip(go).getComponent(UIImage)!;
+
+        expect(back.color.g).toBeCloseTo(0.4);
+        expect(back.type).toBe(ImageType.Tiled);
+        expect(back.fillAmount).toBeCloseTo(0.6);
+        expect(back.fillMethod).toBe(ImageFillMethod.Radial360);
+        expect(back.fillOrigin).toBe(ImageFillOrigin.Top);
+        expect(back.fillClockwise).toBe(false);
+        expect(back.borderRadius).toBe(7);
+        expect(back.preserveAspect).toBe(true);
+        expect(back.imageSmoothing).toBe(false);
+    });
+
+    test("a sprite round-trips its texture id and its framing", () => {
+        const texture = boundTexture("tex1", "ui/atlas.png");
+        const sprite = new Sprite(texture, new Rect(32, 64, 16, 16));
+        sprite.border.set(4, 4, 4, 4);
+        sprite.pivot.set(0, 1);
+
+        const go = new GameObject("Icon");
+        go.addComponent(UIImage).sprite = sprite;
+
+        const back = roundTrip(go).getComponent(UIImage)!;
+
+        expect(back.sprite).not.toBeNull();
+        expect(back.sprite!.texture).toBe(texture);
+        expect(back.sprite!.rect.x).toBe(32);
+        expect(back.sprite!.rect.width).toBe(16);
+        expect(back.sprite!.border.left).toBe(4);
+        expect(back.sprite!.pivot.y).toBe(1);
+    });
+
+    test("two sprites cut from one atlas share the texture after loading", () => {
+        const texture = boundTexture("tex1", "ui/atlas.png");
+
+        const root = new GameObject("Panel");
+        for (const x of [0, 32]) {
+            const child = new GameObject(`Icon${x}`);
+            child.transform.parent = root.transform;
+            child.addComponent(UIImage).sprite = new Sprite(texture, new Rect(x, 0, 32, 32));
+        }
+
+        const back = roundTrip(root);
+        const a = back.transform.getChild(0).gameObject.getComponent(UIImage)!;
+        const b = back.transform.getChild(1).gameObject.getComponent(UIImage)!;
+
+        expect(a.sprite!.texture).toBe(b.sprite!.texture);
+        expect(a.sprite!.rect.x).not.toBe(b.sprite!.rect.x);
+    });
+
+    test("renaming the texture does not break the sprite", () => {
+        const texture = boundTexture("tex1", "ui/atlas.png");
+        const go = new GameObject("Icon");
+        go.addComponent(UIImage).sprite = new Sprite(texture, new Rect(0, 0, 16, 16));
+        const json = SceneSerializer.serializeGameObject(go);
+
+        AssetDatabase.movePath("ui/atlas.png", "ui/atlases/main.png");
+
+        const back = SceneSerializer.deserializeGameObject(json).getComponent(UIImage)!;
+        expect(back.sprite!.texture).toBe(texture);
+    });
+
+    test("a sprite whose texture is not loaded is pending, then resolves", () => {
+        const texture = boundTexture("tex1", "ui/atlas.png");
+        const go = new GameObject("Icon");
+        go.addComponent(UIImage).sprite = new Sprite(texture, new Rect(8, 8, 16, 16));
+        const json = SceneSerializer.serializeGameObject(go);
+
+        AssetDatabase.clearLoaded();
+        const back = SceneSerializer.deserializeGameObject(json).getComponent(UIImage)!;
+
+        expect(back.sprite).toBeNull();
+        expect(SceneSerializer.pendingAssetGuids).toEqual(["tex1"]);
+
+        const reloaded = { name: "atlas", width: 128, height: 128 };
+        AssetDatabase._bind("ui/atlas.png", reloaded);
+        expect(SceneSerializer.resolvePendingAssets()).toBe(1);
+
+        // The framing came back with it, not just the texture.
+        expect(back.sprite!.texture).toBe(reloaded);
+        expect(back.sprite!.rect.x).toBe(8);
+    });
+
+    test("a UIText round-trips everything that affects how it draws", () => {
+        const go = new GameObject("Label");
+        const label = go.addComponent(UIText);
+        label.text = "Mass: 5.2 kg";
+        label.fontSize = 22;
+        label.fontFamily = "Georgia";
+        label.color = new Color(1, 0.8, 0.2, 1);
+        label.alignment = TextAlignment.Center;
+        label.verticalAlignment = VerticalAlignment.Middle;
+        label.wordWrap = false;
+        label.lineHeight = 1.4;
+        label.outlineWidth = 3;
+        label.overflow = TextOverflow.Ellipsis;
+        label.richText = true;
+        label.bestFit = true;
+        label.bestFitMinSize = 8;
+        label.bestFitMaxSize = 36;
+
+        const back = roundTrip(go).getComponent(UIText)!;
+
+        expect(back.text).toBe("Mass: 5.2 kg");
+        expect(back.fontSize).toBe(22);
+        expect(back.fontFamily).toBe("Georgia");
+        expect(back.color.g).toBeCloseTo(0.8);
+        expect(back.alignment).toBe(TextAlignment.Center);
+        expect(back.verticalAlignment).toBe(VerticalAlignment.Middle);
+        expect(back.wordWrap).toBe(false);
+        expect(back.lineHeight).toBeCloseTo(1.4);
+        expect(back.outlineWidth).toBe(3);
+        expect(back.overflow).toBe(TextOverflow.Ellipsis);
+        expect(back.richText).toBe(true);
+        expect(back.bestFit).toBe(true);
+        expect(back.bestFitMinSize).toBe(8);
+        expect(back.bestFitMaxSize).toBe(36);
     });
 });

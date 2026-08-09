@@ -337,7 +337,10 @@ export class SceneSerializer {
                 still.push(ref);
                 continue;
             }
-            SceneSerializer._assign(ref.component as Component, ref.field, asset);
+            const value = ref.sprite !== undefined
+                ? ValueSerializer._buildSprite(asset, ref.sprite)
+                : asset;
+            SceneSerializer._assign(ref.component as Component, ref.field, value);
             resolved++;
         }
 
@@ -345,7 +348,7 @@ export class SceneSerializer {
         return resolved;
     }
 
-    private static _pending: Array<{ component: object; field: string; guid: string }> = [];
+    private static _pending: DeserializeContext["pendingAssetRefs"] = [];
 
     /** Walks every collected reference and assigns what it resolved to. */
     private static _resolveRefs(ctx: DeserializeContext, roots: ReadonlyArray<GameObject>): void {

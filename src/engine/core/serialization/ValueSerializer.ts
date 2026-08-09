@@ -7,6 +7,7 @@ import { Rect } from "../math/Rect";
 import { Bounds } from "../math/Bounds";
 import { FieldType } from "../reflection/Types";
 import { AssetDatabase } from "../assets/AssetDatabase";
+import { Sprite } from "../graphics/Sprite";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -37,7 +38,13 @@ export interface DeserializeContext {
      * Surfaced on the result so a caller can preload them and re-resolve, since
      * loading is asynchronous and deserialization is not.
      */
-    pendingAssetRefs: Array<{ component: object; field: string; guid: string }>;
+    pendingAssetRefs: Array<{
+        component: object;
+        field: string;
+        guid: string;
+        /** Present when the reference was a Sprite: its framing, to rebuild with. */
+        sprite?: Record<string, unknown>;
+    }>;
     /** Current component being deserialized — populated by SceneSerializer. */
     currentComponent: object | null;
     /** Current field name being deserialized — populated by SceneSerializer. */
@@ -92,6 +99,30 @@ export class ValueSerializer {
                 $type: "Bounds",
                 cx: c.x, cy: c.y, cz: c.z,
                 ex: e.x, ey: e.y, ez: e.z,
+            };
+        }
+
+        // A Sprite is not itself a loadable asset — it is a *framing* of one, so
+        // it serializes as its own value with the texture inside it referenced
+        // by id. Two sprites cut from one atlas therefore share the texture and
+        // differ only in their rect, which is what an atlas is for.
+        if (type === FieldType.Sprite || value instanceof Sprite) {
+            const sprite = value as Sprite;
+            const guid = AssetDatabase.guidOf(sprite.texture);
+            if (guid === null) return null;
+
+            return {
+                $type: "Sprite",
+                texture: guid,
+                rect: {
+                    x: sprite.rect.x, y: sprite.rect.y,
+                    width: sprite.rect.width, height: sprite.rect.height,
+                },
+                border: {
+                    left: sprite.border.left, right: sprite.border.right,
+                    top: sprite.border.top, bottom: sprite.border.bottom,
+                },
+                pivot: { x: sprite.pivot.x, y: sprite.pivot.y },
             };
         }
 
@@ -174,6 +205,25 @@ export class ValueSerializer {
                         // Bounds takes a full size, not the half-extents it stores.
                         new Vector3(+(obj.ex ?? 0) * 2, +(obj.ey ?? 0) * 2, +(obj.ez ?? 0) * 2),
                     );
+                case "Sprite": case FieldType.Sprite: {
+                    const guid = typeof obj.texture === "string" ? obj.texture : null;
+                    const texture = guid !== null ? AssetDatabase.get(guid) : null;
+                    // Without its texture there is no sprite to build. Recorded
+                    // like any other unresolved reference so the caller can
+                    // preload and re-resolve.
+                    if (texture === null) {
+                        if (guid !== null && ctx && ctx.currentComponent && ctx.currentField) {
+                            ctx.pendingAssetRefs.push({
+                                component: ctx.currentComponent,
+                                field: ctx.currentField,
+                                guid,
+                                sprite: obj,
+                            });
+                        }
+                        return null;
+                    }
+                    return ValueSerializer._buildSprite(texture, obj);
+                }
                 case "AssetRef": case FieldType.Asset: {
                     const guid = typeof obj.guid === "string" ? obj.guid : null;
                     if (guid === null) return null;
@@ -215,6 +265,27 @@ export class ValueSerializer {
         }
 
         return null;
+    }
+
+    /**
+     * @internal
+     * Rebuilds a Sprite around an already-loaded texture.
+     *
+     * @param texture - the resolved texture asset.
+     * @param json - the serialized sprite payload.
+     */
+    public static _buildSprite(texture: object, json: Record<string, unknown>): Sprite {
+        const r = (json.rect ?? {}) as Record<string, number>;
+        const b = (json.border ?? {}) as Record<string, number>;
+        const p = (json.pivot ?? {}) as Record<string, number>;
+
+        const sprite = new Sprite(
+            texture as ConstructorParameters<typeof Sprite>[0],
+            new Rect(+(r.x ?? 0), +(r.y ?? 0), +(r.width ?? 0), +(r.height ?? 0)),
+        );
+        sprite.border.set(+(b.left ?? 0), +(b.right ?? 0), +(b.top ?? 0), +(b.bottom ?? 0));
+        sprite.pivot.set(+(p.x ?? 0.5), +(p.y ?? 0.5));
+        return sprite;
     }
 
     private constructor() {}

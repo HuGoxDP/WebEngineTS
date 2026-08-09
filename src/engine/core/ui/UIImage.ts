@@ -5,6 +5,8 @@ import { Rect } from "../math/Rect";
 import { TintCache } from "./TintCache";
 import { Sprite } from "../graphics/Sprite";
 import type { Texture2D } from "../graphics/Texture2D";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /** How {@link UIImage.fillAmount} clips the image. */
@@ -100,9 +102,11 @@ const _warnedTextures: Set<number> = new Set();
  * img.borderRadius = 8;
  * ```
  */
+@Serializable({ typeName: "UIImage", category: "UI" })
 export class UIImage extends UIBehaviour {
 
     /** Fill color when no sprite is assigned, or the tint applied to one. */
+    @SerializedField({ type: FieldType.Color })
     public color: Color = Color.white.clone();
 
     private _sprite: Sprite | null = null;
@@ -124,6 +128,7 @@ export class UIImage extends UIBehaviour {
      * materials, where its VRAM saving is the whole point — UI sprites should
      * stay uncompressed PNG/WebP.
      */
+    @SerializedField({ type: FieldType.Sprite })
     public get sprite(): Sprite | null { return this._sprite; }
 
     public set sprite(value: Sprite | Texture2D | null) {
@@ -146,17 +151,21 @@ export class UIImage extends UIBehaviour {
      * {@link ImageType.Sliced} needs the sprite to carry a border; without one
      * it draws as {@link ImageType.Simple}.
      */
+    @SerializedField({ type: FieldType.Enum })
     public type: ImageType = ImageType.Simple;
 
     /**
      * Fill amount (0 = empty, 1 = full), clipped along {@link fillMethod}.
      */
+    @SerializedField()
     public fillAmount: number = 1;
 
     /** Axis the fill is clipped along. */
+    @SerializedField({ type: FieldType.Enum })
     public fillMethod: ImageFillMethod = ImageFillMethod.Horizontal;
 
     /** Edge or corner the fill grows from. */
+    @SerializedField({ type: FieldType.Enum })
     public fillOrigin: ImageFillOrigin = ImageFillOrigin.Left;
 
     /**
@@ -167,9 +176,11 @@ export class UIImage extends UIBehaviour {
      * the same direction the 2D context measures in. Ignored by the linear
      * fill methods.
      */
+    @SerializedField()
     public fillClockwise: boolean = true;
 
     /** Corner radius in canvas units. 0 = sharp corners. */
+    @SerializedField()
     public borderRadius: number = 0;
 
     /**
@@ -177,12 +188,14 @@ export class UIImage extends UIBehaviour {
      *
      * @remarks Equivalent to Unity's `Image.preserveAspect`.
      */
+    @SerializedField()
     public preserveAspect: boolean = false;
 
     /**
      * Whether the sprite is filtered when scaled.
      * Turn off for crisp pixel art.
      */
+    @SerializedField()
     public imageSmoothing: boolean = true;
 
     constructor(gameObject: GameObject) {
