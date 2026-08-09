@@ -4,6 +4,8 @@ import { Behaviour } from "../Behaviour.ts";
 import { Renderer } from "../rendering/Renderer.ts";
 import { Camera } from "./Camera.ts";
 import { Vector3 } from "../math/Vector3.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -11,15 +13,47 @@ import type { GameObject } from "../GameObject.ts";
  *
  * @remarks Equivalent to Unity's `UnityEngine.LOD` struct.
  */
-export interface LOD {
+/**
+ * The shape a level can be given in, so callers may pass plain object literals.
+ *
+ * @remarks
+ * {@link LODGroup.setLODs} normalizes anything of this shape into a {@link LOD},
+ * which is the instance the serializer can read metadata from.
+ */
+export interface LODLevel {
+    screenRelativeTransitionHeight: number;
+    renderers: Renderer[];
+}
+
+@Serializable({ typeName: "LOD", category: "Rendering" })
+export class LOD implements LODLevel {
     /**
      * Screen-relative height (0–1) at or above which this level is active.
      * As the object shrinks on screen below this value, the group switches to
      * the next (lower-detail) level. Highest-detail level has the largest value.
      */
-    screenRelativeTransitionHeight: number;
+    @SerializedField()
+    public screenRelativeTransitionHeight: number = 0;
+
     /** Renderers shown while this level is the active LOD. */
-    renderers: Renderer[];
+    @SerializedField({ type: FieldType.Array, elementType: FieldType.Component })
+    public renderers: Renderer[] = [];
+
+    /**
+     * @param screenRelativeTransitionHeight - activation threshold (0–1).
+     * @param renderers - renderers shown while this level is active.
+     *
+     * @remarks
+     * A class rather than an interface so the serializer can record what it
+     * holds: its `renderers` are component references, which one level of field
+     * metadata on `LODGroup` could not describe. Object literals still satisfy
+     * it structurally, so existing `setLODs([{ ... }])` calls are unaffected —
+     * {@link LODGroup.setLODs} normalizes them into instances.
+     */
+    constructor(screenRelativeTransitionHeight: number = 0, renderers: Renderer[] = []) {
+        this.screenRelativeTransitionHeight = screenRelativeTransitionHeight;
+        this.renderers = renderers;
+    }
 }
 
 /**
@@ -47,6 +81,7 @@ export interface LOD {
  * ]);
  * ```
  */
+@Serializable({ typeName: "LODGroup", category: "Rendering" })
 export class LODGroup extends Behaviour {
 
     // ==================== STATIC REGISTRY ====================
@@ -93,6 +128,7 @@ export class LODGroup extends Behaviour {
      *
      * @remarks Equivalent to Unity's `LODGroup.size`.
      */
+    @SerializedField()
     public size: number = 1;
 
     /** Levels, sorted from highest detail (largest threshold) to lowest. @internal */
@@ -132,15 +168,39 @@ export class LODGroup extends Behaviour {
      *
      * @remarks Equivalent to Unity's `LODGroup.SetLODs`.
      */
-    public setLODs(lods: LOD[]): void {
+    public setLODs(lods: ReadonlyArray<LODLevel>): void {
         this._lods = lods
-            .map(l => ({
-                screenRelativeTransitionHeight: l.screenRelativeTransitionHeight,
-                renderers: [...l.renderers],
-            }))
+            // An object literal is copied into a real level; one that already is
+            // a LOD is kept as-is. Identity matters during a load: a reference
+            // inside it resolves in a later pass, and copying here would leave
+            // that pass writing into a discarded object.
+            // A literal is copied into a real level; one that already is a LOD
+            // is kept as-is. Identity matters during a load: a reference inside
+            // it resolves in a later pass, and copying here would leave that
+            // pass writing into a discarded object.
+            .map(l => (l instanceof LOD
+                ? l
+                : new LOD(l.screenRelativeTransitionHeight, [...l.renderers])))
             .sort((a, b) => b.screenRelativeTransitionHeight - a.screenRelativeTransitionHeight);
         this._currentIndex = -1;
         this._applyVisibility(-1);
+    }
+
+    /**
+     * The configured levels, highest-detail first.
+     *
+     * @remarks
+     * The property form of {@link getLODs} / {@link setLODs}, and what
+     * serialization reads. Both sides copy, so the returned array can be
+     * modified without disturbing the group.
+     */
+    @SerializedField({ type: FieldType.Array })
+    public get lods(): LOD[] {
+        return this.getLODs();
+    }
+
+    public set lods(value: LOD[]) {
+        this.setLODs(value);
     }
 
     /**
@@ -149,10 +209,7 @@ export class LODGroup extends Behaviour {
      * @remarks Equivalent to Unity's `LODGroup.GetLODs`.
      */
     public getLODs(): LOD[] {
-        return this._lods.map(l => ({
-            screenRelativeTransitionHeight: l.screenRelativeTransitionHeight,
-            renderers: [...l.renderers],
-        }));
+        return this._lods.map(l => new LOD(l.screenRelativeTransitionHeight, [...l.renderers]));
     }
 
     /**
@@ -162,7 +219,7 @@ export class LODGroup extends Behaviour {
      * @param renderers — renderers shown while this level is active.
      */
     public addLOD(screenRelativeTransitionHeight: number, renderers: Renderer[]): void {
-        this.setLODs([...this._lods, { screenRelativeTransitionHeight, renderers }]);
+        this.setLODs([...this._lods, new LOD(screenRelativeTransitionHeight, renderers)]);
     }
 
     /**

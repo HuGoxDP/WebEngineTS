@@ -116,6 +116,7 @@ export class SceneSerializer {
                 currentComponent: null,
                 currentField: null,
                 currentArrayIndex: null,
+                buildNested: (type, fields) => SceneSerializer._buildNested(type, fields, ctx),
             };
             SceneSerializer._materializeAssets(json.assets, ctx);
             const roots = json.roots.map(r => SceneSerializer._deserializeGO(r, ctx));
@@ -155,6 +156,7 @@ export class SceneSerializer {
                 currentComponent: null,
                 currentField: null,
                 currentArrayIndex: null,
+                buildNested: (type, fields) => SceneSerializer._buildNested(type, fields, ctx),
             };
             SceneSerializer._materializeAssets(json.assets, ctx);
             const root = SceneSerializer._deserializeGO(json, ctx);
@@ -197,6 +199,19 @@ export class SceneSerializer {
                     if (TypeRegistry.getTypeName(candidate) === name) index++;
                 }
                 return 0;
+            },
+            nestedValue: (value) => {
+                const typeName = TypeRegistry.getTypeName(value);
+                if (typeName === null) return null;
+
+                const fields: Record<string, unknown> = {};
+                for (const f of getAllFields(value.constructor as any)) {
+                    if (!f.serialize) continue;
+                    fields[f.name] = ValueSerializer.serialize(
+                        (value as any)[f.name], f.type, ctxRef.value!, f.elementType,
+                    );
+                }
+                return { type: typeName, fields };
             },
             inlineAsset: (asset) => {
                 const already = inlined.get(asset);
@@ -271,6 +286,47 @@ export class SceneSerializer {
     }
 
     // ==================== PRIVATE — DESERIALIZE ====================
+
+    /**
+     * Rebuilds a nested serializable value from its type and fields.
+     *
+     * @remarks
+     * References inside it defer exactly as they do inside a component: the
+     * pending record points at *this* object, so the second pass fills it in
+     * once the scene exists.
+     */
+    private static _buildNested(
+        type: string,
+        fields: Record<string, unknown>,
+        ctx: DeserializeContext,
+    ): object | null {
+        const ctor = TypeRegistry.get(type);
+        if (!ctor) {
+            console.warn(`[SceneSerializer] Unknown nested type "${type}" — skipped`);
+            return null;
+        }
+
+        const value = new ctor() as object;
+        const outerComponent = ctx.currentComponent;
+        const outerField = ctx.currentField;
+        const outerIndex = ctx.currentArrayIndex;
+
+        for (const f of getAllFields(ctor)) {
+            if (!f.serialize) continue;
+            if (!(f.name in fields)) continue;
+
+            ctx.currentComponent = value;
+            ctx.currentField = f.name;
+            ctx.currentArrayIndex = null;
+            const decoded = ValueSerializer.deserialize(fields[f.name], f.type, ctx, f.elementType);
+            SceneSerializer._assign(value, f.name, decoded);
+        }
+
+        ctx.currentComponent = outerComponent;
+        ctx.currentField = outerField;
+        ctx.currentArrayIndex = outerIndex;
+        return value;
+    }
 
     /**
      * Rebuilds the assets a snapshot carries inside itself, before any component

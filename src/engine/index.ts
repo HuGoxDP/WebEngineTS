@@ -180,7 +180,7 @@ export { DirectionalLight } from "./core/components/DirectionalLight";
 export { PointLight } from "./core/components/PointLight";
 export { SpotLight } from "./core/components/SpotLight";
 export { AmbientLight } from "./core/components/AmbientLight";
-export { LODGroup, type LOD } from "./core/components/LODGroup";
+export { LODGroup, LOD, type LODLevel } from "./core/components/LODGroup";
 
 // =====================
 // CINEMACHINE

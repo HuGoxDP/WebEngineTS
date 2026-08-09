@@ -42,6 +42,18 @@ export interface SerializeContext {
      */
     inlineAsset(asset: object): string | null;
     /**
+     * Encodes a value whose class is `@Serializable` but which is neither a
+     * component nor an asset — a nested struct that lives inside its owner.
+     *
+     * @remarks
+     * Unity's `[System.Serializable]`. It is what lets a field hold a shape the
+     * one-level field metadata cannot describe, such as `LODGroup`'s levels:
+     * an array of structs each holding an array of references. Returns null
+     * when the class is not registered, so the plain-object fallback still
+     * applies to ordinary data.
+     */
+    nestedValue(value: object): { type: string; fields: Record<string, unknown> } | null;
+    /**
      * Assets written by {@link inlineAsset}, in the order they were first seen.
      * The entry points attach this to the snapshot they return.
      */
@@ -96,6 +108,11 @@ export interface DeserializeContext {
     currentComponent: object | null;
     /** Current field name being deserialized — populated by SceneSerializer. */
     currentField: string | null;
+    /**
+     * Rebuilds a nested serializable value. The counterpart of
+     * {@link SerializeContext.nestedValue}; null when the class is unknown.
+     */
+    buildNested(type: string, fields: Record<string, unknown>): object | null;
     /**
      * Index within the array currently being deserialized, or null outside one.
      *
@@ -251,6 +268,14 @@ export class ValueSerializer {
             }
         }
 
+        // A registered class that is neither component nor asset: a nested
+        // struct, stored with its type so it comes back as itself rather than
+        // as a bag of keys.
+        if (ctx) {
+            const nested = ctx.nestedValue(value as object);
+            if (nested) return { $type: "Nested", type: nested.type, fields: nested.fields };
+        }
+
         // Fallback: plain object
         if (typeof value === "object") {
             const out: Record<string, unknown> = {};
@@ -373,6 +398,13 @@ export class ValueSerializer {
                         });
                     }
                     return null;
+                }
+                case "Nested": {
+                    if (!ctx) return null;
+                    return ctx.buildNested(
+                        String(obj.type ?? ""),
+                        (obj.fields ?? {}) as Record<string, unknown>,
+                    );
                 }
                 case "GameObjectRef":
                     // Defer until the second pass — we only have a path right now.

@@ -51,6 +51,7 @@ import { InputField, InputFieldContentType } from "../src/engine/core/ui/InputFi
 import { VirtualJoystick } from "../src/engine/core/ui/VirtualJoystick";
 import { ToggleGroup } from "../src/engine/core/ui/ToggleGroup";
 import { SpriteRenderer } from "../src/engine/core/components/SpriteRenderer";
+import { LODGroup, LOD } from "../src/engine/core/components/LODGroup";
 import {
     LineRenderer, LineAlignment, LineTextureMode,
 } from "../src/engine/core/components/LineRenderer";
@@ -2193,6 +2194,90 @@ describe("SceneSerializer — component references", () => {
         const field = json.components.find(c => c.type === "Test.UntypedRef")!.fields.anything;
 
         expect((field as any).$type).toBe("GameObjectRef");
+    });
+
+    test("a LODGroup round-trips its levels and their renderers", () => {
+        const root = new GameObject("Rock");
+        const group = root.addComponent(LODGroup);
+        group.size = 3;
+
+        const made: SpriteRenderer[] = [];
+        for (const name of ["High", "Mid", "Low"]) {
+            const child = new GameObject(name);
+            child.transform.parent = root.transform;
+            made.push(child.addComponent(SpriteRenderer));
+        }
+        group.setLODs([
+            { screenRelativeTransitionHeight: 0.5, renderers: [made[0]] },
+            { screenRelativeTransitionHeight: 0.2, renderers: [made[1]] },
+            { screenRelativeTransitionHeight: 0.05, renderers: [made[2]] },
+        ]);
+
+        const back = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(root),
+        );
+        const backGroup = back.getComponent(LODGroup)!;
+        const backLods = backGroup.getLODs();
+
+        expect(backGroup.size).toBe(3);
+        expect(backLods.length).toBe(3);
+        expect(backLods[0].screenRelativeTransitionHeight).toBeCloseTo(0.5);
+        expect(backLods[2].screenRelativeTransitionHeight).toBeCloseTo(0.05);
+
+        // The renderers point at the rebuilt children, not the originals.
+        for (let i = 0; i < 3; i++) {
+            const child = back.transform.getChild(i).gameObject.getComponent(SpriteRenderer);
+            expect(backLods[i].renderers[0]).toBe(child);
+            expect(backLods[i].renderers[0]).not.toBe(made[i]);
+        }
+    });
+
+    test("a level with several renderers keeps all of them, in order", () => {
+        const root = new GameObject("Rock");
+        const group = root.addComponent(LODGroup);
+
+        const made: SpriteRenderer[] = [];
+        for (const name of ["A", "B"]) {
+            const child = new GameObject(name);
+            child.transform.parent = root.transform;
+            made.push(child.addComponent(SpriteRenderer));
+        }
+        group.setLODs([{ screenRelativeTransitionHeight: 0.4, renderers: made }]);
+
+        const back = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(root),
+        );
+        const renderers = back.getComponent(LODGroup)!.getLODs()[0].renderers;
+
+        expect(renderers.length).toBe(2);
+        expect(renderers[0])
+            .toBe(back.transform.getChild(0).gameObject.getComponent(SpriteRenderer));
+        expect(renderers[1])
+            .toBe(back.transform.getChild(1).gameObject.getComponent(SpriteRenderer));
+    });
+
+    test("a level is stored as a typed nested value, not a bag of keys", () => {
+        const root = new GameObject("Rock");
+        root.addComponent(LODGroup).setLODs([
+            { screenRelativeTransitionHeight: 0.5, renderers: [] },
+        ]);
+
+        const json = SceneSerializer.serializeGameObject(root);
+        const lods = json.components.find(c => c.type === "LODGroup")!.fields.lods as any[];
+
+        expect(lods[0].$type).toBe("Nested");
+        expect(lods[0].type).toBe("LOD");
+        expect(lods[0].fields.screenRelativeTransitionHeight).toBeCloseTo(0.5);
+    });
+
+    test("setLODs normalizes object literals into real levels", () => {
+        const group = new GameObject("Rock").addComponent(LODGroup);
+
+        group.setLODs([{ screenRelativeTransitionHeight: 0.5, renderers: [] }]);
+
+        // A literal is structurally a LOD but not an instance of one, and only
+        // an instance carries the metadata the serializer reads.
+        expect(group.getLODs()[0]).toBeInstanceOf(LOD);
     });
 
     test("a whole scene keeps references that cross between roots", () => {

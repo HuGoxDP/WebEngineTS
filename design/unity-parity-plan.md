@@ -478,12 +478,29 @@ and asset references between them, and `@ExecutionOrder` on top.
   a `Component` also has. An undeclared component-typed field was therefore written out as a
   *null GameObject reference*. It now asks the context which kind of object it is holding.
 
-**`LODGroup` still cannot be finished, and the previous note calling that "small" was
-wrong.** Its levels are `{ screenRelativeTransitionHeight, renderers: Renderer[] }` — an
-array of *structs*, each containing an array of references. Field metadata is one level deep
-(`type` plus `elementType`), so it cannot describe that shape. Closing it needs either a
-nested type description in the reflection model or a bespoke encoder for the one component.
-That is a design decision, not a mechanical extension, and it is the honest place to stop.
+**`LODGroup` closed 2026-08-05, by taking Unity's answer to the same problem.** Its levels
+are `{ screenRelativeTransitionHeight, renderers: Renderer[] }` — an array of *structs* each
+holding an array of references, which one level of field metadata cannot describe. Unity
+solves this with `[System.Serializable]` on the struct: the nested type carries its **own**
+field metadata, so nothing has to describe it from outside.
+
+`LOD` is therefore a `@Serializable` **class** rather than an interface, and the serializer
+gained **nested serializable values** (`$type: "Nested"`): a registered class that is neither
+a component nor an asset is stored with its type and its own fields. That generalizes — any
+settings struct holding references can now serialize — rather than special-casing one
+component.
+
+Two consequences worth recording:
+- **`setLODs` now keeps a level that is already a `LOD`** instead of copying it. References
+  inside it resolve in a later pass, and copying would have left that pass writing into a
+  discarded object. Object literals are still normalized, so existing callers are unaffected
+  — `LODLevel` is the shape they satisfy.
+- **A structurally identical class makes `instanceof` narrowing useless.** With the parameter
+  typed as `LOD[]`, TypeScript decided every element already was one and narrowed the other
+  branch to `never`. Typing it by shape (`LODLevel`) is what makes the check mean anything.
+
+**Stage 1 is complete.** Every built-in component round-trips, with GameObject, component,
+array-of-component and asset references between them.
 
 Stage 3 changes the *storage* of the inline table rather than the mechanism: once a material
 is a file with an id, it moves out of the scene and becomes an ordinary reference. Nothing
