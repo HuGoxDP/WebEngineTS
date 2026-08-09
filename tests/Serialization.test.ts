@@ -1011,6 +1011,19 @@ class AssetHolder extends Behaviour {
     public asset: object | null = null;
 }
 
+@Serializable({ typeName: "Test.ImageList" })
+class ImageListHolder extends Behaviour {
+    @SerializedField({ type: FieldType.Array, elementType: FieldType.Component })
+    public images: UIImage[] = [];
+}
+
+@Serializable({ typeName: "Test.UntypedRef" })
+class UntypedRefHolder extends Behaviour {
+    /** Deliberately undeclared: the serializer has to work out what it holds. */
+    @SerializedField()
+    public anything: object | null = null;
+}
+
 describe("AssetDatabase", () => {
     beforeEach(() => {
         destroyScene();
@@ -2123,6 +2136,63 @@ describe("SceneSerializer — component references", () => {
         const json = SceneSerializer.serializeGameObject(root);
 
         expect(json.components.find(c => c.type === "Button")!.fields.targetGraphic).toBeNull();
+    });
+
+    test("an array of component references round-trips", () => {
+        const root = new GameObject("Panel");
+        const holder = root.addComponent(ImageListHolder);
+
+        for (const name of ["A", "B", "C"]) {
+            const child = new GameObject(name);
+            child.transform.parent = root.transform;
+            holder.images.push(child.addComponent(UIImage));
+        }
+
+        const back = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(root),
+        );
+        const backHolder = back.getComponent(ImageListHolder)!;
+
+        expect(backHolder.images.length).toBe(3);
+        for (let i = 0; i < 3; i++) {
+            expect(backHolder.images[i])
+                .toBe(back.transform.getChild(i).gameObject.getComponent(UIImage));
+        }
+    });
+
+    test("an untyped component field is a reference, not a null GameObject", () => {
+        const root = new GameObject("Panel");
+        const holder = root.addComponent(UntypedRefHolder);
+
+        const child = new GameObject("Child");
+        child.transform.parent = root.transform;
+        holder.anything = child.addComponent(UIImage);
+
+        const json = SceneSerializer.serializeGameObject(root);
+        const field = json.components.find(c => c.type === "Test.UntypedRef")!.fields.anything;
+
+        // A Component has `.transform` and `.getInstanceID` just as a GameObject
+        // does, so a duck-typed check used to write this out as a null
+        // GameObject reference.
+        expect((field as any).$type).toBe("ComponentRef");
+
+        const back = SceneSerializer.deserializeGameObject(json);
+        expect(back.getComponent(UntypedRefHolder)!.anything)
+            .toBe(back.transform.getChild(0).gameObject.getComponent(UIImage));
+    });
+
+    test("an untyped GameObject field still resolves as one", () => {
+        const root = new GameObject("Panel");
+        const holder = root.addComponent(UntypedRefHolder);
+
+        const child = new GameObject("Child");
+        child.transform.parent = root.transform;
+        holder.anything = child;
+
+        const json = SceneSerializer.serializeGameObject(root);
+        const field = json.components.find(c => c.type === "Test.UntypedRef")!.fields.anything;
+
+        expect((field as any).$type).toBe("GameObjectRef");
     });
 
     test("a whole scene keeps references that cross between roots", () => {

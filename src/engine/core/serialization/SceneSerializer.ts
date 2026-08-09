@@ -115,6 +115,7 @@ export class SceneSerializer {
                 pendingAssetRefs: [],
                 currentComponent: null,
                 currentField: null,
+                currentArrayIndex: null,
             };
             SceneSerializer._materializeAssets(json.assets, ctx);
             const roots = json.roots.map(r => SceneSerializer._deserializeGO(r, ctx));
@@ -153,6 +154,7 @@ export class SceneSerializer {
                 pendingAssetRefs: [],
                 currentComponent: null,
                 currentField: null,
+                currentArrayIndex: null,
             };
             SceneSerializer._materializeAssets(json.assets, ctx);
             const root = SceneSerializer._deserializeGO(json, ctx);
@@ -215,7 +217,7 @@ export class SceneSerializer {
                 for (const f of getAllFields(asset.constructor as any)) {
                     if (!f.serialize) continue;
                     fields[f.name] = ValueSerializer.serialize(
-                        (asset as any)[f.name], f.type, ctxRef.value!,
+                        (asset as any)[f.name], f.type, ctxRef.value!, f.elementType,
                     );
                 }
                 return guid;
@@ -259,7 +261,9 @@ export class SceneSerializer {
             const fields: Record<string, unknown> = {};
             for (const f of getAllFields(comp.constructor as any)) {
                 if (!f.serialize) continue;
-                fields[f.name] = ValueSerializer.serialize((comp as any)[f.name], f.type, ctx);
+                fields[f.name] = ValueSerializer.serialize(
+                    (comp as any)[f.name], f.type, ctx, f.elementType,
+                );
             }
             out.push({ type: typeName, fields });
         }
@@ -298,7 +302,9 @@ export class SceneSerializer {
 
                 ctx.currentComponent = asset;
                 ctx.currentField = f.name;
-                const value = ValueSerializer.deserialize(entry.fields[f.name], f.type, ctx);
+                const value = ValueSerializer.deserialize(
+                    entry.fields[f.name], f.type, ctx, f.elementType,
+                );
                 ctx.currentComponent = null;
                 ctx.currentField = null;
                 SceneSerializer._assign(asset, f.name, value);
@@ -348,7 +354,9 @@ export class SceneSerializer {
             if (!(f.name in json.fields)) continue;
             ctx.currentComponent = comp;
             ctx.currentField = f.name;
-            const value = ValueSerializer.deserialize(json.fields[f.name], f.type, ctx);
+            const value = ValueSerializer.deserialize(
+                json.fields[f.name], f.type, ctx, f.elementType,
+            );
             ctx.currentComponent = null;
             ctx.currentField = null;
             SceneSerializer._assign(comp, f.name, value);
@@ -469,7 +477,7 @@ export class SceneSerializer {
     private static _resolveRefs(ctx: DeserializeContext, roots: ReadonlyArray<GameObject>): void {
         for (const ref of ctx.pendingGORefs) {
             const target = SceneSerializer._lookupByPath(roots, ref.path);
-            (ref.component as any)[ref.field] = target;
+            SceneSerializer._writeRef(ref.component, ref.field, ref.arrayIndex, target);
         }
 
         for (const ref of ctx.pendingComponentRefs) {
@@ -477,10 +485,33 @@ export class SceneSerializer {
             const target = owner === null
                 ? null
                 : SceneSerializer._findComponent(owner, ref.typeName, ref.index);
-            SceneSerializer._assign(ref.component, ref.field, target);
+            SceneSerializer._writeRef(ref.component, ref.field, ref.arrayIndex, target);
         }
 
         SceneSerializer._pending = ctx.pendingAssetRefs.slice();
+    }
+
+    /**
+     * Writes a resolved reference either over the field or into its array slot.
+     *
+     * @param owner - the component holding the field.
+     * @param field - the field name.
+     * @param arrayIndex - slot when the field is an array, null when it is not.
+     * @param value - the resolved reference.
+     */
+    private static _writeRef(
+        owner: object,
+        field: string,
+        arrayIndex: number | null,
+        value: unknown,
+    ): void {
+        if (arrayIndex === null) {
+            SceneSerializer._assign(owner, field, value);
+            return;
+        }
+
+        const list = (owner as any)[field];
+        if (Array.isArray(list)) list[arrayIndex] = value;
     }
 
     /** The `index`-th component of `typeName` on `go`, or null. */

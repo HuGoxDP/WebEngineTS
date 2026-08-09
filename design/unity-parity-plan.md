@@ -466,9 +466,24 @@ reference when the thing behind it is a file, and a value when it is not.
 `MeshFilter`, `MeshRenderer`, `SpriteRenderer`, `LineRenderer` — with GameObject, component
 and asset references between them, and `@ExecutionOrder` on top.
 
-`LODGroup` is the one component still open: its levels hold **arrays of renderer
-references**, and the component-reference support added here is single-valued. Extending it
-to arrays is small, and is the natural next task.
+**Arrays of references landed 2026-08-05**, along with two fixes the work exposed:
+
+- **`elementType` did nothing for compound elements.** The array branch dropped the declared
+  type, so an array of component references serialized as a list of nulls. It is now passed
+  down on both sides.
+- **A reference inside an array has to be written into its slot**, not over the field.
+  Resolution is deferred, so every element resolved to the same field and the array collapsed
+  to whichever one finished last. Both `GameObjectRef` and `ComponentRef` now carry the index.
+- **The untyped fallback duck-typed a GameObject on `.transform` + `.getInstanceID`** — which
+  a `Component` also has. An undeclared component-typed field was therefore written out as a
+  *null GameObject reference*. It now asks the context which kind of object it is holding.
+
+**`LODGroup` still cannot be finished, and the previous note calling that "small" was
+wrong.** Its levels are `{ screenRelativeTransitionHeight, renderers: Renderer[] }` — an
+array of *structs*, each containing an array of references. Field metadata is one level deep
+(`type` plus `elementType`), so it cannot describe that shape. Closing it needs either a
+nested type description in the reflection model or a bespoke encoder for the one component.
+That is a design decision, not a mechanical extension, and it is the honest place to stop.
 
 Stage 3 changes the *storage* of the inline table rather than the mechanism: once a material
 is a file with an id, it moves out of the scene and becomes an ordinary reference. Nothing

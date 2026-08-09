@@ -60,7 +60,13 @@ export interface DeserializeContext {
      * re-created the SceneSerializer walks this list and assigns the
      * resolved `GameObject | null` to `(component as any)[field]`.
      */
-    pendingGORefs: Array<{ component: object; field: string; path: number[] }>;
+    pendingGORefs: Array<{
+        component: object;
+        field: string;
+        path: number[];
+        /** Slot to write into when the field is an array; null when it is not. */
+        arrayIndex: number | null;
+    }>;
     /**
      * Component references collected during deserialize, resolved in the same
      * deferred pass as {@link pendingGORefs} once every GameObject exists.
@@ -71,6 +77,8 @@ export interface DeserializeContext {
         path: number[];
         typeName: string;
         index: number;
+        /** Slot to write into when the field is an array; null when it is not. */
+        arrayIndex: number | null;
     }>;
     /**
      * Asset references whose asset was not loaded when the scene was rebuilt.
@@ -88,6 +96,16 @@ export interface DeserializeContext {
     currentComponent: object | null;
     /** Current field name being deserialized — populated by SceneSerializer. */
     currentField: string | null;
+    /**
+     * Index within the array currently being deserialized, or null outside one.
+     *
+     * @remarks
+     * A reference inside an array resolves in the same deferred pass as any
+     * other, but has to be written into its slot rather than over the whole
+     * field — without this, an array of references collapsed to whichever
+     * element resolved last.
+     */
+    currentArrayIndex: number | null;
 }
 
 /**
@@ -109,7 +127,12 @@ export class ValueSerializer {
      * @param type Optional explicit type hint for compound types.
      * @param ctx Optional shared context for cross-object references.
      */
-    public static serialize(value: unknown, type?: FieldType, ctx?: SerializeContext): unknown {
+    public static serialize(
+        value: unknown,
+        type?: FieldType,
+        ctx?: SerializeContext,
+        elementType?: FieldType,
+    ): unknown {
         if (value === null || value === undefined) return null;
 
         // Primitives
@@ -117,9 +140,11 @@ export class ValueSerializer {
             return value;
         }
 
-        // Arrays
+        // Arrays. The declared element type is passed down, which is what makes
+        // `elementType` mean anything for a compound element — without it an
+        // array of component references serialized as a list of nulls.
         if (Array.isArray(value)) {
-            return value.map(v => ValueSerializer.serialize(v, undefined, ctx));
+            return value.map(v => ValueSerializer.serialize(v, elementType, ctx));
         }
 
         // Compound engine types (detected either by hint or instanceof)
@@ -200,21 +225,7 @@ export class ValueSerializer {
         // first one silently.
         if (ctx && type === FieldType.Component && typeof value === "object") {
             const owner = (value as { gameObject?: GameObject }).gameObject;
-            if (!owner) return null;
-
-            const path = ctx.goToPath.get(owner);
-            const typeName = ctx.componentTypeName(value as object);
-            // A reference out of the saved subtree, or to a class no registry
-            // knows, cannot be rebuilt — nulled rather than written as a
-            // half-reference that fails later.
-            if (!path || typeName === null) return null;
-
-            return {
-                $type: "ComponentRef",
-                path,
-                component: typeName,
-                index: ctx.componentIndex(owner, value as object),
-            };
+            return owner ? ValueSerializer._componentRef(value as object, owner, ctx) : null;
         }
 
         // GameObject reference — needs scene context to compute a path.
@@ -227,10 +238,17 @@ export class ValueSerializer {
             // Reference points to a GO that isn't part of the saved scene — null it.
             return null;
         }
-        if (ctx && typeof value === "object" && (value as any).transform && typeof (value as any).getInstanceID === "function") {
-            const path = ctx.goToPath.get(value as GameObject);
-            if (path) return { $type: "GameObjectRef", path };
-            return null;
+        // An untyped object that is plainly a scene reference. Checked against
+        // the context rather than duck-typed on `.transform`: a Component has
+        // one too, and used to be written out as a null GameObject reference.
+        if (ctx && typeof value === "object") {
+            const asGameObject = ctx.goToPath.get(value as GameObject);
+            if (asGameObject) return { $type: "GameObjectRef", path: asGameObject };
+
+            const owner = (value as { gameObject?: GameObject }).gameObject;
+            if (owner && ctx.goToPath.has(owner)) {
+                return ValueSerializer._componentRef(value as object, owner, ctx);
+            }
         }
 
         // Fallback: plain object
@@ -250,7 +268,12 @@ export class ValueSerializer {
      * Type information comes either from an explicit `type` hint or
      * from the `$type` marker embedded in the JSON itself.
      */
-    public static deserialize(json: unknown, type?: FieldType, ctx?: DeserializeContext): unknown {
+    public static deserialize(
+        json: unknown,
+        type?: FieldType,
+        ctx?: DeserializeContext,
+        elementType?: FieldType,
+    ): unknown {
         if (json === null || json === undefined) return null;
 
         // Primitives
@@ -260,7 +283,12 @@ export class ValueSerializer {
 
         // Arrays
         if (Array.isArray(json)) {
-            return json.map(v => ValueSerializer.deserialize(v, undefined, ctx));
+            const out = json.map((v, i) => {
+                if (ctx) ctx.currentArrayIndex = i;
+                return ValueSerializer.deserialize(v, elementType, ctx);
+            });
+            if (ctx) ctx.currentArrayIndex = null;
+            return out;
         }
 
         // Tagged compound objects
@@ -341,6 +369,7 @@ export class ValueSerializer {
                             path: (obj.path as number[]).slice(),
                             typeName: String(obj.component ?? ""),
                             index: Number(obj.index ?? 0),
+                            arrayIndex: ctx.currentArrayIndex,
                         });
                     }
                     return null;
@@ -352,6 +381,7 @@ export class ValueSerializer {
                             component: ctx.currentComponent,
                             field: ctx.currentField,
                             path: (obj.path as number[]).slice(),
+                            arrayIndex: ctx.currentArrayIndex,
                         });
                     }
                     return null;
@@ -388,6 +418,30 @@ export class ValueSerializer {
         sprite.border.set(+(b.left ?? 0), +(b.right ?? 0), +(b.top ?? 0), +(b.bottom ?? 0));
         sprite.pivot.set(+(p.x ?? 0.5), +(p.y ?? 0.5));
         return sprite;
+    }
+
+    /**
+     * Encodes one component reference, or null when it cannot be rebuilt.
+     *
+     * @remarks
+     * A reference out of the saved subtree, or to a class no registry knows, is
+     * nulled rather than written as a half-reference that fails on load.
+     */
+    private static _componentRef(
+        component: object,
+        owner: GameObject,
+        ctx: SerializeContext,
+    ): unknown {
+        const path = ctx.goToPath.get(owner);
+        const typeName = ctx.componentTypeName(component);
+        if (!path || typeName === null) return null;
+
+        return {
+            $type: "ComponentRef",
+            path,
+            component: typeName,
+            index: ctx.componentIndex(owner, component),
+        };
     }
 
     private constructor() {}
