@@ -9,6 +9,8 @@ import { Vector3 } from "../math/Vector3";
 import { Camera } from "../components/Camera";
 import { profilerHooks } from "../diagnostics/ProfilerHooks";
 import { HASH_SEED, hashBool, hashNumber } from "./UIUtils";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 import type { Transform } from "../Transform";
 
@@ -119,6 +121,7 @@ const UI_BEHAVIOUR_TYPE = UIBehaviour as unknown as new (...args: never[]) => UI
  * {@link CanvasRepaintMode.OnDemand} — a static HUD costs one repaint, not one
  * per frame.
  */
+@Serializable({ typeName: "Canvas", category: "UI" })
 export class Canvas extends Behaviour {
 
     private static _instances: Canvas[] = [];
@@ -268,6 +271,7 @@ export class Canvas extends Behaviour {
     // ── properties ───────────────────────────────────────────────────
 
     /** How the canvas is rendered relative to the scene. */
+    @SerializedField({ type: FieldType.Enum })
     public get renderMode(): CanvasRenderMode { return this._renderMode; }
 
     public set renderMode(value: CanvasRenderMode) {
@@ -289,6 +293,7 @@ export class Canvas extends Behaviour {
      * screen in overlay mode. Multiply by {@link worldScale} for the size in
      * world units. Ignored in overlay mode, where the screen supplies the size.
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public get worldSize(): Vector2 { return this._worldSize; }
 
     /**
@@ -300,6 +305,7 @@ export class Canvas extends Behaviour {
      * a 2×1 world-unit panel rather than a 200-unit wall. Only meaningful while
      * {@link distanceScaling} is on — with it off, size is in CSS pixels.
      */
+    @SerializedField()
     public get worldScale(): number { return this._worldScale; }
 
     public set worldScale(value: number) {
@@ -317,6 +323,7 @@ export class Canvas extends Behaviour {
      * points down, `(0.5, 1)` puts the panel's **bottom** edge on the anchor,
      * which is how a callout floats above the thing it labels.
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public get worldPivot(): Vector2 { return this._worldPivot; }
 
     /**
@@ -329,6 +336,7 @@ export class Canvas extends Behaviour {
      * behaviour, which is what keeps a callout legible on a model the user can
      * zoom away from. One canvas unit is then one CSS pixel.
      */
+    @SerializedField()
     public get distanceScaling(): boolean { return this._distanceScaling; }
 
     public set distanceScaling(value: boolean) {
@@ -373,6 +381,7 @@ export class Canvas extends Behaviour {
     public get isRenderable(): boolean { return this._projected; }
 
     /** When the 2D surface is rebuilt. */
+    @SerializedField({ type: FieldType.Enum })
     public get repaintMode(): CanvasRepaintMode { return this._repaintMode; }
 
     public set repaintMode(value: CanvasRepaintMode) {
@@ -401,6 +410,7 @@ export class Canvas extends Behaviour {
      * Turn it off if a custom {@link UIBehaviour} paints outside its rect
      * without reporting how far — the symptom is stale pixels left behind.
      */
+    @SerializedField()
     public get partialRepaint(): boolean { return this._partialRepaint; }
 
     public set partialRepaint(value: boolean) {
@@ -424,6 +434,7 @@ export class Canvas extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Canvas.sortingOrder`.
      */
+    @SerializedField()
     public get sortingOrder(): number { return this._sortingOrder; }
 
     public set sortingOrder(value: number) {
@@ -440,6 +451,7 @@ export class Canvas extends Behaviour {
      * Equivalent to a Unity `CanvasGroup.alpha` on the canvas root — the cheap
      * way to fade a whole HUD in or out.
      */
+    @SerializedField()
     public get alpha(): number { return this._alpha; }
 
     public set alpha(value: number) {

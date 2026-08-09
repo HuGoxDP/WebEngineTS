@@ -1,5 +1,7 @@
 import { Behaviour } from "../Behaviour";
 import type { Toggle } from "./Toggle";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -15,6 +17,7 @@ import type { GameObject } from "../GameObject";
  * for (const answer of answers) answer.group = group;
  * ```
  */
+@Serializable({ typeName: "ToggleGroup", category: "UI" })
 export class ToggleGroup extends Behaviour {
 
     /**
@@ -25,6 +28,7 @@ export class ToggleGroup extends Behaviour {
      * the group always has one. Setting it while nothing is on does not force a
      * selection; it only constrains future clicks.
      */
+    @SerializedField()
     public allowSwitchOff: boolean = false;
 
     private readonly _members: Set<Toggle> = new Set();

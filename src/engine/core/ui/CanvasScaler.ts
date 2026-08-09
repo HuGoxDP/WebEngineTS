@@ -1,6 +1,8 @@
 import { Behaviour } from "../Behaviour";
 import { Vector2 } from "../math/Vector2";
 import { Mathf } from "../math/Mathf";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -70,15 +72,18 @@ const CSS_DPI = 96;
  * scaler.matchWidthOrHeight = 0.5;   // balance width and height
  * ```
  */
+@Serializable({ typeName: "CanvasScaler", category: "UI" })
 export class CanvasScaler extends Behaviour {
 
     /** Scaling strategy. */
+    @SerializedField({ type: FieldType.Enum })
     public uiScaleMode: CanvasScaleMode = CanvasScaleMode.ConstantPixelSize;
 
     /**
      * Extra multiplier applied in {@link CanvasScaleMode.ConstantPixelSize} mode.
      * @default 1
      */
+    @SerializedField()
     public scaleFactor: number = 1;
 
     /**
@@ -86,9 +91,11 @@ export class CanvasScaler extends Behaviour {
      * {@link CanvasScaleMode.ScaleWithScreenSize}.
      * @default (800, 600)
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public referenceResolution: Vector2 = new Vector2(800, 600);
 
     /** How a mismatched screen aspect ratio is resolved. */
+    @SerializedField({ type: FieldType.Enum })
     public screenMatchMode: ScreenMatchMode = ScreenMatchMode.MatchWidthOrHeight;
 
     /**
@@ -96,15 +103,18 @@ export class CanvasScaler extends Behaviour {
      * Only used by {@link ScreenMatchMode.MatchWidthOrHeight}.
      * @default 0
      */
+    @SerializedField()
     public matchWidthOrHeight: number = 0;
 
     /** Physical unit one canvas unit represents in ConstantPhysicalSize mode. */
+    @SerializedField({ type: FieldType.Enum })
     public physicalUnit: CanvasPhysicalUnit = CanvasPhysicalUnit.Points;
 
     /**
      * Screen DPI assumed when the browser reports none.
      * @default 96
      */
+    @SerializedField()
     public fallbackScreenDPI: number = 96;
 
     constructor(gameObject: GameObject) {

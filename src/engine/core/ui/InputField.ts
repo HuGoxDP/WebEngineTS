@@ -9,6 +9,8 @@ import {
 } from "./UIUtils";
 import type { PointerEventData } from "./PointerEventData";
 import type { Rect } from "../math/Rect";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /** What an {@link InputField} accepts, and how it presents what it holds. */
@@ -61,6 +63,7 @@ const MOBILE_MIN_FONT_PX = 16;
  * holds focus the EventSystem stops using the arrows, Enter and Space for
  * navigation; Tab and Escape still move focus out.
  */
+@Serializable({ typeName: "InputField", category: "UI" })
 export class InputField extends Selectable {
 
     /** Raised whenever the text changes, with the new value. */
@@ -73,45 +76,59 @@ export class InputField extends Selectable {
     public readonly onEndEdit: UIEvent<string> = new UIEvent<string>();
 
     /** Text shown, greyed, while the field is empty. */
+    @SerializedField()
     public placeholder: string = "";
 
     /** Maximum number of characters, or `0` for no limit. */
+    @SerializedField()
     public characterLimit: number = 0;
 
     /** Whether the field shows its value but refuses edits. */
+    @SerializedField()
     public readOnly: boolean = false;
 
     /** Font size in canvas units. */
+    @SerializedField()
     public fontSize: number = 16;
 
     /** CSS font family. */
+    @SerializedField()
     public fontFamily: string = "sans-serif";
 
     /** Space between the field's edges and its text, in canvas units. */
+    @SerializedField()
     public padding: number = 8;
 
     /** Corner radius of the background, in canvas units. */
+    @SerializedField()
     public borderRadius: number = 4;
 
     /** Background fill. */
+    @SerializedField({ type: FieldType.Color })
     public backgroundColor: Color = new Color(1, 1, 1, 0.08);
 
     /** Border stroke. */
+    @SerializedField({ type: FieldType.Color })
     public borderColor: Color = new Color(1, 1, 1, 0.35);
 
     /** Border stroke while the field holds focus. */
+    @SerializedField({ type: FieldType.Color })
     public focusedBorderColor: Color = new Color(0.35, 0.65, 1, 1);
 
     /** Colour of the value. */
+    @SerializedField({ type: FieldType.Color })
     public textColor: Color = new Color(1, 1, 1, 1);
 
     /** Colour of {@link placeholder}. */
+    @SerializedField({ type: FieldType.Color })
     public placeholderColor: Color = new Color(1, 1, 1, 0.4);
 
     /** Colour of the caret. */
+    @SerializedField({ type: FieldType.Color })
     public caretColor: Color = new Color(1, 1, 1, 1);
 
     /** Fill drawn behind selected characters. */
+    @SerializedField({ type: FieldType.Color })
     public selectionColor: Color = new Color(0.35, 0.65, 1, 0.5);
 
     /**
@@ -119,9 +136,11 @@ export class InputField extends Selectable {
      *
      * @remarks Equivalent to Unity's `InputField.caretBlinkRate`.
      */
+    @SerializedField()
     public caretBlinkRate: number = 1.7;
 
     /** Caret width in canvas units. */
+    @SerializedField()
     public caretWidth: number = 1;
 
     private _text: string = "";
@@ -155,6 +174,7 @@ export class InputField extends Selectable {
      * {@link contentType} of `IntegerNumber` will not hold "12a" however it is
      * set — and raises {@link onValueChanged} when the result differs.
      */
+    @SerializedField()
     public get text(): string { return this._text; }
 
     public set text(value: string) {
@@ -165,6 +185,7 @@ export class InputField extends Selectable {
     }
 
     /** What the field accepts. Changing it re-filters the current value. */
+    @SerializedField({ type: FieldType.Enum })
     public get contentType(): InputFieldContentType { return this._contentType; }
 
     public set contentType(value: InputFieldContentType) {

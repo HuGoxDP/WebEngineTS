@@ -5,6 +5,8 @@ import { UIEvent } from "./UIEvent";
 import { HASH_SEED, cssColor, hashBool, hashColor, hashNumber, hashString, roundedRectPath } from "./UIUtils";
 import type { PointerEventData } from "./PointerEventData";
 import type { Rect } from "../math/Rect";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /** Nothing selected, matching Unity's convention for an empty dropdown. */
@@ -30,45 +32,59 @@ const NO_SELECTION = -1;
  * dd.onValueChanged.addListener(i => selectGas(dd.options[i]));
  * ```
  */
+@Serializable({ typeName: "Dropdown", category: "UI" })
 export class Dropdown extends Selectable {
 
     /** Background of the closed field. */
+    @SerializedField({ type: FieldType.Color })
     public backgroundColor: Color = new Color(0.20, 0.20, 0.20, 1);
 
     /** Background of the open list. */
+    @SerializedField({ type: FieldType.Color })
     public listColor: Color = new Color(0.14, 0.14, 0.14, 1);
 
     /** Background of the option under the pointer. */
+    @SerializedField({ type: FieldType.Color })
     public highlightColor: Color = new Color(0.30, 0.45, 0.70, 1);
 
     /** Background of the option that is currently selected. */
+    @SerializedField({ type: FieldType.Color })
     public selectedColor: Color = new Color(0.24, 0.34, 0.52, 1);
 
     /** Label and arrow color. */
+    @SerializedField({ type: FieldType.Color })
     public textColor: Color = Color.white.clone();
 
     /** Tint drawn over the control when it is not interactable. */
+    @SerializedField({ type: FieldType.Color })
     public disabledColor: Color = new Color(0.35, 0.35, 0.35, 0.6);
 
     /** Corner radius of the field and the list, in canvas units. */
+    @SerializedField()
     public borderRadius: number = 4;
 
     /** Height of the closed field and of each option, in canvas units. */
+    @SerializedField()
     public itemHeight: number = 28;
 
     /** Inset of the label from the field's left edge, in canvas units. */
+    @SerializedField()
     public padding: number = 10;
 
     /** Label font size in canvas units. */
+    @SerializedField()
     public fontSize: number = 16;
 
     /** Label font family. */
+    @SerializedField()
     public fontFamily: string = "Arial, sans-serif";
 
     /** Text shown when nothing is selected. */
+    @SerializedField()
     public placeholder: string = "Select…";
 
     /** How many options the open list shows before it needs scrolling. */
+    @SerializedField()
     public maxVisibleItems: number = 6;
 
     /** Fired with the new index whenever the selection changes. */
@@ -95,6 +111,7 @@ export class Dropdown extends Selectable {
      * Assigning a shorter list than the current selection clears the selection
      * rather than leaving it dangling past the end.
      */
+    @SerializedField({ type: FieldType.Array, elementType: FieldType.String })
     public get options(): readonly string[] { return this._options; }
 
     public set options(value: readonly string[]) {
@@ -109,6 +126,7 @@ export class Dropdown extends Selectable {
      * @remarks
      * Assigning out of range selects nothing rather than throwing.
      */
+    @SerializedField()
     public get value(): number { return this._value; }
 
     public set value(index: number) {

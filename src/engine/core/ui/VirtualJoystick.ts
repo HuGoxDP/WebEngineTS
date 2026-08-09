@@ -7,6 +7,8 @@ import { EventSystem } from "./EventSystem";
 import { Rect } from "../math/Rect";
 import { HASH_SEED, cssColor, hashColor, hashNumber } from "./UIUtils";
 import type { Canvas } from "./Canvas";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -31,21 +33,27 @@ import type { GameObject } from "../GameObject";
  * const move = stick.value;
  * ```
  */
+@Serializable({ typeName: "VirtualJoystick", category: "UI" })
 export class VirtualJoystick extends UIBehaviour {
 
     /** Outer ring color. */
+    @SerializedField({ type: FieldType.Color })
     public baseColor: Color = new Color(0, 0, 0, 0.35);
 
     /** Inner stick color. */
+    @SerializedField({ type: FieldType.Color })
     public stickColor: Color = new Color(1, 1, 1, 0.85);
 
     /** Ratio (0–1) of stick radius to joystick radius. */
+    @SerializedField()
     public stickRadiusRatio: number = 0.45;
 
     /** Deadzone (0–1 radial). Values below this magnitude are zeroed. */
+    @SerializedField()
     public deadzone: number = 0.1;
 
     /** Snap back to center when released. */
+    @SerializedField()
     public snapBackOnRelease: boolean = true;
 
     private readonly _value: Vector2 = new Vector2(0, 0);

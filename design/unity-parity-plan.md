@@ -361,6 +361,22 @@ Two things worth pinning, and both have tests:
 serializer has no representation for. GameObject references exist; component references do
 not, and inventing one belongs with prefabs (Stage 4) rather than here.
 
+**The UI subsystem is now serializable end to end (2026-08-05):** `Canvas` and
+`CanvasScaler` — the root a UI scene is nothing without — plus `ScrollRect`, `Dropdown`,
+`InputField`, `VirtualJoystick` and `ToggleGroup`. That closes canvas-ui-roadmap §6.6 for
+everything except component references.
+
+`Canvas.pixelRatio` is deliberately **not** saved, and there is a test asserting its absence.
+Its getter reports the *effective* ratio while its setter installs an **override**, so a
+round trip would silently convert "follow the application" into "pin to whatever the
+authoring machine had" — a scene authored on a HiDPI laptop would render at 2× on every
+phone that opened it. An asymmetric accessor is a trap for any generic serializer, and it is
+worth checking for one before decorating a property rather than after.
+
+Component references (`ScrollRect.content`, `Canvas.worldCamera`, `Selectable.targetGraphic`)
+remain the one category with no representation at all. They are what Stage 4's prefabs need
+anyway, so they are best solved once, there.
+
 1. **GUIDs.** Every asset gets a stable id, stored in a sidecar (`foo.png.meta`, JSON).
 2. **`AssetDatabase`** — GUID ↔ path ↔ loaded object, with rename/move tolerance.
 3. **References by GUID** in serialized scenes: `{ guid, localId }` replacing path strings.

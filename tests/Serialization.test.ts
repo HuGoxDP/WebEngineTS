@@ -43,6 +43,13 @@ import { Button } from "../src/engine/core/ui/Button";
 import { Toggle } from "../src/engine/core/ui/Toggle";
 import { Slider, SliderDirection } from "../src/engine/core/ui/Slider";
 import { Scrollbar, ScrollbarDirection } from "../src/engine/core/ui/Scrollbar";
+import { Canvas, CanvasRenderMode, CanvasRepaintMode } from "../src/engine/core/ui/Canvas";
+import { CanvasScaler, CanvasScaleMode } from "../src/engine/core/ui/CanvasScaler";
+import { ScrollRect, ScrollMovementType } from "../src/engine/core/ui/ScrollRect";
+import { Dropdown } from "../src/engine/core/ui/Dropdown";
+import { InputField, InputFieldContentType } from "../src/engine/core/ui/InputField";
+import { VirtualJoystick } from "../src/engine/core/ui/VirtualJoystick";
+import { ToggleGroup } from "../src/engine/core/ui/ToggleGroup";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
 
 @Serializable()
@@ -1449,5 +1456,174 @@ describe("Built-in components — UI controls", () => {
         expect(back.transform.getChild(0).gameObject.getComponent(UIText)!.text).toBe("Experiment");
         expect(back.transform.getChild(1).gameObject.getComponent(Slider)!.value).toBeCloseTo(0.5);
         expect(back.transform.getChild(2).gameObject.getComponent(Button)!.text).toBe("Run");
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Canvas root and the remaining controls
+// ---------------------------------------------------------------------------
+
+describe("Built-in components — Canvas and remaining controls", () => {
+    beforeEach(() => {
+        destroyScene();
+        Canvas._reset();
+    });
+    afterEach(() => Canvas._reset());
+
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("a Canvas round-trips its render and repaint settings", () => {
+        const go = new GameObject("UI");
+        const canvas = go.addComponent(Canvas);
+        canvas.sortingOrder = 5;
+        canvas.alpha = 0.6;
+        canvas.repaintMode = CanvasRepaintMode.Always;
+        canvas.partialRepaint = false;
+
+        const back = roundTrip(go).getComponent(Canvas)!;
+
+        expect(back.sortingOrder).toBe(5);
+        expect(back.alpha).toBeCloseTo(0.6);
+        expect(back.repaintMode).toBe(CanvasRepaintMode.Always);
+        expect(back.partialRepaint).toBe(false);
+    });
+
+    test("a world-space Canvas round-trips its projection settings", () => {
+        const go = new GameObject("Label");
+        const canvas = go.addComponent(Canvas);
+        canvas.renderMode = CanvasRenderMode.WorldSpace;
+        canvas.worldSize.set(240, 90);
+        canvas.worldScale = 0.02;
+        canvas.worldPivot.set(0.5, 1);
+        canvas.distanceScaling = false;
+
+        const back = roundTrip(go).getComponent(Canvas)!;
+
+        expect(back.renderMode).toBe(CanvasRenderMode.WorldSpace);
+        expect(back.worldSize.x).toBeCloseTo(240);
+        expect(back.worldSize.y).toBeCloseTo(90);
+        expect(back.worldScale).toBeCloseTo(0.02);
+        expect(back.worldPivot.y).toBeCloseTo(1);
+        expect(back.distanceScaling).toBe(false);
+    });
+
+    test("the canvas pixel ratio is deliberately not saved", () => {
+        const go = new GameObject("UI");
+        go.addComponent(Canvas);
+
+        const json = SceneSerializer.serializeGameObject(go);
+
+        // Its getter reports the effective ratio while its setter installs an
+        // override, so saving it would pin every load to the authoring machine.
+        expect("pixelRatio" in json.components[0].fields).toBe(false);
+    });
+
+    test("a CanvasScaler round-trips its mode and reference resolution", () => {
+        const go = new GameObject("UI");
+        go.addComponent(Canvas);
+        const scaler = go.addComponent(CanvasScaler);
+        scaler.uiScaleMode = CanvasScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution.set(1920, 1080);
+        scaler.matchWidthOrHeight = 0.5;
+        scaler.scaleFactor = 2;
+
+        const back = roundTrip(go).getComponent(CanvasScaler)!;
+
+        expect(back.uiScaleMode).toBe(CanvasScaleMode.ScaleWithScreenSize);
+        expect(back.referenceResolution.x).toBe(1920);
+        expect(back.referenceResolution.y).toBe(1080);
+        expect(back.matchWidthOrHeight).toBeCloseTo(0.5);
+        expect(back.scaleFactor).toBe(2);
+    });
+
+    test("a ScrollRect round-trips its axes and inertia", () => {
+        const go = new GameObject("Scroll");
+        go.addComponent(RectTransform);
+        const scroll = go.addComponent(ScrollRect);
+        scroll.horizontal = false;
+        scroll.movementType = ScrollMovementType.Clamped;
+        scroll.elasticity = 0.25;
+        scroll.inertia = false;
+        scroll.scrollSensitivity = 45;
+
+        const back = roundTrip(go).getComponent(ScrollRect)!;
+
+        expect(back.horizontal).toBe(false);
+        expect(back.vertical).toBe(true);
+        expect(back.movementType).toBe(ScrollMovementType.Clamped);
+        expect(back.elasticity).toBeCloseTo(0.25);
+        expect(back.inertia).toBe(false);
+        expect(back.scrollSensitivity).toBe(45);
+    });
+
+    test("a Dropdown round-trips its options and selection", () => {
+        const go = new GameObject("Pick");
+        const dd = go.addComponent(Dropdown);
+        dd.options = ["Mercury", "Venus", "Earth"];
+        dd.value = 2;
+        dd.placeholder = "Choose a planet";
+        dd.maxVisibleItems = 4;
+
+        const back = roundTrip(go).getComponent(Dropdown)!;
+
+        expect(Array.from(back.options)).toEqual(["Mercury", "Venus", "Earth"]);
+        expect(back.value).toBe(2);
+        expect(back.placeholder).toBe("Choose a planet");
+        expect(back.maxVisibleItems).toBe(4);
+    });
+
+    test("an InputField round-trips its value and content type", () => {
+        const go = new GameObject("Mass");
+        const field = go.addComponent(InputField);
+        field.contentType = InputFieldContentType.DecimalNumber;
+        field.text = "5.2";
+        field.placeholder = "kg";
+        field.characterLimit = 8;
+        field.readOnly = true;
+
+        const back = roundTrip(go).getComponent(InputField)!;
+
+        expect(back.contentType).toBe(InputFieldContentType.DecimalNumber);
+        expect(back.text).toBe("5.2");
+        expect(back.placeholder).toBe("kg");
+        expect(back.characterLimit).toBe(8);
+        expect(back.readOnly).toBe(true);
+    });
+
+    test("an InputField's content type is restored before its text", () => {
+        const go = new GameObject("Count");
+        const field = go.addComponent(InputField);
+        field.contentType = InputFieldContentType.IntegerNumber;
+        field.text = "42";
+
+        const back = roundTrip(go).getComponent(InputField)!;
+
+        // Assigning text filters through contentType, so the wrong order would
+        // not corrupt "42" — but it would for a value only the type permits.
+        expect(back.text).toBe("42");
+        expect(back.contentType).toBe(InputFieldContentType.IntegerNumber);
+    });
+
+    test("a VirtualJoystick round-trips its feel settings", () => {
+        const go = new GameObject("Stick");
+        const stick = go.addComponent(VirtualJoystick);
+        stick.deadzone = 0.2;
+        stick.stickRadiusRatio = 0.6;
+        stick.snapBackOnRelease = false;
+
+        const back = roundTrip(go).getComponent(VirtualJoystick)!;
+
+        expect(back.deadzone).toBeCloseTo(0.2);
+        expect(back.stickRadiusRatio).toBeCloseTo(0.6);
+        expect(back.snapBackOnRelease).toBe(false);
+    });
+
+    test("a ToggleGroup round-trips its switch-off rule", () => {
+        const go = new GameObject("Answers");
+        go.addComponent(ToggleGroup).allowSwitchOff = true;
+
+        expect(roundTrip(go).getComponent(ToggleGroup)!.allowSwitchOff).toBe(true);
     });
 });

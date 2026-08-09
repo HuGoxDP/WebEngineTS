@@ -8,6 +8,8 @@ import { EventSystem } from "./EventSystem";
 import type { RectTransform } from "./RectTransform";
 import type { PointerEventData } from "./PointerEventData";
 import type { Rect } from "../math/Rect";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /** What happens when content is dragged past its ends. */
@@ -45,6 +47,7 @@ export enum ScrollMovementType {
  * scroll.horizontal = false;
  * ```
  */
+@Serializable({ typeName: "ScrollRect", category: "UI" })
 export class ScrollRect extends UIBehaviour {
 
     private static _instances: ScrollRect[] = [];
@@ -71,24 +74,31 @@ export class ScrollRect extends UIBehaviour {
     public content: RectTransform | null = null;
 
     /** Whether the content may move along X. */
+    @SerializedField()
     public horizontal: boolean = true;
 
     /** Whether the content may move along Y. */
+    @SerializedField()
     public vertical: boolean = true;
 
     /** How the content behaves at its ends. */
+    @SerializedField({ type: FieldType.Enum })
     public movementType: ScrollMovementType = ScrollMovementType.Elastic;
 
     /** Seconds the elastic spring takes to pull most of the way back. */
+    @SerializedField()
     public elasticity: number = 0.1;
 
     /** Whether the content keeps moving after the drag ends. */
+    @SerializedField()
     public inertia: boolean = true;
 
     /** Fraction of velocity retained per second while coasting. */
+    @SerializedField()
     public decelerationRate: number = 0.135;
 
     /** Canvas units moved per unit of wheel delta. */
+    @SerializedField()
     public scrollSensitivity: number = 30;
 
     /** Fired with the normalized position whenever the content moves. */
