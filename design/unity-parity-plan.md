@@ -425,9 +425,28 @@ cannot be a serialized field. A `positions` accessor delegating to those two was
 it is a better API in TS regardless. The line's shape, widths, colours and modes all
 round-trip.
 
-**With it, every built-in component the engine can express honestly is serializable.** What
-remains is `MeshRenderer` / `MeshFilter` / `LODGroup`, blocked on material and mesh identity
-as described above — a Stage 3 mechanism, not more decoration.
+**`MeshFilter` landed 2026-08-05, and the mesh problem had a third answer** the earlier note
+missed. A mesh cannot be referenced (never loaded from a file) and must not be
+value-serialized (vertex buffers) — but it *can* be stored as **the recipe that built it**.
+`Mesh`'s `create*` factories now record `{ kind, args }`, exposed as `Mesh.primitive` and
+rebuilt by `Mesh.fromPrimitive`. A sphere is six numbers instead of a vertex buffer, and
+educational scenes are mostly primitives. A mesh with neither an id nor a recipe (hand-built,
+combined) still serializes as null, which is honest and visible.
+
+Two defects this turned up, both the same shape as `Canvas.pixelRatio`:
+- **`MeshFilter.mesh`'s getter instantiates a private copy.** Serializing through it would
+  have changed the scene *by saving it* — turning a shared mesh into a per-object instance.
+  `sharedMesh` is the correct field, which is also what Unity serializes. A test asserts that
+  saving leaves `_meshInstance` null.
+- **`Mesh.clone()` dropped the recipe**, so an instanced primitive lost the one thing that
+  made it storable. A clone of a cube is still a cube.
+
+The rule these three share is worth stating once: **before decorating a property, check that
+its getter is pure and its setter is symmetric.** Three of the traps found in this stage were
+accessors that quietly did something else.
+
+What remains is `MeshRenderer` and `LODGroup`, still blocked on **material** identity — the
+inline sub-asset table described above, which belongs with Stage 3.
 
 1. **GUIDs.** Every asset gets a stable id, stored in a sidecar (`foo.png.meta`, JSON).
 2. **`AssetDatabase`** — GUID ↔ path ↔ loaded object, with rename/move tolerance.

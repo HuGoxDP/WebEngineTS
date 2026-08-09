@@ -82,10 +82,42 @@ export class SubMesh {
 /**
  * Меш - контейнер для геометричних даних 3D моделі
  */
+/** The recipe behind a mesh built by one of {@link Mesh}'s `create*` factories. */
+export interface MeshPrimitive {
+    /** Which factory made it. */
+    kind: "Cube" | "Sphere" | "Plane" | "Cylinder" | "Capsule" | "Quad";
+    /** The arguments it was called with, in order. */
+    args: readonly number[];
+}
+
 export class Mesh extends EngineObject {
     // ==================== ВЕРШИННІ ДАНІ ====================
 
     /** Масив позицій вершин */
+    /**
+     * How this mesh was built, when it came from one of the `create*` factories.
+     *
+     * @remarks
+     * Lets a primitive round-trip as the recipe that made it rather than as raw
+     * vertex data — see {@link primitive}. Null for a mesh loaded from a file,
+     * combined, or built by hand.
+     */
+    private _primitive: MeshPrimitive | null = null;
+
+    /**
+     * How this mesh was built, or null if it was not built by a factory.
+     *
+     * @remarks
+     * A primitive can be stored as its recipe — six numbers instead of a vertex
+     * buffer — which is what lets a scene reference one without embedding
+     * geometry. {@link Mesh.fromPrimitive} rebuilds it.
+     */
+    public get primitive(): MeshPrimitive | null {
+        return this._primitive === null
+            ? null
+            : { kind: this._primitive.kind, args: [...this._primitive.args] };
+    }
+
     private _vertices: Vector3[] = [];
     /** Масив нормалей (один вектор на вершину) */
     private _normals: Vector3[] = [];
@@ -639,6 +671,25 @@ export class Mesh extends EngineObject {
      * @param size Розмір куба (довжина ребра)
      * @returns Новий меш куба
      */
+    /**
+     * Rebuilds a mesh from the recipe {@link primitive} reports.
+     *
+     * @param descriptor - a recipe from a previously built primitive.
+     * @returns the mesh, or null if the recipe names no known factory.
+     */
+    public static fromPrimitive(descriptor: MeshPrimitive): Mesh | null {
+        const a = descriptor.args;
+        switch (descriptor.kind) {
+            case "Cube":     return Mesh.createCube(a[0]);
+            case "Sphere":   return Mesh.createSphere(a[0], a[1]);
+            case "Plane":    return Mesh.createPlane(a[0], a[1], a[2], a[3]);
+            case "Cylinder": return Mesh.createCylinder(a[0], a[1], a[2]);
+            case "Capsule":  return Mesh.createCapsule(a[0], a[1], a[2]);
+            case "Quad":     return Mesh.createQuad(a[0], a[1]);
+            default:         return null;
+        }
+    }
+
     public static createCube(size: number = 1): Mesh {
         const mesh = new Mesh("Cube");
         const s = size / 2;
@@ -695,6 +746,7 @@ export class Mesh extends EngineObject {
 
         mesh.recalculateBounds();
         mesh._needsUpdate = true;
+        mesh._primitive = { kind: "Cube", args: [size] };
         return mesh;
     }
 
@@ -754,6 +806,7 @@ export class Mesh extends EngineObject {
         mesh.recalculateBounds();
         mesh._needsUpdate = true;
 
+        mesh._primitive = { kind: "Sphere", args: [radius, segments] };
         return mesh;
     }
 
@@ -817,6 +870,7 @@ export class Mesh extends EngineObject {
         mesh.recalculateBounds();
         mesh._needsUpdate = true;
 
+        mesh._primitive = { kind: "Plane", args: [width, height, widthSegments, heightSegments] };
         return mesh;
     }
 
@@ -929,6 +983,7 @@ export class Mesh extends EngineObject {
         mesh.recalculateBounds();
         mesh._needsUpdate = true;
 
+        mesh._primitive = { kind: "Cylinder", args: [radius, height, segments] };
         return mesh;
     }
 
@@ -1038,6 +1093,7 @@ export class Mesh extends EngineObject {
         mesh.recalculateBounds();
         mesh._needsUpdate = true;
 
+        mesh._primitive = { kind: "Capsule", args: [radius, height, segments] };
         return mesh;
     }
 
@@ -1174,6 +1230,7 @@ export class Mesh extends EngineObject {
         mesh.recalculateBounds();
         mesh._needsUpdate = true;
 
+        mesh._primitive = { kind: "Quad", args: [width, height] };
         return mesh;
     }
 
@@ -1197,6 +1254,12 @@ export class Mesh extends EngineObject {
 
         // Копіюємо індекси
         cloned._triangles = [...this._triangles];
+
+        // A clone of a cube is still a cube: the recipe travels with the
+        // geometry, so a cloned primitive can still be stored as one.
+        cloned._primitive = this._primitive === null
+            ? null
+            : { kind: this._primitive.kind, args: [...this._primitive.args] };
         cloned._indexFormat = this._indexFormat;
 
         // Копіюємо submeshes

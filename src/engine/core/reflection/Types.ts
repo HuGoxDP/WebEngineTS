@@ -37,6 +37,12 @@ export enum FieldType {
      * framing of it is a value that lives in the scene.
      */
     Sprite      = "Sprite",
+    /**
+     * A {@link Mesh}. Stored as a reference when it was loaded from a file, or
+     * as the recipe that built it when it came from a `create*` factory. A mesh
+     * that is neither cannot be stored — see `MeshFilter.mesh`.
+     */
+    Mesh        = "Mesh",
     /** Array of a single element type. `elementType` must be set. */
     Array       = "Array",
     /** Arbitrary JSON-compatible object. */

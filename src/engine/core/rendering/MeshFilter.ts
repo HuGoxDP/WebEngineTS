@@ -1,5 +1,7 @@
 import { Component } from "../Component.ts";
 import { Mesh } from "../graphics/Mesh.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -8,6 +10,7 @@ import type { GameObject } from "../GameObject.ts";
  * 
  * MeshFilter зберігає посилання на Mesh, який рендериться компонентом MeshRenderer.
  */
+@Serializable({ typeName: "MeshFilter", category: "Rendering" })
 export class MeshFilter extends Component {
     /** Shared меш (не копіюється, тільки посилання) */
     private _sharedMesh: Mesh | null = null;
@@ -27,6 +30,7 @@ export class MeshFilter extends Component {
      * Не модифікуйте цей меш напряму - він спільний для всіх об'єктів!
      * Для редагування використовуйте mesh (створить копію).
      */
+    @SerializedField({ type: FieldType.Mesh })
     public get sharedMesh(): Mesh | null {
         return this._sharedMesh;
     }

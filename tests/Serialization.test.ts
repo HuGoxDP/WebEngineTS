@@ -54,6 +54,8 @@ import { SpriteRenderer } from "../src/engine/core/components/SpriteRenderer";
 import {
     LineRenderer, LineAlignment, LineTextureMode,
 } from "../src/engine/core/components/LineRenderer";
+import { MeshFilter } from "../src/engine/core/rendering/MeshFilter";
+import { Mesh } from "../src/engine/core/graphics/Mesh";
 import { Vector2 } from "../src/engine/core/math/Vector2";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
 
@@ -1759,6 +1761,118 @@ describe("Built-in components — LineRenderer", () => {
 
         line.positions[0].set(5, 5, 5);
         expect(line.positions[0].x).toBeCloseTo(1);
+    });
+});
+
+describe("Built-in components — MeshFilter", () => {
+    beforeEach(() => {
+        destroyScene();
+        AssetDatabase.clear();
+    });
+    afterEach(() => AssetDatabase.clear());
+
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("a primitive mesh round-trips as its recipe, not its vertices", () => {
+        const go = new GameObject("Planet");
+        go.addComponent(MeshFilter).sharedMesh = Mesh.createSphere(2.5, 16);
+
+        const json = SceneSerializer.serializeGameObject(go);
+        const field = json.components[0].fields.sharedMesh as any;
+
+        expect(field.$type).toBe("PrimitiveMesh");
+        expect(field.kind).toBe("Sphere");
+        expect(field.args).toEqual([2.5, 16]);
+        // The point of the recipe: no geometry in the scene file.
+        expect(JSON.stringify(json).length).toBeLessThan(2000);
+    });
+
+    test("the rebuilt mesh has the same geometry as the original", () => {
+        const go = new GameObject("Box");
+        const original = Mesh.createCube(3);
+        go.addComponent(MeshFilter).sharedMesh = original;
+
+        const back = roundTrip(go).getComponent(MeshFilter)!.sharedMesh!;
+
+        expect(back).not.toBe(original);
+        expect(back.vertexCount).toBe(original.vertexCount);
+        expect(back.primitive!.kind).toBe("Cube");
+        expect(back.primitive!.args).toEqual([3]);
+    });
+
+    test("each primitive kind survives the trip", () => {
+        const meshes = [
+            Mesh.createCube(1),
+            Mesh.createSphere(0.5, 8),
+            Mesh.createPlane(2, 3, 1, 1),
+            Mesh.createCylinder(1, 2, 8),
+            Mesh.createCapsule(0.4, 1.8, 8),
+            Mesh.createQuad(5, 6),
+        ];
+
+        for (const mesh of meshes) {
+            const go = new GameObject("Shape");
+            go.addComponent(MeshFilter).sharedMesh = mesh;
+
+            const back = roundTrip(go).getComponent(MeshFilter)!.sharedMesh!;
+
+            expect(back.primitive!.kind).toBe(mesh.primitive!.kind);
+            expect(back.vertexCount).toBe(mesh.vertexCount);
+        }
+    });
+
+    test("a mesh with no recipe and no identity is dropped rather than dumped", () => {
+        const go = new GameObject("Custom");
+        // Built by hand: no factory recorded it and Resources never loaded it.
+        go.addComponent(MeshFilter).sharedMesh = new Mesh("Handmade");
+
+        const json = SceneSerializer.serializeGameObject(go);
+
+        expect(json.components[0].fields.sharedMesh).toBeNull();
+    });
+
+    test("a mesh loaded from a file round-trips by id instead", () => {
+        const mesh = Mesh.createCube(1);
+        AssetDatabase.setManifest([{ guid: "mesh-rover", path: "models/rover.glb" }]);
+        AssetDatabase._bind("models/rover.glb", mesh);
+
+        const go = new GameObject("Rover");
+        go.addComponent(MeshFilter).sharedMesh = mesh;
+
+        const json = SceneSerializer.serializeGameObject(go);
+        expect((json.components[0].fields.sharedMesh as any).$type).toBe("AssetRef");
+
+        // Identity wins over the recipe, so the file's mesh comes back, not a
+        // fresh cube.
+        expect(SceneSerializer.deserializeGameObject(json).getComponent(MeshFilter)!.sharedMesh)
+            .toBe(mesh);
+    });
+
+    test("primitive is null for a mesh nothing built", () => {
+        expect(new Mesh("Handmade").primitive).toBeNull();
+        expect(Mesh.createCube(1).primitive!.kind).toBe("Cube");
+    });
+
+    test("a clone keeps the recipe, so an instanced primitive still stores as one", () => {
+        const clone = Mesh.createSphere(1.5, 12).clone();
+
+        expect(clone.primitive!.kind).toBe("Sphere");
+        expect(clone.primitive!.args).toEqual([1.5, 12]);
+    });
+
+    test("saving does not turn a shared mesh into an instance", () => {
+        const go = new GameObject("Box");
+        const filter = go.addComponent(MeshFilter);
+        filter.sharedMesh = Mesh.createCube(1);
+
+        SceneSerializer.serializeGameObject(go);
+
+        // Reading `mesh` instantiates a private copy, so serializing through it
+        // would have changed the scene just by saving it.
+        expect((filter as any)._meshInstance).toBeNull();
+        expect(filter.sharedMesh).not.toBeNull();
     });
 });
 

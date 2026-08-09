@@ -8,6 +8,7 @@ import { Bounds } from "../math/Bounds";
 import { FieldType } from "../reflection/Types";
 import { AssetDatabase } from "../assets/AssetDatabase";
 import { Sprite } from "../graphics/Sprite";
+import { Mesh } from "../graphics/Mesh";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -148,6 +149,21 @@ export class ValueSerializer {
             };
         }
 
+        // A mesh is stored as an id when it was loaded from a file, and as the
+        // recipe that built it when it came from a factory. Vertex buffers are
+        // never written into a scene: a procedural mesh with neither is dropped,
+        // which is visible immediately rather than bloating every save.
+        if (type === FieldType.Mesh) {
+            const guid = AssetDatabase.guidOf(value as object);
+            if (guid !== null) return { $type: "AssetRef", guid };
+
+            const primitive = (value as Mesh).primitive;
+            if (primitive) {
+                return { $type: "PrimitiveMesh", kind: primitive.kind, args: [...primitive.args] };
+            }
+            return null;
+        }
+
         // Asset reference — stored by stable id, so renaming or moving the file
         // it came from does not break the scene pointing at it. The path rides
         // along for diagnostics only; nothing resolves through it.
@@ -268,6 +284,12 @@ export class ValueSerializer {
                         return null;
                     }
                     return ValueSerializer._buildSprite(texture, obj);
+                }
+                case "PrimitiveMesh": {
+                    return Mesh.fromPrimitive({
+                        kind: obj.kind as never,
+                        args: Array.isArray(obj.args) ? (obj.args as number[]) : [],
+                    });
                 }
                 case "AssetRef": case FieldType.Asset: {
                     const guid = typeof obj.guid === "string" ? obj.guid : null;
