@@ -298,6 +298,35 @@ Building any of them first means building it twice.
 
 ### Stage 2 — Asset identity and the database (**M**)
 
+**Progress — the runtime half of steps 2–3 landed 2026-08-05.** `AssetDatabase`
+(`core/assets/AssetDatabase.ts`) holds GUID ↔ path ↔ loaded instance, and serialized asset
+references are now `{ $type: "AssetRef", guid }` rather than path strings. `Resources` binds
+every decoded asset on load, so an object acquires an identity without any call site asking
+for one; clearing the source clears the database with it.
+
+Decisions worth recording:
+- **The engine owns the runtime half, not the sidecars.** `.meta` files are authoring
+  artifacts — ScenarioCreator and the editor write them — so the engine takes them as a
+  manifest (`AssetDatabase.setManifest`) instead of reading files it has no business reading.
+- **A missing manifest mints session-local ids** so references still resolve *within* a run.
+  Deliberately random rather than derived from the path: a path-derived id changes when the
+  file moves, which is the one thing an id must not do. Those ids do not survive a reload,
+  which is exactly the gap a manifest fills, and the JSDoc says so.
+- **An unresolved reference is reported, not dropped.** Loading is asynchronous and
+  deserialization is not, so a scene referring to an unloaded material rebuilds with that
+  field null and the id listed in `SceneSerializer.pendingAssetGuids`; a caller preloads
+  those and calls `resolvePendingAssets()`. Silently nulling would surface as a blank
+  material at first render with nothing to trace it to.
+- The path rides along in the JSON for diagnostics only — nothing resolves through it.
+
+**Done when** (from the original plan) *renaming an asset on disk breaks nothing* — there is
+now a test for exactly that: save a scene, move the asset, load it, and the reference still
+points at the same instance.
+
+Remaining for Stage 2: sidecar `.meta` generation and the manifest in the scenario archive
+(both ScenarioCreator work), and migrating `ScenarioAssets` to resolve through the database
+while keeping the path API as a shim.
+
 1. **GUIDs.** Every asset gets a stable id, stored in a sidecar (`foo.png.meta`, JSON).
 2. **`AssetDatabase`** — GUID ↔ path ↔ loaded object, with rename/move tolerance.
 3. **References by GUID** in serialized scenes: `{ guid, localId }` replacing path strings.

@@ -5,6 +5,7 @@ import { Transform } from "../Transform";
 import { SceneManager } from "../SceneManager";
 import { TypeRegistry } from "../reflection/TypeRegistry";
 import { getAllFields } from "../reflection/Decorators";
+import { AssetDatabase } from "../assets/AssetDatabase";
 import {
     ValueSerializer,
     type SerializeContext,
@@ -88,6 +89,7 @@ export class SceneSerializer {
         try {
             const ctx: DeserializeContext = {
                 pendingGORefs: [],
+                pendingAssetRefs: [],
                 currentComponent: null,
                 currentField: null,
             };
@@ -121,6 +123,7 @@ export class SceneSerializer {
         try {
             const ctx: DeserializeContext = {
                 pendingGORefs: [],
+                pendingAssetRefs: [],
                 currentComponent: null,
                 currentField: null,
             };
@@ -302,12 +305,55 @@ export class SceneSerializer {
         return false;
     }
 
-    /** Walks every collected GameObjectRef and assigns the resolved object. */
+    /**
+     * Asset ids the last load could not resolve, because the asset was not in
+     * memory when the scene was rebuilt.
+     *
+     * @remarks
+     * Deserialization is synchronous and asset loading is not, so a scene
+     * referring to an unloaded material rebuilds with that field null rather
+     * than blocking. This is how a caller finds out: preload these ids and call
+     * {@link resolvePendingAssets} to fill them in.
+     *
+     * Cleared at the start of every load.
+     */
+    public static get pendingAssetGuids(): readonly string[] {
+        return SceneSerializer._pending.map(p => p.guid);
+    }
+
+    /**
+     * Re-resolves the references from {@link pendingAssetGuids} against what is
+     * loaded now.
+     *
+     * @returns how many were filled in. Anything still missing stays pending.
+     */
+    public static resolvePendingAssets(): number {
+        let resolved = 0;
+        const still: typeof SceneSerializer._pending = [];
+
+        for (const ref of SceneSerializer._pending) {
+            const asset = AssetDatabase.get(ref.guid);
+            if (asset === null) {
+                still.push(ref);
+                continue;
+            }
+            SceneSerializer._assign(ref.component as Component, ref.field, asset);
+            resolved++;
+        }
+
+        SceneSerializer._pending = still;
+        return resolved;
+    }
+
+    private static _pending: Array<{ component: object; field: string; guid: string }> = [];
+
+    /** Walks every collected reference and assigns what it resolved to. */
     private static _resolveRefs(ctx: DeserializeContext, roots: ReadonlyArray<GameObject>): void {
         for (const ref of ctx.pendingGORefs) {
             const target = SceneSerializer._lookupByPath(roots, ref.path);
             (ref.component as any)[ref.field] = target;
         }
+        SceneSerializer._pending = ctx.pendingAssetRefs.slice();
     }
 
     /** Walks a path of sibling indices and returns the target GameObject (or null). */

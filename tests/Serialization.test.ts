@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, vi } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { GameObject } from "../src/engine/core/GameObject";
 import { Behaviour } from "../src/engine/core/Behaviour";
 import { SceneManager } from "../src/engine/core/SceneManager";
@@ -31,6 +31,7 @@ import {
 import { ScriptableBehaviour } from "../src/engine/core/ScriptableBehaviour";
 import { FieldType } from "../src/engine/core/reflection/Types";
 import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
+import { AssetDatabase } from "../src/engine/core/assets/AssetDatabase";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
 
 @Serializable()
@@ -969,5 +970,188 @@ describe("ExecutionOrder", () => {
         class OrderedScript extends ScriptableBehaviour {}
 
         expect(getClassMeta(OrderedScript as any)!.executionOrder).toBe(25);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// AssetDatabase + references by GUID (unity-parity Stage 2, steps 2-3)
+// ---------------------------------------------------------------------------
+
+@Serializable({ typeName: "Test.AssetHolder" })
+class AssetHolder extends Behaviour {
+    @SerializedField({ type: FieldType.Asset })
+    public asset: object | null = null;
+}
+
+describe("AssetDatabase", () => {
+    beforeEach(() => {
+        destroyScene();
+        AssetDatabase.clear();
+    });
+    afterEach(() => AssetDatabase.clear());
+
+    test("a manifest gives an asset its id", () => {
+        AssetDatabase.setManifest([{ guid: "abc123", path: "textures/mars.png" }]);
+
+        expect(AssetDatabase.guidForPath("textures/mars.png")).toBe("abc123");
+        expect(AssetDatabase.pathOf("abc123")).toBe("textures/mars.png");
+    });
+
+    test("paths are normalized, so separators and a leading slash do not matter", () => {
+        AssetDatabase.setManifest([{ guid: "abc123", path: "textures/mars.png" }]);
+
+        expect(AssetDatabase.guidForPath("textures\\mars.png")).toBe("abc123");
+        expect(AssetDatabase.guidForPath("/textures/mars.png")).toBe("abc123");
+    });
+
+    test("an unknown path gets a minted id, stable for the session", () => {
+        const first = AssetDatabase.guidForPath("models/rover.glb");
+        const again = AssetDatabase.guidForPath("models/rover.glb");
+
+        expect(first).toBe(again);
+        expect(first.length).toBeGreaterThan(8);
+    });
+
+    test("a minted id is not derived from the path, so moving cannot change it", () => {
+        const a = AssetDatabase.guidForPath("a/one.png");
+        const b = AssetDatabase.guidForPath("b/one.png");
+
+        expect(a).not.toBe(b);
+    });
+
+    test("binding a loaded object makes it findable by id and back", () => {
+        const asset = { name: "mars" };
+        AssetDatabase.setManifest([{ guid: "abc123", path: "textures/mars.png" }]);
+
+        AssetDatabase._bind("textures/mars.png", asset);
+
+        expect(AssetDatabase.guidOf(asset)).toBe("abc123");
+        expect(AssetDatabase.get("abc123")).toBe(asset);
+        expect(AssetDatabase.isLoaded("abc123")).toBe(true);
+    });
+
+    test("renaming an asset keeps its id and its loaded instance", () => {
+        const asset = { name: "mars" };
+        AssetDatabase.setManifest([{ guid: "abc123", path: "textures/mars.png" }]);
+        AssetDatabase._bind("textures/mars.png", asset);
+
+        expect(AssetDatabase.movePath("textures/mars.png", "textures/planets/mars4k.png")).toBe(true);
+
+        expect(AssetDatabase.pathOf("abc123")).toBe("textures/planets/mars4k.png");
+        expect(AssetDatabase.guidForPath("textures/planets/mars4k.png")).toBe("abc123");
+        expect(AssetDatabase.guidOf(asset)).toBe("abc123");
+    });
+
+    test("moving an unknown path reports that nothing moved", () => {
+        expect(AssetDatabase.movePath("nowhere.png", "elsewhere.png")).toBe(false);
+    });
+
+    test("a new manifest replaces the old mapping", () => {
+        AssetDatabase.setManifest([{ guid: "one", path: "a.png" }]);
+        AssetDatabase.setManifest([{ guid: "two", path: "b.png" }]);
+
+        expect(AssetDatabase.pathOf("one")).toBeNull();
+        expect(AssetDatabase.pathOf("two")).toBe("b.png");
+    });
+});
+
+describe("SceneSerializer — asset references by id", () => {
+    beforeEach(() => {
+        destroyScene();
+        AssetDatabase.clear();
+    });
+    afterEach(() => AssetDatabase.clear());
+
+    test("an asset field serializes as its id, not its path", () => {
+        const asset = { name: "mars" };
+        AssetDatabase.setManifest([{ guid: "abc123", path: "textures/mars.png" }]);
+        AssetDatabase._bind("textures/mars.png", asset);
+
+        const go = new GameObject("Planet");
+        go.addComponent(AssetHolder).asset = asset;
+
+        const json = SceneSerializer.serializeGameObject(go);
+        const field = json.components[0].fields.asset as any;
+
+        expect(field.$type).toBe("AssetRef");
+        expect(field.guid).toBe("abc123");
+    });
+
+    test("a loaded asset resolves back to the same instance", () => {
+        const asset = { name: "mars" };
+        AssetDatabase.setManifest([{ guid: "abc123", path: "textures/mars.png" }]);
+        AssetDatabase._bind("textures/mars.png", asset);
+
+        const go = new GameObject("Planet");
+        go.addComponent(AssetHolder).asset = asset;
+        const json = SceneSerializer.serializeGameObject(go);
+
+        const back = SceneSerializer.deserializeGameObject(json);
+
+        expect(back.getComponent(AssetHolder)!.asset).toBe(asset);
+    });
+
+    test("the reference survives the asset being renamed between save and load", () => {
+        const asset = { name: "mars" };
+        AssetDatabase.setManifest([{ guid: "abc123", path: "textures/mars.png" }]);
+        AssetDatabase._bind("textures/mars.png", asset);
+
+        const go = new GameObject("Planet");
+        go.addComponent(AssetHolder).asset = asset;
+        const json = SceneSerializer.serializeGameObject(go);
+
+        // The whole point of an id: the file moves, the scene does not notice.
+        AssetDatabase.movePath("textures/mars.png", "textures/planets/mars.png");
+
+        const back = SceneSerializer.deserializeGameObject(json);
+        expect(back.getComponent(AssetHolder)!.asset).toBe(asset);
+    });
+
+    test("an unloaded asset leaves the field null and is reported as pending", () => {
+        AssetDatabase.setManifest([{ guid: "abc123", path: "textures/mars.png" }]);
+        const asset = { name: "mars" };
+        AssetDatabase._bind("textures/mars.png", asset);
+
+        const go = new GameObject("Planet");
+        go.addComponent(AssetHolder).asset = asset;
+        const json = SceneSerializer.serializeGameObject(go);
+
+        // As if the scenario were reloaded and nothing is in memory yet.
+        AssetDatabase.clearLoaded();
+        const back = SceneSerializer.deserializeGameObject(json);
+
+        expect(back.getComponent(AssetHolder)!.asset).toBeNull();
+        expect(SceneSerializer.pendingAssetGuids).toEqual(["abc123"]);
+    });
+
+    test("resolvePendingAssets fills the field in once the asset arrives", () => {
+        AssetDatabase.setManifest([{ guid: "abc123", path: "textures/mars.png" }]);
+        const original = { name: "mars" };
+        AssetDatabase._bind("textures/mars.png", original);
+
+        const go = new GameObject("Planet");
+        go.addComponent(AssetHolder).asset = original;
+        const json = SceneSerializer.serializeGameObject(go);
+
+        AssetDatabase.clearLoaded();
+        const back = SceneSerializer.deserializeGameObject(json);
+        expect(back.getComponent(AssetHolder)!.asset).toBeNull();
+
+        // The load the caller was told to perform.
+        const reloaded = { name: "mars" };
+        AssetDatabase._bind("textures/mars.png", reloaded);
+
+        expect(SceneSerializer.resolvePendingAssets()).toBe(1);
+        expect(back.getComponent(AssetHolder)!.asset).toBe(reloaded);
+        expect(SceneSerializer.pendingAssetGuids).toEqual([]);
+    });
+
+    test("an asset with no identity at all serializes as null rather than a path", () => {
+        const go = new GameObject("Planet");
+        go.addComponent(AssetHolder).asset = { name: "never registered" };
+
+        const json = SceneSerializer.serializeGameObject(go);
+
+        expect(json.components[0].fields.asset).toBeNull();
     });
 });

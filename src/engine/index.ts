@@ -107,6 +107,8 @@ export { Ray } from "./core/math/Ray";
 export { Resources } from "./core/assets/Resources";
 export type { IAssetSource } from "./core/assets/Resources";
 export { LoadHandle } from "./core/assets/LoadHandle";
+export { AssetDatabase } from "./core/assets/AssetDatabase";
+export type { AssetEntry } from "./core/assets/AssetDatabase";
 export { JsonAsset, TextAsset, BinaryAsset } from "./core/assets/AssetTypes";
 
 // =====================

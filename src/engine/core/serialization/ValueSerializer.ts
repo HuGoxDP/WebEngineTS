@@ -6,6 +6,7 @@ import { Color } from "../math/Color";
 import { Rect } from "../math/Rect";
 import { Bounds } from "../math/Bounds";
 import { FieldType } from "../reflection/Types";
+import { AssetDatabase } from "../assets/AssetDatabase";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -31,6 +32,12 @@ export interface DeserializeContext {
      * resolved `GameObject | null` to `(component as any)[field]`.
      */
     pendingGORefs: Array<{ component: object; field: string; path: number[] }>;
+    /**
+     * Asset references whose asset was not loaded when the scene was rebuilt.
+     * Surfaced on the result so a caller can preload them and re-resolve, since
+     * loading is asynchronous and deserialization is not.
+     */
+    pendingAssetRefs: Array<{ component: object; field: string; guid: string }>;
     /** Current component being deserialized — populated by SceneSerializer. */
     currentComponent: object | null;
     /** Current field name being deserialized — populated by SceneSerializer. */
@@ -86,6 +93,15 @@ export class ValueSerializer {
                 cx: c.x, cy: c.y, cz: c.z,
                 ex: e.x, ey: e.y, ez: e.z,
             };
+        }
+
+        // Asset reference — stored by stable id, so renaming or moving the file
+        // it came from does not break the scene pointing at it. The path rides
+        // along for diagnostics only; nothing resolves through it.
+        if (type === FieldType.Asset) {
+            const guid = AssetDatabase.guidOf(value as object);
+            if (guid === null) return null;
+            return { $type: "AssetRef", guid, path: AssetDatabase.pathOf(guid) ?? undefined };
         }
 
         // GameObject reference — needs scene context to compute a path.
@@ -158,6 +174,25 @@ export class ValueSerializer {
                         // Bounds takes a full size, not the half-extents it stores.
                         new Vector3(+(obj.ex ?? 0) * 2, +(obj.ey ?? 0) * 2, +(obj.ez ?? 0) * 2),
                     );
+                case "AssetRef": case FieldType.Asset: {
+                    const guid = typeof obj.guid === "string" ? obj.guid : null;
+                    if (guid === null) return null;
+
+                    const asset = AssetDatabase.get(guid);
+                    if (asset !== null) return asset;
+
+                    // Not in memory. Recorded rather than dropped, so a caller
+                    // can preload the missing ids and re-resolve instead of
+                    // discovering a blank material at first render.
+                    if (ctx && ctx.currentComponent && ctx.currentField) {
+                        ctx.pendingAssetRefs.push({
+                            component: ctx.currentComponent,
+                            field: ctx.currentField,
+                            guid,
+                        });
+                    }
+                    return null;
+                }
                 case "GameObjectRef":
                     // Defer until the second pass — we only have a path right now.
                     if (ctx && ctx.currentComponent && ctx.currentField && Array.isArray(obj.path)) {

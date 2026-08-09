@@ -6,6 +6,8 @@ import { JsonAsset, TextAsset, BinaryAsset } from "./AssetTypes.ts";
 import { AudioClip } from "../audio/AudioClip.ts";
 import { AudioManager } from "../audio/AudioManager.ts";
 
+import { AssetDatabase } from "./AssetDatabase";
+
 // ==================== ASSET SOURCE INTERFACE ====================
 
 /**
@@ -164,6 +166,7 @@ export class Resources {
      * Clears the active source and cache. Called by Scenario.unload().
      */
     public static _clearSource(): void {
+        AssetDatabase.clear();
         Resources._cache.forEach(entry => {
             const asset = entry.asset;
             if (asset && typeof (asset as any).destroy === "function") {
@@ -266,6 +269,11 @@ export class Resources {
                 refCount: 1,
                 sizeEstimate: bytes.byteLength,
             });
+
+            // Give the decoded object a stable identity, so a serialized scene
+            // can reference it by id rather than by the path it happens to be
+            // at today.
+            AssetDatabase._bind(fullPath, asset as object);
 
             return asset;
         })();
