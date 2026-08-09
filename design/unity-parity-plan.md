@@ -445,8 +445,34 @@ The rule these three share is worth stating once: **before decorating a property
 its getter is pure and its setter is symmetric.** Three of the traps found in this stage were
 accessors that quietly did something else.
 
-What remains is `MeshRenderer` and `LODGroup`, still blocked on **material** identity — the
-inline sub-asset table described above, which belongs with Stage 3.
+**The inline sub-asset table landed 2026-08-05, and with it `MeshRenderer`.** A material has
+no file behind it, so it is value-serialized **once** into a scene-level `assets` table and
+referenced by id from every component that used it. Two renderers sharing one material still
+share it after a load — which is the whole meaning of `sharedMaterial`, and what
+per-component value serialization would have silently broken.
+
+The pieces: `SerializedScene.assets` / `SerializedGameObject.assets`,
+`SerializeContext.inlineAsset` (mints an id, emits the values once, keyed by object
+identity), `AssetDatabase._bindGuid` for an asset with an id but no path, and a
+materialization pass that runs **before** any component is rebuilt. An id already in memory
+is left alone, so loading a scene twice does not hand out two copies of the same material.
+
+Textures inside a material stay **references**, not inlined values — they are loadable, so
+they have real identity. That is the rule stated earlier holding up: a field is an asset
+reference when the thing behind it is a file, and a value when it is not.
+
+**This completes Stage 1's goal.** Every built-in component now survives save → load:
+`Camera`, all four lights, the whole UI subsystem, `Rigidbody` and the colliders,
+`MeshFilter`, `MeshRenderer`, `SpriteRenderer`, `LineRenderer` — with GameObject, component
+and asset references between them, and `@ExecutionOrder` on top.
+
+`LODGroup` is the one component still open: its levels hold **arrays of renderer
+references**, and the component-reference support added here is single-valued. Extending it
+to arrays is small, and is the natural next task.
+
+Stage 3 changes the *storage* of the inline table rather than the mechanism: once a material
+is a file with an id, it moves out of the scene and becomes an ordinary reference. Nothing
+built here has to be undone for that.
 
 1. **GUIDs.** Every asset gets a stable id, stored in a sidecar (`foo.png.meta`, JSON).
 2. **`AssetDatabase`** — GUID ↔ path ↔ loaded object, with rename/move tolerance.

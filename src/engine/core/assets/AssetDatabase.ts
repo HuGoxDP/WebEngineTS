@@ -122,6 +122,23 @@ export class AssetDatabase {
     }
 
     /**
+     * @internal
+     * Binds an in-memory asset to an id directly, with no path involved.
+     *
+     * @remarks
+     * For assets a scene carries inside itself rather than loading — a material
+     * value-serialized into the scene file. They have an identity so that
+     * sharing survives a round trip, but no file to be found at.
+     *
+     * @param guid - the id the scene stored it under.
+     * @param asset - the rebuilt instance.
+     */
+    public static _bindGuid(guid: string, asset: object): void {
+        AssetDatabase._assetByGuid.set(guid, asset);
+        AssetDatabase._guidByAsset.set(asset, guid);
+    }
+
+    /**
      * Records that an asset has moved.
      *
      * @remarks

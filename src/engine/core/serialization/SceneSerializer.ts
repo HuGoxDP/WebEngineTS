@@ -23,10 +23,29 @@ export interface SerializedGameObject {
     };
     components: SerializedComponent[];
     children: SerializedGameObject[];
+    /**
+     * Assets carried inside this snapshot. Present only on the **root** of a
+     * `serializeGameObject` result, never on a child.
+     */
+    assets?: SerializedAsset[];
 }
 
 /** Serialized snapshot of a single component. */
 export interface SerializedComponent {
+    type: string;
+    fields: Record<string, unknown>;
+}
+
+/**
+ * An asset the scene carries inside itself, because it has no file behind it.
+ *
+ * @remarks
+ * A material is built in code, so it cannot be referenced by path. It is
+ * value-serialized once here and referenced by id from every component that
+ * used it, which is what keeps sharing intact across a save.
+ */
+export interface SerializedAsset {
+    guid: string;
     type: string;
     fields: Record<string, unknown>;
 }
@@ -36,6 +55,8 @@ export interface SerializedScene {
     name: string;
     version: 1;
     roots: SerializedGameObject[];
+    /** Assets carried inside the scene. See {@link SerializedAsset}. */
+    assets?: SerializedAsset[];
 }
 
 /**
@@ -68,11 +89,12 @@ export class SceneSerializer {
     /** Serializes every root GameObject in the scene to a JSON tree. */
     public static serializeScene(scene: Scene): SerializedScene {
         const ctx = SceneSerializer._buildSerializeCtx(scene.getRootGameObjects());
-        return {
-            name: scene.name,
-            version: 1,
-            roots: scene.getRootGameObjects().map(r => SceneSerializer._serializeGO(r, ctx)),
-        };
+        const roots = scene.getRootGameObjects().map(r => SceneSerializer._serializeGO(r, ctx));
+
+        // Written after the walk: the table is filled as components are visited.
+        const out: SerializedScene = { name: scene.name, version: 1, roots };
+        if (ctx.assetTable.length > 0) out.assets = ctx.assetTable;
+        return out;
     }
 
     /**
@@ -94,6 +116,7 @@ export class SceneSerializer {
                 currentComponent: null,
                 currentField: null,
             };
+            SceneSerializer._materializeAssets(json.assets, ctx);
             const roots = json.roots.map(r => SceneSerializer._deserializeGO(r, ctx));
             SceneSerializer._resolveRefs(ctx, roots);
             return roots;
@@ -107,7 +130,9 @@ export class SceneSerializer {
     /** Serializes a single GameObject and all its descendants. */
     public static serializeGameObject(go: GameObject): SerializedGameObject {
         const ctx = SceneSerializer._buildSerializeCtx([go]);
-        return SceneSerializer._serializeGO(go, ctx);
+        const root = SceneSerializer._serializeGO(go, ctx);
+        if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
+        return root;
     }
 
     /**
@@ -129,6 +154,7 @@ export class SceneSerializer {
                 currentComponent: null,
                 currentField: null,
             };
+            SceneSerializer._materializeAssets(json.assets, ctx);
             const root = SceneSerializer._deserializeGO(json, ctx);
             SceneSerializer._resolveRefs(ctx, [root]);
             return root;
@@ -150,8 +176,15 @@ export class SceneSerializer {
         };
         for (let i = 0; i < roots.length; i++) walk(roots[i], [i]);
 
-        return {
+        const assetTable: SerializedAsset[] = [];
+        const inlined = new Map<object, string>();
+        // The inline-asset closure serializes fields, which needs the very
+        // context being built — held in a box so it can refer to itself.
+        const ctxRef: { value: SerializeContext | null } = { value: null };
+
+        const ctx: SerializeContext = {
             goToPath,
+            assetTable,
             componentTypeName: (component) => TypeRegistry.getTypeName(component),
             componentIndex: (owner, component) => {
                 const list = (owner as unknown as { _components: Component[] })._components;
@@ -163,7 +196,34 @@ export class SceneSerializer {
                 }
                 return 0;
             },
+            inlineAsset: (asset) => {
+                const already = inlined.get(asset);
+                if (already !== undefined) return already;
+
+                const typeName = TypeRegistry.getTypeName(asset);
+                if (typeName === null) return null;
+
+                // Registered before the fields are walked, so an asset that
+                // somehow refers back to itself cannot recurse forever.
+                const guid = AssetDatabase.guidForPath(
+                    `inline:${typeName}:${assetTable.length}:${Math.random()}`,
+                );
+                inlined.set(asset, guid);
+
+                const fields: Record<string, unknown> = {};
+                assetTable.push({ guid, type: typeName, fields });
+                for (const f of getAllFields(asset.constructor as any)) {
+                    if (!f.serialize) continue;
+                    fields[f.name] = ValueSerializer.serialize(
+                        (asset as any)[f.name], f.type, ctxRef.value!,
+                    );
+                }
+                return guid;
+            },
         };
+
+        ctxRef.value = ctx;
+        return ctx;
     }
 
     private static _serializeGO(go: GameObject, ctx: SerializeContext): SerializedGameObject {
@@ -207,6 +267,45 @@ export class SceneSerializer {
     }
 
     // ==================== PRIVATE — DESERIALIZE ====================
+
+    /**
+     * Rebuilds the assets a snapshot carries inside itself, before any component
+     * can reference one.
+     *
+     * @remarks
+     * An id already in memory is left alone: a scenario that loaded its own
+     * materials keeps them, rather than being handed a second copy of each.
+     */
+    private static _materializeAssets(
+        table: SerializedAsset[] | undefined,
+        ctx: DeserializeContext,
+    ): void {
+        if (!table) return;
+
+        for (const entry of table) {
+            if (AssetDatabase.isLoaded(entry.guid)) continue;
+
+            const ctor = TypeRegistry.get(entry.type);
+            if (!ctor) {
+                console.warn(`[SceneSerializer] Unknown asset type "${entry.type}" — skipped`);
+                continue;
+            }
+
+            const asset = new ctor() as object;
+            for (const f of getAllFields(ctor)) {
+                if (!f.serialize) continue;
+                if (!(f.name in entry.fields)) continue;
+
+                ctx.currentComponent = asset;
+                ctx.currentField = f.name;
+                const value = ValueSerializer.deserialize(entry.fields[f.name], f.type, ctx);
+                ctx.currentComponent = null;
+                ctx.currentField = null;
+                SceneSerializer._assign(asset, f.name, value);
+            }
+            AssetDatabase._bindGuid(entry.guid, asset);
+        }
+    }
 
     private static _deserializeGO(json: SerializedGameObject, ctx: DeserializeContext): GameObject {
         const go = new GameObject(json.name);
@@ -275,7 +374,7 @@ export class SceneSerializer {
      * past it produces a component whose visible state and real state disagree.
      * Only plain data fields are written in place.
      */
-    private static _assign(comp: Component, field: string, value: unknown): void {
+    private static _assign(comp: object, field: string, value: unknown): void {
         if (SceneSerializer._hasSetter(comp, field)) {
             (comp as any)[field] = value;
             return;
@@ -311,7 +410,7 @@ export class SceneSerializer {
     }
 
     /** Whether `field` resolves to an accessor with a setter, own or inherited. */
-    private static _hasSetter(comp: Component, field: string): boolean {
+    private static _hasSetter(comp: object, field: string): boolean {
         let level: object | null = comp;
         while (level !== null && level !== Object.prototype) {
             const descriptor = Object.getOwnPropertyDescriptor(level, field);
@@ -356,7 +455,7 @@ export class SceneSerializer {
             const value = ref.sprite !== undefined
                 ? ValueSerializer._buildSprite(asset, ref.sprite)
                 : asset;
-            SceneSerializer._assign(ref.component as Component, ref.field, value);
+            SceneSerializer._assign(ref.component, ref.field, value);
             resolved++;
         }
 
@@ -378,7 +477,7 @@ export class SceneSerializer {
             const target = owner === null
                 ? null
                 : SceneSerializer._findComponent(owner, ref.typeName, ref.index);
-            SceneSerializer._assign(ref.component as Component, ref.field, target);
+            SceneSerializer._assign(ref.component, ref.field, target);
         }
 
         SceneSerializer._pending = ctx.pendingAssetRefs.slice();

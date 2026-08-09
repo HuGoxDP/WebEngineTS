@@ -30,6 +30,22 @@ export interface SerializeContext {
      * `0` unless the object genuinely carries several.
      */
     componentIndex(owner: GameObject, component: object): number;
+    /**
+     * Gives an asset that has no file behind it an id, and writes its values
+     * into the scene's asset table on first sight.
+     *
+     * @remarks
+     * A material is built in code, never loaded, so it has no identity of its
+     * own. Emitting it once and referencing it by id is what keeps two
+     * renderers sharing one material still sharing it after a load. Returns
+     * null when the class carries no `@Serializable` and so cannot be rebuilt.
+     */
+    inlineAsset(asset: object): string | null;
+    /**
+     * Assets written by {@link inlineAsset}, in the order they were first seen.
+     * The entry points attach this to the snapshot they return.
+     */
+    assetTable: Array<{ guid: string; type: string; fields: Record<string, unknown> }>;
 }
 
 /** Marker emitted in deserialize for a `GameObjectRef` field. */
@@ -169,8 +185,13 @@ export class ValueSerializer {
         // along for diagnostics only; nothing resolves through it.
         if (type === FieldType.Asset) {
             const guid = AssetDatabase.guidOf(value as object);
-            if (guid === null) return null;
-            return { $type: "AssetRef", guid, path: AssetDatabase.pathOf(guid) ?? undefined };
+            if (guid !== null) {
+                return { $type: "AssetRef", guid, path: AssetDatabase.pathOf(guid) ?? undefined };
+            }
+
+            // No file behind it — carried inside the scene instead.
+            const inlined = ctx ? ctx.inlineAsset(value as object) : null;
+            return inlined === null ? null : { $type: "AssetRef", guid: inlined };
         }
 
         // Component reference — the owning GameObject's path plus which

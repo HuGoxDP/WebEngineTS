@@ -5,6 +5,8 @@ import { Material } from "./Material.ts";
 import { Shader } from "./Shader.ts";
 import { Color } from "../math/Color.ts";
 import { Texture2D } from "./Texture2D.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 
 /**
  * A material that is not affected by scene lighting.
@@ -29,6 +31,7 @@ import { Texture2D } from "./Texture2D.ts";
  * renderer.sharedMaterial = mat;
  * ```
  */
+@Serializable({ typeName: "UnlitMaterial", category: "Rendering" })
 export class UnlitMaterial extends Material {
 
     constructor() {
@@ -100,6 +103,7 @@ export class UnlitMaterial extends Material {
      *
      * @remarks Useful for debug visualization.
      */
+    @SerializedField()
     public get wireframe(): boolean {
         return (this._threeMatHandle as THREE.MeshBasicMaterial).wireframe;
     }

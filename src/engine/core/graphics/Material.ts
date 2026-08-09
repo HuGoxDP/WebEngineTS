@@ -3,6 +3,8 @@
 import * as THREE from "three";
 import { EngineObject } from "../EngineObject.ts";
 import { Shader } from "./Shader.ts";
+import { SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import { Color } from "../math/Color.ts";
 import { Texture } from "./Texture.ts";
 import { Vector2 } from "../math/Vector2.ts";
@@ -145,6 +147,7 @@ export class Material extends EngineObject {
      * Main color (`_Color` property).
      * @remarks Equivalent to Unity's `Material.color`.
      */
+    @SerializedField({ type: FieldType.Color })
     public get color(): Color {
         return this.getColor("_Color");
     }
@@ -157,6 +160,7 @@ export class Material extends EngineObject {
      * Main texture (`_MainTex` property).
      * @remarks Equivalent to Unity's `Material.mainTexture`.
      */
+    @SerializedField({ type: FieldType.Asset })
     public get mainTexture(): Texture | null {
         return this.getTexture("_MainTex");
     }
@@ -169,6 +173,7 @@ export class Material extends EngineObject {
      * UV offset of the main texture.
      * @remarks Equivalent to Unity's `Material.mainTextureOffset`.
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public get mainTextureOffset(): Vector2 {
         return this.getTextureOffset("_MainTex");
     }
@@ -181,6 +186,7 @@ export class Material extends EngineObject {
      * UV scale (tiling) of the main texture.
      * @remarks Equivalent to Unity's `Material.mainTextureScale`.
      */
+    @SerializedField({ type: FieldType.Vector2 })
     public get mainTextureScale(): Vector2 {
         return this.getTextureScale("_MainTex");
     }
@@ -193,6 +199,7 @@ export class Material extends EngineObject {
      * Render queue priority.
      * @remarks Equivalent to Unity's `Material.renderQueue`.
      */
+    @SerializedField()
     public get renderQueue(): number {
         return this._renderQueue;
     }

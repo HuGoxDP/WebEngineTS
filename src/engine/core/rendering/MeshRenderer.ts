@@ -3,6 +3,7 @@
 import * as THREE from "three";
 import { Renderer } from "./Renderer.ts";
 import { MeshFilter } from "./MeshFilter.ts";
+import { Serializable } from "../reflection/Decorators.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -30,6 +31,7 @@ import type { GameObject } from "../GameObject.ts";
  *   managed entirely through the Renderer's `_setInternalRenderObject` API.
  * - Supports multi-material rendering (one material per sub-mesh group).
  */
+@Serializable({ typeName: "MeshRenderer", category: "Rendering" })
 export class MeshRenderer extends Renderer {
 
     // ==================== INTERNAL STATE ====================

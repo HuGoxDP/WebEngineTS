@@ -188,6 +188,7 @@ export abstract class Renderer extends Behaviour {
      *
      * @remarks Equivalent to Unity's `Renderer.sharedMaterial`.
      */
+    @SerializedField({ type: FieldType.Asset })
     public get sharedMaterial(): Material | null {
         return this._sharedMaterials.length > 0 ? this._sharedMaterials[0] : null;
     }

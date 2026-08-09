@@ -55,6 +55,9 @@ import {
     LineRenderer, LineAlignment, LineTextureMode,
 } from "../src/engine/core/components/LineRenderer";
 import { MeshFilter } from "../src/engine/core/rendering/MeshFilter";
+import { MeshRenderer } from "../src/engine/core/rendering/MeshRenderer";
+import { StandardMaterial } from "../src/engine/core/graphics/StandardMaterial";
+import { Texture } from "../src/engine/core/graphics/Texture";
 import { Mesh } from "../src/engine/core/graphics/Mesh";
 import { Vector2 } from "../src/engine/core/math/Vector2";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
@@ -1873,6 +1876,148 @@ describe("Built-in components — MeshFilter", () => {
         // would have changed the scene just by saving it.
         expect((filter as any)._meshInstance).toBeNull();
         expect(filter.sharedMesh).not.toBeNull();
+    });
+});
+
+describe("Built-in components — MeshRenderer and inline materials", () => {
+    beforeEach(() => {
+        destroyScene();
+        AssetDatabase.clear();
+    });
+    afterEach(() => AssetDatabase.clear());
+
+    function roundTrip(go: GameObject): GameObject {
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(go));
+    }
+
+    test("a material with no file behind it is carried inside the scene", () => {
+        const go = new GameObject("Box");
+        go.addComponent(MeshFilter).sharedMesh = Mesh.createCube(1);
+        const mat = new StandardMaterial();
+        mat.albedoColor = new Color(1, 0.5, 0.25, 1);
+        go.addComponent(MeshRenderer).sharedMaterial = mat;
+
+        const json = SceneSerializer.serializeGameObject(go);
+
+        expect(json.assets!.length).toBe(1);
+        expect(json.assets![0].type).toBe("StandardMaterial");
+        // The component points at it by id, not by value.
+        const field = json.components.find(c => c.type === "MeshRenderer")!.fields.sharedMaterial;
+        expect((field as any).$type).toBe("AssetRef");
+        expect((field as any).guid).toBe(json.assets![0].guid);
+    });
+
+    test("the material's values come back", () => {
+        const go = new GameObject("Box");
+        const mat = new StandardMaterial();
+        mat.albedoColor = new Color(0.2, 0.4, 0.6, 1);
+        mat.metallic = 0.8;
+        mat.smoothness = 0.3;
+        mat.emissionColor = new Color(1, 0, 0, 1);
+        go.addComponent(MeshRenderer).sharedMaterial = mat;
+
+        const back = roundTrip(go).getComponent(MeshRenderer)!.sharedMaterial as StandardMaterial;
+
+        expect(back).not.toBe(mat);
+        expect(back).toBeInstanceOf(StandardMaterial);
+        expect(back.albedoColor.g).toBeCloseTo(0.4);
+        expect(back.metallic).toBeCloseTo(0.8);
+        expect(back.smoothness).toBeCloseTo(0.3);
+        expect(back.emissionColor.r).toBeCloseTo(1);
+    });
+
+    test("two renderers sharing one material still share it after a load", () => {
+        const root = new GameObject("Pair");
+        const shared = new StandardMaterial();
+        shared.albedoColor = new Color(0, 1, 0, 1);
+
+        for (const name of ["A", "B"]) {
+            const child = new GameObject(name);
+            child.transform.parent = root.transform;
+            child.addComponent(MeshRenderer).sharedMaterial = shared;
+        }
+
+        const json = SceneSerializer.serializeGameObject(root);
+        // Emitted once, not once per renderer.
+        expect(json.assets!.length).toBe(1);
+
+        const back = SceneSerializer.deserializeGameObject(json);
+        const a = back.transform.getChild(0).gameObject.getComponent(MeshRenderer)!;
+        const b = back.transform.getChild(1).gameObject.getComponent(MeshRenderer)!;
+
+        expect(a.sharedMaterial).toBe(b.sharedMaterial);
+        expect(a.sharedMaterial).not.toBe(shared);
+    });
+
+    test("a material's texture is still referenced by id, not inlined", () => {
+        // Material.getTexture only accepts a Texture instance, so a plain stub
+        // would read back as null and prove nothing — and Texture2D's
+        // constructor needs a DOM canvas. An instance without the constructor
+        // is enough: nothing here touches the pixels.
+        const threeTexture = {
+            offset: { x: 0, y: 0, set: () => {} },
+            repeat: { x: 1, y: 1, set: () => {} },
+        };
+        const texture = Object.create(Texture.prototype, {
+            _internalThreeTexture: { value: threeTexture },
+            _threeTexture: { value: threeTexture, writable: true },
+        }) as any;
+        AssetDatabase.setManifest([{ guid: "tex-albedo", path: "textures/albedo.png" }]);
+        AssetDatabase._bind("textures/albedo.png", texture);
+
+        const go = new GameObject("Box");
+        const mat = new StandardMaterial();
+        mat.albedoTexture = texture;
+        go.addComponent(MeshRenderer).sharedMaterial = mat;
+
+        const json = SceneSerializer.serializeGameObject(go);
+        expect((json.assets![0].fields.albedoTexture as any).guid).toBe("tex-albedo");
+
+        const back = SceneSerializer.deserializeGameObject(json)
+            .getComponent(MeshRenderer)!.sharedMaterial as StandardMaterial;
+        expect(back.albedoTexture).toBe(texture);
+    });
+
+    test("a material already in memory is not duplicated on load", () => {
+        const go = new GameObject("Box");
+        const mat = new StandardMaterial();
+        go.addComponent(MeshRenderer).sharedMaterial = mat;
+
+        const json = SceneSerializer.serializeGameObject(go);
+
+        // Loading twice into a session that already has it must not mint a
+        // second copy behind the same id.
+        const first = SceneSerializer.deserializeGameObject(json)
+            .getComponent(MeshRenderer)!.sharedMaterial;
+        const second = SceneSerializer.deserializeGameObject(json)
+            .getComponent(MeshRenderer)!.sharedMaterial;
+
+        expect(second).toBe(first);
+    });
+
+    test("a whole rendered object round-trips: mesh, material and shadows", () => {
+        const go = new GameObject("Planet");
+        go.addComponent(MeshFilter).sharedMesh = Mesh.createSphere(2, 16);
+        const renderer = go.addComponent(MeshRenderer);
+        const mat = new StandardMaterial();
+        mat.albedoColor = new Color(0.8, 0.6, 0.4, 1);
+        renderer.sharedMaterial = mat;
+        renderer.receiveShadows = false;
+
+        const back = roundTrip(go);
+        const backMesh = back.getComponent(MeshFilter)!.sharedMesh!;
+        const backRenderer = back.getComponent(MeshRenderer)!;
+
+        expect(backMesh.primitive!.kind).toBe("Sphere");
+        expect((backRenderer.sharedMaterial as StandardMaterial).albedoColor.r).toBeCloseTo(0.8);
+        expect(backRenderer.receiveShadows).toBe(false);
+    });
+
+    test("no inline table is written when there is nothing to carry", () => {
+        const go = new GameObject("Empty");
+        go.addComponent(MeshFilter).sharedMesh = Mesh.createCube(1);
+
+        expect(SceneSerializer.serializeGameObject(go).assets).toBeUndefined();
     });
 });
 

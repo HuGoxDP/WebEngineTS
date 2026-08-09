@@ -5,6 +5,8 @@ import { Material } from "./Material.ts";
 import { Shader } from "./Shader.ts";
 import { Color } from "../math/Color.ts";
 import { Texture2D } from "./Texture2D.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 
 /**
  * Rendering mode for a Standard material.
@@ -41,6 +43,7 @@ export enum MaterialRenderMode {
  * renderer.sharedMaterial = mat;
  * ```
  */
+@Serializable({ typeName: "StandardMaterial", category: "Rendering" })
 export class StandardMaterial extends Material {
 
     constructor() {
@@ -64,6 +67,7 @@ export class StandardMaterial extends Material {
      * Albedo (base) color.
      * @remarks Equivalent to Unity's `_Color` property.
      */
+    @SerializedField({ type: FieldType.Color })
     public get albedoColor(): Color {
         return this.getColor("_Color");
     }
@@ -76,6 +80,7 @@ export class StandardMaterial extends Material {
      * Albedo texture.
      * @remarks Equivalent to Unity's `_MainTex` property.
      */
+    @SerializedField({ type: FieldType.Asset })
     public get albedoTexture(): Texture2D | null {
         return this.getTexture("_MainTex") as Texture2D | null;
     }
@@ -90,6 +95,7 @@ export class StandardMaterial extends Material {
      * Metallic amount (0 = dielectric, 1 = metal).
      * @remarks Equivalent to Unity's `_Metallic` property.
      */
+    @SerializedField()
     public get metallic(): number {
         return this.getFloat("_Metallic");
     }
@@ -102,6 +108,7 @@ export class StandardMaterial extends Material {
      * Metallic/smoothness texture (R channel = metallic).
      * @remarks Equivalent to Unity's `_MetallicGlossMap` property.
      */
+    @SerializedField({ type: FieldType.Asset })
     public get metallicTexture(): Texture2D | null {
         return this.getTexture("_MetallicGlossMap") as Texture2D | null;
     }
@@ -117,6 +124,7 @@ export class StandardMaterial extends Material {
      * Unity uses **smoothness**, Three.js uses **roughness** (= 1 âˆ’ smoothness).
      * The conversion is handled automatically by `setFloat("_Glossiness", ...)`.
      */
+    @SerializedField()
     public get smoothness(): number {
         return this.getFloat("_Glossiness");
     }
@@ -129,6 +137,7 @@ export class StandardMaterial extends Material {
      * Gloss map scale factor.
      * @remarks Equivalent to Unity's `_GlossMapScale` property.
      */
+    @SerializedField()
     public get glossMapScale(): number {
         return this.getFloat("_GlossMapScale");
     }
@@ -143,6 +152,7 @@ export class StandardMaterial extends Material {
      * Normal map texture.
      * @remarks Equivalent to Unity's `_BumpMap` property.
      */
+    @SerializedField({ type: FieldType.Asset })
     public get normalTexture(): Texture2D | null {
         return this.getTexture("_BumpMap") as Texture2D | null;
     }
@@ -163,6 +173,7 @@ export class StandardMaterial extends Material {
      * Normal map strength.
      * @remarks Equivalent to Unity's `_BumpScale` property.
      */
+    @SerializedField()
     public get normalScale(): number {
         return this.getFloat("_BumpScale");
     }
@@ -177,6 +188,7 @@ export class StandardMaterial extends Material {
      * Height/parallax map texture.
      * @remarks Equivalent to Unity's `_ParallaxMap` property.
      */
+    @SerializedField({ type: FieldType.Asset })
     public get heightTexture(): Texture2D | null {
         return this.getTexture("_ParallaxMap") as Texture2D | null;
     }
@@ -198,6 +210,7 @@ export class StandardMaterial extends Material {
      * Parallax effect strength.
      * @remarks Equivalent to Unity's `_Parallax` property.
      */
+    @SerializedField()
     public get heightScale(): number {
         return this.getFloat("_Parallax");
     }
@@ -213,6 +226,7 @@ export class StandardMaterial extends Material {
      * Ambient occlusion texture.
      * @remarks Equivalent to Unity's `_OcclusionMap` property.
      */
+    @SerializedField({ type: FieldType.Asset })
     public get occlusionTexture(): Texture2D | null {
         return this.getTexture("_OcclusionMap") as Texture2D | null;
     }
@@ -225,6 +239,7 @@ export class StandardMaterial extends Material {
      * Ambient occlusion strength (0â€“1).
      * @remarks Equivalent to Unity's `_OcclusionStrength` property.
      */
+    @SerializedField()
     public get occlusionStrength(): number {
         return this.getFloat("_OcclusionStrength");
     }
@@ -239,6 +254,7 @@ export class StandardMaterial extends Material {
      * Emission color.
      * @remarks Equivalent to Unity's `_EmissionColor` property.
      */
+    @SerializedField({ type: FieldType.Color })
     public get emissionColor(): Color {
         return this.getColor("_EmissionColor");
     }
@@ -275,6 +291,7 @@ export class StandardMaterial extends Material {
      * Emission texture.
      * @remarks Equivalent to Unity's `_EmissionMap` property.
      */
+    @SerializedField({ type: FieldType.Asset })
     public get emissionTexture(): Texture2D | null {
         return this.getTexture("_EmissionMap") as Texture2D | null;
     }
@@ -286,6 +303,7 @@ export class StandardMaterial extends Material {
     // ==================== DETAIL TEXTURES ====================
 
     /** Detail albedo texture. */
+    @SerializedField({ type: FieldType.Asset })
     public get detailAlbedoTexture(): Texture2D | null {
         return this.getTexture("_DetailAlbedoMap") as Texture2D | null;
     }
@@ -295,6 +313,7 @@ export class StandardMaterial extends Material {
     }
 
     /** Detail normal texture. */
+    @SerializedField({ type: FieldType.Asset })
     public get detailNormalTexture(): Texture2D | null {
         return this.getTexture("_DetailNormalMap") as Texture2D | null;
     }
@@ -304,6 +323,7 @@ export class StandardMaterial extends Material {
     }
 
     /** Detail mask. */
+    @SerializedField({ type: FieldType.Asset })
     public get detailMask(): Texture2D | null {
         return this.getTexture("_DetailMask") as Texture2D | null;
     }
@@ -318,6 +338,7 @@ export class StandardMaterial extends Material {
      * Rendering mode (Opaque, Cutout, Fade, Transparent).
      * @remarks Equivalent to Unity's Standard Shader rendering mode dropdown.
      */
+    @SerializedField({ type: FieldType.Enum })
     public get renderMode(): MaterialRenderMode {
         const mode = this.getInt("_Mode");
         return (mode as MaterialRenderMode) || MaterialRenderMode.Opaque;
@@ -332,6 +353,7 @@ export class StandardMaterial extends Material {
      * Alpha cutoff threshold (for Cutout mode).
      * @remarks Equivalent to Unity's `_Cutoff` property.
      */
+    @SerializedField()
     public get alphaCutoff(): number {
         return this.getFloat("_Cutoff");
     }
