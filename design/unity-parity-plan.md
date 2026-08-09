@@ -562,7 +562,20 @@ unchanged asset costs nothing.
 
    The diff module is pure (two snapshots in, differences out), so the editor can reuse it
    for "modified" markers without touching live objects.
-2. Nested prefabs and prefab variants.
+2. **Prefab variants — done 2026-08-05.** `Prefab.createVariant(base, overrides)` builds a
+   prefab that holds *no tree of its own*: it resolves its base every time it is asked, so an
+   edit to the base reaches the variant and everything instantiated from it. Variants of
+   variants resolve recursively. That is the whole reason to prefer a variant over a copy, and
+   it is what the tests pin.
+
+   Resolution is deliberately **not cached** — caching is what would break the propagation
+   this exists for, and a prefab tree is small next to the scene it populates.
+
+   **Saving a variant flattens it**, and the JSDoc says so: recording "base plus differences"
+   means *naming* the base, and prefabs have no ids yet. The saved values are right, the link
+   is lost. That is also exactly what **nested prefabs** need — a snapshot that references
+   another prefab rather than embedding it — so both wait on prefab identity, which belongs
+   with Stage 2/3's asset ids rather than here.
 3. **Inspector generated from serialization metadata**, with custom-drawer escape hatches.
 4. **Undo** as serialized-state diffs.
 5. Play mode: serialize → run → restore.

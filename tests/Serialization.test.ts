@@ -2465,6 +2465,89 @@ describe("Prefab — per-instance overrides", () => {
         expect(prefab.getOverrides(instance)).toEqual([]);
     });
 
+    test("a variant is the base plus its differences", () => {
+        const base = makePrefab();
+        const tweaked = base.instantiate();
+        tweaked.getComponent(TestScript)!.speed = 20;
+        const elite = Prefab.createVariant(base, base.getOverrides(tweaked), "Elite");
+        tweaked.destroy();
+
+        const spawned = elite.instantiate();
+
+        expect(elite.isVariant).toBe(true);
+        expect(elite.base).toBe(base);
+        expect(elite.name).toBe("Elite");
+        expect(spawned.getComponent(TestScript)!.speed).toBe(20);
+        // Everything it did not override still comes from the base.
+        expect(spawned.getComponent(TestScript)!.label).toBe("default");
+    });
+
+    test("an edit to the base reaches its variant", () => {
+        const base = makePrefab();
+        const tweaked = base.instantiate();
+        tweaked.getComponent(TestScript)!.speed = 20;
+        const elite = Prefab.createVariant(base, base.getOverrides(tweaked));
+        tweaked.destroy();
+
+        // The reason a variant is preferable to a copy.
+        (base as any)._snapshot.components[0].fields.label = "patched";
+
+        const spawned = elite.instantiate();
+        expect(spawned.getComponent(TestScript)!.label).toBe("patched");
+        expect(spawned.getComponent(TestScript)!.speed).toBe(20);
+    });
+
+    test("a variant of a variant resolves through the chain", () => {
+        const base = makePrefab();
+
+        const midInstance = base.instantiate();
+        midInstance.getComponent(TestScript)!.speed = 20;
+        const mid = Prefab.createVariant(base, base.getOverrides(midInstance), "Mid");
+        midInstance.destroy();
+
+        const topInstance = mid.instantiate();
+        topInstance.getComponent(TestScript)!.label = "boss";
+        const top = Prefab.createVariant(mid, mid.getOverrides(topInstance), "Top");
+        topInstance.destroy();
+
+        const spawned = top.instantiate();
+
+        expect(spawned.getComponent(TestScript)!.speed).toBe(20);   // from mid
+        expect(spawned.getComponent(TestScript)!.label).toBe("boss"); // from top
+    });
+
+    test("an instance of a variant reports differences from the variant", () => {
+        const base = makePrefab();
+        const tweaked = base.instantiate();
+        tweaked.getComponent(TestScript)!.speed = 20;
+        const elite = Prefab.createVariant(base, base.getOverrides(tweaked));
+        tweaked.destroy();
+
+        const instance = elite.instantiate();
+        expect(elite.getOverrides(instance)).toEqual([]);
+
+        instance.getComponent(TestScript)!.speed = 30;
+        const overrides = elite.getOverrides(instance);
+
+        expect(overrides.length).toBe(1);
+        expect(overrides[0].value).toBe(30);
+    });
+
+    test("saving a variant flattens it, which is why the link is documented", () => {
+        const base = makePrefab();
+        const tweaked = base.instantiate();
+        tweaked.getComponent(TestScript)!.speed = 20;
+        const elite = Prefab.createVariant(base, base.getOverrides(tweaked));
+        tweaked.destroy();
+
+        const restored = Prefab.fromJSON(elite.toJSON());
+
+        // Values survive; the connection to the base does not, since prefabs
+        // have no ids to name it by yet.
+        expect(restored.instantiate().getComponent(TestScript)!.speed).toBe(20);
+        expect(restored.isVariant).toBe(false);
+    });
+
     test("a compound value counts as one override, not several", () => {
         const prefab = makePrefab();
         const instance = prefab.instantiate();
