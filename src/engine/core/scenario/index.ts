@@ -9,6 +9,7 @@ export {
     ScenarioCategory,
     ScenarioLoadState,
     type IScenarioManifest,
+    type IScenarioAssetEntry,
     type IScenarioAuthor,
     type IScenarioLoadProgress,
     type IScenarioContext

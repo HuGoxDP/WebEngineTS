@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { Texture2D } from "../graphics/Texture2D.ts";
+import { AssetDatabase } from "../assets/AssetDatabase.ts";
 import { GameObject } from "../GameObject.ts";
 import { MeshFilter } from "../rendering/MeshFilter.ts";
 import { MeshRenderer } from "../rendering/MeshRenderer.ts";
@@ -12,7 +13,7 @@ import { StandardMaterial, MaterialRenderMode } from "../graphics/StandardMateri
 import { Color } from "../math/Color.ts";
 import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
-import type { IAssetProvider } from "./ScenarioTypes.ts";
+import type { IAssetProvider, IScenarioAssetEntry } from "./ScenarioTypes.ts";
 import { Resources, type IAssetSource } from "../assets/Resources.ts";
 import { Animation } from "../animation/Animation.ts";
 import { AnimationClip } from "../animation/AnimationClip.ts";
@@ -403,7 +404,11 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      * Registers the GameObject (model) decoder and sets the source.
      * Called by Scenario.run().
      */
-    public _activateAsResourceSource(): void {
+    public _activateAsResourceSource(manifestAssets?: readonly IScenarioAssetEntry[]): void {
+        // Identities first: a decoder that runs during activation would
+        // otherwise bind its asset to a minted id and never see the real one.
+        AssetDatabase.setManifest(manifestAssets ?? []);
+
         // Register model decoder (requires Three.js — stays here, not in Resources)
         Resources.registerDecoder(
             GameObject,

@@ -301,6 +301,7 @@ export { ScenarioAssets } from "./core/scenario/ScenarioAssets";
 export { ScenarioCategory, ScenarioLoadState } from "./core/scenario/ScenarioTypes";
 export type {
     IScenarioManifest,
+    IScenarioAssetEntry,
     IScenarioAuthor,
     IScenarioLoadProgress,
     IScenarioContext,

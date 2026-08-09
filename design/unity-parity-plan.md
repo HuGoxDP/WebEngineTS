@@ -323,9 +323,23 @@ Decisions worth recording:
 now a test for exactly that: save a scene, move the asset, load it, and the reference still
 points at the same instance.
 
-Remaining for Stage 2: sidecar `.meta` generation and the manifest in the scenario archive
-(both ScenarioCreator work), and migrating `ScenarioAssets` to resolve through the database
-while keeping the path API as a shim.
+**The manifest seam landed 2026-08-05.** `IScenarioManifest.assets` — an optional
+`{ guid, path }[]` — is handed to `AssetDatabase.setManifest` when a scenario activates its
+asset source, before any decoder runs (a decoder that ran first would bind its asset to a
+minted id and never see the declared one).
+
+That closes the engine half of Stage 2. Without the field the engine still mints
+session-local ids, so references resolve *within* a run but a saved scene could not find its
+assets again after a reload; with it, an id is the same every run. There is a test for
+exactly that difference, since it is the entire reason the field exists.
+
+**Remaining for Stage 2, and it is not engine work:** ScenarioCreator has to *write* the
+field — generate sidecar identities at import time and emit them into `manifest.json`. The
+engine reads whatever it is given and degrades honestly when given nothing.
+
+`ScenarioAssets` needs no migration after all: it is an `IAssetSource`, and `Resources` binds
+every decoded asset into the database on load, so the path API already resolves through the
+identity layer without a shim.
 
 **`Sprite` needed its own answer (2026-08-05).** A `Sprite` is *not* a loadable asset — it is
 a **framing** of one: a texture reference plus a sub-rect, border and pivot, usually

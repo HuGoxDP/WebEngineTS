@@ -1088,6 +1088,29 @@ describe("AssetDatabase", () => {
         expect(AssetDatabase.movePath("nowhere.png", "elsewhere.png")).toBe(false);
     });
 
+    test("an empty manifest clears the mapping, as unloading a scenario does", () => {
+        AssetDatabase.setManifest([{ guid: "one", path: "a.png" }]);
+
+        AssetDatabase.setManifest([]);
+
+        expect(AssetDatabase.pathOf("one")).toBeNull();
+        // A path seen afterwards is new, and gets a fresh id.
+        expect(AssetDatabase.guidForPath("a.png")).not.toBe("one");
+    });
+
+    test("a manifest id survives what a minted one would not", () => {
+        // The distinction the scenario manifest exists for: run one mints an
+        // id, run two mints a different one, and a scene saved between them
+        // could not find its asset. A declared id is the same every run.
+        AssetDatabase.setManifest([{ guid: "declared", path: "textures/a.png" }]);
+        const first = AssetDatabase.guidForPath("textures/a.png");
+
+        AssetDatabase.clear();
+        AssetDatabase.setManifest([{ guid: "declared", path: "textures/a.png" }]);
+
+        expect(AssetDatabase.guidForPath("textures/a.png")).toBe(first);
+    });
+
     test("a new manifest replaces the old mapping", () => {
         AssetDatabase.setManifest([{ guid: "one", path: "a.png" }]);
         AssetDatabase.setManifest([{ guid: "two", path: "b.png" }]);

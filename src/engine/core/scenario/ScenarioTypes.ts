@@ -66,6 +66,19 @@ export interface IScenarioAuthor {
  * }
  * ```
  */
+export interface IScenarioAssetEntry {
+    /**
+     * Stable identity for the asset, written by the packaging tool.
+     *
+     * @remarks
+     * What a serialized scene stores instead of a path, so renaming or moving
+     * the file inside the archive does not break the scenes referring to it.
+     */
+    guid: string;
+    /** Where the asset lives in the archive, relative to `assets/`. */
+    path: string;
+}
+
 export interface IScenarioManifest {
     /** Manifest format version (for forward compatibility). */
     manifestVersion: string;
@@ -104,9 +117,22 @@ export interface IScenarioManifest {
     /**
      * Path to a serialized scene to load before executing the entry point.
      *
-     * @remarks Reserved for future use — scene serialization is not yet implemented.
+     * @remarks
+     * Reserved: scene serialization itself now exists (`SceneSerializer`), but
+     * nothing in the loader reads this field yet.
      */
     entryScene?: string;
+
+    /**
+     * Stable identities for the archive's assets.
+     *
+     * @remarks
+     * Optional, and written by the packaging tool. Without it the engine mints
+     * ids on first sight so references still resolve *within* a run — but those
+     * ids do not survive a reload, so a saved scene could not find its assets
+     * again. Supplying this is what makes an asset reference durable.
+     */
+    assets?: IScenarioAssetEntry[];
 
     /** IDs of other scenarios this one depends on (reserved for future use). */
     dependencies?: string[];

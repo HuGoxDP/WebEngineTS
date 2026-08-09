@@ -316,7 +316,7 @@ export class Scenario extends EngineObject {
             await this._prelinkAllScripts();
 
             // Activate asset source for Resources API
-            this._assets!._activateAsResourceSource();
+            this._assets!._activateAsResourceSource(this._manifest.assets);
 
             // Build the context that the entry point receives
             const context = this._createContext();
