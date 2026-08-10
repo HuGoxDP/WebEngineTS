@@ -590,7 +590,17 @@ Independent of 1–4, and of each other:
 - **Animator state machine + blend trees** (`M`) — the largest single runtime gap.
 - **Layer collision matrix + joints** (`S`)
 - **Additive scene loading + `DontDestroyOnLoad`** (`S`)
-- **`ScriptableObject`** proper — data assets without a GameObject (`S`)
+- ~~**`ScriptableObject`** proper — data assets without a GameObject~~ — **done 2026-08-05.**
+  `core/ScriptableObject.ts`: an `EngineObject` with no GameObject and no lifecycle, plus
+  `create`, `toJSON` and `fromJSON`. The JSDoc states the distinction §2.8 flagged — this is
+  Unity's `ScriptableObject`, while `ScriptableBehaviour` is the `MonoBehaviour` analogue
+  despite its name.
+
+  It needed almost no new machinery: an instance is `@Serializable`, so a component field
+  declared `FieldType.Asset` already routes it through the **inline sub-asset table** built
+  for materials. Two components pointing at one settings asset therefore still point at one
+  after a load, which is the reason to put shared data in an asset rather than copy it into
+  each component. That the material mechanism generalized this cleanly is a good sign for it.
 - **Render pipeline seam** (`M`) — already roadmap P2.8, prerequisite for WebGPU
 - **Addressables-equivalent streaming** (`L`) — already specified in
   `design/asset-streaming-proposal.md`

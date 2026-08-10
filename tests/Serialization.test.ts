@@ -29,6 +29,7 @@ import {
     Serializable, SerializedField, ExecutionOrder, getExecutionOrder, getClassMeta,
 } from "../src/engine/core/reflection/Decorators";
 import { ScriptableBehaviour } from "../src/engine/core/ScriptableBehaviour";
+import { ScriptableObject } from "../src/engine/core/ScriptableObject";
 import { FieldType } from "../src/engine/core/reflection/Types";
 import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
 import { AssetDatabase } from "../src/engine/core/assets/AssetDatabase";
@@ -2320,6 +2321,126 @@ describe("SceneSerializer — component references", () => {
         const backCam = restored.find(r => r.name === "Cam")!.getComponent(Camera)!;
 
         expect(backCanvas.worldCamera).toBe(backCam);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// ScriptableObject — data assets with no GameObject (unity-parity Stage 5)
+// ---------------------------------------------------------------------------
+
+@Serializable({ typeName: "Test.ExperimentSettings" })
+class ExperimentSettings extends ScriptableObject {
+    @SerializedField()
+    public gravity: number = 9.81;
+
+    @SerializedField()
+    public sampleCount: number = 20;
+
+    @SerializedField({ type: FieldType.Color })
+    public plotColor: Color = new Color(1, 1, 1, 1);
+}
+
+@Serializable({ typeName: "Test.SettingsHolder" })
+class SettingsHolder extends Behaviour {
+    @SerializedField({ type: FieldType.Asset })
+    public settings: ExperimentSettings | null = null;
+}
+
+describe("ScriptableObject", () => {
+    beforeEach(() => {
+        destroyScene();
+        AssetDatabase.clear();
+    });
+    afterEach(() => AssetDatabase.clear());
+
+    test("create names the asset and needs no GameObject", () => {
+        const settings = ScriptableObject.create(ExperimentSettings, "Earth");
+
+        expect(settings.name).toBe("Earth");
+        expect(settings.gravity).toBeCloseTo(9.81);
+    });
+
+    test("it round-trips standalone, as its own file would", () => {
+        const settings = ScriptableObject.create(ExperimentSettings, "Mars");
+        settings.gravity = 3.72;
+        settings.sampleCount = 5;
+        settings.plotColor = new Color(1, 0.5, 0, 1);
+
+        const back = ScriptableObject.fromJSON(settings.toJSON()) as ExperimentSettings;
+
+        expect(back).toBeInstanceOf(ExperimentSettings);
+        expect(back.name).toBe("Mars");
+        expect(back.gravity).toBeCloseTo(3.72);
+        expect(back.sampleCount).toBe(5);
+        expect(back.plotColor.g).toBeCloseTo(0.5);
+    });
+
+    test("an unregistered type is skipped rather than taking the load with it", () => {
+        const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        expect(ScriptableObject.fromJSON({ type: "Nope", name: "x", fields: {} })).toBeNull();
+        expect(spy).toHaveBeenCalled();
+
+        spy.mockRestore();
+    });
+
+    test("saving one without @Serializable says what is missing", () => {
+        class Undeclared extends ScriptableObject {}
+
+        expect(() => new Undeclared().toJSON()).toThrow(/@Serializable/);
+    });
+
+    test("a component referring to one carries it in the scene's asset table", () => {
+        const settings = ScriptableObject.create(ExperimentSettings, "Earth");
+        settings.gravity = 9.81;
+
+        const go = new GameObject("Rig");
+        go.addComponent(SettingsHolder).settings = settings;
+
+        const json = SceneSerializer.serializeGameObject(go);
+
+        expect(json.assets!.length).toBe(1);
+        expect(json.assets![0].type).toBe("Test.ExperimentSettings");
+        expect((json.components[0].fields.settings as any).$type).toBe("AssetRef");
+    });
+
+    test("two components sharing one asset still share it after a load", () => {
+        const settings = ScriptableObject.create(ExperimentSettings, "Earth");
+
+        const root = new GameObject("Lab");
+        for (const name of ["A", "B"]) {
+            const child = new GameObject(name);
+            child.transform.parent = root.transform;
+            child.addComponent(SettingsHolder).settings = settings;
+        }
+
+        const back = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(root),
+        );
+        const a = back.transform.getChild(0).gameObject.getComponent(SettingsHolder)!;
+        const b = back.transform.getChild(1).gameObject.getComponent(SettingsHolder)!;
+
+        // The reason data belongs in an asset rather than copied into each
+        // component: one edit, and both see it.
+        expect(a.settings).toBe(b.settings);
+        expect(a.settings).not.toBe(settings);
+        expect(a.settings!.gravity).toBeCloseTo(9.81);
+    });
+
+    test("its values survive the trip through the scene", () => {
+        const settings = ScriptableObject.create(ExperimentSettings, "Mars");
+        settings.gravity = 3.72;
+        settings.sampleCount = 7;
+
+        const go = new GameObject("Rig");
+        go.addComponent(SettingsHolder).settings = settings;
+
+        const back = SceneSerializer.deserializeGameObject(
+            SceneSerializer.serializeGameObject(go),
+        ).getComponent(SettingsHolder)!;
+
+        expect(back.settings!.gravity).toBeCloseTo(3.72);
+        expect(back.settings!.sampleCount).toBe(7);
     });
 });
 

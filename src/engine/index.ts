@@ -31,6 +31,8 @@ export { Time } from "./core/Time";
 export { EngineSettings } from "./core/EngineSettings";
 export { Behaviour } from "./core/Behaviour";
 export { ScriptableBehaviour } from "./core/ScriptableBehaviour";
+export { ScriptableObject } from "./core/ScriptableObject";
+export type { SerializedScriptableObject } from "./core/ScriptableObject";
 export { EngineObject } from "./core/EngineObject";
 export { Input } from "./core/Input";
 export { KeyCode } from "./core/KeyCode";
