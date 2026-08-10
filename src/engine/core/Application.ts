@@ -14,6 +14,7 @@ import { Transform } from "./Transform.ts";
 import { ShaderWarmup } from "./rendering/ShaderWarmup.ts";
 import { Physics } from "../physics/Physics.ts";
 import { Animation } from "./animation/Animation.ts";
+import { Animator } from "./animation/Animator.ts";
 import { AudioListener } from "./audio/AudioListener.ts";
 import { AudioSource } from "./audio/AudioSource.ts";
 import { Canvas } from "./ui/Canvas.ts";
@@ -562,6 +563,9 @@ export class Application {
         }
 
         // 6. Animation mixer updates (after Update, before LateUpdate)
+        // State machines first: a transition decided this frame is the one
+        // the mixer then plays, rather than landing a frame late.
+        Animator._updateAll();
         Animation._updateAll();
 
         // 6a. Particle system simulation (after Update, before LateUpdate)

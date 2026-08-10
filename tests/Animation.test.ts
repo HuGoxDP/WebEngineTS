@@ -2,7 +2,9 @@ import { describe, test, expect } from "vitest";
 import * as THREE from "three";
 import { AnimationClip } from "../src/engine/core/animation/AnimationClip";
 import { AnimationWrapMode } from "../src/engine/core/animation/Animation";
-import { Animator, AnimatorState, AnimatorTransition } from "../src/engine/core/animation/Animator";
+import {
+    AnimatorConditionMode, AnimatorState, AnimatorTransition,
+} from "../src/engine/core/animation/Animator";
 
 describe("AnimationClip", () => {
     test("wraps THREE.AnimationClip properties", () => {
@@ -56,13 +58,11 @@ describe("AnimatorState", () => {
         expect(state.wrapMode).toBe(AnimationWrapMode.Loop);
     });
 
-    test("addTransition creates transition with condition", () => {
-        const idleClip = makeClip("Idle");
-        const walkClip = makeClip("Walk");
-        const idle = new AnimatorState("Idle", idleClip);
-        const walk = new AnimatorState("Walk", walkClip);
+    test("addTransitionWhen creates a transition with a predicate", () => {
+        const idle = new AnimatorState("Idle", makeClip("Idle"));
+        const walk = new AnimatorState("Walk", makeClip("Walk"));
 
-        const transition = idle.addTransition(
+        const transition = idle.addTransitionWhen(
             walk,
             (p) => (p.get("Speed") as number) > 0.1,
             0.3
@@ -73,36 +73,46 @@ describe("AnimatorState", () => {
         expect(transition.duration).toBe(0.3);
     });
 
-    test("transition condition evaluates correctly", () => {
-        const idleClip = makeClip("Idle");
-        const walkClip = makeClip("Walk");
-        const idle = new AnimatorState("Idle", idleClip);
-        const walk = new AnimatorState("Walk", walkClip);
+    test("transition predicate evaluates correctly", () => {
+        const idle = new AnimatorState("Idle", makeClip("Idle"));
+        const walk = new AnimatorState("Walk", makeClip("Walk"));
 
-        idle.addTransition(
-            walk,
-            (p) => (p.get("Speed") as number) > 0.5
-        );
+        idle.addTransitionWhen(walk, (p) => (p.get("Speed") as number) > 0.5);
 
         const params = new Map<string, number | boolean>();
         params.set("Speed", 0.2);
-        expect(idle.transitions[0].condition(params)).toBe(false);
+        expect(idle.transitions[0].isSatisfied(params)).toBe(false);
 
         params.set("Speed", 0.8);
-        expect(idle.transitions[0].condition(params)).toBe(true);
+        expect(idle.transitions[0].isSatisfied(params)).toBe(true);
+    });
+
+    test("addTransition takes declarative conditions", () => {
+        const idle = new AnimatorState("Idle", makeClip("Idle"));
+        const walk = new AnimatorState("Walk", makeClip("Walk"));
+
+        const transition = idle.addTransition(walk, [
+            { parameter: "Speed", mode: AnimatorConditionMode.Greater, threshold: 0.1 },
+        ]);
+
+        expect(transition.conditions.length).toBe(1);
+        expect(transition.predicate).toBeNull();
+        expect(transition.isSatisfied(new Map([["Speed", 0.5]]))).toBe(true);
+        expect(transition.isSatisfied(new Map([["Speed", 0]]))).toBe(false);
     });
 });
 
 describe("AnimatorTransition", () => {
-    test("stores target, condition, and duration", () => {
+    test("stores target, predicate, and duration", () => {
         const clip = new AnimationClip(new THREE.AnimationClip("A", 1, []));
         const target = new AnimatorState("Target", clip);
-        const cond = () => true;
+        const predicate = () => true;
 
-        const t = new AnimatorTransition(target, cond, 0.5);
+        const t = new AnimatorTransition(target, predicate, 0.5);
 
         expect(t.target).toBe(target);
-        expect(t.condition).toBe(cond);
+        expect(t.predicate).toBe(predicate);
         expect(t.duration).toBe(0.5);
+        expect(t.conditions.length).toBe(0);
     });
 });

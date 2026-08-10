@@ -219,7 +219,11 @@ export { Collision, ContactPoint } from "./physics/Collision";
 // =====================
 export { AnimationClip } from "./core/animation/AnimationClip";
 export { Animation, AnimationWrapMode } from "./core/animation/Animation";
-export { Animator, AnimatorState, AnimatorTransition } from "./core/animation/Animator";
+export {
+    Animator, AnimatorState, AnimatorTransition,
+    AnimatorParameterType, AnimatorConditionMode,
+} from "./core/animation/Animator";
+export type { AnimatorCondition } from "./core/animation/Animator";
 
 // =====================
 // AUDIO

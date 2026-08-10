@@ -49,7 +49,7 @@ Measured 2026-08-04.
 | assets | 881 | 3 | **Low — path-addressed, no database** |
 | particles | 808 | 4 | Low (Shuriken subset) |
 | input | 578 | 3 | Medium |
-| animation | 518 | 3 | **Low — clips only, no Animator state machine** |
+| animation | 518 | 3 | Medium — state machine done, no blend trees |
 | serialization | 502 | 3 | **Low — exists but unused by the engine itself** |
 | audio | 481 | 4 | Medium |
 | postprocessing | 342 | 4 | Low |
@@ -147,6 +147,9 @@ Unity: `Animator` + state machines, blend trees, `Avatar` retargeting, Timeline,
 Verdict: this repo has clips and a player (518 LOC). The **Animator state machine and blend
 trees** are the parity gap that matters; retargeting and Timeline are further out. Adopt the
 state-machine model; defer the rest.
+
+*Update 2026-08-10:* the state machine is done — see Stage 5. Blend trees, retargeting and
+Timeline are still open.
 
 ### 2.8 Scripting runtime — **Partly there, partly Reject**
 
@@ -587,7 +590,31 @@ required no per-component UI code.
 
 Independent of 1–4, and of each other:
 
-- **Animator state machine + blend trees** (`M`) — the largest single runtime gap.
+- ~~**Animator state machine**~~ — **done 2026-08-10.** `Animator` is now a `Behaviour`
+  (`go.addComponent(Animator)`, as its own JSDoc had always claimed) evaluated once per frame
+  from `Application._loop`, immediately **before** `Animation._updateAll()` so a transition
+  decided this frame is the one the mixer then plays, rather than landing a frame late.
+
+  Conditions are **declarative** — `{ parameter, mode, threshold }` with an
+  `AnimatorConditionMode` (If / IfNot / Greater / Less / Equals / NotEqual) — not opaque
+  predicate functions. That is the whole difference between a controller that can be
+  serialized, inspected and drawn as a graph and one that only exists as code; the predicate
+  form survives as `addTransitionWhen` for tests no comparison can express, and is documented
+  as unsaveable.
+
+  Parameters carry a declared `AnimatorParameterType`, which is what makes **triggers** work:
+  the previous implementation could only guess which bools were triggers (its reset loop was
+  empty but for the comment `// Only reset if it was set as a trigger (heuristic)`), so a
+  trigger stayed true forever and re-fired its transition on every following frame. A trigger
+  is now consumed *before* the target state is entered, so a state that transitions straight
+  out again cannot see the same trigger twice. `setTrigger` declares the type implicitly, so
+  the common case needs no separate declaration.
+
+  `addState` registers the clip with the sibling `Animation`, adding one if it is missing —
+  requiring the caller to add both in the right order was a trap rather than a design.
+
+  **Blend trees remain open** (`S`–`M`): they need weighted simultaneous playback, which is a
+  change to `Animation`'s mixer usage rather than to the state machine built here.
 - ~~**Layer collision matrix + joints**~~ — **both done 2026-08-05.**
   `LayerCollisionMatrix.ignoreLayerCollision` / `.collides` / `.maskFor`, enforced through
   cannon-es' `collisionFilterGroup` / `collisionFilterMask`. It lands in the **broad phase**,
