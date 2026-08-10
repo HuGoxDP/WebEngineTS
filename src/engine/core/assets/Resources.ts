@@ -178,6 +178,50 @@ export class Resources {
         Resources._source = null;
     }
 
+    /** Whether an asset source is installed and loading can happen. */
+    public static get hasSource(): boolean {
+        return Resources._source !== null;
+    }
+
+    /**
+     * Installs an asset source directly, outside the scenario pipeline.
+     *
+     * @remarks
+     * The host's entry point when assets do not come from a scenario ZIP — a
+     * `StreamingAssetSource` built from a manifest, say. Loading a scenario
+     * afterwards replaces the source, because a running scenario owns it.
+     *
+     * Releases whatever was installed before, destroying its cached assets, so
+     * switching sources cannot leave the previous scenario's textures alive
+     * behind the new one's paths.
+     *
+     * @param source - where assets are read from.
+     *
+     * @example
+     * ```ts
+     * const source = await StreamingAssetSource.fromUrl("/scenarios/solar/scenario.json");
+     * AssetDatabase.setManifest(source.assetEntries());
+     * Resources.useSource(source);
+     * ```
+     */
+    public static useSource(source: IAssetSource): void {
+        if (Resources._source !== null && Resources._source !== source) {
+            Resources.releaseSource();
+        }
+        Resources._setSource(source);
+    }
+
+    /**
+     * Removes the active source and destroys everything it loaded.
+     *
+     * @remarks
+     * The counterpart to {@link useSource}. Scenario unloading does this on its
+     * own; a host that installed a source itself has to say when it is done.
+     */
+    public static releaseSource(): void {
+        Resources._clearSource();
+    }
+
     // ==================== DECODER REGISTRATION ====================
 
     /**

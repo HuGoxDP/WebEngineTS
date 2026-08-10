@@ -714,8 +714,22 @@ Independent of 1–4, and of each other:
 
   Covered by `tests/RenderBackend.test.ts`, which drives an `Application` with a fake backend
   and no WebGL at all — that the test can exist is the property the seam was for.
-- **Addressables-equivalent streaming** (`L`) — already specified in
-  `design/asset-streaming-proposal.md`
+- **Addressables-equivalent streaming** (`L`) — specified in
+  `design/asset-streaming-proposal.md`. **Stage 0's engine half landed 2026-08-10:**
+  `StreamingAssetSource` + `parseStreamingManifest` (`core/assets/`), a second `IAssetSource`
+  beside the ZIP one, so `Resources.load` and `assets.loadTexture` work unchanged against
+  either — that seam is why streaming is additive rather than a rewrite. `Resources.useSource`
+  / `.releaseSource` install one outside the scenario pipeline.
+
+  What is deliberately *recorded but not yet acted on*: `priority` is parsed and queryable and
+  nothing orders fetches by it (Stage 2); LOD lists are indexed and `maxLodLevel` selects one,
+  but nothing upgrades an asset as the camera nears (Stage 3). Writing them into the schema now
+  means a manifest written today stays correct then.
+
+  **Still open, and mostly not in this repo:** the manifest-driven *scenario* loader (scripts
+  are pre-linked out of the ZIP by `Scenario`, so a streamed scenario needs that path too);
+  the content-addressed store and the editor's publish step (platform + editor repos); Stages
+  1–4 proper.
 
 ---
 

@@ -1,7 +1,8 @@
 # Proposal: Manifest-Driven Asset Streaming, LOD & Progressive Loading
 
-Status: **proposal** · Scope: engine (`WebEngineTS`) + platform (`testv/virtual-lab`) +
-editor (`WebEngineTSEditor/app`) · Author: engine team
+Status: **in progress** (Stage 0 engine half landed 2026-08-10) · Scope: engine
+(`WebEngineTS`) + platform (`testv/virtual-lab`) + editor (`WebEngineTSEditor/app`) ·
+Author: engine team
 
 ## 1. Problem
 
@@ -129,6 +130,35 @@ frame time, VRAM) so every stage is quantified for the thesis.
   (behavioural parity with the ZIP path).
 - **Done when:** a scenario loads identically from manifest URLs; storage no longer scrapes
   Drive; assets are immutably cached & deduped by hash.
+
+**Engine half done 2026-08-10.** `core/assets/StreamingManifest.ts` defines and validates the
+schema (`schema`/`id`/`baseUrl`/`assets[]`, each asset a path + optional guid + priority +
+ascending LOD list); `core/assets/StreamingAssetSource.ts` implements `IAssetSource` over
+`fetch`. `StreamingAssetSource.fromUrl` loads a manifest and makes its own location the default
+base. `Resources.useSource` / `.releaseSource` install one outside the scenario pipeline;
+`assetEntries()` hands identities to `AssetDatabase.setManifest` so a streamed scenario gets
+the same durable asset ids a packaged one does.
+
+Three decisions worth keeping:
+
+- **Fetch on first read, not all up front.** Stage 0 says "loads everything up front"; per-asset
+  fetching is strictly closer to the goal and, from scenario code, indistinguishable — the
+  results are identical, only the timing differs (a round trip instead of a decompression).
+  Nothing had to be built to *undo* later.
+- **Bytes are not retained by the source.** `Resources` already caches the decoded asset;
+  holding the compressed bytes as well would double the cost of every texture. Concurrent reads
+  of one path still share a single request.
+- **Assets without a `guid` get no identity** rather than a minted one. A made-up id that does
+  not survive a reload is worse than none, because it looks stable.
+
+`priority` and the LOD lists are parsed, indexed and queryable but nothing orders fetches by
+priority (Stage 2) and nothing upgrades an asset as the camera nears (Stage 3); `maxLodLevel`
+caps quality globally in the meantime, which is useful on its own for a low-memory device.
+
+**Not done, and the honest remainder of Stage 0:** a manifest-driven *scenario* loader.
+`Scenario` pre-links scripts out of the ZIP (`_prelinkAllScripts`, `_createRewrittenBlobUrl`),
+so running a scenario from a manifest needs that path to fetch scripts by URL too. The storage
+and publish halves live in the platform and editor repos, not here.
 
 ### Stage 1 — Progressive first paint (critical vs. deferred)
 - Manifest marks assets `critical` vs. deferred; loader shows the scene after scripts +

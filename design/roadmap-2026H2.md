@@ -15,7 +15,7 @@ Covers priorities, sequencing, resources and the metric that closes each item.
 | P1.4 Static batching / instancing | **Done** (2026-07-16) |
 | P1.5 LOD system | **Done** (2026-07-16) |
 | P1.6 WebGPU backend | Not started (unblocked: implement `RenderBackend`) |
-| P1.7 Asset streaming | Proposal only (`design/asset-streaming-proposal.md`) |
+| P1.7 Asset streaming | Stage 0 engine half **done** (2026-08-10): `StreamingAssetSource` |
 | P2.8 Adapter generalization | **Done** (2026-08-10) — `RenderBackend` seam + `WebGLRenderBackend` |
 | P2.9 OffscreenCanvas | Not started |
 | Profiler v1 (phase timings + markers + overlay) | **Done** (f1b6876 → a0806e3) |

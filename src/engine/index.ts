@@ -120,6 +120,14 @@ export { LoadHandle } from "./core/assets/LoadHandle";
 export { AssetDatabase } from "./core/assets/AssetDatabase";
 export type { AssetEntry } from "./core/assets/AssetDatabase";
 export { JsonAsset, TextAsset, BinaryAsset } from "./core/assets/AssetTypes";
+export { StreamingAssetSource } from "./core/assets/StreamingAssetSource";
+export type {
+    FetchLike, StreamingAssetSourceOptions,
+} from "./core/assets/StreamingAssetSource";
+export { AssetPriority, parseStreamingManifest, normalizeAssetPath } from "./core/assets/StreamingManifest";
+export type {
+    IStreamingManifest, IStreamedAsset, IStreamedAssetLod,
+} from "./core/assets/StreamingManifest";
 
 // =====================
 // COROUTINES
@@ -386,6 +394,8 @@ import { Coroutine, CoroutineRunner, WaitForSeconds, WaitForSecondsRealtime, Wai
 
 import { Resources } from "./core/assets/Resources";
 import { LoadHandle } from "./core/assets/LoadHandle";
+import { StreamingAssetSource } from "./core/assets/StreamingAssetSource";
+import { AssetPriority } from "./core/assets/StreamingManifest";
 import { JsonAsset, TextAsset, BinaryAsset } from "./core/assets/AssetTypes";
 
 import { Mesh } from "./core/graphics/Mesh";
@@ -555,6 +565,7 @@ const WebEngineTS = {
 
     // Assets
     Resources, LoadHandle, JsonAsset, TextAsset, BinaryAsset,
+    StreamingAssetSource, AssetPriority,
 
     // Graphics
     Mesh, Texture, FilterMode, TextureWrapMode,
