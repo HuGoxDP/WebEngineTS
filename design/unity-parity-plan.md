@@ -588,7 +588,7 @@ required no per-component UI code.
 Independent of 1–4, and of each other:
 
 - **Animator state machine + blend trees** (`M`) — the largest single runtime gap.
-- **Layer collision matrix — done 2026-08-05**; joints still open.
+- ~~**Layer collision matrix + joints**~~ — **both done 2026-08-05.**
   `LayerCollisionMatrix.ignoreLayerCollision` / `.collides` / `.maskFor`, enforced through
   cannon-es' `collisionFilterGroup` / `collisionFilterMask`. It lands in the **broad phase**,
   so an ignored pair costs nothing rather than costing a contact that is then discarded —
@@ -602,6 +602,17 @@ Independent of 1–4, and of each other:
   One limitation stated in the JSDoc rather than left to be found: several colliders sharing
   one `Rigidbody` are one physical body, so the last one attached decides its layer. Unity has
   the same limitation for the same reason.
+
+  **Joints** (`physics/Joint.ts`): a `Joint` base plus `FixedJoint`, `HingeJoint` and
+  `SpringJoint`, over cannon-es' `LockConstraint` / `HingeConstraint` / `DistanceConstraint`.
+  The base owns *when* a constraint exists — built on enable, removed on disable, rebuilt when
+  `connectedBody` changes — so a disabled joint genuinely releases rather than leaving a
+  solved-but-ignored constraint in the world. A null `connectedBody` anchors to a shared
+  static body, which is how a swinging sign or a hinged door frame is expressed.
+
+  Unity's `CharacterJoint` and `ConfigurableJoint` are not mapped: cannon-es has no
+  equivalent, and faking them from a distance constraint would be a worse lie than their
+  absence.
 - ~~**Additive scene loading + `DontDestroyOnLoad`**~~ — **done 2026-08-05.**
   `LoadSceneMode.Single | Additive` on `SceneManager.loadScene`, plus `unloadScene` and
   `moveGameObjectToScene`. An additive load leaves the **active scene alone**, matching Unity:

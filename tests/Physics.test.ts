@@ -1,7 +1,10 @@
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
 import * as CANNON from "cannon-es";
 import { PhysicsWorld } from "../src/engine/physics/PhysicsWorld";
 import { LayerCollisionMatrix } from "../src/engine/physics/LayerCollisionMatrix";
+import { Joint, FixedJoint, HingeJoint, SpringJoint } from "../src/engine/physics/Joint";
+import { Rigidbody } from "../src/engine/physics/Rigidbody";
+import { GameObject } from "../src/engine/core/GameObject";
 import { PhysicMaterial } from "../src/engine/physics/PhysicMaterial";
 import { Collision, ContactPoint } from "../src/engine/physics/Collision";
 import { ForceMode, RigidbodyConstraints } from "../src/engine/physics/Rigidbody";
@@ -291,5 +294,131 @@ describe("LayerCollisionMatrix", () => {
     test("it covers 32 layers, the width of the filter bitmask", () => {
         expect(LayerCollisionMatrix.layerCount).toBe(32);
         expect(LayerCollisionMatrix.collides(31, 31)).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Joints (unity-parity Stage 5)
+// ---------------------------------------------------------------------------
+
+describe("Joints", () => {
+    beforeEach(() => {
+        PhysicsWorld._reset();
+        Joint._reset();
+    });
+
+    /** A GameObject with a Rigidbody, which every joint needs. */
+    function makeBody(name: string): GameObject {
+        const go = new GameObject(name);
+        go.addComponent(Rigidbody);
+        return go;
+    }
+
+    function constraintCount(): number {
+        return PhysicsWorld.instance.world.constraints.length;
+    }
+
+    test("a joint adds a constraint to the world when enabled", () => {
+        const a = makeBody("A");
+        const joint = a.addComponent(FixedJoint);
+        joint.connectedBody = makeBody("B").getComponent(Rigidbody);
+
+        expect(joint.isActive).toBe(true);
+        expect(constraintCount()).toBe(1);
+    });
+
+    test("a null connected body anchors to the world rather than failing", () => {
+        const joint = makeBody("Sign").addComponent(FixedJoint);
+
+        // How a swinging sign or a hinged door frame is built.
+        expect(joint.connectedBody).toBeNull();
+        expect(joint.isActive).toBe(true);
+    });
+
+    test("disabling releases the constraint instead of leaving it solved", () => {
+        const joint = makeBody("A").addComponent(FixedJoint);
+        expect(constraintCount()).toBe(1);
+
+        joint.enabled = false;
+
+        expect(joint.isActive).toBe(false);
+        expect(constraintCount()).toBe(0);
+    });
+
+    test("re-enabling rebuilds it", () => {
+        const joint = makeBody("A").addComponent(FixedJoint);
+        joint.enabled = false;
+        joint.enabled = true;
+
+        expect(joint.isActive).toBe(true);
+        expect(constraintCount()).toBe(1);
+    });
+
+    test("re-targeting the connected body rebuilds rather than duplicating", () => {
+        const joint = makeBody("A").addComponent(FixedJoint);
+        joint.connectedBody = makeBody("B").getComponent(Rigidbody);
+        joint.connectedBody = makeBody("C").getComponent(Rigidbody);
+
+        expect(constraintCount()).toBe(1);
+    });
+
+    test("breakJoint removes it", () => {
+        const joint = makeBody("A").addComponent(FixedJoint);
+
+        joint.breakJoint();
+
+        expect(joint.isActive).toBe(false);
+        expect(constraintCount()).toBe(0);
+    });
+
+    test("destroying the component removes the constraint too", () => {
+        const go = makeBody("A");
+        go.addComponent(FixedJoint);
+
+        go.destroyImmediate();
+
+        expect(constraintCount()).toBe(0);
+    });
+
+    test("a joint without a Rigidbody says so and stays inactive", () => {
+        const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const joint = new GameObject("NoBody").addComponent(FixedJoint);
+
+        expect(joint.isActive).toBe(false);
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
+
+    test("a hinge is built about its axis", () => {
+        const joint = makeBody("Door").addComponent(HingeJoint);
+        joint.axis.set(0, 0, 1);
+        joint.anchor.set(1, 0, 0);
+        joint.applyGeometry();
+
+        expect(joint.isActive).toBe(true);
+        expect(constraintCount()).toBe(1);
+    });
+
+    test("a spring's rest length and stiffness are clamped and rebuild it", () => {
+        const joint = makeBody("Bob").addComponent(SpringJoint);
+
+        joint.distance = 2.5;
+        joint.stiffness = 40;
+        expect(joint.distance).toBeCloseTo(2.5);
+        expect(joint.stiffness).toBeCloseTo(40);
+
+        joint.distance = -5;
+        expect(joint.distance).toBe(0);
+
+        expect(constraintCount()).toBe(1);
+    });
+
+    test("several joints coexist", () => {
+        makeBody("A").addComponent(FixedJoint);
+        makeBody("B").addComponent(HingeJoint);
+        makeBody("C").addComponent(SpringJoint);
+
+        expect(constraintCount()).toBe(3);
     });
 });
