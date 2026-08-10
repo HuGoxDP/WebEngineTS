@@ -1,6 +1,6 @@
 // path: src/engine/core/Application.ts
 
-import * as THREE from "three";
+import type * as THREE from "three";
 import { SceneManager } from "./SceneManager.ts";
 import { Time } from "./Time.ts";
 import { EngineSettings } from "./EngineSettings.ts";
@@ -8,10 +8,7 @@ import { Camera } from "./components/Camera.ts";
 import { Input } from "./Input.ts";
 import { Scenario } from "./scenario";
 import type { IScenarioLoadProgress } from "./scenario";
-import { RenderSettings } from "./RenderSettings.ts";
-import { CameraClearFlags } from "./components/Camera.ts";
 import { Transform } from "./Transform.ts";
-import { ShaderWarmup } from "./rendering/ShaderWarmup.ts";
 import { Physics } from "../physics/Physics.ts";
 import { Animation } from "./animation/Animation.ts";
 import { Animator } from "./animation/Animator.ts";
@@ -30,36 +27,23 @@ import { LODGroup } from "./components/LODGroup.ts";
 import { Gamepad } from "./input/Gamepad.ts";
 import { Touch } from "./input/Touch.ts";
 import { PluginManager } from "./plugins/PluginManager.ts";
-import { PostProcessing } from "./postprocessing/PostProcessing.ts";
 import { Profiler } from "./diagnostics/Profiler.ts";
+import { Color } from "./math/Color.ts";
+import { GraphicsPowerPreference } from "./rendering/RenderBackend.ts";
+import { WebGLRenderBackend } from "./rendering/WebGLRenderBackend.ts";
+import type { RenderBackend, RenderBackendOptions } from "./rendering/RenderBackend.ts";
 
-// Reusable THREE.Color to avoid per-frame allocation in _render().
-const _clearColor = new THREE.Color();
+export { GraphicsPowerPreference } from "./rendering/RenderBackend.ts";
 
-/**
- * GPU power-preference hint applied when the WebGL context is created.
- *
- * On dual-GPU laptops this influences whether the browser uses the integrated
- * or the discrete GPU. Must be set on {@link Application.powerPreference} before
- * the Application is constructed (the renderer reads it once, at construction).
- *
- * @remarks Maps to the standard WebGL `powerPreference` context attribute.
- */
-export enum GraphicsPowerPreference {
-    /** Let the browser / operating system decide. */
-    Default = "default",
-    /** Prefer the discrete / high-performance GPU. */
-    HighPerformance = "high-performance",
-    /** Prefer the integrated / low-power GPU. */
-    LowPower = "low-power",
-}
+/** Cleared to this when the scene has no camera, so a blank screen is legible. */
+const _noCameraColor = new Color(0, 0, 0.13, 1);
 
 /**
  * The main engine entry point and game loop.
  *
- * Application owns the Three.js WebGLRenderer, drives the update/render
- * cycle, and manages the canvas. It is a singleton - only one instance
- * may exist at a time.
+ * Application owns a {@link RenderBackend}, drives the update/render cycle,
+ * and manages the canvas. It is a singleton - only one instance may exist at
+ * a time.
  *
  * @remarks
  * Equivalent to Unity's `Application` + the internal PlayerLoop.
@@ -72,8 +56,9 @@ export enum GraphicsPowerPreference {
  * 5. Input reset
  *
  * **Three.js isolation:**
- * The `THREE.WebGLRenderer` is an internal detail. It is never exposed
- * in any public API.
+ * Application names no Three.js type in its own logic. Everything
+ * API-specific lives behind {@link RenderBackend};
+ * {@link Application.backendFactory} chooses the implementation.
  *
  * **Scenario integration:**
  * Application provides convenience methods for loading and running
@@ -127,6 +112,25 @@ export class Application {
      * ```
      */
     public static powerPreference: GraphicsPowerPreference = GraphicsPowerPreference.HighPerformance;
+
+    /**
+     * Builds the {@link RenderBackend} the Application draws through. Set it
+     * **before** constructing the Application; null uses the WebGL 2 backend.
+     *
+     * @remarks
+     * The seam a second graphics API is added through — a WebGPU backend is an
+     * implementation of {@link RenderBackend}, not a change to the loop. It is
+     * a static rather than a constructor argument so that hosts which only ever
+     * see `new Application(canvas)` (every scenario, the platform viewer) do
+     * not have to thread it through.
+     *
+     * @example
+     * ```ts
+     * Application.backendFactory = options => new MyWebGPUBackend(options);
+     * const app = new Application(canvas);
+     * ```
+     */
+    public static backendFactory: ((options: RenderBackendOptions) => RenderBackend) | null = null;
 
     /**
      * Whether the engine is currently running.
@@ -202,11 +206,8 @@ export class Application {
      */
     public warmupShadersOnLoad: boolean = false;
 
-    /**
-     * The underlying Three.js renderer.
-     * @internal - never expose to engine users.
-     */
-    private readonly _threeRenderer: THREE.WebGLRenderer;
+    /** The graphics backend this Application draws through. */
+    private readonly _backend: RenderBackend;
 
     /** Accumulator for fixed-timestep updates. */
     private _fixedUpdateAccumulator: number = 0;
@@ -230,26 +231,15 @@ export class Application {
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
 
-        // Create the Three.js renderer
-        this._threeRenderer = new THREE.WebGLRenderer({
+        const options: RenderBackendOptions = {
             canvas: this.canvas,
             antialias: true,
-            powerPreference: Application._toWebGLPowerPreference(Application.powerPreference),
-        });
-        this._threeRenderer.setPixelRatio(window.devicePixelRatio);
-
-        // Color management — sRGB output for correct gamma
-        this._threeRenderer.outputColorSpace = THREE.SRGBColorSpace;
-
-        // Tone mapping — compress HDR to LDR with natural look.
-        // ACESFilmic gives film-like contrast and smooth highlight rolloff,
-        // making emissive materials glow naturally without bloom post-processing.
-        this._threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this._threeRenderer.toneMappingExposure = 1.0;
-
-        // Enable shadow maps
-        this._threeRenderer.shadowMap.enabled = true;
-        this._threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            powerPreference: Application.powerPreference,
+            pixelRatio: window.devicePixelRatio,
+        };
+        this._backend = Application.backendFactory
+            ? Application.backendFactory(options)
+            : new WebGLRenderBackend(options);
 
         // Init input
         Input._init(this.canvas);
@@ -265,15 +255,6 @@ export class Application {
 
         // Expose to diagnostics (MemoryProfiler) without circular imports
         (globalThis as any).__webengine_application__ = this;
-    }
-
-    /** Maps the engine power-preference enum to the WebGL context attribute. */
-    private static _toWebGLPowerPreference(p: GraphicsPowerPreference): WebGLPowerPreference {
-        switch (p) {
-            case GraphicsPowerPreference.LowPower: return "low-power";
-            case GraphicsPowerPreference.Default: return "default";
-            default: return "high-performance";
-        }
     }
 
     // ==================== PUBLIC: GAME LOOP ====================
@@ -423,8 +404,8 @@ export class Application {
         // Remove event listeners
         window.removeEventListener("resize", this._resizeHandler);
 
-        // Dispose the Three.js renderer (releases WebGL context)
-        this._threeRenderer.dispose();
+        // Release the graphics context
+        this._backend.dispose();
 
         // Clear singleton
         if (Application._instance === this) {
@@ -449,11 +430,11 @@ export class Application {
      * @default 1.0
      */
     public get exposure(): number {
-        return this._threeRenderer.toneMappingExposure;
+        return this._backend.exposure;
     }
 
     public set exposure(value: number) {
-        this._threeRenderer.toneMappingExposure = Math.max(0, value);
+        this._backend.exposure = Math.max(0, value);
     }
 
     /**
@@ -464,11 +445,11 @@ export class Application {
      * @default true
      */
     public get shadowsEnabled(): boolean {
-        return this._threeRenderer.shadowMap.enabled;
+        return this._backend.shadowsEnabled;
     }
 
     public set shadowsEnabled(value: boolean) {
-        this._threeRenderer.shadowMap.enabled = value;
+        this._backend.shadowsEnabled = value;
     }
 
     /**
@@ -480,22 +461,38 @@ export class Application {
      * @remarks Equivalent to Unity's `QualitySettings.resolutionScalingFixedDPIFactor`.
      */
     public get pixelRatio(): number {
-        return this._threeRenderer.getPixelRatio();
+        return this._backend.pixelRatio;
     }
 
     public set pixelRatio(value: number) {
-        this._threeRenderer.setPixelRatio(Math.max(0.5, Math.min(3, value)));
+        this._backend.pixelRatio = Math.max(0.5, Math.min(3, value));
         this._resize();
     }
 
     // ==================== INTERNAL ACCESSOR ====================
 
     /**
-     * @internal
-     * The underlying Three.js WebGLRenderer, for engine subsystems only.
+     * The graphics backend this Application draws through.
+     *
+     * @remarks
+     * Engine-typed: it reports the API in use and the GPU counters without
+     * naming the library underneath. Hosts read it for diagnostics; to *choose*
+     * one, set {@link Application.backendFactory} before construction.
      */
-    public get _internalThreeRenderer(): THREE.WebGLRenderer {
-        return this._threeRenderer;
+    public get graphics(): RenderBackend {
+        return this._backend;
+    }
+
+    /**
+     * @internal
+     * The underlying Three.js renderer, or null when the active backend is not
+     * the WebGL one. For the two subsystems that still assume WebGL: the KTX2
+     * transcoder's capability detection and the memory profiler's GL queries.
+     */
+    public get _internalThreeRenderer(): THREE.WebGLRenderer | null {
+        return this._backend instanceof WebGLRenderBackend
+            ? this._backend._internalThreeRenderer
+            : null;
     }
 
     // ==================== GAME LOOP (PRIVATE) ====================
@@ -651,47 +648,27 @@ export class Application {
      */
     private _render(): void {
         const scene = SceneManager.activeScene;
-        const threeScene = scene._internalThreeScene;
 
         // Flush any dirty transforms before matrix recomputation
         Transform._syncAllDirty();
 
         // Ensure all world matrices are up-to-date
-        threeScene.updateMatrixWorld(true);
+        scene._internalThreeScene.updateMatrixWorld(true);
 
         // Find the main camera via the engine Camera registry
         const mainCamera = Camera.main;
 
         if (mainCamera !== null) {
-            const threeCamera = mainCamera._internalThreeCamera;
-
-            if (threeCamera !== null) {
-                // Sync render settings (skybox, fog) to Three.js
-                const useSkybox = mainCamera.clearFlags === CameraClearFlags.Skybox;
-                RenderSettings._syncToThree(threeScene, useSkybox);
-                // If not using skybox, apply camera background color
-                if (!useSkybox) {
-                    const bg = mainCamera.backgroundColor;
-                    _clearColor.setRGB(bg.r, bg.g, bg.b);
-                    this._threeRenderer.setClearColor(_clearColor, bg.a);
-                }
-
-                if (PostProcessing.enabled) {
-                    PostProcessing._render(this._threeRenderer, threeScene, threeCamera);
-                } else {
-                    this._threeRenderer.render(threeScene, threeCamera);
-                }
-            }
+            this._backend.renderScene(scene, mainCamera);
         } else {
             // No camera - render dark blue so the user knows the engine is alive
             if (this._firstRender) {
                 console.warn(
                     "[Application] No camera found. Add a Camera component to a GameObject."
                 );
-                this._firstRender = false;
             }
-            this._threeRenderer.setClearColor(0x000022);
-            this._threeRenderer.clear();
+            this._backend.setClearColor(_noCameraColor);
+            this._backend.clear();
         }
 
         if (this._firstRender) {
@@ -713,16 +690,12 @@ export class Application {
      */
     public warmupShaders(): void {
         const scene = SceneManager.activeScene;
-        const threeScene = scene._internalThreeScene;
         const mainCamera = Camera.main;
         if (!mainCamera) return;
 
-        const threeCamera = mainCamera._internalThreeCamera;
-        if (!threeCamera) return;
-
         Transform._syncAllDirty();
-        threeScene.updateMatrixWorld(true);
-        ShaderWarmup.warmup(this._threeRenderer, threeScene, threeCamera);
+        scene._internalThreeScene.updateMatrixWorld(true);
+        this._backend.warmup(scene, mainCamera);
     }
 
     // ==================== RESIZE (PRIVATE) ====================
@@ -735,8 +708,7 @@ export class Application {
         const width = window.innerWidth;
         const height = window.innerHeight;
 
-        this._threeRenderer.setSize(width, height);
-        PostProcessing._setSize(width, height);
+        this._backend.setSize(width, height);
 
         // Update aspect ratio on all active cameras
         const aspect = width / height;

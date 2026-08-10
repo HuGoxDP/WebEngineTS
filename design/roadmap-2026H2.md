@@ -14,9 +14,9 @@ Covers priorities, sequencing, resources and the metric that closes each item.
 | P0.3 Integrated-graphics readiness | **Harness ready** (2026-07-18); hardware runs outstanding |
 | P1.4 Static batching / instancing | **Done** (2026-07-16) |
 | P1.5 LOD system | **Done** (2026-07-16) |
-| P1.6 WebGPU backend | Not started (blocked on P2.8) |
+| P1.6 WebGPU backend | Not started (unblocked: implement `RenderBackend`) |
 | P1.7 Asset streaming | Proposal only (`design/asset-streaming-proposal.md`) |
-| P2.8 Adapter generalization | Not started |
+| P2.8 Adapter generalization | **Done** (2026-08-10) — `RenderBackend` seam + `WebGLRenderBackend` |
 | P2.9 OffscreenCanvas | Not started |
 | Profiler v1 (phase timings + markers + overlay) | **Done** (f1b6876 → a0806e3) |
 | UI/Canvas round 1 (HiDPI, scaler, on-demand repaint, hit-testing) | **Done** (4a84e99) |
@@ -44,7 +44,8 @@ measurements it exists to produce — that is the critical path.
 
 **P0-A. Batch/matrix mode for the benchmark harness** — *engine, ~1.5–2 days*
 
-Today `Benchmark.run()` returns one result and `benchmarks/run.ts` runs one config per page
+Today `Benchmark.run()` returns one result and the harness (`run.ts`, now in
+WebEngineTS-Benchmarks) runs one config per page
 load; the RUNBOOK's minimum matrix is roughly 120 runs (Scene 3 alone is 7 configs × 10 reps),
 each a manual reload plus a download click. That is days of error-prone clicking standing
 directly in front of the blocking task, and "re-run it" is the reviewers' reproducibility ask.
@@ -56,7 +57,7 @@ Scope:
   merged CSV keyed by config plus a Markdown table ready to paste into the paper.
 - Record the scene fingerprint (tris, GameObjects, textures, draw calls, shaders) in **every**
   row, so a table can never again be orphaned from the scene it describes.
-- Extend `benchmarks/RUNBOOK.md` with the one-command flow; keep the manual per-row links.
+- Extend the harness RUNBOOK with the one-command flow; keep the manual per-row links.
 
 Why first: it is the only item that shortens the critical path instead of extending it.
 
@@ -106,8 +107,10 @@ and the editor-side panel. Supports the methodology narrative; not itself a revi
 
 ### P2 — Post-resubmission architecture
 
-- **P2-A. Adapter generalization** (*~8–12 days*) — decouple from Three.js; the paper already
-  lists the un-generalized adapter as a limitation. Prerequisite for WebGPU.
+- ~~**P2-A. Adapter generalization**~~ — **done 2026-08-10.** `RenderBackend` +
+  `WebGLRenderBackend` + `Application.backendFactory`; the loop no longer names Three.js. The
+  paper's "un-generalized adapter" limitation can be rewritten. Residual: `MemoryProfiler` and
+  the KTX2 transcoder still assume WebGL — see the parity plan's Stage 5 entry.
 - **P2-B. WebGPU backend** (*~15+ days*) — spike behind a flag, Scene 1 parity first.
 - **P2-C. OffscreenCanvas rendering** (*~4–6 days*).
 - **P2-D. Streaming Stages 2–4** (on-demand/preload, LOD streaming, dedup + partial updates).

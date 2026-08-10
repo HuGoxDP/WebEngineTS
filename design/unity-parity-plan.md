@@ -131,6 +131,9 @@ than implementation: a render-pipeline seam (already listed as roadmap P2.8), ma
 blocks, and a documented shader authoring path. Lightmapping/GI: **reject** for now — it needs
 a baking toolchain, and the engine's audience does not have one.
 
+*Update 2026-08-10:* the seam is in — see Stage 5. Material property blocks and the shader
+authoring path are still open.
+
 ### 2.6 Physics — **Adapt**
 
 Unity: PhysX, with a layer collision matrix, joints, continuous detection, `FixedUpdate`.
@@ -685,7 +688,32 @@ Independent of 1–4, and of each other:
   for materials. Two components pointing at one settings asset therefore still point at one
   after a load, which is the reason to put shared data in an asset rather than copy it into
   each component. That the material mechanism generalized this cleanly is a good sign for it.
-- **Render pipeline seam** (`M`) — already roadmap P2.8, prerequisite for WebGPU
+- ~~**Render pipeline seam**~~ — **done 2026-08-10.** `RenderBackend`
+  (`rendering/RenderBackend.ts`) is the interface everything API-specific now lives behind;
+  `WebGLRenderBackend` is the implementation, and `Application.backendFactory` chooses one
+  before construction. `Application` no longer creates a `THREE.WebGLRenderer`, sets its colour
+  space, tone mapping or shadow map, branches on post-processing, or calls `ShaderWarmup` — it
+  asks for a frame. Its only remaining Three.js reference is the `@internal`
+  `_internalThreeRenderer` accessor, which now returns **null** on a non-WebGL backend.
+
+  The seam is deliberately **frame-level, not draw-level**: `renderScene(scene, camera)` with
+  engine types. A draw-level seam (submit mesh, bind material) would be a second renderer
+  written in engine types, and the engine would then be maintaining two — which is the mistake
+  "generalize the adapter" invites. Three.js' own `WebGPURenderer` consumes a scene and a
+  camera too, so the frame-level shape is also the one the actual WebGPU path needs.
+
+  GPU counters are exposed as an engine-typed `RenderBackendStats` rather than
+  `renderer.info`, so diagnostics need not know which API produced them.
+
+  **Two subsystems still assume WebGL** and say so in their own comments: `MemoryProfiler`
+  (`renderer.info`, `WEBGL_debug_renderer_info`, GL queries for render-target sizes) and
+  `Texture2D`'s KTX2 transcoder (`KTX2Loader.detectSupport` takes a WebGLRenderer). Both read
+  through `_internalThreeRenderer` and degrade to null rather than breaking. A WebGPU backend
+  will need its own reporting and its own transcoder support detection; that is the honest
+  remaining cost, and it is smaller than it was.
+
+  Covered by `tests/RenderBackend.test.ts`, which drives an `Application` with a fake backend
+  and no WebGL at all — that the test can exist is the property the seam was for.
 - **Addressables-equivalent streaming** (`L`) — already specified in
   `design/asset-streaming-proposal.md`
 

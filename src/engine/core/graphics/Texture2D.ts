@@ -131,7 +131,7 @@ export class Texture2D extends Texture {
 
         // Detect GPU compressed-texture support from the active renderer.
         // Accessed via globalThis to avoid a circular import with Application.
-        const renderer = (globalThis as any).__webengine_application__?._threeRenderer as THREE.WebGLRenderer | undefined;
+        const renderer = (globalThis as any).__webengine_application__?._internalThreeRenderer as THREE.WebGLRenderer | null | undefined;
         if (renderer) {
             loader.detectSupport(renderer);
         } else {

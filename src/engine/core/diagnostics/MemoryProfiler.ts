@@ -614,11 +614,17 @@ export class MemoryProfiler {
     }
 
     private static _info(): any {
-        return (globalThis as any).__webengine_application__?._threeRenderer?.info ?? null;
+        return MemoryProfiler._renderer()?.info ?? null;
     }
 
+    /**
+     * The Three.js renderer behind the active backend, or null when the
+     * backend is not the WebGL one. The counters and GL queries below are
+     * WebGL-specific; a second backend will need its own reporting rather
+     * than this one.
+     */
     private static _renderer(): any {
-        return (globalThis as any).__webengine_application__?._threeRenderer ?? null;
+        return (globalThis as any).__webengine_application__?._internalThreeRenderer ?? null;
     }
 
     private static _canvas(): HTMLCanvasElement | null {
