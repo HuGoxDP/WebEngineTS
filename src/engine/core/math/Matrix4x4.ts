@@ -36,23 +36,29 @@ export class Matrix4x4 {
 
     /**
      * Returns identity matrix. Shared instance — do not mutate!
+     *
+     * @remarks
+     * Not frozen, unlike the other math constants: `Object.freeze` throws
+     * `TypeError` on a `Float32Array` that has elements, so the guarantee the
+     * rest of the math types get cannot be had here. "Do not mutate" is
+     * therefore a contract, not an enforcement.
      */
     static get identity(): Matrix4x4 {
         if (!Matrix4x4._identity) {
             Matrix4x4._identity = new Matrix4x4();
-            Object.freeze(Matrix4x4._identity.elements);
         }
         return Matrix4x4._identity;
     }
 
     /**
      * Returns zero matrix. Shared instance — do not mutate!
+     *
+     * @remarks See {@link Matrix4x4.identity} on why it is not frozen.
      */
     static get zero(): Matrix4x4 {
         if (!Matrix4x4._zero) {
             Matrix4x4._zero = new Matrix4x4();
             Matrix4x4._zero.elements.fill(0);
-            Object.freeze(Matrix4x4._zero.elements);
         }
         return Matrix4x4._zero;
     }

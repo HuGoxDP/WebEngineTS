@@ -131,8 +131,21 @@ than implementation: a render-pipeline seam (already listed as roadmap P2.8), ma
 blocks, and a documented shader authoring path. Lightmapping/GI: **reject** for now — it needs
 a baking toolchain, and the engine's audience does not have one.
 
-*Update 2026-08-10:* the seam is in — see Stage 5. Material property blocks and the shader
-authoring path are still open.
+*Update 2026-08-10:* the seam is in — see Stage 5. The **shader authoring path** is in too:
+`Shader.create(name, { vertex, fragment, uniforms })` compiles GLSL into a material driven by
+the same `setColor` / `setFloat` / `setTexture` calls a built-in takes, so a material can move
+from `Shader.Standard` to authored GLSL without changing how it is driven. The declared uniform
+defaults fix each uniform's GLSL type (`Color` → `vec4`, alpha included, as Unity's `fixed4`
+is); declaring them is required, because Three builds the program from the uniform object it is
+handed and one added later would have nowhere to go. GLSL rather than a ShaderLab-alike: the
+browser compiles GLSL, and a second language would buy nothing but a translator to maintain.
+
+**Material property blocks are still open, and are harder here than they look.** Unity's block
+overrides uniforms per renderer without instancing the material. Three.js re-uploads a
+material's uniforms only when the material or program changes, so the same material drawn twice
+in a row would keep the first object's values; the honest implementations are per-instance
+attributes (which `InstancedMeshRenderer` already has) or a material instance. Worth doing
+deliberately, not by patching uniforms in a draw callback.
 
 ### 2.6 Physics — **Adapt**
 

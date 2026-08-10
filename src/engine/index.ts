@@ -149,6 +149,8 @@ export { Texture2D, TextureFormat } from "./core/graphics/Texture2D";
 export { Cubemap } from "./core/graphics/Cubemap";
 export { Sprite, SpriteBorder } from "./core/graphics/Sprite";
 export { Shader, ShaderPropertyType } from "./core/graphics/Shader";
+export { DEFAULT_VERTEX_SHADER } from "./core/graphics/ShaderSource";
+export type { IShaderSource, ShaderUniformValue } from "./core/graphics/ShaderSource";
 export { Material } from "./core/graphics/Material";
 export { StandardMaterial, MaterialRenderMode } from "./core/graphics/StandardMaterial";
 export { UnlitMaterial } from "./core/graphics/UnlitMaterial";

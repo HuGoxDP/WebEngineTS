@@ -120,7 +120,8 @@ and the editor-side panel. Supports the methodology narrative; not itself a revi
 - `npm run release:local` after every engine change that should reach a consumer — **the UI
   round-1 change (4a84e99) has not been pushed yet.**
 - Four open code TODOs; `LineRenderer.ts:549` is a non-English comment, against the repo's own
-  "all comments in English" rule.
+  "all comments in English" rule. `Shader.ts` was the same and was translated 2026-08-10 while
+  the shader authoring path was added to it.
 - Keep `typecheck` + `test` + `build` green per commit (currently green, 298 tests).
 
 ## 3. Timeline

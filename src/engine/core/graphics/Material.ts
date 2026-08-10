@@ -10,6 +10,8 @@ import { Texture } from "./Texture.ts";
 import { Vector2 } from "../math/Vector2.ts";
 import { Vector4 } from "../math/Vector4.ts";
 import { Matrix4x4 } from "../math/Matrix4x4.ts";
+import { DEFAULT_VERTEX_SHADER } from "./ShaderSource.ts";
+import type { IShaderSource, ShaderUniformValue } from "./ShaderSource.ts";
 
 // ==================== PROPERTY VALUE TYPE ====================
 
@@ -307,6 +309,7 @@ export class Material extends EngineObject {
      */
     public setVector(propertyName: string, value: Vector4): void {
         this._properties.set(propertyName, value.clone());
+        this._syncUniform(propertyName, value);
     }
 
     // ---- Matrix4x4 ----
@@ -331,6 +334,7 @@ export class Material extends EngineObject {
      */
     public setMatrix(propertyName: string, value: Matrix4x4): void {
         this._properties.set(propertyName, value.clone());
+        this._syncUniform(propertyName, value);
     }
 
     // ---- Texture ----
@@ -489,6 +493,7 @@ export class Material extends EngineObject {
      * @internal Syncs a color property to the Three.js material.
      */
     private _syncColorToThree(propertyName: string, value: Color): void {
+        if (this._syncUniform(propertyName, value)) return;
         const mat = this._threeMatHandle as unknown as Record<string, unknown>;
 
         if (propertyName === "_Color") {
@@ -508,6 +513,7 @@ export class Material extends EngineObject {
      * @internal Syncs a float property to the Three.js material.
      */
     private _syncFloatToThree(propertyName: string, value: number): void {
+        if (this._syncUniform(propertyName, value)) return;
         const mat = this._threeMatHandle as unknown as Record<string, unknown>;
 
         switch (propertyName) {
@@ -536,6 +542,7 @@ export class Material extends EngineObject {
      * @internal Syncs a texture property to the Three.js material.
      */
     private _syncTextureToThree(propertyName: string, value: Texture | null): void {
+        if (this._syncUniform(propertyName, value)) return;
         const mat = this._threeMatHandle as unknown as Record<string, unknown>;
         const threeTex = value ? value._internalThreeTexture : null;
 
@@ -569,6 +576,10 @@ export class Material extends EngineObject {
     private static _createThreeMaterial(shader: Shader): THREE.Material {
         const materialType = shader._threeMaterialType;
 
+        if (shader._source) {
+            return Material._createShaderMaterial(shader._source);
+        }
+
         switch (materialType) {
             case "MeshStandardMaterial":
                 return new THREE.MeshStandardMaterial({
@@ -597,6 +608,68 @@ export class Material extends EngineObject {
                 console.warn(`[Material] Unknown material type "${materialType}", falling back to MeshStandardMaterial`);
                 return new THREE.MeshStandardMaterial();
         }
+    }
+
+    /**
+     * @internal Compiles an authored shader into a Three.js shader material.
+     *
+     * Every declared uniform gets a slot up front: three builds the program
+     * from the uniform object it is handed, so one added later would have
+     * nowhere to go.
+     */
+    private static _createShaderMaterial(source: IShaderSource): THREE.ShaderMaterial {
+        const uniforms: Record<string, { value: unknown }> = {};
+        for (const [name, value] of Object.entries(source.uniforms ?? {})) {
+            uniforms[name] = { value: Material._toUniformValue(value) };
+        }
+
+        return new THREE.ShaderMaterial({
+            vertexShader: source.vertex ?? DEFAULT_VERTEX_SHADER,
+            fragmentShader: source.fragment,
+            uniforms,
+            transparent: source.transparent ?? false,
+            side: source.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+            depthWrite: source.depthWrite ?? true,
+        });
+    }
+
+    /** @internal Converts an engine value to what a Three.js uniform holds. */
+    private static _toUniformValue(value: ShaderUniformValue): unknown {
+        if (typeof value === "number") return value;
+        if (value === null) return null;
+        if (value instanceof Color) return new THREE.Vector4(value.r, value.g, value.b, value.a);
+        if (value instanceof Vector4) return new THREE.Vector4(value.x, value.y, value.z, value.w);
+        if (value instanceof Matrix4x4) return new THREE.Matrix4().fromArray(value.elements);
+        return value._internalThreeTexture;
+    }
+
+    /**
+     * @internal
+     * Writes a property into the authored shader's uniform of the same name.
+     *
+     * @returns true when the value was a uniform, so the built-in sync — which
+     *          knows `_Color` means `material.color` and nothing else — is
+     *          skipped for authored shaders.
+     */
+    private _syncUniform(propertyName: string, value: ShaderUniformValue): boolean {
+        const mat = this._threeMatHandle as THREE.ShaderMaterial;
+        const uniform = mat.uniforms?.[propertyName];
+        if (!uniform) return this._shader.isCustom;
+
+        const current = uniform.value;
+
+        // Written in place where possible: three uploads the object it was
+        // given, and replacing it each frame would allocate per set.
+        if (value instanceof Color && current instanceof THREE.Vector4) {
+            current.set(value.r, value.g, value.b, value.a);
+        } else if (value instanceof Vector4 && current instanceof THREE.Vector4) {
+            current.set(value.x, value.y, value.z, value.w);
+        } else if (value instanceof Matrix4x4 && current instanceof THREE.Matrix4) {
+            current.fromArray(value.elements);
+        } else {
+            uniform.value = Material._toUniformValue(value);
+        }
+        return true;
     }
 
     /**
