@@ -223,7 +223,9 @@ export {
     Animator, AnimatorState, AnimatorTransition,
     AnimatorParameterType, AnimatorConditionMode,
 } from "./core/animation/Animator";
-export type { AnimatorCondition } from "./core/animation/Animator";
+export type { AnimatorCondition, AnimatorMotion } from "./core/animation/Animator";
+export { BlendTree, BlendTreeType } from "./core/animation/BlendTree";
+export type { BlendTreeChild } from "./core/animation/BlendTree";
 
 // =====================
 // AUDIO
@@ -431,6 +433,7 @@ import { Collision, ContactPoint } from "./physics/Collision";
 import { AnimationClip } from "./core/animation/AnimationClip";
 import { Animation, AnimationWrapMode } from "./core/animation/Animation";
 import { Animator, AnimatorState, AnimatorTransition } from "./core/animation/Animator";
+import { BlendTree } from "./core/animation/BlendTree";
 
 import { AudioClip } from "./core/audio/AudioClip";
 import { AudioSource, AudioRolloffMode } from "./core/audio/AudioSource";
@@ -582,7 +585,7 @@ const WebEngineTS = {
 
     // Animation
     AnimationClip, Animation, AnimationWrapMode,
-    Animator, AnimatorState, AnimatorTransition,
+    Animator, AnimatorState, AnimatorTransition, BlendTree,
 
     // Audio
     AudioClip, AudioSource, AudioRolloffMode,

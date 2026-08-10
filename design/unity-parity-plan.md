@@ -49,7 +49,7 @@ Measured 2026-08-04.
 | assets | 881 | 3 | **Low — path-addressed, no database** |
 | particles | 808 | 4 | Low (Shuriken subset) |
 | input | 578 | 3 | Medium |
-| animation | 518 | 3 | Medium — state machine done, no blend trees |
+| animation | 518 | 3 | High — state machine + blend trees; no retargeting/Timeline |
 | serialization | 502 | 3 | **Low — exists but unused by the engine itself** |
 | audio | 481 | 4 | Medium |
 | postprocessing | 342 | 4 | Low |
@@ -148,8 +148,8 @@ Verdict: this repo has clips and a player (518 LOC). The **Animator state machin
 trees** are the parity gap that matters; retargeting and Timeline are further out. Adopt the
 state-machine model; defer the rest.
 
-*Update 2026-08-10:* the state machine is done — see Stage 5. Blend trees, retargeting and
-Timeline are still open.
+*Update 2026-08-10:* the state machine **and blend trees** are done — see Stage 5.
+Retargeting, Timeline and IK are still open.
 
 ### 2.8 Scripting runtime — **Partly there, partly Reject**
 
@@ -613,8 +613,27 @@ Independent of 1–4, and of each other:
   `addState` registers the clip with the sibling `Animation`, adding one if it is missing —
   requiring the caller to add both in the right order was a trap rather than a design.
 
-  **Blend trees remain open** (`S`–`M`): they need weighted simultaneous playback, which is a
-  change to `Animation`'s mixer usage rather than to the state machine built here.
+- ~~**Blend trees**~~ — **done 2026-08-10.** `BlendTree` (`animation/BlendTree.ts`) in two
+  forms: `Simple1D`, where the two children bracketing the parameter share the weight, and
+  `FreeformCartesian2D`, using Unity's own gradient band interpolation rather than
+  inverse-distance weighting — a child contributes nothing once another child sits between it
+  and the sample point, which is what stops a strafe blend from bleeding the backward clip
+  into a forward run. An `AnimatorState`'s motion is now a clip **or** a tree, and a tree state
+  is re-sampled every frame it is held, since its weights keep moving while the state does not.
+
+  The mixer-side half is `Animation.blend(weights, wrapMode, fadeIn, synchronize)`: weighted
+  simultaneous playback, normalized, meant to be called every frame — re-weighting an active
+  clip does not restart it, and a clip entering an existing blend starts at the blend's current
+  phase. `synchronize` time-scales every clip to a common weighted-average cycle (Unity's
+  homogeneous speed), without which a 1 s walk and a 0.6 s run drift apart within a second and
+  the feet slide.
+
+  The fade into a blend is applied by `Animation` as its own envelope during the frame update,
+  not through Three.js' `fadeIn`: three schedules a weight ramp that the next
+  `setEffectiveWeight` cancels, and a blend re-weights every frame.
+
+  Still open in this area: **avatar retargeting, Timeline and IK** — further out, and named as
+  such in §2.7.
 - ~~**Layer collision matrix + joints**~~ — **both done 2026-08-05.**
   `LayerCollisionMatrix.ignoreLayerCollision` / `.collides` / `.maskFor`, enforced through
   cannon-es' `collisionFilterGroup` / `collisionFilterMask`. It lands in the **broad phase**,

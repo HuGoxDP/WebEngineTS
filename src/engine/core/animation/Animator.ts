@@ -1,7 +1,15 @@
 import { Behaviour } from "../Behaviour";
 import { Animation, AnimationWrapMode } from "./Animation";
+import { BlendTree } from "./BlendTree";
 import type { AnimationClip } from "./AnimationClip";
 import type { GameObject } from "../GameObject";
+
+/**
+ * What an {@link AnimatorState} plays: one clip, or a blend of several.
+ *
+ * @remarks Equivalent to Unity's `Motion`.
+ */
+export type AnimatorMotion = AnimationClip | BlendTree;
 
 /** What a declared Animator parameter holds. */
 export enum AnimatorParameterType {
@@ -135,21 +143,31 @@ export class AnimatorState {
     /** Name of this state, and its identifier. */
     public readonly name: string;
 
-    /** The clip played while this state is active. */
-    public readonly clip: AnimationClip;
+    /** What this state plays: a clip, or a blend tree. */
+    public readonly motion: AnimatorMotion;
 
     /** Playback speed for this state. */
     public speed: number = 1;
 
-    /** Wrap mode for this state's clip. */
+    /** Wrap mode for this state's clips. */
     public wrapMode: AnimationWrapMode = AnimationWrapMode.Loop;
 
     /** Transitions leaving this state, evaluated in order. */
     public readonly transitions: AnimatorTransition[] = [];
 
-    constructor(name: string, clip: AnimationClip) {
+    constructor(name: string, motion: AnimatorMotion) {
         this.name = name;
-        this.clip = clip;
+        this.motion = motion;
+    }
+
+    /** The single clip this state plays, or null when it plays a blend tree. */
+    public get clip(): AnimationClip | null {
+        return this.motion instanceof BlendTree ? null : this.motion;
+    }
+
+    /** The blend tree this state plays, or null when it plays a single clip. */
+    public get blendTree(): BlendTree | null {
+        return this.motion instanceof BlendTree ? this.motion : null;
     }
 
     /**
@@ -216,6 +234,10 @@ export class AnimatorState {
  * animator.defaultState = idle;
  * ```
  *
+ * A state plays either a single clip or a {@link BlendTree}, which blends
+ * several clips from the same parameters — the difference between switching
+ * from walk to run and speeding up.
+ *
  * Evaluated once per frame from `Application._loop`, alongside the animation
  * playback it drives — a state machine the caller has to remember to tick is
  * one that silently stops working.
@@ -250,6 +272,9 @@ export class Animator extends Behaviour {
     private _defaultState: AnimatorState | null = null;
     private _animation: Animation | null = null;
 
+    /** Scratch for blend-tree weights, refilled each frame rather than rebuilt. */
+    private readonly _blendWeights: Map<string, number> = new Map();
+
     constructor(gameObject: GameObject) {
         super(gameObject);
     }
@@ -278,16 +303,24 @@ export class Animator extends Behaviour {
      * Adds a named state.
      *
      * @remarks
-     * The clip is registered with the sibling {@link Animation}, so a caller
-     * does not have to add it in two places.
+     * Every clip the motion can play is registered with the sibling
+     * {@link Animation}, so a caller does not have to add them in two places.
      *
      * @param name - unique state name.
-     * @param clip - the clip this state plays.
+     * @param motion - the clip or {@link BlendTree} this state plays.
      */
-    public addState(name: string, clip: AnimationClip): AnimatorState {
-        const state = new AnimatorState(name, clip);
+    public addState(name: string, motion: AnimatorMotion): AnimatorState {
+        const state = new AnimatorState(name, motion);
         this._states.set(name, state);
-        this._resolveAnimation()?.addClip(clip);
+
+        const animation = this._resolveAnimation();
+        if (animation) {
+            if (motion instanceof BlendTree) {
+                for (const clip of motion.clips) animation.addClip(clip);
+            } else {
+                animation.addClip(motion);
+            }
+        }
         return state;
     }
 
@@ -401,6 +434,10 @@ export class Animator extends Behaviour {
             this._transitionTo(transition.target, transition.duration);
             return;
         }
+
+        // A blend tree is a state whose weights keep moving while it is held,
+        // so it is re-sampled on every frame no transition fires.
+        this._sampleBlendTree(this._currentState, 0);
     }
 
     protected override onEnable(): void {
@@ -442,7 +479,11 @@ export class Animator extends Behaviour {
         if (!animation) return;
 
         animation.speed = state.speed;
-        animation.play(state.clip.name, state.wrapMode);
+        if (state.blendTree) {
+            this._sampleBlendTree(state, 0);
+            return;
+        }
+        animation.play(state.motion.name, state.wrapMode);
     }
 
     private _transitionTo(state: AnimatorState, duration: number): void {
@@ -451,6 +492,27 @@ export class Animator extends Behaviour {
         if (!animation) return;
 
         animation.speed = state.speed;
-        animation.crossFade(state.clip.name, duration, state.wrapMode);
+        if (state.blendTree) {
+            this._sampleBlendTree(state, duration);
+            return;
+        }
+        animation.crossFade(state.motion.name, duration, state.wrapMode);
+    }
+
+    /**
+     * Re-weights a blend-tree state from the current parameters.
+     *
+     * @param fadeIn - seconds to fade the blend in over. Only has an effect on
+     *                 the frame the blend starts.
+     */
+    private _sampleBlendTree(state: AnimatorState, fadeIn: number): void {
+        const tree = state.blendTree;
+        if (!tree) return;
+
+        const animation = this._resolveAnimation();
+        if (!animation) return;
+
+        tree.evaluate(this._parameters, this._blendWeights);
+        animation.blend(this._blendWeights, state.wrapMode, fadeIn, tree.synchronizeTime);
     }
 }
