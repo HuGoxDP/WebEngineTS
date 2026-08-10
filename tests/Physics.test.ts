@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach } from "vitest";
 import * as CANNON from "cannon-es";
 import { PhysicsWorld } from "../src/engine/physics/PhysicsWorld";
+import { LayerCollisionMatrix } from "../src/engine/physics/LayerCollisionMatrix";
 import { PhysicMaterial } from "../src/engine/physics/PhysicMaterial";
 import { Collision, ContactPoint } from "../src/engine/physics/Collision";
 import { ForceMode, RigidbodyConstraints } from "../src/engine/physics/Rigidbody";
@@ -210,5 +211,85 @@ describe("cannon-es body simulation", () => {
         }
 
         expect(body.position.y).toBeCloseTo(5);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Layer collision matrix (unity-parity Stage 5)
+// ---------------------------------------------------------------------------
+
+describe("LayerCollisionMatrix", () => {
+    beforeEach(() => {
+        PhysicsWorld._reset();
+        LayerCollisionMatrix.reset();
+    });
+
+    test("every layer collides with every other by default", () => {
+        expect(LayerCollisionMatrix.collides(0, 1)).toBe(true);
+        expect(LayerCollisionMatrix.collides(5, 5)).toBe(true);
+        expect(LayerCollisionMatrix.maskFor(0)).toBe(~0 >>> 0);
+    });
+
+    test("ignoring a pair is symmetric", () => {
+        LayerCollisionMatrix.ignoreLayerCollision(1, 2);
+
+        // A one-way collision is not something a solver can express: the pair
+        // would collide or not depending on which body it looked at first.
+        expect(LayerCollisionMatrix.collides(1, 2)).toBe(false);
+        expect(LayerCollisionMatrix.collides(2, 1)).toBe(false);
+    });
+
+    test("ignoring one pair leaves the others alone", () => {
+        LayerCollisionMatrix.ignoreLayerCollision(1, 2);
+
+        expect(LayerCollisionMatrix.collides(1, 3)).toBe(true);
+        expect(LayerCollisionMatrix.collides(0, 2)).toBe(true);
+        expect(LayerCollisionMatrix.collides(1, 1)).toBe(true);
+    });
+
+    test("a layer can be made to ignore itself", () => {
+        LayerCollisionMatrix.ignoreLayerCollision(4, 4);
+
+        expect(LayerCollisionMatrix.collides(4, 4)).toBe(false);
+        expect(LayerCollisionMatrix.collides(4, 5)).toBe(true);
+    });
+
+    test("ignoring can be undone", () => {
+        LayerCollisionMatrix.ignoreLayerCollision(1, 2);
+        LayerCollisionMatrix.ignoreLayerCollision(1, 2, false);
+
+        expect(LayerCollisionMatrix.collides(1, 2)).toBe(true);
+    });
+
+    test("the mask lists exactly the layers that collide", () => {
+        LayerCollisionMatrix.ignoreLayerCollision(0, 1);
+        LayerCollisionMatrix.ignoreLayerCollision(0, 3);
+
+        const mask = LayerCollisionMatrix.maskFor(0);
+
+        expect(mask & (1 << 1)).toBe(0);
+        expect(mask & (1 << 3)).toBe(0);
+        expect(mask & (1 << 2)).not.toBe(0);
+    });
+
+    test("an out-of-range layer is refused rather than corrupting the table", () => {
+        LayerCollisionMatrix.ignoreLayerCollision(-1, 0);
+        LayerCollisionMatrix.ignoreLayerCollision(0, 99);
+
+        expect(LayerCollisionMatrix.collides(0, 1)).toBe(true);
+        expect(LayerCollisionMatrix.collides(0, 99)).toBe(false);
+        expect(LayerCollisionMatrix.maskFor(99)).toBe(~0 >>> 0);
+    });
+
+    test("reset restores the fully permissive default", () => {
+        LayerCollisionMatrix.ignoreLayerCollision(1, 2);
+        LayerCollisionMatrix.reset();
+
+        expect(LayerCollisionMatrix.collides(1, 2)).toBe(true);
+    });
+
+    test("it covers 32 layers, the width of the filter bitmask", () => {
+        expect(LayerCollisionMatrix.layerCount).toBe(32);
+        expect(LayerCollisionMatrix.collides(31, 31)).toBe(true);
     });
 });

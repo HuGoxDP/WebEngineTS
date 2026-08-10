@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { profilerHooks } from "../core/diagnostics/ProfilerHooks";
+import { LayerCollisionMatrix } from "./LayerCollisionMatrix";
 import { Ray } from "../core/math/Ray";
 import { Vector3 } from "../core/math/Vector3";
 import { RaycastHit } from "./RaycastHit";
@@ -261,6 +262,18 @@ export class Physics {
     }
 
     /** @internal Clears all registrations (e.g., on scene change). */
+    /**
+     * @internal
+     * Re-applies the layer collision matrix to every registered collider.
+     * Called when the matrix changes, so an edit reaches bodies that already
+     * exist rather than only new ones.
+     */
+    public static _refreshLayerFilters(): void {
+        for (const collider of (Physics as any)._colliders as Collider[]) {
+            collider._applyLayerFilter();
+        }
+    }
+
     public static _reset(): void {
         this._colliders.length = 0;
         this._activeCollisions.clear();
@@ -271,3 +284,7 @@ export class Physics {
 profilerHooks.colliderCount = () => (Physics as any)._colliders.length;
 profilerHooks.rigidbodyCount = () => (PhysicsWorld as any)._instance?._rigidbodies?.length ?? 0;
 profilerHooks.physicsContactCount = () => (Physics as any)._activeCollisions.size;
+
+// The matrix lives apart from Physics so it can be read without pulling the
+// world in; this is the one edge back, registered at module load.
+LayerCollisionMatrix._setChangeHandler(() => Physics._refreshLayerFilters());

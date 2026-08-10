@@ -203,6 +203,7 @@ export { CinemachineHardLookAtAim } from "./core/cinemachine/CinemachineHardLook
 // PHYSICS
 // =====================
 export { Physics } from "./physics/Physics";
+export { LayerCollisionMatrix } from "./physics/LayerCollisionMatrix";
 export { RaycastHit } from "./physics/RaycastHit";
 export { Collider } from "./physics/Collider";
 export { BoxCollider } from "./physics/BoxCollider";
@@ -411,6 +412,7 @@ import { CinemachineFollowBody } from "./core/cinemachine/CinemachineFollowBody"
 import { CinemachineHardLookAtAim } from "./core/cinemachine/CinemachineHardLookAtAim";
 
 import { Physics } from "./physics/Physics";
+import { LayerCollisionMatrix } from "./physics/LayerCollisionMatrix";
 import { RaycastHit } from "./physics/RaycastHit";
 import { Collider } from "./physics/Collider";
 import { BoxCollider } from "./physics/BoxCollider";
@@ -566,7 +568,7 @@ const WebEngineTS = {
     CinemachineFollowBody, CinemachineHardLookAtAim,
 
     // Physics
-    Physics, RaycastHit, Collider, BoxCollider,
+    Physics, LayerCollisionMatrix, RaycastHit, Collider, BoxCollider,
     SphereCollider, CapsuleCollider,
     Rigidbody, ForceMode, RigidbodyConstraints,
     PhysicMaterial, Collision, ContactPoint,

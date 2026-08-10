@@ -4,6 +4,7 @@ import { Behaviour } from "../core/Behaviour";
 import { Physics } from "./Physics";
 import { Rigidbody } from "./Rigidbody";
 import { PhysicsWorld } from "./PhysicsWorld";
+import { LayerCollisionMatrix } from "./LayerCollisionMatrix";
 import type { PhysicMaterial } from "./PhysicMaterial";
 import { Serializable, SerializedField } from "../core/reflection/Decorators";
 import { FieldType } from "../core/reflection/Types";
@@ -125,6 +126,7 @@ export abstract class Collider extends Behaviour {
         const rb = this.gameObject.getComponent(Rigidbody);
         if (rb) {
             rb._body.addShape(this._cannonShape);
+            this._applyLayerFilter();
         } else {
             // Create an implicit static body
             this._implicitBody = new CANNON.Body({
@@ -139,8 +141,34 @@ export abstract class Collider extends Behaviour {
             this._implicitBody.quaternion.set(rot.x, rot.y, rot.z, rot.w);
 
             this._implicitBody.addShape(this._cannonShape);
+            this._applyLayerFilter();
             PhysicsWorld.instance.world.addBody(this._implicitBody);
         }
+    }
+
+    /**
+     * @internal
+     * Writes this collider's layer into its body's broad-phase filter.
+     *
+     * @remarks
+     * The body's *group* is the bit for its own layer; its *mask* is the set of
+     * layers that layer collides with. cannon-es then rejects a pair before
+     * building a contact for it, which is the point of a layer matrix — an
+     * ignored pair should cost nothing, not cost a discarded contact.
+     *
+     * A collider sharing a Rigidbody writes onto that shared body: several
+     * colliders on one object are one physical body, so the last one to attach
+     * decides. Unity has the same limitation, for the same reason.
+     */
+    public _applyLayerFilter(): void {
+        const body = this._implicitBody
+            ?? this.gameObject.getComponent(Rigidbody)?._body
+            ?? null;
+        if (!body) return;
+
+        const layer = this.gameObject.layer;
+        body.collisionFilterGroup = 1 << layer;
+        body.collisionFilterMask = LayerCollisionMatrix.maskFor(layer);
     }
 
     private _detachShape(): void {

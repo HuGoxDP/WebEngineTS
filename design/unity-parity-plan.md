@@ -588,7 +588,20 @@ required no per-component UI code.
 Independent of 1–4, and of each other:
 
 - **Animator state machine + blend trees** (`M`) — the largest single runtime gap.
-- **Layer collision matrix + joints** (`S`)
+- **Layer collision matrix — done 2026-08-05**; joints still open.
+  `LayerCollisionMatrix.ignoreLayerCollision` / `.collides` / `.maskFor`, enforced through
+  cannon-es' `collisionFilterGroup` / `collisionFilterMask`. It lands in the **broad phase**,
+  so an ignored pair costs nothing rather than costing a contact that is then discarded —
+  which is the reason to have a matrix at all.
+
+  The matrix is deliberately **symmetric**: a one-way collision is not something a solver can
+  express, and pretending otherwise gives a pair that collides or not depending on which body
+  was looked at first. Changes reach bodies that already exist, via a change handler `Physics`
+  registers — the matrix stays free of the world so it can be read without pulling physics in.
+
+  One limitation stated in the JSDoc rather than left to be found: several colliders sharing
+  one `Rigidbody` are one physical body, so the last one attached decides its layer. Unity has
+  the same limitation for the same reason.
 - ~~**Additive scene loading + `DontDestroyOnLoad`**~~ — **done 2026-08-05.**
   `LoadSceneMode.Single | Additive` on `SceneManager.loadScene`, plus `unloadScene` and
   `moveGameObjectToScene`. An additive load leaves the **active scene alone**, matching Unity:
