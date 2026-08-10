@@ -25,7 +25,7 @@ export { GameObject } from "./core/GameObject";
 export { Component } from "./core/Component";
 export { Transform } from "./core/Transform";
 export { Scene } from "./core/Scene";
-export { SceneManager } from "./core/SceneManager";
+export { SceneManager, LoadSceneMode } from "./core/SceneManager";
 export { Application, GraphicsPowerPreference } from "./core/Application";
 export { Time } from "./core/Time";
 export { EngineSettings } from "./core/EngineSettings";

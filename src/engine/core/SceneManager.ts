@@ -1,6 +1,7 @@
 // path: src/engine/core/SceneManager.ts
 
 import { Scene } from "./Scene.ts";
+import type { GameObject } from "./GameObject.ts";
 
 /**
  * Callback signature for scene events.
@@ -38,6 +39,25 @@ export type ActiveSceneChangedCallback = (previous: Scene | null, next: Scene) =
  * const player = SceneManager.activeScene.findGameObject("Player");
  * ```
  */
+/** How {@link SceneManager.loadScene} treats the scenes already loaded. */
+export enum LoadSceneMode {
+    /**
+     * Unload everything else first. Objects marked
+     * {@link EngineObject.DontDestroyOnLoad} move to the new scene instead of
+     * being destroyed.
+     */
+    Single = "Single",
+    /**
+     * Keep what is loaded and add this scene alongside it.
+     *
+     * @remarks
+     * The active scene does not change, matching Unity: new GameObjects keep
+     * going to whichever scene was active, so loading a HUD over a lesson does
+     * not silently redirect the lesson's own spawns.
+     */
+    Additive = "Additive",
+}
+
 export class SceneManager {
 
     // ==================== PRIVATE STATE ====================
@@ -121,37 +141,127 @@ export class SceneManager {
     // ==================== PUBLIC METHODS ====================
 
     /**
-     * Loads a new scene, destroying the current active scene.
-     *
-     * All GameObjects in the previous scene are destroyed before
-     * the new scene is created.
+     * Loads a scene, either replacing what is loaded or adding to it.
      *
      * @param sceneName — the name for the new scene.
      *
-     * @remarks
-     * Equivalent to Unity's `SceneManager.LoadScene(name, LoadSceneMode.Single)`.
+     * @param mode - whether to replace what is loaded or add to it.
      *
-     * @todo Support `LoadSceneMode.Additive` for multi-scene.
+     * @remarks
+     * Equivalent to Unity's `SceneManager.LoadScene(name, mode)`.
      */
-    public static loadScene(sceneName: string): void {
+    public static loadScene(
+        sceneName: string,
+        mode: LoadSceneMode = LoadSceneMode.Single,
+    ): void {
         const previousScene = SceneManager._activeScene;
 
-        // 1. Destroy and unregister the previous scene
-        if (previousScene) {
-            SceneManager._fireEvent(SceneManager.onSceneUnloaded, previousScene);
-            previousScene.destroy();
-            SceneManager._removeFromLoaded(previousScene);
+        if (mode === LoadSceneMode.Additive) {
+            const added = SceneManager._createScene(sceneName);
+            // Unity leaves the active scene alone on an additive load, so new
+            // GameObjects keep going where the caller expects.
+            SceneManager._fireEvent(SceneManager.onSceneLoaded, added);
+            console.log(`[SceneManager] Scene '${sceneName}' loaded additively.`);
+            return;
         }
 
-        // 2. Create a fresh scene
+        const previousScenes = [...SceneManager._loadedScenes];
+        const survivors = SceneManager._collectPersistentRoots();
+
+        // Announced before anything is torn down, so a listener can still read
+        // the scene it is being told about.
+        for (const scene of previousScenes) {
+            SceneManager._fireEvent(SceneManager.onSceneUnloaded, scene);
+        }
+
         const newScene = SceneManager._createScene(sceneName);
         SceneManager._activeScene = newScene;
 
-        // 3. Fire events
+        // Re-homed *before* the old scenes are destroyed: `Scene.destroy`
+        // walks its roots, so a survivor still registered there would be
+        // destroyed along with everything else — which is the bug that made
+        // DontDestroyOnLoad a no-op.
+        for (const go of survivors) {
+            if (go.exists()) SceneManager.moveGameObjectToScene(go, newScene);
+        }
+
+        for (const scene of previousScenes) {
+            scene.destroy();
+            SceneManager._removeFromLoaded(scene);
+        }
+
         SceneManager._fireEvent(SceneManager.onSceneLoaded, newScene);
         SceneManager._fireActiveChanged(previousScene, newScene);
 
         console.log(`[SceneManager] Scene '${sceneName}' loaded.`);
+    }
+
+    /**
+     * Unloads one scene, destroying everything in it.
+     *
+     * @remarks
+     * Equivalent to Unity's `SceneManager.UnloadSceneAsync`, minus the async —
+     * there is no streaming here, so the work is done by the time this returns.
+     *
+     * Refuses to unload the last remaining scene: the engine always has an
+     * active scene, and `loadScene` is how a scene is replaced.
+     *
+     * @param scene - the scene to unload.
+     * @returns whether it was unloaded.
+     */
+    public static unloadScene(scene: Scene): boolean {
+        if (!SceneManager._loadedScenes.includes(scene)) return false;
+        if (SceneManager._loadedScenes.length <= 1) {
+            console.warn("[SceneManager] Refusing to unload the only loaded scene.");
+            return false;
+        }
+
+        const wasActive = SceneManager._activeScene === scene;
+
+        SceneManager._fireEvent(SceneManager.onSceneUnloaded, scene);
+        scene.destroy();
+        SceneManager._removeFromLoaded(scene);
+
+        // Something has to be active; the first remaining scene takes over.
+        if (wasActive) {
+            const next = SceneManager._loadedScenes[0];
+            SceneManager._activeScene = next;
+            SceneManager._fireActiveChanged(scene, next);
+        }
+        return true;
+    }
+
+    /**
+     * Moves a root GameObject from its scene to another.
+     *
+     * @remarks
+     * Equivalent to Unity's `SceneManager.MoveGameObjectToScene`. Only roots
+     * can move: a child belongs to whatever scene its root is in, which is what
+     * keeps a hierarchy from being split across two scenes.
+     *
+     * @param go - the GameObject to move.
+     * @param scene - its new scene.
+     * @returns whether it moved.
+     */
+    public static moveGameObjectToScene(go: GameObject, scene: Scene): boolean {
+        if (!go.exists() || go.transform.parent !== null) return false;
+        if (go.scene === scene) return true;
+
+        go.scene._unregisterGameObject(go);
+        (go as unknown as { _scene: Scene })._scene = scene;
+        scene._registerGameObject(go);
+        return true;
+    }
+
+    /** Root GameObjects marked DontDestroyOnLoad across every loaded scene. */
+    private static _collectPersistentRoots(): GameObject[] {
+        const out: GameObject[] = [];
+        for (const scene of SceneManager._loadedScenes) {
+            for (const go of scene.getRootGameObjects()) {
+                if (go._isPersistent()) out.push(go);
+            }
+        }
+        return out;
     }
 
     /**
@@ -162,7 +272,10 @@ export class SceneManager {
      * @returns the newly created scene.
      *
      * @remarks
-     * Equivalent to Unity's `SceneManager.CreateScene(name)`.
+     * **Not** Unity's `SceneManager.CreateScene`, which adds a scene without
+     * unloading anything. This replaces everything loaded, because that is what
+     * its callers want — a scenario starting from a clean slate. Use
+     * {@link loadScene} with {@link LoadSceneMode.Additive} to add one.
      */
     public static createScene(sceneName: string): Scene {
         SceneManager.loadScene(sceneName);

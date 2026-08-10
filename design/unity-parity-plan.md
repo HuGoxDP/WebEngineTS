@@ -589,7 +589,21 @@ Independent of 1–4, and of each other:
 
 - **Animator state machine + blend trees** (`M`) — the largest single runtime gap.
 - **Layer collision matrix + joints** (`S`)
-- **Additive scene loading + `DontDestroyOnLoad`** (`S`)
+- ~~**Additive scene loading + `DontDestroyOnLoad`**~~ — **done 2026-08-05.**
+  `LoadSceneMode.Single | Additive` on `SceneManager.loadScene`, plus `unloadScene` and
+  `moveGameObjectToScene`. An additive load leaves the **active scene alone**, matching Unity:
+  loading a HUD over a lesson must not silently redirect the lesson's own spawns.
+
+  **`DontDestroyOnLoad` was a no-op and is now real.** `EngineObject` recorded the mark and
+  nothing ever read it — `_isPersistent()` had no callers outside its own file — so a marked
+  object was destroyed with everything else. Survivors are now re-homed into the new scene
+  *before* the old ones are destroyed, which is the ordering that matters: `Scene.destroy`
+  walks its roots, so a survivor still registered there goes down with the scene.
+
+  Also corrected a doc claim: `createScene` says it is Unity's `SceneManager.CreateScene`,
+  which adds a scene without unloading. It replaces everything instead — which is what its
+  callers (`Scenario.run`) want — so it now says that rather than claiming an equivalence it
+  does not have.
 - ~~**`ScriptableObject`** proper — data assets without a GameObject~~ — **done 2026-08-05.**
   `core/ScriptableObject.ts`: an `EngineObject` with no GameObject and no lifecycle, plus
   `create`, `toJSON` and `fromJSON`. The JSDoc states the distinction §2.8 flagged — this is
