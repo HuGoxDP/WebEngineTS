@@ -296,16 +296,27 @@ it globally cannot be undone asset by asset. A request is resolved against what 
 actually offers: asking above an asset's best gives its best, asking below its coarsest gives
 the coarsest. `getLodLevel` reports the *resolved* level, which is what a fetch would bring.
 
-**Still open for the LOD half, in order:**
+**In-place reload landed the same day.** `Texture2D._adoptThreeTexture` takes over a freshly
+decoded handle without the engine-side object changing identity, and `Resources.reload(type, path)`
+re-reads at whatever level the source now serves and adopts into the cached instance. Combined
+with the referent index, that is a working upgrade: set a level, reload, and every material
+already holding the texture draws the new content.
 
-1. **Swapping an already-decoded asset.** Changing a level today affects the *next* read;
-   `Resources` caches the decoded asset, so nothing re-reads on its own. What is needed is a
-   texture that can adopt freshly-decoded bytes in place — `Texture2D._wrapThreeTexture` already
-   does exactly this for a new instance, so the work is extracting it to an instance method and
-   giving `Resources` a re-decode path. The referent index then carries the swap to every
-   material, which is the part that used to be missing.
-2. **A policy** deciding when to upgrade: `LODGroup`'s on-screen size against the VRAM budget.
-3. The editor emitting the variants, which is not this repo's work.
+Two decisions worth keeping:
+
+- **A type that cannot adopt is refused, not silently replaced.** Swapping the cache entry
+  would leave every existing reference pointing at the old content — which looks like it worked
+  and is worse than an error. Only `Texture2D` adopts today; nothing else has levels to move
+  between.
+- **The freshly decoded shell is not destroyed.** Its Three.js texture now belongs to the cached
+  instance, so destroying the shell would dispose the resource just handed over.
+
+**Still open for the LOD half:**
+
+1. **A policy** deciding *when* to upgrade — `LODGroup`'s on-screen size against the VRAM
+   budget. Everything it would need to act on now exists; nothing calls it yet, so today a host
+   or scenario drives the level by hand.
+2. The editor emitting the variants, which is not this repo's work.
 
 ### Stage 4 — Full progressive + dedup + partial updates
 - Content-addressed dedup across scenarios (shared assets fetched once, cached forever).

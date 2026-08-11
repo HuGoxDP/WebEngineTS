@@ -771,14 +771,47 @@ export class Texture2D extends Texture {
         const texture = new Texture2D(width, height, TextureFormat.RGBA32, true);
         Texture2D._skipCanvasAllocation = false;
 
-        // Replace the default empty texture with the real one
-        texture._internalThreeTexture.dispose();
-        texture._setInternalThreeTexture(threeTexture);
-
-        // Asset-loaded textures start non-readable — no CPU pixel data kept
-        texture._isReadable = false;
+        texture._adoptThreeTexture(threeTexture, width, height);
 
         return texture;
+    }
+
+    /**
+     * @internal
+     * Replaces this texture's GPU resource with a freshly decoded one.
+     *
+     * Used both when wrapping a newly decoded image and when re-decoding an
+     * existing texture at a different detail level. Because the engine-side
+     * `Texture2D` object is unchanged, every material already holding it is
+     * re-pointed at the new handle rather than left drawing the old one — that
+     * propagation is what makes an in-place upgrade possible at all.
+     *
+     * The previous handle is disposed here; the caller keeps no claim on it.
+     * Cached CPU pixels are dropped, since they describe the image that was
+     * just replaced, and the texture becomes non-readable until something asks
+     * for pixels again.
+     *
+     * **NEVER use in user-facing code.**
+     *
+     * @param threeTexture — the newly decoded Three.js texture to take over.
+     * @param width — its width in pixels.
+     * @param height — its height in pixels.
+     */
+    public _adoptThreeTexture(
+        threeTexture: THREE.Texture,
+        width: number,
+        height: number,
+    ): void {
+        this._internalThreeTexture.dispose();
+
+        this._width = width;
+        this._height = height;
+        this._pixels = null;
+        // Asset-loaded textures are non-readable — no CPU pixel data kept.
+        this._isReadable = false;
+
+        // Last, so referents re-read a texture whose dimensions already match.
+        this._setInternalThreeTexture(threeTexture);
     }
 
     /**

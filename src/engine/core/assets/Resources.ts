@@ -546,6 +546,91 @@ export class Resources {
     }
 
     /**
+     * Re-decodes a cached asset from its source, in place.
+     *
+     * @param type — the asset class it was loaded as.
+     * @param path — asset path (relative to `assets/`).
+     * @returns the **same** instance, now carrying the freshly read content.
+     *
+     * @throws if the asset is not cached, or if its type cannot be updated in
+     *         place.
+     *
+     * @remarks
+     * The point is that the instance does not change: every material, component
+     * and field already holding the texture keeps working and shows the new
+     * content. That is what makes a streamed detail-level upgrade expressible —
+     * change the level on the source, reload, and the scene follows.
+     *
+     * Refusing types that cannot adopt is deliberate. Replacing the cache entry
+     * instead would leave every existing reference pointing at the old content,
+     * which is worse than an error because it looks like it worked. Today
+     * {@link Texture2D} is the type that can; the rest have no detail levels to
+     * upgrade between.
+     *
+     * The reference count is untouched — this reloads an asset, it does not
+     * hand out another claim on it. Concurrent reloads of one path are not
+     * deduplicated; the last to finish wins.
+     *
+     * @example
+     * ```ts
+     * source.setLodLevel("textures/terrain.ktx2", 2);
+     * await Resources.reload(Texture2D, "textures/terrain.ktx2");
+     * // every material using it now draws level 2
+     * ```
+     */
+    public static async reload<T>(
+        type: new (...args: any[]) => T,
+        path: string,
+    ): Promise<T> {
+        Resources._ensureSource();
+
+        const entry = Resources._getDecoder(type);
+        const fullPath = Resources._resolvePath(path, entry.extensions);
+        const cacheKey = Resources._cacheKey(type, fullPath);
+
+        const cached = Resources._cache.get(cacheKey);
+        if (!cached) {
+            throw new Error(
+                `[Resources] Cannot reload "${fullPath}" — it is not loaded. ` +
+                `Use Resources.load() first.`
+            );
+        }
+
+        if (!(cached.asset instanceof Texture2D)) {
+            throw new Error(
+                `[Resources] "${type.name}" cannot be reloaded in place. ` +
+                `Only assets that can adopt new content without changing identity ` +
+                `support this; everything else would leave existing references ` +
+                `pointing at the old content.`
+            );
+        }
+
+        const bytes = await Resources._source!.readBytes(fullPath);
+        const fresh = await entry.decoder(bytes, fullPath, Resources._source!);
+
+        if (!(fresh instanceof Texture2D)) {
+            throw new Error(
+                `[Resources] Reloading "${fullPath}" produced a ${typeof fresh}, ` +
+                `not a Texture2D — the decoder for "${type.name}" changed under it.`
+            );
+        }
+
+        // The freshly decoded shell is deliberately not destroyed: its Three.js
+        // texture now belongs to the cached instance, and destroying the shell
+        // would dispose the very resource that was just handed over.
+        cached.asset._adoptThreeTexture(
+            fresh._internalThreeTexture, fresh.width, fresh.height,
+        );
+
+        cached.sizeEstimate = bytes.byteLength;
+        cached.vramBytes = Resources._estimateVram(cached.asset);
+        cached.lastUsed = ++Resources._useClock;
+        Resources.evictToBudget();
+
+        return cached.asset as T;
+    }
+
+    /**
      * Warms the cache for a set of paths without claiming the assets.
      *
      * Each path's decoder is chosen by extension, so no type token is needed —
