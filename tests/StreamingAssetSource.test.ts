@@ -276,6 +276,113 @@ describe("StreamingAssetSource — through Resources", () => {
     });
 });
 
+describe("StreamingAssetSource — per-asset detail levels", () => {
+    const files = {
+        "https://cdn.test/a/earth-512.ktx2": "LOW.",
+        "https://cdn.test/a/earth-2048.ktx2": "HIGH-DATA",
+        "https://cdn.test/a/config.json": '{"speed":2}',
+    };
+
+    function makeSource() {
+        return new StreamingAssetSource(
+            parseStreamingManifest(manifestJson()),
+            { baseUrl: "https://cdn.test/a/", fetch: fakeFetch(files).impl },
+        );
+    }
+
+    test("a per-asset level picks that level for that asset alone", async () => {
+        const source = makeSource();
+
+        source.setLodLevel("textures/earth.ktx2", 0);
+
+        expect(source.getLodLevel("textures/earth.ktx2")).toBe(0);
+        expect(await source.readText("textures/earth.ktx2")).toBe("LOW.");
+        // The other asset is untouched by a request aimed at this one.
+        expect(source.getLodLevel("data/config.json")).toBe(0);
+    });
+
+    test("the prefix is optional, as everywhere else", () => {
+        const source = makeSource();
+
+        source.setLodLevel("assets/textures/earth.ktx2", 0);
+
+        expect(source.getLodLevel("textures/earth.ktx2")).toBe(0);
+    });
+
+    test("the global ceiling wins over a more ambitious per-asset request", () => {
+        // maxLodLevel is a ceiling, not a default — lowering it must not be
+        // undoable asset by asset.
+        const source = makeSource();
+        source.maxLodLevel = 0;
+
+        source.setLodLevel("textures/earth.ktx2", 1);
+
+        expect(source.getLodLevel("textures/earth.ktx2")).toBe(0);
+    });
+
+    test("a per-asset request below the ceiling still applies", () => {
+        const source = makeSource();
+        source.maxLodLevel = 1;
+
+        source.setLodLevel("textures/earth.ktx2", 0);
+
+        expect(source.getLodLevel("textures/earth.ktx2")).toBe(0);
+    });
+
+    test("asking for more than the asset offers gives its best", () => {
+        const source = makeSource();
+
+        source.setLodLevel("textures/earth.ktx2", 99);
+
+        expect(source.getLodLevel("textures/earth.ktx2")).toBe(1);
+    });
+
+    test("asking below the coarsest still returns the coarsest", () => {
+        const source = makeSource();
+
+        source.setLodLevel("textures/earth.ktx2", -5);
+
+        expect(source.getLodLevel("textures/earth.ktx2")).toBe(0);
+    });
+
+    test("clearing returns the asset to the global ceiling", () => {
+        const source = makeSource();
+        source.setLodLevel("textures/earth.ktx2", 0);
+
+        source.clearLodLevel("textures/earth.ktx2");
+
+        expect(source.getLodLevel("textures/earth.ktx2")).toBe(1);
+    });
+
+    test("raising the ceiling lets an earlier request through again", () => {
+        const source = makeSource();
+        source.setLodLevel("textures/earth.ktx2", 1);
+        source.maxLodLevel = 0;
+        expect(source.getLodLevel("textures/earth.ktx2")).toBe(0);
+
+        source.maxLodLevel = Number.POSITIVE_INFINITY;
+
+        expect(source.getLodLevel("textures/earth.ktx2")).toBe(1);
+    });
+
+    test("a level set for a path the manifest does not list fails by name", () => {
+        const source = makeSource();
+
+        expect(() => source.setLodLevel("textures/mars.png", 0))
+            .toThrow(/Not in the manifest: assets\/textures\/mars.png/);
+        expect(source.getLodLevel("textures/mars.png")).toBeNull();
+    });
+
+    test("the level chosen is the one the URL points at", () => {
+        const source = makeSource();
+
+        source.setLodLevel("textures/earth.ktx2", 0);
+
+        expect(source.urlFor("textures/earth.ktx2"))
+            .toBe("https://cdn.test/a/earth-512.ktx2");
+    });
+});
+
 describe("StreamingAssetSource — URL resolution", () => {
     test("a relative base is joined textually", async () => {
         const fetcher = fakeFetch({ "/scenarios/solar/earth-2048.ktx2": "OK" });

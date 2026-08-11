@@ -289,10 +289,23 @@ This fixed a live defect beyond streaming: `Texture.load(url)` swapped its handl
 callback, so a material assigned that texture before the image arrived drew the empty
 placeholder for the rest of the run.
 
-**Still open for the LOD half:** the source side — per-asset level selection (today
-`maxLodLevel` is a single global cap) and a policy that decides *when* to upgrade, from
-`LODGroup`'s on-screen size against the VRAM budget. Plus the editor emitting the variants,
-which is not this repo's work. The propagation mechanism those need now exists.
+**Per-asset level selection landed the same day.** `setLodLevel(path, level)` /
+`clearLodLevel` / `getLodLevel` pick the level one asset is served at; `maxLodLevel` became a
+**ceiling** rather than the only control, so a per-asset request is clamped by it and lowering
+it globally cannot be undone asset by asset. A request is resolved against what the manifest
+actually offers: asking above an asset's best gives its best, asking below its coarsest gives
+the coarsest. `getLodLevel` reports the *resolved* level, which is what a fetch would bring.
+
+**Still open for the LOD half, in order:**
+
+1. **Swapping an already-decoded asset.** Changing a level today affects the *next* read;
+   `Resources` caches the decoded asset, so nothing re-reads on its own. What is needed is a
+   texture that can adopt freshly-decoded bytes in place — `Texture2D._wrapThreeTexture` already
+   does exactly this for a new instance, so the work is extracting it to an instance method and
+   giving `Resources` a re-decode path. The referent index then carries the swap to every
+   material, which is the part that used to be missing.
+2. **A policy** deciding when to upgrade: `LODGroup`'s on-screen size against the VRAM budget.
+3. The editor emitting the variants, which is not this repo's work.
 
 ### Stage 4 — Full progressive + dedup + partial updates
 - Content-addressed dedup across scenarios (shared assets fetched once, cached forever).

@@ -94,11 +94,12 @@ interface _QueuedRequest {
  * it for real. Without a queue, priority would have nothing to act on, because
  * every request would already have been sent.
  *
- * **What this stage does and does not do.** The manifest's LOD lists are read
- * and indexed, and {@link maxLodLevel} selects which one a read returns — but
- * nothing yet *upgrades* an asset from one level to the next as the camera
- * approaches; that is Stage 3, and it is the only part of the schema still
- * recorded rather than acted on.
+ * **Detail levels are chosen per asset.** {@link setLodLevel} picks the level a
+ * given path is served at, and {@link maxLodLevel} caps every one of them —
+ * a per-asset request cannot exceed the global ceiling. What is still missing
+ * is a *policy*: nothing yet decides that an asset should be upgraded because
+ * the camera came closer, and re-reading a path only affects the next read,
+ * since {@link Resources} caches the already-decoded asset.
  *
  * A manifest that also declares `scripts` and an `entry` describes a whole
  * scenario rather than just its assets, and {@link Scenario.loadFromManifest}
@@ -123,6 +124,9 @@ export class StreamingAssetSource implements IAssetSource {
     /** In-flight fetches by resolved URL, so a repeated read is one request. */
     private readonly _inFlight: Map<string, Promise<ArrayBuffer>> = new Map();
 
+    /** Per-asset detail level requests, by normalized path. */
+    private readonly _desiredLod: Map<string, number> = new Map();
+
     /** Requests waiting for a slot, by resolved URL. */
     private readonly _queued: Map<string, _QueuedRequest> = new Map();
 
@@ -136,13 +140,17 @@ export class StreamingAssetSource implements IAssetSource {
     private _requestCount: number = 0;
 
     /**
-     * Highest detail level a read may return.
+     * Highest detail level any read may return, across every asset.
      *
      * @remarks
      * `Infinity` — the default — means the best level the manifest offers,
      * which is what makes this source behave like the ZIP it replaces. Lower it
-     * to cap quality globally: a stand-in for the per-asset, per-frame budget
-     * Stage 3 will bring, and useful on its own for a low-memory device.
+     * to cap quality globally, which is useful on its own for a low-memory
+     * device.
+     *
+     * This is a **ceiling**, not a default: a per-asset request made through
+     * {@link setLodLevel} is clamped by it, so lowering it cannot be undone
+     * asset by asset. Raising it lets earlier per-asset requests through again.
      */
     public maxLodLevel: number = Number.POSITIVE_INFINITY;
 
@@ -282,6 +290,65 @@ export class StreamingAssetSource implements IAssetSource {
         return this._manifest.assets
             .filter(a => a.priority === priority)
             .map(a => a.path);
+    }
+
+    // ==================== DETAIL LEVELS ====================
+
+    /**
+     * Requests the detail level one asset is served at.
+     *
+     * @param path - an asset path, with or without the `assets/` prefix.
+     * @param level - the wanted level; `Infinity` asks for the best available.
+     * @throws if the manifest does not list the path.
+     *
+     * @remarks
+     * The request is a *wish*, resolved against what the manifest actually
+     * offers and against {@link maxLodLevel}: asking for a level an asset does
+     * not have gives its nearest lower one, and no request can exceed the
+     * global ceiling.
+     *
+     * **This affects the next read, not what is already loaded.** `Resources`
+     * caches the decoded asset, so a level changed after loading takes effect
+     * when something reads the path afresh. Swapping an already-decoded texture
+     * is a separate step.
+     *
+     * @example
+     * ```ts
+     * // Keep one heavy texture coarse without capping the whole scene.
+     * source.setLodLevel("textures/terrain.ktx2", 0);
+     * ```
+     */
+    public setLodLevel(path: string, level: number): void {
+        const normalized = normalizeAssetPath(path);
+        if (!this._byPath.has(normalized)) {
+            throw new Error(`[StreamingAssetSource] Not in the manifest: ${normalized}`);
+        }
+        this._desiredLod.set(normalized, level);
+    }
+
+    /**
+     * Drops a per-asset request, returning the path to the global ceiling.
+     *
+     * @param path - an asset path, with or without the `assets/` prefix.
+     */
+    public clearLodLevel(path: string): void {
+        this._desiredLod.delete(normalizeAssetPath(path));
+    }
+
+    /**
+     * The detail level a read of this path would currently return.
+     *
+     * @param path - an asset path, with or without the `assets/` prefix.
+     * @returns the resolved level, or null when the manifest does not list it.
+     *
+     * @remarks
+     * The *resolved* level, not the requested one — what the asset offers and
+     * {@link maxLodLevel} have both already been applied, so this is what a
+     * fetch would actually bring back.
+     */
+    public getLodLevel(path: string): number | null {
+        const lod = this._selectLod(normalizeAssetPath(path));
+        return lod ? lod.level : null;
     }
 
     /**
@@ -442,17 +509,23 @@ export class StreamingAssetSource implements IAssetSource {
         return buffer;
     }
 
-    /** The most detailed level at or below {@link maxLodLevel}. */
+    /**
+     * The most detailed level at or below both the per-asset request and
+     * {@link maxLodLevel}.
+     */
     private _selectLod(normalizedPath: string): IStreamedAssetLod | null {
         const asset = this._byPath.get(normalizedPath);
         if (!asset) return null;
 
+        const requested = this._desiredLod.get(normalizedPath) ?? Number.POSITIVE_INFINITY;
+        const ceiling = Math.min(requested, this.maxLodLevel);
+
         // Sorted ascending at parse time, so the last one in range is the best
-        // one available; falling back to the coarsest keeps a low cap usable
+        // one available; falling back to the coarsest keeps a low ceiling usable
         // even for an asset whose only level is above it.
         let chosen = asset.lods[0];
         for (const lod of asset.lods) {
-            if (lod.level <= this.maxLodLevel) chosen = lod;
+            if (lod.level <= ceiling) chosen = lod;
         }
         return chosen;
     }
