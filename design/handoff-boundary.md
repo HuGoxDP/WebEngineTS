@@ -96,6 +96,23 @@ break. Only worth fixing alongside §3.3.
 
 The ordering is by what unblocks the most, not by repository.
 
+### Zeroth — two things that cost about a day and make everything after them measurable
+
+Do not skip these to get to the interesting work faster; both are measurement hygiene.
+
+1. **`virtual-lab` R1 — republish the rebuilt archives.** The catalog still serves stale Drive
+   imports, so any before/after comparison would be against content nobody republished, and a
+   difference could not be attributed to the change under test.
+2. **`virtual-lab` R2 — verify KTX2 end to end.** Its failure mode is silent. If the compressed
+   path is broken or mis-configured, every VRAM figure taken afterwards is wrong. There is
+   already a reason to suspect it: `earth_normal.ktx2` is 2.67 MB and deflates to 15%, which a
+   properly supercompressed texture would not — see `ScenarioCreator/docs/PLAN.md`.
+
+**And, in parallel, `ScenarioCreator` P0 — compress the content.** `complex_model.glb` is
+38.58 MB of raw geometry, which is the single largest thing in the catalogue and the actual
+cause of "large scenarios load slowly". Draco or meshopt addresses it; no delivery change does.
+Cheap, independent, and it helps the ZIP path and the manifest path alike.
+
 ### First — `ScenarioCreator`: emit `scenario.json` beside the ZIP
 
 **This is the single change that unblocks measuring everything built in this series.** Nothing
