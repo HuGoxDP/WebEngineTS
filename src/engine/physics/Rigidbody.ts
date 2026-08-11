@@ -198,6 +198,19 @@ export class Rigidbody extends Behaviour {
 
     // ==================== LIFECYCLE ====================
 
+    /**
+     * @internal
+     * Called when a Rigidbody is enabled, so the colliders already on its
+     * GameObject can move onto its body.
+     *
+     * @remarks
+     * A callback rather than an import: `Collider` already imports `Rigidbody`,
+     * and importing back would make the pair circular. `Collider` installs this
+     * at module load, the same way `Physics` installs
+     * `LayerCollisionMatrix._setChangeHandler`.
+     */
+    public static _onEnabled: ((gameObject: GameObject) => void) | null = null;
+
     protected override onAwake(): void {
         this._syncTransformToBody();
     }
@@ -207,6 +220,12 @@ export class Rigidbody extends Behaviour {
         pw.world.addBody(this._body);
         pw._registerRigidbody(this);
         this._syncTransformToBody();
+
+        // Colliders added before this Rigidbody each built their own static
+        // body, and this one would otherwise have no shapes at all — a body
+        // that collides with nothing, silently. Unity has no such ordering
+        // rule, so neither should this.
+        Rigidbody._onEnabled?.(this.gameObject);
     }
 
     protected override onDisable(): void {

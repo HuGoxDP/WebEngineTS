@@ -111,6 +111,21 @@ export abstract class Collider extends Behaviour {
 
     /**
      * @internal
+     * Moves this collider's shape onto whichever body now owns it.
+     *
+     * @remarks
+     * Called when a {@link Rigidbody} appears on a GameObject that already had
+     * colliders: each one drops the static body it made for itself and joins
+     * the new dynamic one.
+     */
+    public _reattach(): void {
+        if (!this.isActiveAndEnabled) return;
+        this._detachShape();
+        this._attachShape();
+    }
+
+    /**
+     * @internal
      * Attaches the cannon-es shape to either the sibling Rigidbody's body
      * or an implicit static body.
      */
@@ -189,3 +204,15 @@ export abstract class Collider extends Behaviour {
         }
     }
 }
+
+// Colliders that already exist when a Rigidbody is enabled move onto its body.
+// Installed from here because this module already imports Rigidbody; the
+// reverse import would make the two circular.
+Rigidbody._onEnabled = (gameObject) => {
+    // Collider is abstract and getComponents wants a constructible type; it
+    // only ever uses it for an instanceof check, so the cast is safe.
+    const colliderType = Collider as unknown as new (...args: never[]) => Collider;
+    for (const collider of gameObject.getComponents(colliderType)) {
+        collider._reattach();
+    }
+};

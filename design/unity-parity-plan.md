@@ -112,6 +112,9 @@ adding reference resolution by GUID.
 match. Gaps are small: additive scene loading, `DontDestroyOnLoad`, and script execution order
 (`grep` for `executionOrder` returns nothing).
 
+*Update 2026-08-10:* all three landed (Stage 5) — `LoadSceneMode.Additive` + `unloadScene` +
+`moveGameObjectToScene`, `DontDestroyOnLoad`, and `@ExecutionOrder`. §2.3 is closed.
+
 ### 2.4 Editor — **Adopt the architecture, not the UI**
 
 Unity's Inspector is *generated* from serialization metadata, with `CustomEditor` and
@@ -156,6 +159,33 @@ Verdict: the component *API* is already Unity-shaped (`Rigidbody`, colliders, `P
 completeness. Adapt around the backing library rather than chasing PhysX behaviour exactly —
 matching PhysX numerically is not achievable and not worth pretending.
 
+*Update 2026-08-10:* all three are closed. The matrix and joints landed on 2026-08-05 (Stage 5);
+**callback completeness** landed now, and what "incomplete" actually meant was worse than the
+word suggests — four separate defects, each found by a test written against Unity's documented
+behaviour:
+
+1. **A pair fired more than once per step.** One cannon contact *equation* is one contact
+   point, so a box resting flat on the floor produced four of them; the loop dispatched per
+   equation, so `onCollisionStay` arrived in the same step as `onCollisionEnter`, three times.
+   Contacts are now grouped by pair before dispatch, and each pair fires exactly once.
+2. **`Collision.contacts` never held more than one point,** though all four were in hand. The
+   grouped pair carries every point.
+3. **Callbacks went through `sendMessage`,** which calls every `ScriptableBehaviour` whether or
+   not it is enabled — right for a broadcast, wrong for a physics callback. Unity delivers
+   these to neither a disabled behaviour nor an inactive GameObject, and now neither does this.
+   A destroyed receiver is skipped, which is what makes the Exit after a `destroy()` safe: the
+   *other* object still hears that the collision ended.
+4. **A Rigidbody added after a collider collided with nothing.** The collider had already built
+   its own static body; the Rigidbody's body was left with zero shapes, silently. It now adopts
+   the colliders already on its GameObject, as Unity does — order stops mattering.
+
+`Rigidbody` learns about its colliders through a callback `Collider` installs at module load,
+not an import: `Collider` already imports `Rigidbody`, and importing back made the build report
+a circular dependency. Same pattern as `LayerCollisionMatrix._setChangeHandler`.
+
+`Physics._reset()` now also drops the touching pairs. Left behind they stay "active", so the
+first step after a scene load reports Exit for collisions belonging to a scene that is gone.
+
 ### 2.7 Animation — **Adopt (large)**
 
 Unity: `Animator` + state machines, blend trees, `Avatar` retargeting, Timeline, IK.
@@ -173,6 +203,9 @@ Retargeting, Timeline and IK are still open.
 Missing: **execution order control**, and a true `ScriptableObject` (an asset that holds data
 without a GameObject — distinct from `ScriptableBehaviour`, which is the MonoBehaviour analogue
 despite the name).
+
+*Update 2026-08-10:* both exist now — `@ExecutionOrder(n)` with ordered dispatch in
+`GameObject._systemUpdate`, and `ScriptableObject` (Stage 5). Nothing in §2.8 is open.
 Reject: DOTS/ECS, the job system, Burst.
 
 ### 2.9 Build pipeline — **Adapt**

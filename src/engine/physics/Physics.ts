@@ -8,6 +8,15 @@ import { RaycastHit } from "./RaycastHit";
 import { Collider } from "./Collider";
 import { PhysicsWorld } from "./PhysicsWorld";
 import { Collision, ContactPoint } from "./Collision";
+import { ScriptableBehaviour } from "../core/ScriptableBehaviour";
+
+/** Two colliders touching this step, and every contact point between them. */
+interface ColliderPair {
+    a: Collider;
+    b: Collider;
+    contacts: ContactPoint[];
+    relativeVelocity: Vector3;
+}
 
 /**
  * Global physics interface providing raycasting, gravity control,
@@ -22,6 +31,9 @@ export class Physics {
 
     // Collision tracking for Enter/Stay/Exit events
     private static _activeCollisions = new Map<string, { a: Collider; b: Collider }>();
+
+    /** This step's touching pairs, rebuilt in place so stepping allocates no map. */
+    private static _framePairs = new Map<string, ColliderPair>();
 
     // ==================== GRAVITY ====================
 
@@ -50,6 +62,7 @@ export class Physics {
             this._colliders.splice(index, 1);
         }
     }
+
 
     // ==================== SIMULATION STEP ====================
 
@@ -90,67 +103,103 @@ export class Physics {
 
     private static _processCollisions(): void {
         const world = PhysicsWorld.instance.world;
-        const currentPairs = new Set<string>();
+        const pairs = Physics._framePairs;
+        pairs.clear();
 
+        // One cannon contact *equation* is one contact point, so a box resting
+        // flat on the floor produces four for a single pair. Grouping them
+        // first is what makes each pair dispatch exactly once per step, with
+        // all of its contact points — before this, the second equation of a
+        // pair fired Stay in the same step as Enter, and every Collision
+        // carried a single point no matter how many there were.
         for (const contact of world.contacts) {
-            const bodyA = contact.bi;
-            const bodyB = contact.bj;
+            const first = this._findColliderForBody(contact.bi);
+            const second = this._findColliderForBody(contact.bj);
+            if (!first || !second || first === second) continue;
 
-            const colA = this._findColliderForBody(bodyA);
-            const colB = this._findColliderForBody(bodyB);
-            if (!colA || !colB) continue;
+            // Canonical orientation, so relativeVelocity keeps its sign from
+            // one step to the next rather than flipping with contact order.
+            const flip = first.getInstanceID() > second.getInstanceID();
+            const colA = flip ? second : first;
+            const colB = flip ? first : second;
+            const bodyA = flip ? contact.bj : contact.bi;
+            const bodyB = flip ? contact.bi : contact.bj;
 
             const key = this._pairKey(colA, colB);
-            currentPairs.add(key);
+            let pair = pairs.get(key);
+            if (!pair) {
+                pair = {
+                    a: colA,
+                    b: colB,
+                    contacts: [],
+                    relativeVelocity: new Vector3(
+                        bodyA.velocity.x - bodyB.velocity.x,
+                        bodyA.velocity.y - bodyB.velocity.y,
+                        bodyA.velocity.z - bodyB.velocity.z,
+                    ),
+                };
+                pairs.set(key, pair);
+            }
+            this._appendContact(contact, pair.contacts);
+        }
 
-            const contacts = this._extractContacts(contact);
-            const relVel = new Vector3(
-                bodyA.velocity.x - bodyB.velocity.x,
-                bodyA.velocity.y - bodyB.velocity.y,
-                bodyA.velocity.z - bodyB.velocity.z,
-            );
+        for (const [key, pair] of pairs) {
+            const entering = !this._activeCollisions.has(key);
+            if (entering) this._activeCollisions.set(key, { a: pair.a, b: pair.b });
 
-            if (!this._activeCollisions.has(key)) {
-                // New collision → Enter
-                this._activeCollisions.set(key, { a: colA, b: colB });
-
-                if (colA.isTrigger || colB.isTrigger) {
-                    colA.gameObject.sendMessage("onTriggerEnter", colB);
-                    colB.gameObject.sendMessage("onTriggerEnter", colA);
-                } else {
-                    const collisionA = new Collision(colB, relVel, contacts);
-                    const collisionB = new Collision(colA, Vector3.scale(relVel, -1), contacts);
-                    colA.gameObject.sendMessage("onCollisionEnter", collisionA);
-                    colB.gameObject.sendMessage("onCollisionEnter", collisionB);
-                }
+            if (pair.a.isTrigger || pair.b.isTrigger) {
+                const event = entering ? "onTriggerEnter" : "onTriggerStay";
+                this._dispatch(pair.a, event, pair.b);
+                this._dispatch(pair.b, event, pair.a);
             } else {
-                // Ongoing collision → Stay
-                if (colA.isTrigger || colB.isTrigger) {
-                    colA.gameObject.sendMessage("onTriggerStay", colB);
-                    colB.gameObject.sendMessage("onTriggerStay", colA);
-                } else {
-                    const collisionA = new Collision(colB, relVel, contacts);
-                    const collisionB = new Collision(colA, Vector3.scale(relVel, -1), contacts);
-                    colA.gameObject.sendMessage("onCollisionStay", collisionA);
-                    colB.gameObject.sendMessage("onCollisionStay", collisionB);
-                }
+                const event = entering ? "onCollisionEnter" : "onCollisionStay";
+                this._dispatch(pair.a, event, new Collision(pair.b, pair.relativeVelocity, pair.contacts));
+                this._dispatch(pair.b, event,
+                    new Collision(pair.a, Vector3.scale(pair.relativeVelocity, -1), pair.contacts));
             }
         }
 
-        // Check for ended collisions → Exit
+        // Pairs that were touching and no longer are → Exit.
         for (const [key, pair] of this._activeCollisions) {
-            if (!currentPairs.has(key)) {
-                this._activeCollisions.delete(key);
+            if (pairs.has(key)) continue;
+            this._activeCollisions.delete(key);
 
-                if (pair.a.isTrigger || pair.b.isTrigger) {
-                    pair.a.gameObject.sendMessage("onTriggerExit", pair.b);
-                    pair.b.gameObject.sendMessage("onTriggerExit", pair.a);
-                } else {
-                    const emptyCollisionA = new Collision(pair.b, Vector3.zero, []);
-                    const emptyCollisionB = new Collision(pair.a, Vector3.zero, []);
-                    pair.a.gameObject.sendMessage("onCollisionExit", emptyCollisionA);
-                    pair.b.gameObject.sendMessage("onCollisionExit", emptyCollisionB);
-                }
+            if (pair.a.isTrigger || pair.b.isTrigger) {
+                this._dispatch(pair.a, "onTriggerExit", pair.b);
+                this._dispatch(pair.b, "onTriggerExit", pair.a);
+            } else {
+                // Unity reports no contact points on exit: there are none left.
+                this._dispatch(pair.a, "onCollisionExit", new Collision(pair.b, Vector3.zero, []));
+                this._dispatch(pair.b, "onCollisionExit", new Collision(pair.a, Vector3.zero, []));
+            }
+        }
+    }
+
+    /**
+     * Delivers one collision event to a collider's scripts.
+     *
+     * @remarks
+     * Not `sendMessage`: that calls every `ScriptableBehaviour` whether or not
+     * it is enabled, which is right for a broadcast and wrong for a physics
+     * callback — Unity does not deliver these to a disabled behaviour or an
+     * inactive GameObject. A destroyed receiver is skipped too, which is what
+     * makes the Exit that follows a `destroy()` safe: the *other* object still
+     * hears that the collision ended.
+     */
+    private static _dispatch(target: Collider, event: string, argument: unknown): void {
+        if (!target.exists()) return;
+
+        const go = target.gameObject;
+        if (!go.exists() || !go.activeInHierarchy) return;
+
+        for (const script of go.getComponents(ScriptableBehaviour)) {
+            if (!script.enabled) continue;
+            const method = (script as unknown as Record<string, unknown>)[event];
+            if (typeof method !== "function") continue;
+            try {
+                (method as (value: unknown) => void).call(script, argument);
+            } catch (err) {
+                console.error(`[Physics] ${event} on '${go.name}' threw:`, err);
             }
         }
     }
@@ -172,18 +221,18 @@ export class Physics {
         return idA < idB ? `${idA}_${idB}` : `${idB}_${idA}`;
     }
 
-    private static _extractContacts(contact: CANNON.ContactEquation): ContactPoint[] {
-        const points: ContactPoint[] = [];
+    /** Appends the one contact point a cannon contact equation describes. */
+    private static _appendContact(contact: CANNON.ContactEquation, out: ContactPoint[]): void {
         const p = contact.ri;
         const n = contact.ni;
-        const worldPoint = new Vector3(
-            contact.bi.position.x + p.x,
-            contact.bi.position.y + p.y,
-            contact.bi.position.z + p.z,
-        );
-        const normal = new Vector3(n.x, n.y, n.z);
-        points.push(new ContactPoint(worldPoint, normal));
-        return points;
+        out.push(new ContactPoint(
+            new Vector3(
+                contact.bi.position.x + p.x,
+                contact.bi.position.y + p.y,
+                contact.bi.position.z + p.z,
+            ),
+            new Vector3(n.x, n.y, n.z),
+        ));
     }
 
     // ==================== RAYCASTING ====================
@@ -274,9 +323,19 @@ export class Physics {
         }
     }
 
+    /**
+     * @internal
+     * Drops every collider, every touching pair, and the world itself.
+     *
+     * @remarks
+     * The pairs have to go with the world: left behind, they are still
+     * "active", so the first step after a scene load reports Exit for
+     * collisions belonging to a scene that no longer exists.
+     */
     public static _reset(): void {
         this._colliders.length = 0;
         this._activeCollisions.clear();
+        this._framePairs.clear();
         PhysicsWorld._reset();
     }
 }
