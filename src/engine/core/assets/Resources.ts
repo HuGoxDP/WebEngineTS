@@ -74,6 +74,18 @@ interface CacheEntry {
     asset: unknown;
     refCount: number;
     sizeEstimate: number;
+    /**
+     * Estimated GPU bytes, from the asset's own estimator. Zero for an asset
+     * that has none — a JSON blob costs heap, not VRAM.
+     */
+    vramBytes: number;
+    /** Monotonic counter, bumped on every load and cache hit, for LRU order. */
+    lastUsed: number;
+}
+
+/** An asset that can estimate what it costs on the GPU. @internal */
+interface VramEstimating {
+    _estimateVramBytes(): number;
 }
 
 // ==================== RESOURCES ====================
@@ -151,6 +163,36 @@ export class Resources {
     /** Whether built-in decoders have been registered. */
     private static _initialized: boolean = false;
 
+    /** Monotonic use counter behind the LRU order. */
+    private static _useClock: number = 0;
+
+    /**
+     * Estimated GPU budget for cached assets, in bytes. `Infinity` — the
+     * default — means no budget and no eviction.
+     *
+     * @remarks
+     * When a load pushes the cache over this figure, the least recently used
+     * **unreferenced** assets are destroyed until it fits again. Assets still
+     * referenced are never evicted: destroying a texture a material is holding
+     * would break rendering, not save memory. The budget is therefore a target
+     * the engine honours as far as it honestly can, and a scene whose live set
+     * alone exceeds it will stay over — {@link estimatedVramBytes} is what says
+     * so.
+     *
+     * The figure is an estimate from the engine's own accounting
+     * (`Texture._estimateVramBytes`, `Mesh._estimateVramBytes`), not a driver
+     * query: WebGL cannot report real VRAM. It accounts for compressed formats,
+     * so a KTX2 texture is charged what it actually costs on the GPU rather
+     * than its uncompressed size.
+     *
+     * @example
+     * ```ts
+     * // A conservative budget for an integrated GPU.
+     * Resources.vramBudgetBytes = 256 * 1024 * 1024;
+     * ```
+     */
+    public static vramBudgetBytes: number = Number.POSITIVE_INFINITY;
+
     /**
      * When set to a registered extension (e.g. `".ktx2"`), path resolution tries
      * this extension first, before the default order — so a scenario that ships
@@ -182,12 +224,7 @@ export class Resources {
      */
     public static _clearSource(): void {
         AssetDatabase.clear();
-        Resources._cache.forEach(entry => {
-            const asset = entry.asset;
-            if (asset && typeof (asset as any).destroy === "function") {
-                (asset as any).destroy();
-            }
-        });
+        Resources._cache.forEach(entry => Resources._destroyAsset(entry.asset));
         Resources._cache.clear();
         Resources._inFlight.clear();
         Resources._source = null;
@@ -321,6 +358,7 @@ export class Resources {
         const cached = Resources._cache.get(cacheKey);
         if (cached) {
             cached.refCount++;
+            cached.lastUsed = ++Resources._useClock;
             return cached.asset as T;
         }
 
@@ -342,12 +380,19 @@ export class Resources {
                 asset,
                 refCount: 1,
                 sizeEstimate: bytes.byteLength,
+                vramBytes: Resources._estimateVram(asset),
+                lastUsed: ++Resources._useClock,
             });
 
             // Give the decoded object a stable identity, so a serialized scene
             // can reference it by id rather than by the path it happens to be
             // at today.
             AssetDatabase._bind(fullPath, asset as object);
+
+            // After binding, so an asset that is immediately over budget is
+            // still identifiable; before returning, so the caller never sees a
+            // cache it has already pushed past the limit.
+            Resources.evictToBudget();
 
             return asset;
         })();
@@ -599,9 +644,10 @@ export class Resources {
      * @remarks Equivalent to Unity's `Addressables.Release(handle)`.
      */
     public static release(asset: unknown): void {
-        for (const [key, entry] of Resources._cache) {
+        for (const [, entry] of Resources._cache) {
             if (entry.asset === asset) {
                 entry.refCount = Math.max(0, entry.refCount - 1);
+                Resources._evictIfBudgeted(entry);
                 return;
             }
         }
@@ -622,7 +668,86 @@ export class Resources {
         const cached = Resources._cache.get(cacheKey);
         if (cached) {
             cached.refCount = Math.max(0, cached.refCount - 1);
+            Resources._evictIfBudgeted(cached);
         }
+    }
+
+    /**
+     * Estimated GPU bytes held by everything currently cached.
+     *
+     * @remarks
+     * The engine's own accounting, not a driver query — WebGL cannot report
+     * real VRAM. Assets with no GPU footprint (JSON, text) contribute nothing.
+     * Compare against {@link vramBudgetBytes} to see whether the live set alone
+     * is over budget, which is the case eviction cannot fix.
+     */
+    public static get estimatedVramBytes(): number {
+        let total = 0;
+        for (const entry of Resources._cache.values()) total += entry.vramBytes;
+        return total;
+    }
+
+    /**
+     * Estimated GPU bytes held by assets nothing is referencing.
+     *
+     * @remarks
+     * How much {@link evictToBudget} could reclaim if it had to. The difference
+     * between this and {@link estimatedVramBytes} is the live set — the floor
+     * no budget can push below.
+     */
+    public static get evictableVramBytes(): number {
+        let total = 0;
+        for (const entry of Resources._cache.values()) {
+            if (entry.refCount <= 0) total += entry.vramBytes;
+        }
+        return total;
+    }
+
+    /**
+     * Destroys least-recently-used unreferenced assets until the cache fits
+     * {@link vramBudgetBytes}.
+     *
+     * Called automatically after each load when a budget is set; call it
+     * directly to reclaim at a moment of your choosing — after a scene
+     * transition, say, when a lot has just become unreferenced.
+     *
+     * @returns the estimated GPU bytes reclaimed.
+     *
+     * @remarks
+     * **Referenced assets are never evicted.** Destroying a texture a material
+     * is holding would break rendering rather than save memory, so an over-budget
+     * live set stays over budget. Least-recently-used counts a cache hit as a
+     * use, so an asset loaded once at startup and never asked for again is
+     * evicted before one the scene keeps re-requesting.
+     */
+    public static evictToBudget(): number {
+        const budget = Resources.vramBudgetBytes;
+        if (!Number.isFinite(budget) || budget < 0) return 0;
+
+        let current = Resources.estimatedVramBytes;
+        if (current <= budget) return 0;
+
+        // Oldest first, and only what nothing is holding.
+        const candidates = [...Resources._cache.entries()]
+            .filter(([, entry]) => entry.refCount <= 0 && entry.vramBytes > 0)
+            .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+
+        let freed = 0;
+        for (const [key, entry] of candidates) {
+            if (current <= budget) break;
+            Resources._destroyAsset(entry.asset);
+            Resources._cache.delete(key);
+            current -= entry.vramBytes;
+            freed += entry.vramBytes;
+        }
+
+        if (freed > 0) {
+            console.log(
+                `[Resources] Evicted ~${(freed / 1048576).toFixed(1)} MB of estimated VRAM ` +
+                `to fit a ${(budget / 1048576).toFixed(1)} MB budget.`
+            );
+        }
+        return freed;
     }
 
     /**
@@ -636,10 +761,7 @@ export class Resources {
         let freed = 0;
         for (const [key, entry] of Resources._cache) {
             if (entry.refCount <= 0) {
-                const asset = entry.asset;
-                if (asset && typeof (asset as any).destroy === "function") {
-                    (asset as any).destroy();
-                }
+                Resources._destroyAsset(entry.asset);
                 Resources._cache.delete(key);
                 freed++;
             }
@@ -715,6 +837,40 @@ export class Resources {
     }
 
     // ==================== PRIVATE HELPERS ====================
+
+    /**
+     * Runs eviction after a reference was dropped.
+     *
+     * Dropping the last reference is the moment a new eviction candidate
+     * appears, so it is the moment worth re-checking the budget — waiting for
+     * the next load would keep a prefetched asset alive one load too long.
+     * Costs nothing when no budget is set.
+     */
+    private static _evictIfBudgeted(entry: CacheEntry): void {
+        if (entry.refCount > 0) return;
+        if (!Number.isFinite(Resources.vramBudgetBytes)) return;
+        Resources.evictToBudget();
+    }
+
+    /** What an asset costs on the GPU, or 0 when it has no opinion. */
+    private static _estimateVram(asset: unknown): number {
+        const estimator = (asset as VramEstimating | null)?._estimateVramBytes;
+        if (typeof estimator !== "function") return 0;
+        try {
+            const bytes = estimator.call(asset);
+            return Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
+        } catch {
+            // An estimate is diagnostics, not correctness — a decoder whose
+            // asset cannot measure itself must still load.
+            return 0;
+        }
+    }
+
+    /** Destroys an asset if it knows how. */
+    private static _destroyAsset(asset: unknown): void {
+        const destroy = (asset as { destroy?: () => void } | null)?.destroy;
+        if (typeof destroy === "function") destroy.call(asset);
+    }
 
     /** Throws if no source is set. */
     private static _ensureSource(): void {

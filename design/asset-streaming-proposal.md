@@ -258,6 +258,34 @@ of a real scenario. Nothing here reorders *decode* work, only fetches.
 - **Done when:** peak texture VRAM drops sharply on the integrated GPU for a texture-heavy
   scene while near-camera quality is preserved (measured via `estimatedTextureVramBytes`).
 
+**Eviction half done 2026-08-11.** `Resources.vramBudgetBytes` (default `Infinity`, i.e. off)
+with `estimatedVramBytes` / `evictableVramBytes` and `evictToBudget()`. Over budget, the least
+recently used **unreferenced** assets are destroyed until it fits, charged by the engine's own
+per-asset accounting — so a KTX2 texture costs what it actually occupies on the GPU, not its
+uncompressed size.
+
+- **Referenced assets are never evicted.** Destroying a texture a material is holding would
+  break rendering rather than save memory, so a scene whose *live set* alone exceeds the budget
+  stays over it. `estimatedVramBytes` vs. `evictableVramBytes` is what says which case you are
+  in; the budget is a target honoured as far as it honestly can be, not a guarantee.
+- **Eviction runs on release, not only on load.** Dropping the last reference is the moment a
+  candidate appears; waiting for the next load kept a prefetched asset alive one load too long.
+  Found by a test that asserted the expected behaviour and failed against the first
+  implementation.
+- A cache hit counts as a use, so an asset loaded once at startup is evicted before one the
+  scene keeps re-requesting.
+- Assets with no GPU footprint are never chosen: evicting a JSON blob reclaims no VRAM and
+  still costs a reload.
+
+**Still open, and the larger half:** *upgrading* a streamed asset from one LOD to the next as
+the camera nears. The blocker is not the manifest — the LOD lists are parsed and
+`maxLodLevel` already selects a level — but that materials copy the underlying Three.js texture
+reference at assignment time (`Material.ts`: `mat.map = value._internalThreeTexture`). Swapping
+an engine `Texture2D`'s inner texture therefore does not reach the materials already holding the
+old one; a real upgrade needs a texture→materials reverse index so every referent can be
+re-pointed. That is its own arc, and it is what the rest of Stage 3 waits on, alongside the
+editor emitting the variants.
+
 ### Stage 4 — Full progressive + dedup + partial updates
 - Content-addressed dedup across scenarios (shared assets fetched once, cached forever).
 - Progressive texture (mip streaming) + audio streaming.

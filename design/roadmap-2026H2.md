@@ -15,7 +15,7 @@ Covers priorities, sequencing, resources and the metric that closes each item.
 | P1.4 Static batching / instancing | **Done** (2026-07-16) |
 | P1.5 LOD system | **Done** (2026-07-16) |
 | P1.6 WebGPU backend | Not started (unblocked: implement `RenderBackend`) |
-| P1.7 Asset streaming | Stage 0 engine half **done** (2026-08-11, incl. the manifest scenario loader); Stages 1–2 engine halves **done** (2026-08-11) — measurement outstanding. This is what `testv/virtual-lab`'s Phase 6 / R8 gates on |
+| P1.7 Asset streaming | Stage 0 engine half **done** (2026-08-11, incl. the manifest scenario loader); Stages 1–2 engine halves **done** (2026-08-11) — measurement outstanding. This is what `testv/virtual-lab`'s Phase 6 / R8 gates on. Stage 3's **eviction** half done (VRAM budget); LOD *upgrade* still open — see the proposal for why it needs a texture→materials index |
 | P2.8 Adapter generalization | **Done** (2026-08-10) — `RenderBackend` seam + `WebGLRenderBackend` |
 | P2.9 OffscreenCanvas | Not started |
 | Profiler v1 (phase timings + markers + overlay) | **Done** (f1b6876 → a0806e3) |
