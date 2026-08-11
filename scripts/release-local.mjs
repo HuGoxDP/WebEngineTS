@@ -22,6 +22,12 @@
 // working tree and git history are untouched. Every consumer still depends on the
 // stable filename `WebEngineTS-0.1.0.tgz` (renamed after packing), so their
 // package.json dependency specs never need editing.
+//
+// The same stamped version is passed to the build as WEBENGINE_BUILD_VERSION, so
+// the bundle reports it at run time through `BuildInfo.version` / `Application.version`
+// instead of the plain 0.1.0 every local build would otherwise claim. Installed
+// version and reported version are then the same string, and a consumer can name
+// its engine build without grepping the shipped .d.ts for symbols.
 // ============================================================================
 
 import { execSync } from "node:child_process";
@@ -46,20 +52,28 @@ const consumers = [
     { name: "WebEngineTSEditor app", dir: join(PARENT, "WebEngineTSEditor", "app"), copyTgz: false, spec: "../../WebEngineTS" },
 ];
 
-const run = (cmd, cwd) => execSync(cmd, { cwd, stdio: "inherit" });
+const run = (cmd, cwd, env) =>
+    execSync(cmd, { cwd, stdio: "inherit", env: env ? { ...process.env, ...env } : process.env });
 const runJson = (cmd, cwd) => JSON.parse(execSync(cmd, { cwd }).toString());
 
-console.log("▶ Building engine…");
-run("npm run build", ENGINE);
+// The unique local version is decided ONCE, up front, and used twice: passed to
+// the build so the bundle reports it at run time (`BuildInfo.version`), and
+// stamped into package.json for `npm pack` so the consumer installs it. Deriving
+// it separately in each place would let a bundle claim a version no tarball ever
+// carried — which is exactly the "which build is this?" confusion the stamping
+// exists to end.
+const originalPkgText = readFileSync(PKG_PATH, "utf8");
+const basePkgVersion = JSON.parse(originalPkgText).version;
+const stampedVersion = `${basePkgVersion}-local.${Date.now()}`;
+
+console.log(`▶ Building engine… (${stampedVersion})`);
+run("npm run build", ENGINE, { WEBENGINE_BUILD_VERSION: stampedVersion });
 
 console.log("▶ Packing tarball (unique local version, then restoring package.json)…");
-const originalPkgText = readFileSync(PKG_PATH, "utf8");
 let packedFilename;
 try {
-    const pkg = JSON.parse(originalPkgText);
-    const stampedVersion = `${pkg.version}-local.${Date.now()}`;
     writeFileSync(PKG_PATH, originalPkgText.replace(
-        `"version": "${pkg.version}"`,
+        `"version": "${basePkgVersion}"`,
         `"version": "${stampedVersion}"`,
     ));
 

@@ -159,11 +159,12 @@ Raised by `testv/virtual-lab`'s roadmap item R3, where telling an old engine fro
 Notes for whoever finishes it:
 - Running from sources (tests, the dev entry) reports `0.0.0-source` / `builtAt: null` /
   `isBuild: false` rather than pretending to be a build.
-- `WEBENGINE_BUILD_VERSION` overrides the version, so `scripts/release-local.mjs` can pass the
-  temporary `0.1.0-local.<timestamp>` it stamps for `npm pack` into the build as well. It does
-  **not** today: that script builds *before* stamping, so a packed bundle reports plain `0.1.0`
-  with a distinguishing `builtAt`. Wiring the env var through is a one-line change there, left
-  alone because that file was mid-rewrite.
+- `WEBENGINE_BUILD_VERSION` overrides the version, and `scripts/release-local.mjs` now passes
+  it *(done 2026-08-11)*. The unique `0.1.0-local.<timestamp>` is decided once, up front, and
+  used twice — passed to the build and stamped into `package.json` for `npm pack` — so the
+  version a consumer installs and the version the running engine reports are the same string.
+  Deriving it separately in each place would have let a bundle claim a version no tarball ever
+  carried, which is the confusion this exists to end.
 - The platform half (rendering it in the `?diag=1` overlay, and deciding whether `/api/health`
   reports an engine build at all) stays in `testv/virtual-lab` — its own R3 note argues the
   honest split is *frontend reports engine build, backend reports API build*.
