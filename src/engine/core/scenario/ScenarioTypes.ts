@@ -280,6 +280,38 @@ export interface IAssetProvider {
     readonly isArchiveReleased: boolean;
 }
 
+// ==================== SCRIPT SOURCE ====================
+
+/**
+ * Where a scenario's script modules are read from.
+ *
+ * @remarks
+ * The seam that lets one scenario loader serve both content shapes: a ZIP whose
+ * `scripts/` directory is already in memory, and a manifest whose modules are
+ * fetched individually. `Scenario` pre-links whatever this hands it — resolving
+ * relative imports between modules into Blob URLs — so the two paths differ only
+ * in where the text came from, never in how it is linked or run.
+ *
+ * Paths are normalized to the `scripts/` prefix, because that is what relative
+ * imports between modules resolve against.
+ *
+ * Implemented by `ZipAssetSource` and `StreamingAssetSource`.
+ *
+ * @internal — engine-only. Scenario authors use `context.importScript`.
+ */
+export interface IScenarioScriptSource {
+    /** Every script module available, as `scripts/…​.js` paths. */
+    listScripts(): readonly string[];
+
+    /**
+     * Reads one module's source text.
+     *
+     * @param path — a script path, with or without the `scripts/` prefix.
+     * @throws if the module is not one of {@link listScripts}.
+     */
+    readScript(path: string): Promise<string>;
+}
+
 // ==================== SCENARIO CONTEXT ====================
 
 /**

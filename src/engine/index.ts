@@ -124,10 +124,14 @@ export { StreamingAssetSource } from "./core/assets/StreamingAssetSource";
 export type {
     FetchLike, StreamingAssetSourceOptions,
 } from "./core/assets/StreamingAssetSource";
-export { AssetPriority, parseStreamingManifest, normalizeAssetPath } from "./core/assets/StreamingManifest";
-export type {
-    IStreamingManifest, IStreamedAsset, IStreamedAssetLod,
+export {
+    AssetPriority, parseStreamingManifest, toScenarioManifest,
+    normalizeAssetPath, normalizeScriptPath,
 } from "./core/assets/StreamingManifest";
+export type {
+    IStreamingManifest, IStreamedAsset, IStreamedAssetLod, IStreamedScript,
+} from "./core/assets/StreamingManifest";
+export { ZipAssetSource } from "./core/assets/ZipAssetSource";
 
 // =====================
 // COROUTINES
@@ -332,6 +336,7 @@ export type {
     IScenarioAuthor,
     IScenarioLoadProgress,
     IScenarioContext,
+    IScenarioScriptSource,
     IAssetProvider,
 } from "./core/scenario/ScenarioTypes";
 
@@ -397,6 +402,7 @@ import { Coroutine, CoroutineRunner, WaitForSeconds, WaitForSecondsRealtime, Wai
 import { Resources } from "./core/assets/Resources";
 import { LoadHandle } from "./core/assets/LoadHandle";
 import { StreamingAssetSource } from "./core/assets/StreamingAssetSource";
+import { ZipAssetSource } from "./core/assets/ZipAssetSource";
 import { AssetPriority } from "./core/assets/StreamingManifest";
 import { JsonAsset, TextAsset, BinaryAsset } from "./core/assets/AssetTypes";
 
@@ -567,7 +573,7 @@ const WebEngineTS = {
 
     // Assets
     Resources, LoadHandle, JsonAsset, TextAsset, BinaryAsset,
-    StreamingAssetSource, AssetPriority,
+    StreamingAssetSource, ZipAssetSource, AssetPriority,
 
     // Graphics
     Mesh, Texture, FilterMode, TextureWrapMode,

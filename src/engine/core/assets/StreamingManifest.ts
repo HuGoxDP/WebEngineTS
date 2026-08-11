@@ -1,3 +1,5 @@
+import type { IScenarioAssetEntry, IScenarioManifest } from "../scenario/ScenarioTypes";
+
 /**
  * How urgently an asset is wanted.
  *
@@ -29,6 +31,34 @@ export interface IStreamedAssetLod {
      * Resolved against the manifest's `baseUrl`, so a content-addressed store
      * can publish `"a/9f3c…c1.ktx2"` and move the origin without a reissue.
      */
+    url: string;
+    /** Size in bytes, when the packaging tool recorded it. */
+    bytes?: number;
+    /** Content hash, e.g. `"sha256-9f3c…"`. Informational for now. */
+    hash?: string;
+}
+
+/**
+ * One script module in a {@link IStreamingManifest}.
+ *
+ * @remarks
+ * Scripts are listed separately from assets because they are fetched by a
+ * different consumer for a different reason: the scenario loader pre-links them
+ * into Blob URLs before any of them runs, while assets are decoded on demand by
+ * {@link Resources}. They also carry no LOD list — there is no coarser version
+ * of a module.
+ */
+export interface IStreamedScript {
+    /**
+     * The path this module is imported by, normalized to the `scripts/` prefix.
+     *
+     * @remarks
+     * Relative imports between modules are resolved against this path, so it
+     * has to mirror the layout the scenario was authored in — not the
+     * content-addressed name the bytes happen to be published under.
+     */
+    path: string;
+    /** Where the bytes live. Resolved against the manifest's `baseUrl`. */
     url: string;
     /** Size in bytes, when the packaging tool recorded it. */
     bytes?: number;
@@ -73,7 +103,12 @@ export interface IStreamedAsset {
  * {
  *   "schema": 1,
  *   "id": "solar-system",
+ *   "name": "Solar System",
  *   "baseUrl": "https://cdn.example.org/a/",
+ *   "entry": "scripts/main.js",
+ *   "scripts": [
+ *     { "path": "scripts/main.js", "url": "9f3c...c1.js" }
+ *   ],
  *   "assets": [
  *     {
  *       "path": "textures/earth.ktx2",
@@ -87,22 +122,46 @@ export interface IStreamedAsset {
  *   ]
  * }
  * ```
+ *
+ * `scripts` and `entry` are optional: a manifest that only lists assets is a
+ * perfectly good asset source to install through `Resources.useSource`. They
+ * are what turns it into something {@link Scenario} can *run*.
  */
 export interface IStreamingManifest {
     /** Schema version. Only `1` is understood. */
     schema: number;
     /** Scenario identifier this manifest belongs to. */
     id: string;
+    /** Display name. Falls back to {@link id} when the manifest omits it. */
+    name?: string;
+    /** Short description, for a host that lists scenarios. */
+    description?: string;
     /** Content version, bumped by the packaging tool. */
     version?: number;
-    /** Base every asset URL is resolved against. */
+    /** Base every asset and script URL is resolved against. */
     baseUrl?: string;
+    /**
+     * The entry point module's path, normalized to the `scripts/` prefix.
+     *
+     * @remarks
+     * Must name one of {@link scripts}; a manifest whose entry point is not in
+     * its own script list cannot run, and says so at parse time.
+     */
+    entry?: string;
+    /** The script modules, in the order the manifest listed them. */
+    scripts?: IStreamedScript[];
     /** The assets, in the order the manifest listed them. */
     assets: IStreamedAsset[];
 }
 
 /** The schema version this engine understands. */
 const SCHEMA_VERSION = 1;
+
+/** The `IScenarioManifest.manifestVersion` a converted manifest reports. */
+const SCENARIO_MANIFEST_VERSION = "1.0";
+
+/** The prefix every script path is addressed by. */
+const SCRIPT_PREFIX = "scripts/";
 
 /**
  * Parses and validates a streaming manifest.
@@ -156,7 +215,68 @@ export function parseStreamingManifest(json: unknown): IStreamingManifest {
     const manifest: IStreamingManifest = { schema, id, assets };
     if (typeof root.version === "number") manifest.version = root.version;
     if (typeof root.baseUrl === "string") manifest.baseUrl = root.baseUrl;
+    if (typeof root.name === "string") manifest.name = root.name;
+    if (typeof root.description === "string") manifest.description = root.description;
+
+    if (root.scripts !== undefined) {
+        manifest.scripts = _parseScripts(root.scripts);
+    }
+    if (root.entry !== undefined) {
+        if (typeof root.entry !== "string" || root.entry.length === 0) {
+            throw new Error("[StreamingManifest] 'entry' must be a non-empty string.");
+        }
+        manifest.entry = normalizeScriptPath(root.entry);
+    }
+
+    _validateEntry(manifest);
     return manifest;
+}
+
+/**
+ * Builds the scenario manifest a {@link Scenario} runs from.
+ *
+ * @remarks
+ * The two manifests answer different questions and are deliberately not merged:
+ * a streaming manifest says *where the bytes are*, a scenario manifest says
+ * *what this content is and how to start it*. A scenario loaded from a manifest
+ * must present the same `context.manifest` as one loaded from a ZIP, so the
+ * conversion happens once, here, rather than as branches inside the loader.
+ *
+ * Only assets carrying a `guid` become identity entries — the same rule
+ * `StreamingAssetSource.assetEntries` follows, and for the same reason: a
+ * minted id that does not survive a reload is worse than none.
+ *
+ * @param manifest - a parsed streaming manifest.
+ * @returns the equivalent scenario manifest.
+ * @throws if the manifest declares no entry point, and so describes content
+ *         that cannot be run.
+ */
+export function toScenarioManifest(manifest: IStreamingManifest): IScenarioManifest {
+    if (!manifest.entry) {
+        throw new Error(
+            `[StreamingManifest] Manifest "${manifest.id}" has no 'entry', so it ` +
+            `describes assets but no scenario to run. Install it as an asset ` +
+            `source with Resources.useSource instead.`
+        );
+    }
+
+    const assets: IScenarioAssetEntry[] = [];
+    for (const asset of manifest.assets) {
+        if (asset.guid) assets.push({ guid: asset.guid, path: asset.path });
+    }
+
+    const scenario: IScenarioManifest = {
+        manifestVersion: SCENARIO_MANIFEST_VERSION,
+        id: manifest.id,
+        name: manifest.name ?? manifest.id,
+        version: String(manifest.version ?? 1),
+        // Scenario resolves the entry point against `scripts/`, so the prefix
+        // that makes the path unambiguous here has to come back off.
+        entryPoint: manifest.entry.slice(SCRIPT_PREFIX.length),
+        assets,
+    };
+    if (manifest.description) scenario.description = manifest.description;
+    return scenario;
 }
 
 /**
@@ -172,6 +292,78 @@ export function parseStreamingManifest(json: unknown): IStreamingManifest {
 export function normalizeAssetPath(path: string): string {
     const forward = path.replace(/\\/g, "/").replace(/^\.?\//, "");
     return forward.startsWith("assets/") ? forward : `assets/${forward}`;
+}
+
+/**
+ * Normalizes a script path to the form the pre-linker resolves imports against.
+ *
+ * @remarks
+ * The counterpart to {@link normalizeAssetPath}, and the reason both exist: the
+ * scenario loader addresses scripts as `scripts/…` and assets as `assets/…`, so
+ * a manifest that writes the prefix and one that omits it must mean the same
+ * module. The `.js` extension is added when missing, matching how a relative
+ * import may name a module without one.
+ *
+ * @param path - the path as written in the manifest.
+ */
+export function normalizeScriptPath(path: string): string {
+    const forward = path.replace(/\\/g, "/").replace(/^\.?\//, "");
+    const prefixed = forward.startsWith(SCRIPT_PREFIX)
+        ? forward
+        : `${SCRIPT_PREFIX}${forward}`;
+    return prefixed.endsWith(".js") ? prefixed : `${prefixed}.js`;
+}
+
+function _parseScripts(raw: unknown): IStreamedScript[] {
+    if (!Array.isArray(raw)) {
+        throw new Error("[StreamingManifest] 'scripts' must be an array.");
+    }
+
+    const seen = new Set<string>();
+    return raw.map((rawScript, index) => {
+        const where = `scripts[${index}]`;
+        const obj = _object(rawScript, where);
+
+        if (typeof obj.path !== "string" || obj.path.length === 0) {
+            throw new Error(`[StreamingManifest] ${where} is missing 'path'.`);
+        }
+        if (typeof obj.url !== "string" || obj.url.length === 0) {
+            throw new Error(`[StreamingManifest] ${where} is missing 'url'.`);
+        }
+
+        const path = normalizeScriptPath(obj.path);
+        if (seen.has(path)) {
+            throw new Error(`[StreamingManifest] Duplicate script path "${path}".`);
+        }
+        seen.add(path);
+
+        const script: IStreamedScript = { path, url: obj.url };
+        if (typeof obj.bytes === "number") script.bytes = obj.bytes;
+        if (typeof obj.hash === "string") script.hash = obj.hash;
+        return script;
+    });
+}
+
+function _validateEntry(manifest: IStreamingManifest): void {
+    const { entry, scripts } = manifest;
+
+    if (entry && (!scripts || scripts.length === 0)) {
+        throw new Error(
+            `[StreamingManifest] 'entry' is "${entry}" but the manifest lists no scripts.`
+        );
+    }
+    if (entry && !scripts!.some(s => s.path === entry)) {
+        throw new Error(
+            `[StreamingManifest] 'entry' is "${entry}", which is not in 'scripts': ` +
+            scripts!.map(s => s.path).join(", ")
+        );
+    }
+    if (!entry && scripts && scripts.length > 0) {
+        throw new Error(
+            "[StreamingManifest] The manifest lists scripts but no 'entry', so " +
+            "nothing says which one starts the scenario."
+        );
+    }
 }
 
 function _parseAsset(raw: unknown, index: number): IStreamedAsset {

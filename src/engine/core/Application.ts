@@ -8,6 +8,7 @@ import { Camera } from "./components/Camera.ts";
 import { Input } from "./Input.ts";
 import { Scenario } from "./scenario";
 import type { IScenarioLoadProgress } from "./scenario";
+import type { StreamingAssetSourceOptions } from "./assets/StreamingAssetSource.ts";
 import { Transform } from "./Transform.ts";
 import { Physics } from "../physics/Physics.ts";
 import { Animation } from "./animation/Animation.ts";
@@ -360,6 +361,51 @@ export class Application {
         }
 
         await scenario.loadFromUrl(url);
+        await scenario.run();
+
+        // Warm up shaders during load (if requested), then start the loop.
+        this._autoStartAfterLoad();
+
+        return scenario;
+    }
+
+    /**
+     * Downloads and runs a scenario from a streaming manifest.
+     *
+     * @remarks
+     * The manifest-driven alternative to {@link loadScenarioFromUrl}: scripts
+     * and assets are fetched individually from the URLs a `scenario.json`
+     * lists, rather than unpacked from one archive. Scenario code is unaffected
+     * — the same `Resources` calls resolve against the manifest instead of the
+     * ZIP — so a scenario can be published either way without being rebuilt.
+     *
+     * @param url - URL of the manifest document (`scenario.json`).
+     * @param onProgress - optional callback for loading progress updates.
+     * @param options - base URL override and fetch implementation.
+     * @returns the loaded and running Scenario instance.
+     *
+     * @example
+     * ```ts
+     * const scenario = await app.loadScenarioFromManifest(
+     *     "https://cdn.example.org/scenarios/solar/scenario.json",
+     * );
+     * ```
+     */
+    public async loadScenarioFromManifest(
+        url: string,
+        onProgress?: (progress: IScenarioLoadProgress) => void,
+        options?: StreamingAssetSourceOptions,
+    ): Promise<Scenario> {
+        // Unload any existing scenario
+        this.unloadScenario();
+
+        const scenario = new Scenario();
+
+        if (onProgress) {
+            scenario.onProgress(onProgress);
+        }
+
+        await scenario.loadFromManifestUrl(url, options);
         await scenario.run();
 
         // Warm up shaders during load (if requested), then start the loop.

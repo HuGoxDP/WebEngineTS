@@ -9,9 +9,14 @@ import type {
     IScenarioManifest,
     IScenarioContext,
     IScenarioLoadProgress,
+    IScenarioScriptSource,
 } from "./ScenarioTypes.ts";
 import { ScenarioLoadState } from "./ScenarioTypes.ts";
-import { Resources } from "../assets/Resources.ts";
+import { Resources, type IAssetSource } from "../assets/Resources.ts";
+import { ZipAssetSource } from "../assets/ZipAssetSource.ts";
+import { StreamingAssetSource } from "../assets/StreamingAssetSource.ts";
+import type { StreamingAssetSourceOptions } from "../assets/StreamingAssetSource.ts";
+import { toScenarioManifest } from "../assets/StreamingManifest.ts";
 /**
  * Regex to match ES module import/export specifiers.
  *
@@ -33,16 +38,23 @@ const _RELATIVE_IMPORT_RE =
 /**
  * A loaded scenario instance.
  *
- * Represents a ZIP archive parsed in memory. Manages the full lifecycle:
- * download → parse → execute entry point → teardown → release resources.
+ * Manages the full lifecycle: download → parse → execute entry point →
+ * teardown → release resources.
  *
  * Equivalent to Unity's AssetBundle — lives in RAM and is cleaned up
  * completely when unloaded, leaving no leaked textures, blob URLs,
  * GameObjects, or Scenes.
  *
+ * **Two content shapes, one loader.** A scenario is either a ZIP archive
+ * parsed in memory ({@link loadFromData}) or a streaming manifest whose
+ * scripts and assets are fetched individually ({@link loadFromManifestUrl}).
+ * They differ only in where bytes come from: the pre-linking, the context the
+ * entry point receives and every `Resources` call from scenario code are the
+ * same either way.
+ *
  * **Script execution & import resolution:**
- * Scripts in the ZIP are pre-compiled ES modules (.js). Before execution,
- * the engine pre-links ALL scripts in the `scripts/` directory:
+ * A scenario's scripts are pre-compiled ES modules (.js). Before execution,
+ * the engine pre-links ALL of them:
  * 1. Enumerates all `.js` files.
  * 2. Builds a dependency graph from relative imports.
  * 3. Processes files in dependency order (leaves first).
@@ -92,11 +104,11 @@ export class Scenario extends EngineObject {
 
     // ==================== INSTANCE STATE ====================
 
-    /** Parsed manifest from the ZIP root. */
+    /** Parsed manifest — from the ZIP root, or converted from a streaming one. */
     private _manifest: IScenarioManifest | null = null;
 
-    /** In-memory ZIP archive. Null after unload. */
-    private _zip: JSZip | null = null;
+    /** Where script modules are read from. Null until loaded, and after unload. */
+    private _scripts: IScenarioScriptSource | null = null;
 
     /** Current lifecycle state. */
     private _loadState: ScenarioLoadState = ScenarioLoadState.Unloaded;
@@ -243,27 +255,22 @@ export class Scenario extends EngineObject {
 
         try {
             // Parse ZIP in memory
-            this._zip = await JSZip.loadAsync(data);
+            const zip = await JSZip.loadAsync(data);
+            const source = new ZipAssetSource(zip);
 
             this._updateProgress(ScenarioLoadState.Loading, 0.6, "Reading manifest...");
 
-            // Read and validate manifest
-            const manifestFile = this._zip.file("manifest.json");
-            if (!manifestFile) {
+            if (!source.has("manifest.json")) {
                 throw new Error("manifest.json not found in ZIP archive");
             }
 
-            const manifestJson = await manifestFile.async("string");
+            const manifestJson = await source.readText("manifest.json");
             this._manifest = JSON.parse(manifestJson) as IScenarioManifest;
             Scenario._validateManifest(this._manifest);
 
             this._updateProgress(ScenarioLoadState.Loading, 0.8, "Preparing assets...");
 
-            // Update object name from manifest
-            this.name = this._manifest.name;
-
-            // Create asset provider
-            this._assets = new ScenarioAssets(this._zip);
+            this._adopt(source, source);
 
             this._updateProgress(ScenarioLoadState.Ready, 1, "Ready");
 
@@ -275,6 +282,94 @@ export class Scenario extends EngineObject {
             this._updateProgress(ScenarioLoadState.Error, 0, "Failed to parse", String(error));
             throw error;
         }
+    }
+
+    /**
+     * Loads a scenario from a streaming manifest instead of a ZIP archive.
+     *
+     * @remarks
+     * The manifest-driven counterpart to {@link loadFromData}: scripts and
+     * assets are fetched individually by URL rather than unpacked from one
+     * archive. Everything after this point is identical — the same pre-linking,
+     * the same `context`, the same `Resources` calls from scenario code — which
+     * is the property that makes streaming additive rather than a second engine.
+     *
+     * The manifest must declare `entry` and `scripts`; one that lists only
+     * assets describes content with nothing to run, and says so.
+     *
+     * @param source — a source built from an already-fetched manifest.
+     *
+     * @example
+     * ```ts
+     * const source = await StreamingAssetSource.fromUrl("/scenarios/solar/scenario.json");
+     * const scenario = new Scenario();
+     * await scenario.loadFromManifest(source);
+     * await scenario.run();
+     * ```
+     */
+    public async loadFromManifest(source: StreamingAssetSource): Promise<void> {
+        this._updateProgress(ScenarioLoadState.Loading, 0.6, "Reading manifest...");
+
+        try {
+            this._manifest = toScenarioManifest(source.manifest);
+            Scenario._validateManifest(this._manifest);
+
+            this._updateProgress(ScenarioLoadState.Loading, 0.8, "Preparing assets...");
+
+            this._adopt(source, source);
+
+            this._updateProgress(ScenarioLoadState.Ready, 1, "Ready");
+
+            console.log(
+                `[Scenario] Loaded from manifest: ${this._manifest.name} ` +
+                `v${this._manifest.version} ` +
+                `(${source.listScripts().length} scripts, ${source.manifest.assets.length} assets)`
+            );
+
+        } catch (error) {
+            this._updateProgress(
+                ScenarioLoadState.Error, 0, "Failed to read manifest", String(error),
+            );
+            throw error;
+        }
+    }
+
+    /**
+     * Fetches a streaming manifest and loads the scenario it describes.
+     *
+     * @param url — URL of the manifest document (`scenario.json`).
+     * @param options — base URL override and fetch implementation.
+     */
+    public async loadFromManifestUrl(
+        url: string,
+        options?: StreamingAssetSourceOptions,
+    ): Promise<void> {
+        this._updateProgress(ScenarioLoadState.Loading, 0.2, "Downloading manifest...");
+
+        let source: StreamingAssetSource;
+        try {
+            source = await StreamingAssetSource.fromUrl(url, options);
+        } catch (error) {
+            this._updateProgress(
+                ScenarioLoadState.Error, 0, "Manifest download failed", String(error),
+            );
+            throw error;
+        }
+
+        await this.loadFromManifest(source);
+    }
+
+    /**
+     * Takes ownership of a loaded scenario's byte sources.
+     *
+     * Shared by both load paths so that the object name, the asset provider and
+     * the script source are always established together — a half-adopted
+     * scenario would pass `isLoaded` and then fail inside `run()`.
+     */
+    private _adopt(scripts: IScenarioScriptSource, assets: IAssetSource): void {
+        this.name = this._manifest!.name;
+        this._scripts = scripts;
+        this._assets = new ScenarioAssets(assets);
     }
 
     // ==================== PUBLIC: EXECUTION ====================
@@ -289,9 +384,10 @@ export class Scenario extends EngineObject {
      * 5. Calls `ScenarioBehaviour._systemInit(context)` (which invokes `awake()`).
      */
     public async run(): Promise<void> {
-        if (!this.isLoaded || !this._manifest || !this._zip) {
+        if (!this.isLoaded || !this._manifest || !this._scripts) {
             throw new Error(
-                "[Scenario] Not loaded. Call loadFromUrl() or loadFromData() first."
+                "[Scenario] Not loaded. Call loadFromUrl(), loadFromData() or " +
+                "loadFromManifestUrl() first."
             );
         }
 
@@ -373,7 +469,7 @@ export class Scenario extends EngineObject {
      * 2. Destroy the scenario's Scene (destroys all GameObjects).
      * 3. Dispose ScenarioAssets (textures, models, blob URLs).
      * 4. Revoke script blob URLs.
-     * 5. Release ZIP reference.
+     * 5. Release the manifest and the script source.
      */
     public unload(): void {
         if (this._loadState === ScenarioLoadState.Unloaded) return;
@@ -410,8 +506,9 @@ export class Scenario extends EngineObject {
         this._scriptBlobUrls = [];
         this._scriptBlobUrlMap.clear();
 
-        // 5. Release ZIP and manifest
-        this._zip = null;
+        // 5. Release the script source and manifest. The asset source behind it
+        //    was already disposed with the provider in step 3.
+        this._scripts = null;
         this._manifest = null;
 
         // 6. Update state
@@ -434,7 +531,7 @@ export class Scenario extends EngineObject {
     // ==================== PRIVATE: SCRIPT PRE-LINKING ====================
 
     /**
-     * Pre-links all `.js` scripts in the ZIP's `scripts/` directory.
+     * Pre-links every `.js` module the script source offers.
      *
      * **Algorithm (dependency-order Blob URL creation):**
      * 1. Enumerate all `.js` files under `scripts/`.
@@ -453,36 +550,18 @@ export class Scenario extends EngineObject {
      * @internal
      */
     private async _prelinkAllScripts(): Promise<void> {
-        const zip = this._zip!;
+        const source = this._scripts!;
 
-        // 1. Enumerate all .js files under scripts/
-        const scriptFiles: Map<string, string> = new Map(); // zipPath → source code
+        // 1. Enumerate, then read every module in parallel. Both paths fetch
+        //    everything here: a module cannot be deferred, because the import
+        //    graph has to be fully rewritten before any of it runs.
+        const scriptFiles: Map<string, string> = new Map(); // script path → source code
 
-        zip.forEach((relativePath, file) => {
-            if (
-                !file.dir &&
-                relativePath.startsWith("scripts/") &&
-                relativePath.endsWith(".js")
-            ) {
-                // Normalize separators (Windows ZIP tools may use backslashes)
-                const normalized = relativePath.replace(/\\/g, "/");
-                scriptFiles.set(normalized, ""); // source loaded below
-            }
-        });
-
-        // Read all source files in parallel
-        const readPromises: Promise<void>[] = [];
-        for (const [path] of scriptFiles) {
-            const file = zip.file(path);
-            if (file) {
-                readPromises.push(
-                    file.async("string").then(code => {
-                        scriptFiles.set(path, code);
-                    })
-                );
-            }
-        }
-        await Promise.all(readPromises);
+        await Promise.all(
+            source.listScripts().map(async path => {
+                scriptFiles.set(path, await source.readScript(path));
+            })
+        );
 
         console.log(`[Scenario] Pre-linking ${scriptFiles.size} script(s)...`);
 
@@ -721,11 +800,11 @@ export class Scenario extends EngineObject {
     }
 
     /**
-     * Loads an ES module from the pre-linked registry or directly from ZIP.
+     * Loads an ES module from the pre-linked registry, or reads it fresh.
      *
      * Used by `context.importScript()` for on-demand loading.
      *
-     * @param scriptPath — full path inside the ZIP (e.g. "scripts/helpers/utils.js").
+     * @param scriptPath — full script path (e.g. "scripts/helpers/utils.js").
      * @returns the module namespace object.
      */
     private async _importScriptModule(
@@ -744,15 +823,9 @@ export class Scenario extends EngineObject {
             }
         }
 
-        // Fallback: load directly from ZIP (e.g. dynamically loaded scripts)
-        const zip = this._zip!;
-        const file = zip.file(scriptPath);
-
-        if (!file) {
-            throw new Error(`[Scenario] Script not found in ZIP: ${scriptPath}`);
-        }
-
-        const code = await file.async("string");
+        // Fallback for a module the pre-linker did not see. Its own relative
+        // imports are left alone, so this only works for a self-contained one.
+        const code = await this._scripts!.readScript(scriptPath);
         const blob = new Blob([code], { type: "application/javascript" });
         const url = URL.createObjectURL(blob);
         this._scriptBlobUrls.push(url);
@@ -786,7 +859,7 @@ export class Scenario extends EngineObject {
     private async _importScriptFromContext(
         path: string
     ): Promise<Record<string, unknown>> {
-        if (!this._zip) {
+        if (!this._scripts) {
             throw new Error("[Scenario] Cannot import script — scenario is not loaded.");
         }
 
@@ -869,6 +942,30 @@ export class Scenario extends EngineObject {
     ): Promise<Scenario> {
         const scenario = new Scenario(name);
         await scenario.loadFromData(data);
+        return scenario;
+    }
+
+    /**
+     * Creates and loads a scenario from a streaming manifest URL.
+     *
+     * @param url — URL of the manifest document (`scenario.json`).
+     * @param options — base URL override and fetch implementation.
+     * @returns a loaded Scenario in the `Ready` state.
+     *
+     * @example
+     * ```ts
+     * const scenario = await Scenario.loadFromManifestUrl(
+     *     "/scenarios/solar/scenario.json",
+     * );
+     * await scenario.run();
+     * ```
+     */
+    public static async loadFromManifestUrl(
+        url: string,
+        options?: StreamingAssetSourceOptions,
+    ): Promise<Scenario> {
+        const scenario = new Scenario();
+        await scenario.loadFromManifestUrl(url, options);
         return scenario;
     }
 

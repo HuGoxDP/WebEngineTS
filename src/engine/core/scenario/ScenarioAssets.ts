@@ -1,6 +1,6 @@
 // path: src/engine/core/scenario/ScenarioAssets.ts
 
-import JSZip from "jszip";
+import type JSZip from "jszip";
 import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { Texture2D } from "../graphics/Texture2D.ts";
@@ -15,20 +15,25 @@ import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
 import type { IAssetProvider, IScenarioAssetEntry } from "./ScenarioTypes.ts";
 import { Resources, type IAssetSource } from "../assets/Resources.ts";
+import { ZipAssetSource } from "../assets/ZipAssetSource.ts";
+import { mimeTypeForPath } from "../assets/_AssetMime.ts";
 import { Animation } from "../animation/Animation.ts";
 import { AnimationClip } from "../animation/AnimationClip.ts";
 
 /**
  * Runtime asset manager for a scenario.
  *
- * Loads textures, 3D models, and raw files from an in-memory ZIP archive.
+ * Loads textures, 3D models, and raw files from the scenario's byte source.
  * All loaded resources are cached and tracked for deterministic cleanup
  * when the scenario is unloaded.
  *
  * @remarks
  * Equivalent to Unity's `Resources` / `AssetDatabase` for runtime use.
  *
- * - All assets are loaded from the in-memory ZIP — nothing touches disk.
+ * - Bytes come from an {@link IAssetSource} — an in-memory ZIP
+ *   (`ZipAssetSource`) or a manifest fetched over the network
+ *   (`StreamingAssetSource`). Which one it is changes only *when* a read
+ *   costs something, never what the caller gets back.
  * - Blob URLs are tracked and revoked on {@link dispose}.
  * - Texture2D and model caches prevent redundant loading.
  * - {@link dispose} destroys all engine objects created by this provider.
@@ -38,13 +43,23 @@ import { AnimationClip } from "../animation/AnimationClip.ts";
  * Public methods return only engine types (Texture2D, GameObject, Blob).
  *
  * Implements {@link IAssetProvider} so that {@link Scenario} can depend on
- * the interface rather than this concrete class.
+ * the interface rather than this concrete class. It also implements
+ * {@link IAssetSource} by delegating to its own source, so that blob URLs
+ * handed out through `Resources` are revoked by the provider that outlives
+ * them.
  */
 export class ScenarioAssets implements IAssetProvider, IAssetSource {
     // ==================== PRIVATE STATE ====================
 
-    /** In-memory ZIP archive reference. Null after {@link releaseArchive}. */
-    private _zip: JSZip | null;
+    /** Where bytes are read from. */
+    private readonly _source: IAssetSource;
+
+    /**
+     * The same object as {@link _source} when it holds its bytes in memory and
+     * can be told to drop them — which is what {@link releaseArchive} means.
+     * Null for a source that never held them, such as a streaming one.
+     */
+    private readonly _archive: ZipAssetSource | null;
 
     /** Cache: normalized asset path → loaded Texture2D. */
     private _textureCache: Map<string, Texture2D> = new Map();
@@ -71,13 +86,19 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
     // ==================== CONSTRUCTOR ====================
 
     /**
-     * @param zip — a parsed JSZip instance representing the scenario archive.
+     * @param source — where the scenario's bytes come from: an
+     *                 {@link IAssetSource}, or a parsed JSZip instance, which
+     *                 is wrapped in a `ZipAssetSource` for you.
      */
-    constructor(zip: JSZip) {
-        this._zip = zip;
+    constructor(source: IAssetSource | JSZip) {
+        const isAssetSource = typeof (source as IAssetSource).readBytes === "function";
+        this._source = isAssetSource
+            ? source as IAssetSource
+            : new ZipAssetSource(source as JSZip);
+        this._archive = this._source instanceof ZipAssetSource ? this._source : null;
 
         // Create a LoadingManager that resolves external GLTF references
-        // (textures, .bin files) from the in-memory ZIP archive.
+        // (textures, .bin files) from the scenario's source.
         this._loadingManager = new THREE.LoadingManager();
 
         this._gltfLoader = new GLTFLoader(this._loadingManager);
@@ -92,16 +113,9 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      * @returns a Blob containing the raw file data.
      */
     public async getAsset(path: string): Promise<Blob> {
-        this._ensureArchive();
-        const assetPath = `assets/${path}`;
-        const file = this._zip!.file(assetPath);
-
-        if (!file) {
-            throw new Error(`[ScenarioAssets] Asset not found: ${assetPath}`);
-        }
-
-        const data = await file.async("arraybuffer");
-        return new Blob([data], { type: ScenarioAssets._getMimeType(path) });
+        const assetPath = path.startsWith("assets/") ? path : `assets/${path}`;
+        const bytes = await this._source.readBytes(assetPath);
+        return new Blob([ScenarioAssets._toArrayBuffer(bytes)], { type: mimeTypeForPath(path) });
     }
 
     /**
@@ -120,16 +134,14 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
 
     /**
      * @deprecated Use {@link getAssetUrl} instead — this method always returns
-     * an empty string because JSZip cannot reliably decompress synchronously.
+     * an empty string because an asset's bytes cannot be produced
+     * synchronously: JSZip decompresses asynchronously, and a streaming source
+     * has to fetch.
      *
      * @param path — path relative to `assets/`.
      * @returns always returns empty string.
      */
     public getBlobUrlSync(path: string): string {
-        const assetPath = `assets/${path}`;
-        if (this._zip === null) return "";
-        const file = this._zip.file(assetPath);
-        if (!file) return "";
         return "";
     }
 
@@ -152,14 +164,8 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         const cached = this._textureCache.get(normalizedPath);
         if (cached) return cached;
 
-        // Read raw bytes from ZIP
-        this._ensureArchive();
-        const file = this._zip!.file(`assets/${normalizedPath}`);
-        if (!file) {
-            throw new Error(`[ScenarioAssets] Texture not found: assets/${normalizedPath}`);
-        }
-
-        const data = await file.async("arraybuffer");
+        const bytes = await this._source.readBytes(`assets/${normalizedPath}`);
+        const data = ScenarioAssets._toArrayBuffer(bytes);
 
         // Texture2D.fromArrayBuffer handles blob URL + THREE.Texture internally
         const texture = await Texture2D.fromArrayBuffer(data);
@@ -206,14 +212,8 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         const cached = this._modelCache.get(normalizedPath);
         if (cached) return cached;
 
-        // Read raw bytes from ZIP
-        this._ensureArchive();
-        const file = this._zip!.file(`assets/${normalizedPath}`);
-        if (!file) {
-            throw new Error(`[ScenarioAssets] Model not found: assets/${normalizedPath}`);
-        }
-
-        const data = await file.async("arraybuffer");
+        const bytes = await this._source.readBytes(`assets/${normalizedPath}`);
+        const data = ScenarioAssets._toArrayBuffer(bytes);
 
         // Parse directly from ArrayBuffer — no blob URL round-trip
         const gltf = await this._parseGLTF(data, normalizedPath);
@@ -279,29 +279,23 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      * ```
      */
     public releaseArchive(): void {
-        if (this._zip === null) return;
-        this._zip = null;
+        if (this._archive === null || this._archive.isReleased) return;
+        this._archive.release();
         console.log("[ScenarioAssets] Archive released — no further asset loading possible.");
     }
 
     /**
      * Whether the archive has been released via {@link releaseArchive}.
+     *
+     * @remarks
+     * Always `false` for a scenario streamed from a manifest: there is no
+     * archive to release, because a streaming source never retains the bytes it
+     * fetched — `Resources` caches the decoded asset instead. {@link releaseArchive}
+     * is a no-op there, and loading keeps working, which is the truth rather
+     * than a released flag that would make callers stop.
      */
     public get isArchiveReleased(): boolean {
-        return this._zip === null;
-    }
-
-    /**
-     * @internal
-     * Throws if the archive has been released.
-     */
-    private _ensureArchive(): void {
-        if (this._zip === null) {
-            throw new Error(
-                "[ScenarioAssets] Archive has been released via releaseArchive(). " +
-                "No further asset loading is possible."
-            );
-        }
+        return this._archive?.isReleased ?? false;
     }
 
     // ==================== IAssetProvider: DISPOSE ====================
@@ -341,8 +335,8 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         }
         this._blobUrls = [];
 
-        // Release ZIP if not already released
-        this._zip = null;
+        // Release the source's own bytes and blob URLs
+        this._archive?.dispose();
 
         console.log("[ScenarioAssets] Disposed.");
     }
@@ -351,46 +345,32 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
 
     /** @internal */
     public has(path: string): boolean {
-        if (this._zip === null) return false;
-        return this._zip.file(path) !== null;
+        return this._source.has(path);
     }
 
     /** @internal */
     public list(prefix?: string): string[] {
-        if (this._zip === null) return [];
-        const paths: string[] = [];
-        this._zip.forEach((relativePath) => {
-            if (!prefix || relativePath.startsWith(prefix)) {
-                paths.push(relativePath);
-            }
-        });
-        return paths;
+        return this._source.list(prefix);
     }
 
     /** @internal */
     public async readBytes(path: string): Promise<Uint8Array> {
-        this._ensureArchive();
-        const file = this._zip!.file(path);
-        if (!file) throw new Error(`[ScenarioAssets] File not found: ${path}`);
-        const ab = await file.async("arraybuffer");
-        return new Uint8Array(ab);
+        return this._source.readBytes(path);
     }
 
     /** @internal */
     public async readText(path: string): Promise<string> {
-        this._ensureArchive();
-        const file = this._zip!.file(path);
-        if (!file) throw new Error(`[ScenarioAssets] File not found: ${path}`);
-        return file.async("text");
+        return this._source.readText(path);
     }
 
     /** @internal */
     public async getBlobUrl(path: string): Promise<string> {
-        this._ensureArchive();
-        const file = this._zip!.file(path);
-        if (!file) throw new Error(`[ScenarioAssets] File not found: ${path}`);
-        const data = await file.async("arraybuffer");
-        const blob = new Blob([data], { type: ScenarioAssets._getMimeType(path) });
+        // Handed out here rather than delegated, so the URL's lifetime belongs
+        // to the provider that dispose() runs on.
+        const bytes = await this._source.readBytes(path);
+        const blob = new Blob([ScenarioAssets._toArrayBuffer(bytes)], {
+            type: mimeTypeForPath(path),
+        });
         const url = URL.createObjectURL(blob);
         this._blobUrls.push(url);
         return url;
@@ -414,7 +394,7 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
             GameObject,
             [".glb", ".gltf"],
             async (bytes: Uint8Array, path: string) => {
-                const gltf = await this._parseGLTF(bytes.buffer as ArrayBuffer, path);
+                const gltf = await this._parseGLTF(ScenarioAssets._toArrayBuffer(bytes), path);
                 const root = this._convertGLTFScene(gltf, path);
                 if (gltf.animations.length > 0) {
                     const anim = root.addComponent(Animation);
@@ -450,24 +430,21 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
             ? `assets/${assetPath.substring(0, lastSlash + 1)}`
             : "assets/";
 
-        // Set up URL modifier for external .gltf references (textures, .bin)
+        // Diagnostic only: a .gltf whose textures and .bin sit beside it needs
+        // them resolved out of the source, and setURLModifier is synchronous
+        // while every source read is not. Naming the missing file beats a
+        // silently untextured model.
+        // TODO: resolve external .gltf references by pre-reading them into blob
+        // URLs before parseAsync, so a non-embedded .gltf loads like a .glb does.
         this._loadingManager.setURLModifier((url: string) => {
-            // If it's already a blob/data URL, pass through
             if (url.startsWith("blob:") || url.startsWith("data:")) return url;
 
-            // Resolve relative path within the ZIP
-            const zipPath = basePath + url;
-            const zipFile = this._zip?.file(zipPath) ?? null;
-            if (!zipFile) {
-                console.warn(`[ScenarioAssets] External GLTF resource not found in ZIP: ${zipPath}`);
-                return url;
+            const sourcePath = basePath + url;
+            if (!this._source.has(sourcePath)) {
+                console.warn(
+                    `[ScenarioAssets] External GLTF resource not found: ${sourcePath}`
+                );
             }
-
-            // Create blob URL synchronously from the decompressed buffer
-            // Note: JSZip decompresses lazily, but for already-loaded archives
-            // this is effectively synchronous after the first access.
-            // We use a workaround: store a placeholder and handle async in the loader.
-            // For GLB files this code path is never hit (all data is embedded).
             return url;
         });
 
@@ -806,25 +783,15 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
 
     /**
      * @internal
-     * Determines MIME type from file extension.
+     * Copies a byte view into an ArrayBuffer of exactly its own length.
+     *
+     * A source may hand back a view onto a larger buffer, and both `Blob` and
+     * the GLTF parser take the whole buffer rather than the view — so passing
+     * `.buffer` straight through would hand them the neighbouring assets too.
      */
-    private static _getMimeType(path: string): string {
-        const ext = path.split(".").pop()?.toLowerCase();
-        switch (ext) {
-            case "png":  return "image/png";
-            case "jpg":
-            case "jpeg": return "image/jpeg";
-            case "gif":  return "image/gif";
-            case "webp": return "image/webp";
-            case "svg":  return "image/svg+xml";
-            case "glb":  return "model/gltf-binary";
-            case "gltf": return "model/gltf+json";
-            case "json": return "application/json";
-            case "mp3":  return "audio/mpeg";
-            case "ogg":  return "audio/ogg";
-            case "wav":  return "audio/wav";
-            case "bin":  return "application/octet-stream";
-            default:     return "application/octet-stream";
-        }
+    private static _toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+        return bytes.buffer.slice(
+            bytes.byteOffset, bytes.byteOffset + bytes.byteLength,
+        ) as ArrayBuffer;
     }
 }
