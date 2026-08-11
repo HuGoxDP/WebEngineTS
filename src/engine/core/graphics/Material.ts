@@ -7,6 +7,7 @@ import { SerializedField } from "../reflection/Decorators.ts";
 import { FieldType } from "../reflection/Types.ts";
 import { Color } from "../math/Color.ts";
 import { Texture } from "./Texture.ts";
+import type { ITextureReferent } from "./Texture.ts";
 import { Vector2 } from "../math/Vector2.ts";
 import { Vector4 } from "../math/Vector4.ts";
 import { Matrix4x4 } from "../math/Matrix4x4.ts";
@@ -46,7 +47,7 @@ type MaterialPropertyValue = number | Color | Vector4 | Matrix4x4 | Texture | nu
  * renderer.sharedMaterial = mat;
  * ```
  */
-export class Material extends EngineObject {
+export class Material extends EngineObject implements ITextureReferent {
 
     // ==================== PRIVATE FIELDS ====================
 
@@ -94,6 +95,9 @@ export class Material extends EngineObject {
             this._properties = Material._deepCloneProperties(source._properties);
             this._threeMatHandle = source._threeMatHandle.clone();
             this.name = source.name + " (Instance)";
+            // Textures are shared by reference on clone (Unity's semantics), so
+            // an instance is a second holder and must be re-pointed too.
+            this._addTextureReferents();
         } else {
             // ---- CREATE FROM SHADER ----
             this._shader = shaderOrSource;
@@ -358,8 +362,55 @@ export class Material extends EngineObject {
      * @param value — the texture, or null to clear.
      */
     public setTexture(propertyName: string, value: Texture | null): void {
+        const previous = this.getTexture(propertyName);
         this._properties.set(propertyName, value);
+
+        // Order matters: drop the old registration only after the map no longer
+        // names it, or a texture held in two slots would look still-referenced.
+        if (previous && previous !== value) this._releaseTextureIfUnused(previous);
+        if (value) value._addReferent(this);
+
         this._syncTextureToThree(propertyName, value);
+    }
+
+    /**
+     * @internal
+     * Re-points this material at a texture whose Three.js handle was replaced.
+     *
+     * Called by {@link Texture} after a swap — an async load completing, or a
+     * streamed asset arriving at a higher detail level. Every slot holding the
+     * texture is re-synced, since one texture may fill several.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _onTextureSwapped(texture: Texture): void {
+        for (const [propertyName, value] of this._properties) {
+            if (value === texture) {
+                this._syncTextureToThree(propertyName, texture);
+            }
+        }
+    }
+
+    /** Unregisters from a texture no remaining property holds. */
+    private _releaseTextureIfUnused(texture: Texture): void {
+        for (const value of this._properties.values()) {
+            if (value === texture) return;
+        }
+        texture._removeReferent(this);
+    }
+
+    /** Registers this material with every texture it currently holds. */
+    private _addTextureReferents(): void {
+        for (const value of this._properties.values()) {
+            if (value instanceof Texture) value._addReferent(this);
+        }
+    }
+
+    /** Unregisters this material from every texture it currently holds. */
+    private _removeTextureReferents(): void {
+        for (const value of this._properties.values()) {
+            if (value instanceof Texture) value._removeReferent(this);
+        }
     }
 
     // ---- Texture Offset / Scale ----
@@ -469,7 +520,9 @@ export class Material extends EngineObject {
      * and render queue.
      */
     public copyPropertiesFromMaterial(source: Material): void {
+        this._removeTextureReferents();
         this._properties = Material._deepCloneProperties(source._properties);
+        this._addTextureReferents();
         this._keywords = new Set(source._keywords);
         this._renderQueue = source._renderQueue;
         this._threeMatHandle.needsUpdate = true;
@@ -478,6 +531,10 @@ export class Material extends EngineObject {
     // ==================== LIFECYCLE ====================
 
     protected override onDestroy(): void {
+        // Before clearing: the registrations are keyed off what the map holds,
+        // and a material left registered would be kept alive by its textures.
+        this._removeTextureReferents();
+
         this._threeMatHandle.dispose();
         this._properties.clear();
         this._keywords.clear();

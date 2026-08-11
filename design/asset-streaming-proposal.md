@@ -277,14 +277,22 @@ uncompressed size.
 - Assets with no GPU footprint are never chosen: evicting a JSON blob reclaims no VRAM and
   still costs a reload.
 
-**Still open, and the larger half:** *upgrading* a streamed asset from one LOD to the next as
-the camera nears. The blocker is not the manifest — the LOD lists are parsed and
-`maxLodLevel` already selects a level — but that materials copy the underlying Three.js texture
-reference at assignment time (`Material.ts`: `mat.map = value._internalThreeTexture`). Swapping
-an engine `Texture2D`'s inner texture therefore does not reach the materials already holding the
-old one; a real upgrade needs a texture→materials reverse index so every referent can be
-re-pointed. That is its own arc, and it is what the rest of Stage 3 waits on, alongside the
-editor emitting the variants.
+**The upgrade blocker is gone (2026-08-11).** Materials copied the underlying Three.js texture
+reference at assignment time (`Material.ts`: `mat.map = value._internalThreeTexture`), so
+replacing an engine texture's handle never reached anything already drawing with it. `Texture`
+now keeps a referent set (`ITextureReferent`, `_addReferent` / `_removeReferent`) and notifies
+it from `_setInternalThreeTexture`; `Material` registers on `setTexture`, on clone and on
+`copyPropertiesFromMaterial`, and unregisters in `onDestroy` — registrations are strong, so a
+material that failed to unregister would be kept alive by its own textures.
+
+This fixed a live defect beyond streaming: `Texture.load(url)` swapped its handle in the loader
+callback, so a material assigned that texture before the image arrived drew the empty
+placeholder for the rest of the run.
+
+**Still open for the LOD half:** the source side — per-asset level selection (today
+`maxLodLevel` is a single global cap) and a policy that decides *when* to upgrade, from
+`LODGroup`'s on-screen size against the VRAM budget. Plus the editor emitting the variants,
+which is not this repo's work. The propagation mechanism those need now exists.
 
 ### Stage 4 — Full progressive + dedup + partial updates
 - Content-addressed dedup across scenarios (shared assets fetched once, cached forever).

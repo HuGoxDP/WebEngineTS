@@ -106,6 +106,31 @@ function threeWrapToWrapMode(wrap: THREE.Wrapping): TextureWrapMode {
  * **Engine-first design:** The underlying `THREE.Texture` is hidden.
  * All public API uses engine-owned types.
  */
+/**
+ * Something that caches a texture's underlying Three.js handle and therefore
+ * has to be told when that handle is replaced.
+ *
+ * @remarks
+ * A material copies `_internalThreeTexture` into its Three.js material when the
+ * texture is assigned, so replacing the handle afterwards — an async load
+ * completing, or a streamed asset arriving at a higher detail level — would
+ * otherwise never reach anything already drawing with it. Registering makes the
+ * swap propagate instead of silently doing nothing.
+ *
+ * Implemented by {@link Material}. Declared here rather than beside it so that
+ * `Texture` need not import `Material`, which imports `Texture`.
+ *
+ * @internal — engine-only.
+ */
+export interface ITextureReferent {
+    /**
+     * Called after the texture's Three.js handle has been replaced.
+     *
+     * @param texture — the texture whose handle changed.
+     */
+    _onTextureSwapped(texture: Texture): void;
+}
+
 export class Texture extends EngineObject {
 
     // ==================== PRIVATE FIELDS ====================
@@ -115,6 +140,15 @@ export class Texture extends EngineObject {
      * @internal â€” NEVER expose to engine users.
      */
     private _threeTexture: THREE.Texture;
+
+    /**
+     * Everything currently holding this texture's Three.js handle.
+     *
+     * @remarks
+     * Strong references, so a holder that never unregisters keeps itself alive
+     * — which is why {@link Material} unregisters in `onDestroy`.
+     */
+    private readonly _referents: Set<ITextureReferent> = new Set();
 
     /** Cached engine-side filter mode (avoids reverse-mapping from Three). */
     private _filterMode: FilterMode = FilterMode.Bilinear;
@@ -171,6 +205,36 @@ export class Texture extends EngineObject {
         this._threeTexture = tex;
         this._syncFilterMode();
         this._syncWrapMode();
+        this._notifyReferents();
+    }
+
+    /**
+     * @internal
+     * Registers something that holds this texture and must be told when the
+     * underlying GPU resource is replaced.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _addReferent(referent: ITextureReferent): void {
+        this._referents.add(referent);
+    }
+
+    /**
+     * @internal
+     * Unregisters a referent. Callers must do this when they stop holding the
+     * texture, or the texture keeps them alive.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _removeReferent(referent: ITextureReferent): void {
+        this._referents.delete(referent);
+    }
+
+    /** Tells every holder to re-read the handle it cached. */
+    private _notifyReferents(): void {
+        for (const referent of this._referents) {
+            referent._onTextureSwapped(this);
+        }
     }
 
     /**
@@ -304,12 +368,13 @@ export class Texture extends EngineObject {
 
         const loader = new THREE.TextureLoader();
         loader.load(url, (loaded: THREE.Texture) => {
-            // Replace internal handle with loaded texture
+            // Through _setInternalThreeTexture, so materials assigned this
+            // texture before the load finished are re-pointed at the new
+            // handle. Assigning the field directly left them drawing the empty
+            // placeholder for the rest of the run.
             texture._threeTexture.dispose();
-            texture._threeTexture = loaded;
-            texture._syncFilterMode();
-            texture._syncWrapMode();
-            texture._threeTexture.needsUpdate = true;
+            texture._setInternalThreeTexture(loaded);
+            loaded.needsUpdate = true;
         });
 
         return texture;
@@ -330,6 +395,10 @@ export class Texture extends EngineObject {
         this._threeTexture.image = null;
 
         this._threeTexture.dispose();
+
+        // Holders keep their own reference to this texture; what they must not
+        // keep is a place in a set that outlives it.
+        this._referents.clear();
     }
 
     // ==================== PRIVATE SYNC ====================

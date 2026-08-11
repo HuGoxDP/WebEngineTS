@@ -1989,17 +1989,13 @@ describe("Built-in components — MeshRenderer and inline materials", () => {
 
     test("a material's texture is still referenced by id, not inlined", () => {
         // Material.getTexture only accepts a Texture instance, so a plain stub
-        // would read back as null and prove nothing — and Texture2D's
-        // constructor needs a DOM canvas. An instance without the constructor
-        // is enough: nothing here touches the pixels.
-        const threeTexture = {
-            offset: { x: 0, y: 0, set: () => {} },
-            repeat: { x: 1, y: 1, set: () => {} },
-        };
-        const texture = Object.create(Texture.prototype, {
-            _internalThreeTexture: { value: threeTexture },
-            _threeTexture: { value: threeTexture, writable: true },
-        }) as any;
+        // would read back as null and prove nothing. The base Texture is the
+        // right stand-in: its constructor needs no DOM (only Texture2D's does),
+        // and nothing here touches the pixels. Bypassing the constructor with
+        // Object.create used to work and no longer does — a Texture now sets up
+        // its referent registry there, and an instance that skipped it is not a
+        // Texture, just something shaped like one.
+        const texture = new Texture();
         AssetDatabase.setManifest([{ guid: "tex-albedo", path: "textures/albedo.png" }]);
         AssetDatabase._bind("textures/albedo.png", texture);
 
