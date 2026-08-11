@@ -3,6 +3,13 @@
 Detailed execution plan behind the summary list in `CLAUDE.md` → "Roadmap / Next Steps".
 Covers priorities, sequencing, resources and the metric that closes each item.
 
+> **Engine feature work paused 2026-08-11.** The streaming stack is built and unmeasured, and
+> nothing publishes content in the form it consumes — so the next work is in the consumer
+> repositories, starting with `ScenarioCreator` emitting a `scenario.json`. What is above and
+> below that line, and what brings work back here, is in
+> [`handoff-boundary.md`](handoff-boundary.md). Items below still stand; they are queued behind
+> that, not cancelled.
+
 ---
 
 ## 0. Where things stand

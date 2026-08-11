@@ -4,6 +4,11 @@ Status: **in progress** (Stage 0 engine half landed 2026-08-10) · Scope: engine
 (`WebEngineTS`) + platform (`testv/virtual-lab`) + editor (`WebEngineTSEditor/app`) ·
 Author: engine team
 
+> **Status 2026-08-11.** Stages 0–3 are done engine-side, except the on-screen-size input to
+> the LOD policy. None of it has been measured, because nothing publishes a scenario as a
+> manifest yet — so engine work on streaming pauses here and the next step is
+> `ScenarioCreator` emitting one. See [`handoff-boundary.md`](handoff-boundary.md).
+
 ## 1. Problem
 
 Today a scenario is a single **monolithic ZIP** (manifest + compiled scripts + *all* assets).
