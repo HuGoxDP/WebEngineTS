@@ -313,10 +313,28 @@ Two decisions worth keeping:
 
 **Still open for the LOD half:**
 
-1. **A policy** deciding *when* to upgrade — `LODGroup`'s on-screen size against the VRAM
-   budget. Everything it would need to act on now exists; nothing calls it yet, so today a host
-   or scenario drives the level by hand.
+**The budget half of the policy landed the same day.** `TextureStreaming`
+(`core/assets/TextureStreaming.ts`, off by default, driven once per frame from
+`Application._loop`): over budget, the costliest streamed texture that still has a coarser
+level drops one step; below `restoreHeadroom` (0.8) of the budget, the cheapest texture not yet
+at its best gains one back. One texture per pass, rate-limited to `intervalMs` (500), never
+overlapping — each change costs a fetch and a decode, and a pass that moved everything at once
+could not observe the effect of any single move. The hysteresis is what stops a texture being
+re-fetched only to be dropped again next pass.
+
+**What it does not know, and this matters:** nothing consults on-screen size. Degrading by
+*cost* is not the same as degrading what the camera cannot see, so a scene whose expensive
+textures all sit close to the camera is degraded in the wrong order. Doing it properly needs a
+material→renderer index the engine does not keep — `LODGroup` computes screen size for its own
+group, but there is no path from a texture back to the renderers drawing it. That is the honest
+remaining gap, and a design question rather than a missing line of code.
+
+**Still open:**
+
+1. **On-screen-size input** to the policy, per the paragraph above.
 2. The editor emitting the variants, which is not this repo's work.
+3. The measurement Stage 3's "done when" asks for — peak texture VRAM on the integrated GPU —
+   which needs both of the above plus a texture-heavy scenario published with LOD variants.
 
 ### Stage 4 — Full progressive + dedup + partial updates
 - Content-addressed dedup across scenarios (shared assets fetched once, cached forever).

@@ -236,6 +236,37 @@ export class Resources {
     }
 
     /**
+     * @internal
+     * The installed asset source, for engine subsystems that need to ask it
+     * something `Resources` does not relay — detail levels, say.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static get _activeSource(): IAssetSource | null {
+        return Resources._source;
+    }
+
+    /**
+     * @internal
+     * Every cached texture, with the path it came from and what it costs.
+     *
+     * @remarks
+     * The path is recovered from the cache key, so it is the resolved one —
+     * extension included — which is what the asset source indexes by.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _cachedTextures(): Array<{ path: string; vramBytes: number }> {
+        const out: Array<{ path: string; vramBytes: number }> = [];
+        const prefix = `${Texture2D.name}::`;
+        for (const [key, entry] of Resources._cache) {
+            if (!key.startsWith(prefix)) continue;
+            out.push({ path: key.slice(prefix.length), vramBytes: entry.vramBytes });
+        }
+        return out;
+    }
+
+    /**
      * Installs an asset source directly, outside the scenario pipeline.
      *
      * @remarks

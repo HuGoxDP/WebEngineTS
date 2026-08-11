@@ -134,6 +134,8 @@ export type {
     IStreamingManifest, IStreamedAsset, IStreamedAssetLod, IStreamedScript,
 } from "./core/assets/StreamingManifest";
 export { ZipAssetSource } from "./core/assets/ZipAssetSource";
+export { TextureStreaming } from "./core/assets/TextureStreaming";
+export type { ITextureStreamingPass } from "./core/assets/TextureStreaming";
 
 // =====================
 // COROUTINES
@@ -406,6 +408,7 @@ import { Resources } from "./core/assets/Resources";
 import { LoadHandle } from "./core/assets/LoadHandle";
 import { StreamingAssetSource } from "./core/assets/StreamingAssetSource";
 import { ZipAssetSource } from "./core/assets/ZipAssetSource";
+import { TextureStreaming } from "./core/assets/TextureStreaming";
 import { AssetPriority } from "./core/assets/StreamingManifest";
 import { JsonAsset, TextAsset, BinaryAsset } from "./core/assets/AssetTypes";
 
@@ -576,7 +579,7 @@ const WebEngineTS = {
 
     // Assets
     Resources, LoadHandle, JsonAsset, TextAsset, BinaryAsset,
-    StreamingAssetSource, ZipAssetSource, AssetPriority,
+    StreamingAssetSource, ZipAssetSource, AssetPriority, TextureStreaming,
 
     // Graphics
     Mesh, Texture, FilterMode, TextureWrapMode,

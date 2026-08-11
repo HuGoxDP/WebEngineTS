@@ -9,6 +9,7 @@ import { Input } from "./Input.ts";
 import { Scenario } from "./scenario";
 import type { IScenarioLoadProgress } from "./scenario";
 import type { StreamingAssetSourceOptions } from "./assets/StreamingAssetSource.ts";
+import { TextureStreaming } from "./assets/TextureStreaming.ts";
 import { BuildInfo } from "./BuildInfo.ts";
 import type { IEngineBuildInfo } from "./BuildInfo.ts";
 import { Transform } from "./Transform.ts";
@@ -672,6 +673,11 @@ export class Application {
 
         // 7d. Level-of-detail selection (uses final world transforms + Camera.main)
         LODGroup._updateAll();
+
+        // 7e. Streamed texture quality against the VRAM budget. Rate-limited
+        // and fire-and-forget — it issues a fetch, so the loop never waits on
+        // it. No-op unless a budget and a streaming source are both in place.
+        TextureStreaming._update();
 
         const tRenderStart = performance.now();
         const lateUpdateMs = tRenderStart - tLateStart;
