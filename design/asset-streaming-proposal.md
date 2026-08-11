@@ -224,6 +224,33 @@ WebEngineTS-Benchmarks, and needs a streamed build of a real scenario to run aga
 - **Done when:** initial bytes/VRAM are lower than Stage 1; smooth behaviour on throttled
   networks; prefetch demonstrably hides latency.
 
+**Engine half done 2026-08-11.** `StreamingAssetSource` now *schedules* requests instead of
+issuing them: at most `maxConcurrentRequests` (default 6) are in flight and the rest wait in a
+queue ordered by priority. Without a queue, priority had nothing to act on — every request had
+already been sent, which is why bounded concurrency and the priority queue are one change rather
+than two.
+
+Ranking, in order: **demand** → critical → high → low → lazy, FIFO within a rank.
+
+- **A real read outranks every speculation**, whatever the manifest declares. The declared
+  priority says how eagerly to *preload*; an actual read is something waiting. A `lazy` asset the
+  scenario just asked for must not queue behind two hundred speculative `low` fetches. The hint
+  travels as `AssetReadOptions.speculative` on the `IAssetSource` seam — optional, so the ZIP
+  source, which has nothing to schedule, simply ignores it.
+- **A queued request is promoted** when something demands it, and stays one request: the waiters
+  already holding its promise are the ones the demand read joins.
+- **A request in flight is never re-ranked or cancelled.** It cannot be usefully un-sent and its
+  bytes are wanted either way. Lowering `maxConcurrentRequests` therefore only narrows what
+  starts next.
+- `activeRequestCount` / `pendingRequestCount` are exposed so a host or the harness can see the
+  queue working rather than infer it.
+
+`lazy` assets already loaded on reference (a read fetches), and `Resources.prefetch` landed with
+Stage 1 — so this completes the engine side of Stage 2.
+
+**Not done:** the throttled-network and initial-bytes measurements, which need a streamed build
+of a real scenario. Nothing here reorders *decode* work, only fetches.
+
 ### Stage 3 — LOD streaming (the headline)
 - Editor pipeline emits per-asset LOD variants (KTX2 + mip levels; mesh decimation).
 - `LODGroup` (+ streaming path) fetches/upgrades asset LOD by on-screen size + VRAM budget;

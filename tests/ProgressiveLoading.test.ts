@@ -164,6 +164,202 @@ describe("Resources.prefetch", () => {
     });
 });
 
+describe("StreamingAssetSource — priority queue", () => {
+    /** A fetch whose every response is held open until the test releases it. */
+    function gatedFetch() {
+        const started: string[] = [];
+        const gates = new Map<string, (body: string) => void>();
+
+        const impl: FetchLike = (url: string) => {
+            started.push(url);
+            return new Promise<Response>(resolve => {
+                gates.set(url, (body: string) => {
+                    const bytes = new TextEncoder().encode(body);
+                    resolve({
+                        ok: true,
+                        status: 200,
+                        arrayBuffer: async () => bytes.buffer.slice(0),
+                    } as unknown as Response);
+                });
+            });
+        };
+
+        return {
+            impl,
+            started,
+            /** Lets one in-flight request finish, then drains the microtask queue. */
+            async release(url: string) {
+                gates.get(url)!("ok");
+                gates.delete(url);
+                await vi.waitFor(() => expect(gates.size).toBeGreaterThanOrEqual(0));
+                for (let i = 0; i < 8; i++) await Promise.resolve();
+            },
+        };
+    }
+
+    const priorities = ["critical", "high", "low", "lazy"] as const;
+
+    function makeSource(maxConcurrentRequests: number) {
+        const fetcher = gatedFetch();
+        const source = new StreamingAssetSource(
+            parseStreamingManifest({
+                schema: 1, id: "x",
+                assets: [
+                    { path: "data/filler.json", priority: "high", lods: [{ url: "filler.json" }] },
+                    ...priorities.map(p => ({
+                        path: `data/${p}.json`,
+                        priority: p,
+                        lods: [{ url: `${p}.json` }],
+                    })),
+                ],
+            }),
+            {
+                baseUrl: "https://cdn.test/a/",
+                fetch: fetcher.impl,
+                maxConcurrentRequests,
+            },
+        );
+        return { source, fetcher };
+    }
+
+    const url = (name: string) => `https://cdn.test/a/${name}.json`;
+
+    test("no more requests are in flight than the cap allows", async () => {
+        const { source, fetcher } = makeSource(2);
+
+        void source.readBytes("data/critical.json");
+        void source.readBytes("data/high.json");
+        void source.readBytes("data/low.json");
+        void source.readBytes("data/lazy.json");
+        await Promise.resolve();
+
+        expect(fetcher.started).toHaveLength(2);
+        expect(source.activeRequestCount).toBe(2);
+        expect(source.pendingRequestCount).toBe(2);
+    });
+
+    test("queued speculative reads start in priority order, not submission order", async () => {
+        const { source, fetcher } = makeSource(1);
+
+        // The first submission takes the only slot; the rest queue.
+        void source.readBytes("data/filler.json", { speculative: true });
+        await Promise.resolve();
+        void source.readBytes("data/lazy.json", { speculative: true });
+        void source.readBytes("data/low.json", { speculative: true });
+        void source.readBytes("data/critical.json", { speculative: true });
+        void source.readBytes("data/high.json", { speculative: true });
+        await Promise.resolve();
+
+        expect(fetcher.started).toEqual([url("filler")]);
+
+        await fetcher.release(url("filler"));
+        expect(fetcher.started[1]).toBe(url("critical"));
+
+        await fetcher.release(url("critical"));
+        expect(fetcher.started[2]).toBe(url("high"));
+
+        await fetcher.release(url("high"));
+        expect(fetcher.started[3]).toBe(url("low"));
+
+        await fetcher.release(url("low"));
+        expect(fetcher.started[4]).toBe(url("lazy"));
+    });
+
+    test("a real read overtakes speculation, whatever the manifest calls it", async () => {
+        // The declared priority says how eagerly to preload; an actual read is
+        // something waiting. A `lazy` asset the scenario asked for must not
+        // queue behind speculative `critical` work.
+        const { source, fetcher } = makeSource(1);
+
+        void source.readBytes("data/filler.json", { speculative: true });
+        await Promise.resolve();
+        void source.readBytes("data/critical.json", { speculative: true });
+        void source.readBytes("data/lazy.json");
+        await Promise.resolve();
+
+        await fetcher.release(url("filler"));
+
+        expect(fetcher.started[1]).toBe(url("lazy"));
+    });
+
+    test("a queued request is promoted when something asks for it for real", async () => {
+        const { source, fetcher } = makeSource(1);
+
+        void source.readBytes("data/filler.json", { speculative: true });
+        await Promise.resolve();
+        void source.readBytes("data/low.json", { speculative: true });
+        void source.readBytes("data/critical.json", { speculative: true });
+        await Promise.resolve();
+
+        // `critical` would be next — until `low` is genuinely demanded.
+        void source.readBytes("data/low.json");
+        await Promise.resolve();
+
+        await fetcher.release(url("filler"));
+
+        expect(fetcher.started[1]).toBe(url("low"));
+        // Promotion must not turn one asset into two requests.
+        expect(fetcher.started.filter(u => u === url("low"))).toHaveLength(1);
+    });
+
+    test("waiters on one URL share a single request, queued or in flight", async () => {
+        const { source, fetcher } = makeSource(1);
+
+        const a = source.readText("data/critical.json");
+        const b = source.readText("data/critical.json", { speculative: true });
+        await Promise.resolve();
+
+        await fetcher.release(url("critical"));
+
+        expect(await a).toBe("ok");
+        expect(await b).toBe("ok");
+        expect(fetcher.started).toHaveLength(1);
+        expect(source.requestCount).toBe(1);
+    });
+
+    test("a slot is released even when its request fails, and every waiter sees it", async () => {
+        const fetcher = fakeFetch({});
+        const source = new StreamingAssetSource(
+            parseStreamingManifest({
+                schema: 1, id: "x",
+                assets: [
+                    { path: "a.json", lods: [{ url: "a.json" }] },
+                    { path: "b.json", lods: [{ url: "b.json" }] },
+                ],
+            }),
+            { baseUrl: "https://cdn.test/a/", fetch: fetcher.impl, maxConcurrentRequests: 1 },
+        );
+
+        const first = source.readBytes("a.json");
+        const alsoFirst = source.readBytes("a.json");
+
+        await expect(first).rejects.toThrow(/404/);
+        await expect(alsoFirst).rejects.toThrow(/404/);
+
+        // The failure must not strand the slot, or the queue deadlocks.
+        await expect(source.readBytes("b.json")).rejects.toThrow(/404/);
+        expect(source.activeRequestCount).toBe(0);
+        expect(source.pendingRequestCount).toBe(0);
+    });
+
+    test("raising the cap starts queued work; lowering it cancels nothing", async () => {
+        const { source, fetcher } = makeSource(1);
+
+        void source.readBytes("data/critical.json", { speculative: true });
+        void source.readBytes("data/high.json", { speculative: true });
+        void source.readBytes("data/low.json", { speculative: true });
+        await Promise.resolve();
+        expect(fetcher.started).toHaveLength(1);
+
+        source.maxConcurrentRequests = 3;
+        await Promise.resolve();
+        expect(fetcher.started).toHaveLength(3);
+
+        source.maxConcurrentRequests = 1;
+        expect(source.activeRequestCount).toBe(3);
+    });
+});
+
 describe("Scenario — deferred loading after the first frame", () => {
     const manifestUrl = "https://cdn.test/s/scenario.json";
 

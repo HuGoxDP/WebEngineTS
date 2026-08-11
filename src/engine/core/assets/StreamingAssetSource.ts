@@ -1,4 +1,4 @@
-import type { IAssetSource } from "./Resources";
+import type { AssetReadOptions, IAssetSource } from "./Resources";
 import {
     AssetPriority, normalizeAssetPath, normalizeScriptPath, parseStreamingManifest,
 } from "./StreamingManifest";
@@ -23,6 +23,52 @@ export interface StreamingAssetSourceOptions {
     baseUrl?: string;
     /** Fetch implementation. Defaults to the global one. */
     fetch?: FetchLike;
+    /**
+     * How many requests may be in flight at once. Defaults to 6.
+     *
+     * @remarks
+     * The browser caps this per host anyway; setting it here is what gives the
+     * source a *queue* to order, which is the point — without one, priority has
+     * nothing to act on because every request has already been issued.
+     */
+    maxConcurrentRequests?: number;
+}
+
+/**
+ * Where a queued request sits. Lower runs sooner.
+ *
+ * @remarks
+ * `Demand` is above every declared priority on purpose: a manifest priority
+ * says how eagerly to *preload*, while an actual read is something waiting.
+ * A `lazy` asset the scenario just asked for must not queue behind two hundred
+ * speculative `low` fetches.
+ *
+ * @internal
+ */
+const enum _Rank {
+    Demand = 0,
+    Critical = 1,
+    High = 2,
+    Low = 3,
+    Lazy = 4,
+}
+
+const _RANK_BY_PRIORITY: Readonly<Record<AssetPriority, _Rank>> = Object.freeze({
+    [AssetPriority.Critical]: _Rank.Critical,
+    [AssetPriority.High]: _Rank.High,
+    [AssetPriority.Low]: _Rank.Low,
+    [AssetPriority.Lazy]: _Rank.Lazy,
+});
+
+/** One request waiting for a slot. */
+interface _QueuedRequest {
+    url: string;
+    path: string;
+    rank: _Rank;
+    /** Submission order, so equal ranks stay first-in-first-out. */
+    sequence: number;
+    resolve: (bytes: ArrayBuffer) => void;
+    reject: (error: unknown) => void;
 }
 
 /**
@@ -41,12 +87,18 @@ export interface StreamingAssetSourceOptions {
  * const earth = await Resources.load(Texture2D, "textures/earth");
  * ```
  *
+ * **Requests are scheduled, not just issued.** At most
+ * {@link maxConcurrentRequests} are in flight; the rest wait in a queue ordered
+ * by priority — a read the scenario is actually waiting on outranks every
+ * speculative preload, and a queued request is promoted when something asks for
+ * it for real. Without a queue, priority would have nothing to act on, because
+ * every request would already have been sent.
+ *
  * **What this stage does and does not do.** The manifest's LOD lists are read
  * and indexed, and {@link maxLodLevel} selects which one a read returns — but
  * nothing yet *upgrades* an asset from one level to the next as the camera
- * approaches; that is Stage 3. Priorities are parsed and exposed and nothing
- * orders fetches by them yet; that is Stage 2. Both are recorded rather than
- * invented later so a manifest written today stays correct.
+ * approaches; that is Stage 3, and it is the only part of the schema still
+ * recorded rather than acted on.
  *
  * A manifest that also declares `scripts` and an `entry` describes a whole
  * scenario rather than just its assets, and {@link Scenario.loadFromManifest}
@@ -71,7 +123,14 @@ export class StreamingAssetSource implements IAssetSource {
     /** In-flight fetches by resolved URL, so a repeated read is one request. */
     private readonly _inFlight: Map<string, Promise<ArrayBuffer>> = new Map();
 
+    /** Requests waiting for a slot, by resolved URL. */
+    private readonly _queued: Map<string, _QueuedRequest> = new Map();
+
     private readonly _blobUrls: string[] = [];
+
+    private _activeRequests: number = 0;
+    private _sequence: number = 0;
+    private _maxConcurrentRequests: number;
 
     private _bytesFetched: number = 0;
     private _requestCount: number = 0;
@@ -91,6 +150,7 @@ export class StreamingAssetSource implements IAssetSource {
         this._manifest = manifest;
         this._baseUrl = options.baseUrl ?? manifest.baseUrl;
         this._fetch = options.fetch ?? ((url: string) => globalThis.fetch(url));
+        this._maxConcurrentRequests = Math.max(1, options.maxConcurrentRequests ?? 6);
 
         for (const asset of manifest.assets) {
             this._byPath.set(asset.path, asset);
@@ -137,6 +197,26 @@ export class StreamingAssetSource implements IAssetSource {
 
     /** How many requests have been issued. */
     public get requestCount(): number { return this._requestCount; }
+
+    /** How many requests are in flight right now. */
+    public get activeRequestCount(): number { return this._activeRequests; }
+
+    /** How many requests are waiting for a slot. */
+    public get pendingRequestCount(): number { return this._queued.size; }
+
+    /**
+     * How many requests may be in flight at once.
+     *
+     * @remarks
+     * Raising it mid-run starts whatever the extra slots can take; lowering it
+     * does not cancel anything already sent, since a request in flight cannot
+     * be usefully un-sent and its bytes are wanted either way.
+     */
+    public get maxConcurrentRequests(): number { return this._maxConcurrentRequests; }
+    public set maxConcurrentRequests(value: number) {
+        this._maxConcurrentRequests = Math.max(1, Math.floor(value));
+        this._pump();
+    }
 
     /**
      * The asset identities this manifest declares.
@@ -185,7 +265,11 @@ export class StreamingAssetSource implements IAssetSource {
         if (!script) {
             throw new Error(`[StreamingAssetSource] Script not in the manifest: ${normalized}`);
         }
-        const bytes = await this._shared(this._resolveUrl(script.url), normalized);
+        // Demand rank always: pre-linking blocks the entry point, so nothing
+        // about a module is speculative.
+        const bytes = await this._shared(
+            this._resolveUrl(script.url), normalized, _Rank.Demand,
+        );
         return new TextDecoder().decode(bytes);
     }
 
@@ -227,18 +311,20 @@ export class StreamingAssetSource implements IAssetSource {
     }
 
     /** @internal */
-    public async readBytes(path: string): Promise<Uint8Array> {
-        return new Uint8Array(await this._read(path));
+    public async readBytes(path: string, options?: AssetReadOptions): Promise<Uint8Array> {
+        return new Uint8Array(await this._read(path, options?.speculative === true));
     }
 
     /** @internal */
-    public async readText(path: string): Promise<string> {
-        return new TextDecoder().decode(await this._read(path));
+    public async readText(path: string, options?: AssetReadOptions): Promise<string> {
+        return new TextDecoder().decode(
+            await this._read(path, options?.speculative === true),
+        );
     }
 
     /** @internal */
     public async getBlobUrl(path: string): Promise<string> {
-        const bytes = await this._read(path);
+        const bytes = await this._read(path, false);
         const blob = new Blob([bytes], { type: mimeTypeForPath(path) });
         const url = URL.createObjectURL(blob);
         this._blobUrls.push(url);
@@ -261,27 +347,86 @@ export class StreamingAssetSource implements IAssetSource {
 
     // ==================== PRIVATE ====================
 
-    private async _read(path: string): Promise<ArrayBuffer> {
+    private async _read(path: string, speculative: boolean): Promise<ArrayBuffer> {
         const normalized = normalizeAssetPath(path);
+        const asset = this._byPath.get(normalized);
         const lod = this._selectLod(normalized);
-        if (!lod) {
+        if (!asset || !lod) {
             throw new Error(`[StreamingAssetSource] Not in the manifest: ${normalized}`);
         }
-        return this._shared(this._resolveUrl(lod.url), normalized);
+
+        // A speculative read takes the asset's declared priority; a real one
+        // outranks every speculation regardless of what the manifest says.
+        const rank = speculative ? _RANK_BY_PRIORITY[asset.priority] : _Rank.Demand;
+
+        return this._shared(this._resolveUrl(lod.url), normalized, rank);
     }
 
-    /** One request per URL, however many callers are waiting on it. */
-    private async _shared(url: string, path: string): Promise<ArrayBuffer> {
+    /**
+     * One request per URL, however many callers are waiting on it, and never
+     * more than {@link maxConcurrentRequests} in flight.
+     *
+     * A URL already queued but not yet started is **promoted** when asked for
+     * again at a better rank — that is what lets a scenario's own read overtake
+     * the speculative queue it is sitting in. A request already in flight is
+     * left alone: it cannot be usefully un-sent, and its bytes are wanted.
+     */
+    private _shared(url: string, path: string, rank: _Rank): Promise<ArrayBuffer> {
+        // Queued is checked before in-flight: a queued URL is present in both,
+        // and it is the only one still worth re-ranking.
+        const queued = this._queued.get(url);
+        if (queued) {
+            if (rank < queued.rank) queued.rank = rank;
+            return this._inFlight.get(url)!;
+        }
+
         const pending = this._inFlight.get(url);
         if (pending) return pending;
 
-        const request = this._fetchBytes(url, path);
-        this._inFlight.set(url, request);
-        try {
-            return await request;
-        } finally {
-            this._inFlight.delete(url);
+        const promise = new Promise<ArrayBuffer>((resolve, reject) => {
+            this._queued.set(url, {
+                url, path, rank, sequence: this._sequence++, resolve, reject,
+            });
+        });
+        this._inFlight.set(url, promise);
+        this._pump();
+        return promise;
+    }
+
+    /** Starts as many queued requests as there are free slots, best rank first. */
+    private _pump(): void {
+        while (
+            this._activeRequests < this._maxConcurrentRequests &&
+            this._queued.size > 0
+        ) {
+            const next = this._takeBest();
+            if (!next) return;
+
+            this._activeRequests++;
+            this._fetchBytes(next.url, next.path)
+                .then(next.resolve, next.reject)
+                .finally(() => {
+                    this._activeRequests--;
+                    this._inFlight.delete(next.url);
+                    this._pump();
+                });
         }
+    }
+
+    /** Removes and returns the best-ranked queued request, FIFO within a rank. */
+    private _takeBest(): _QueuedRequest | null {
+        let best: _QueuedRequest | null = null;
+        for (const request of this._queued.values()) {
+            if (
+                best === null ||
+                request.rank < best.rank ||
+                (request.rank === best.rank && request.sequence < best.sequence)
+            ) {
+                best = request;
+            }
+        }
+        if (best) this._queued.delete(best.url);
+        return best;
     }
 
     private async _fetchBytes(url: string, path: string): Promise<ArrayBuffer> {

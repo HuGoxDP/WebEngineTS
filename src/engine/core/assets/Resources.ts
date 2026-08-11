@@ -17,6 +17,21 @@ import { AssetDatabase } from "./AssetDatabase";
  *
  * @internal — Engine-only. Scenario authors use Resources.
  */
+export interface AssetReadOptions {
+    /**
+     * Whether this read is speculative — wanted ahead of time, but nothing is
+     * waiting on it.
+     *
+     * @remarks
+     * A source that schedules its own requests uses this to rank them: a
+     * speculative read takes the asset's declared manifest priority, while a
+     * real one outranks every speculation, because the declared priority is a
+     * hint about *preloading* and an actual read is a demand. A source with
+     * nothing to schedule — a ZIP, already in memory — ignores it.
+     */
+    speculative?: boolean;
+}
+
 export interface IAssetSource {
     /** Check if a path exists in the source. */
     has(path: string): boolean;
@@ -25,7 +40,7 @@ export interface IAssetSource {
     list(prefix?: string): string[];
 
     /** Read raw bytes for a path. */
-    readBytes(path: string): Promise<Uint8Array>;
+    readBytes(path: string, options?: AssetReadOptions): Promise<Uint8Array>;
 
     /** Read as UTF-8 text. */
     readText(path: string): Promise<string>;
@@ -281,6 +296,21 @@ export class Resources {
         type: new (...args: any[]) => T,
         path: string,
     ): Promise<T> {
+        return Resources._load(type, path, false);
+    }
+
+    /**
+     * The body of {@link load}, plus whether the read is speculative.
+     *
+     * Kept private because `speculative` is a scheduling hint between
+     * {@link prefetch} and the source, not something a caller chooses: a
+     * scenario asking for an asset is by definition demanding it.
+     */
+    private static async _load<T>(
+        type: new (...args: any[]) => T,
+        path: string,
+        speculative: boolean,
+    ): Promise<T> {
         Resources._ensureSource();
 
         const entry = Resources._getDecoder(type);
@@ -305,7 +335,7 @@ export class Resources {
 
         // 3. Load and decode
         const loadPromise = (async () => {
-            const bytes = await Resources._source!.readBytes(fullPath);
+            const bytes = await Resources._source!.readBytes(fullPath, { speculative });
             const asset = await entry.decoder(bytes, fullPath, Resources._source!);
 
             Resources._cache.set(cacheKey, {
@@ -535,7 +565,10 @@ export class Resources {
                     );
                 } else {
                     try {
-                        await Resources.load(type, path);
+                        // Speculative: nothing is waiting on it, so a source
+                        // that schedules its own requests may rank it behind
+                        // anything the scenario actually asks for.
+                        await Resources._load(type, path, true);
                         Resources.releaseByPath(type, path);
                         warmed++;
                     } catch (error) {

@@ -15,7 +15,7 @@ Covers priorities, sequencing, resources and the metric that closes each item.
 | P1.4 Static batching / instancing | **Done** (2026-07-16) |
 | P1.5 LOD system | **Done** (2026-07-16) |
 | P1.6 WebGPU backend | Not started (unblocked: implement `RenderBackend`) |
-| P1.7 Asset streaming | Stage 0 engine half **done** (2026-08-11, incl. the manifest scenario loader); Stage 1 engine half **done** (2026-08-11) — measurement outstanding |
+| P1.7 Asset streaming | Stage 0 engine half **done** (2026-08-11, incl. the manifest scenario loader); Stages 1–2 engine halves **done** (2026-08-11) — measurement outstanding. This is what `testv/virtual-lab`'s Phase 6 / R8 gates on |
 | P2.8 Adapter generalization | **Done** (2026-08-10) — `RenderBackend` seam + `WebGLRenderBackend` |
 | P2.9 OffscreenCanvas | Not started |
 | Profiler v1 (phase timings + markers + overlay) | **Done** (f1b6876 → a0806e3) |
@@ -94,6 +94,22 @@ harness run — but it needs a *streamed build* of a real scenario (ScenarioCrea
 `scenario.json` beside the ZIP) and somewhere to serve it from. Until those exist the number
 cannot be produced, and the success metric below stays open. See
 `design/asset-streaming-proposal.md` for what landed and what did not.
+
+**Stage 2's engine half also landed 2026-08-11** (priority queue + bounded concurrency in
+`StreamingAssetSource`). That matters beyond this repo: `testv/virtual-lab` gates its Phase 6
+("streaming client") on the engine shipping *P1.7 Stages 1–2* — its `docs/roadmap.md` R8
+records `StreamingAssetSource` as absent from the installed build, checked 2026-08-02. Both
+stages now exist, so that gate is cleared **as soon as the platform gets a new tarball**. Its
+installed build is still `0.1.0-local.1785778939871` (2026-08-03), which predates this whole
+series; `npm run release:local` is what closes the gap.
+
+Two compatibility notes for whoever writes the platform's manifest endpoint:
+- The engine's schema addresses an asset by **`path`** (what scenario code loads it by) with an
+  optional `guid`, not by the `"id": "earth_albedo"` shown in this document's own §3.1 sketch.
+  A manifest emitting `id` instead of `path` fails validation at parse time.
+- `scripts` + `entry` are what make a manifest *runnable*; a manifest listing only assets is
+  still a valid asset source for `Resources.useSource`, and `toScenarioManifest` refuses it with
+  a message saying so.
 
 **P1-C. UI/Canvas round 2** — *~4–6 days*
 

@@ -781,10 +781,13 @@ Independent of 1–4, and of each other:
   runs, `high`/`low` after the first drawn frame, `lazy` never. `Scenario.timeToFirstFrame`
   reports the number on both paths, so a ZIP run and a streamed run are comparable.
 
+  Stage 2's engine half followed the same day: `StreamingAssetSource` schedules requests through
+  a bounded, priority-ordered queue instead of issuing them, with demand outranking every
+  speculative preload and a queued request promoted when something asks for it for real.
+
   **Still open, and mostly not in this repo:** the content-addressed store and the editor's
   publish step (platform + editor repos); a streamed build of a real scenario to measure
-  against; Stages 2–4 proper — priority *ordering*, LOD upgrade as the camera nears, and
-  cross-scenario dedup.
+  against; Stage 3 (LOD upgrade as the camera nears) and Stage 4 (cross-scenario dedup).
 
 ---
 
