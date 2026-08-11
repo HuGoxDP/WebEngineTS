@@ -143,10 +143,16 @@ export class Material extends EngineObject implements ITextureReferent {
         const oldMat = this._threeMatHandle;
         this._threeMatHandle = Material._createThreeMaterial(value);
 
-        // Preserve basic rendering state
-        this._threeMatHandle.transparent = oldMat.transparent;
+        // A new Three.js material starts at its own defaults, so everything the
+        // material was carrying has to be put back: render state first, then
+        // every property. Only `transparent` used to survive, which meant
+        // changing a shader silently dropped the material's colours, textures
+        // and cutout settings.
+        Material._copyRenderState(oldMat, this._threeMatHandle);
+        this._syncAllPropertiesToThree();
 
         oldMat.dispose();
+        this._threeMatHandle.needsUpdate = true;
     }
 
     /**
@@ -594,6 +600,59 @@ export class Material extends EngineObject implements ITextureReferent {
                 break;
         }
     }
+
+    /**
+     * @internal Re-applies every stored property to the Three.js material.
+     *
+     * Dispatches on the value's type, because each kind reaches Three.js by a
+     * different route. Used when the Three.js material is replaced wholesale
+     * and starts from its own defaults.
+     */
+    private _syncAllPropertiesToThree(): void {
+        for (const [propertyName, value] of this._properties) {
+            if (value instanceof Color) {
+                this._syncColorToThree(propertyName, value);
+            } else if (typeof value === "number") {
+                this._syncFloatToThree(propertyName, value);
+            } else if (value === null || value instanceof Texture) {
+                this._syncTextureToThree(propertyName, value);
+            } else {
+                // Vector4 and Matrix4x4 exist only as custom-shader uniforms.
+                this._syncUniform(propertyName, value);
+            }
+        }
+    }
+
+    /**
+     * @internal Carries render state across a Three.js material replacement.
+     *
+     * @remarks
+     * Only fields declared on Three.js' `Material` base class are copied — they
+     * mean the same thing whatever the concrete type is, whereas a
+     * `MeshStandardMaterial` field copied onto a `MeshBasicMaterial` would not.
+     * Type-specific values are restored from the engine's own properties
+     * instead, by {@link _syncAllPropertiesToThree}.
+     *
+     * This is what preserves `StandardMaterial.renderMode` and `alphaCutoff`
+     * across a shader change: both are stored engine-side as `_Mode` / `_Cutoff`
+     * but take effect purely as `transparent` / `alphaTest` / `depthWrite`,
+     * which no property sync would put back.
+     */
+    private static _copyRenderState(from: THREE.Material, to: THREE.Material): void {
+        for (const field of Material._RENDER_STATE_FIELDS) {
+            (to as unknown as Record<string, unknown>)[field] =
+                (from as unknown as Record<string, unknown>)[field];
+        }
+    }
+
+    /** Render-state fields shared by every Three.js material type. */
+    private static readonly _RENDER_STATE_FIELDS: readonly string[] = Object.freeze([
+        "transparent", "opacity", "alphaTest", "alphaToCoverage",
+        "depthTest", "depthWrite", "colorWrite",
+        "side", "shadowSide", "visible",
+        "blending", "premultipliedAlpha", "toneMapped", "vertexColors", "dithering",
+        "polygonOffset", "polygonOffsetFactor", "polygonOffsetUnits",
+    ]);
 
     /**
      * @internal Syncs a texture property to the Three.js material.
