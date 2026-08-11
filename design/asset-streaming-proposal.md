@@ -155,16 +155,69 @@ Three decisions worth keeping:
 priority (Stage 2) and nothing upgrades an asset as the camera nears (Stage 3); `maxLodLevel`
 caps quality globally in the meantime, which is useful on its own for a low-memory device.
 
-**Not done, and the honest remainder of Stage 0:** a manifest-driven *scenario* loader.
-`Scenario` pre-links scripts out of the ZIP (`_prelinkAllScripts`, `_createRewrittenBlobUrl`),
-so running a scenario from a manifest needs that path to fetch scripts by URL too. The storage
-and publish halves live in the platform and editor repos, not here.
+**Stage 0 engine half complete 2026-08-11** — the manifest-driven *scenario* loader landed.
+The seam is where a scenario's **scripts** come from, not a second loader: `IScenarioScriptSource`
+(`listScripts` + `readScript`) is satisfied by both `ZipAssetSource` and `StreamingAssetSource`,
+so pre-linking, the entry-point brand check, the context an entry point receives and every
+`Resources` call from scenario code are shared verbatim. Entry points:
+`Scenario.loadFromManifestUrl` / `Application.loadScenarioFromManifest`.
+
+Three decisions worth keeping:
+
+- **`ScenarioAssets` now sits on an `IAssetSource`** instead of owning a JSZip. That is what
+  makes the expensive, Three.js-facing half — GLTF import, material conversion, texture
+  decoding — shared rather than duplicated for streaming. Its ZIP half moved out into
+  `ZipAssetSource`; a JSZip is still accepted and wrapped, so nothing downstream changed.
+- **Scripts are not part of the `IAssetSource` face.** `has`/`list` stay asset-only: `Resources`
+  decodes assets into engine objects, and a module is neither decodable that way nor something
+  scenario code should reach by path.
+- **Every module is fetched during pre-linking, none deferred.** The import graph has to be
+  fully rewritten before any of it runs, so a lazily loaded module is not expressible — unlike
+  an asset, which is what Stage 1 defers.
+
+The manifest schema gained `scripts`, `entry`, `name` and `description`; `toScenarioManifest`
+converts one into the `IScenarioManifest` the loader already speaks. The two manifests are
+deliberately **not** merged: a streaming manifest says *where the bytes are*, a scenario
+manifest says *what the content is and how to start it*.
+
+**Still not done, and outside this repo:** the content-addressed store, the storage migration
+off Google Drive, and the editor's publish step.
 
 ### Stage 1 — Progressive first paint (critical vs. deferred)
 - Manifest marks assets `critical` vs. deferred; loader shows the scene after scripts +
   critical assets, then loads the rest after the first frame.
 - **Done when:** time-to-first-frame drops materially on Scene 3 / real scenarios (measured);
   no visual regressions once fully loaded.
+
+**Engine half done 2026-08-11.** `Resources.prefetch(paths, { concurrency, onProgress })` warms
+the decoded-asset cache by choosing each decoder from the path's extension, so a manifest's
+asset list can be preloaded with no type token. `Scenario` uses it twice: `critical` assets are
+warmed inside `run()` **before** the entry point runs, so `awake()`'s own `Resources.load` calls
+hit a cache instead of the network; `high` then `low` are fetched from `_onFrameRendered`, which
+`Application._loop` calls after each frame and which acts only on the first. `lazy` is never
+preloaded — reading one already fetches it, and preloading it would make the declaration
+meaningless.
+
+Decisions worth keeping:
+
+- **A prefetch is not a use.** Each asset's own reference is released once decoded, so it sits
+  cached at zero references: a later `load` finds it warm, and `unloadUnused` can still reclaim
+  it if nothing ever asked. Otherwise every optimistically fetched asset would be pinned for the
+  lifetime of the scenario.
+- **Failures are per-asset, not per-batch** — the same reason `tryLoad` exists. One missing
+  texture must not cancel the other forty. A background pass also stops early if the scenario
+  unloaded under it, rather than failing once per remaining asset.
+- **The loop reports every frame; the scenario decides what "first" means.** `_onFrameRendered`
+  is idempotent, so `Application._loop` carries no scenario state.
+- **ZIP scenarios are untouched.** An archive is already in memory, so there is nothing to defer
+  and no preload to gain; the streaming path is the only one with a decision to make.
+
+`Scenario.timeToFirstFrame` (ms from `run()` to the first drawn frame, `-1` before) is reported
+on **both** paths — that is what makes a ZIP run and a streamed run of the same content
+comparable, and it is the number this stage exists to move.
+
+**Not done:** the measurement itself. The A/B on Scene 3 belongs to the harness in
+WebEngineTS-Benchmarks, and needs a streamed build of a real scenario to run against.
 
 ### Stage 2 — On-demand + preload (priority streaming)
 - Priority queue + bounded concurrency; `Resources.prefetch`; `lazy` assets load on reference.

@@ -470,6 +470,88 @@ export class Resources {
         });
     }
 
+    /**
+     * Warms the cache for a set of paths without claiming the assets.
+     *
+     * Each path's decoder is chosen by extension, so no type token is needed —
+     * which is what lets a manifest's asset list be preloaded directly.
+     *
+     * @param paths — asset paths, with or without the `assets/` prefix.
+     * @param options — concurrency cap and progress callback.
+     * @returns how many assets were successfully warmed.
+     *
+     * @remarks
+     * **A prefetch is not a use.** Each asset's own reference is released again
+     * once decoded, so it sits in the cache at zero references: a later
+     * {@link load} finds it warm, and {@link unloadUnused} can still reclaim it
+     * if nothing ever asked. Preloading would otherwise pin every optimistically
+     * fetched asset for the lifetime of the scenario.
+     *
+     * Failures are per-asset, not per-batch — the same reason {@link tryLoad}
+     * exists. One missing texture must not cancel the other forty.
+     *
+     * Paths are fetched in the order given, `concurrency` at a time. That order
+     * is the caller's; the priority *queue* that reorders in-flight work, and
+     * `lazy` handling, are Stage 2 of `design/asset-streaming-proposal.md`.
+     *
+     * @example
+     * ```ts
+     * // Warm everything the first frame needs before building the scene.
+     * await Resources.prefetch(source.pathsByPriority(AssetPriority.Critical));
+     * ```
+     */
+    public static async prefetch(
+        paths: readonly string[],
+        options: {
+            /** Maximum simultaneous loads. Defaults to 6. */
+            concurrency?: number;
+            /** Called after each path settles, successfully or not. */
+            onProgress?: (completed: number, total: number) => void;
+        } = {},
+    ): Promise<number> {
+        Resources._ensureSource();
+
+        const total = paths.length;
+        if (total === 0) return 0;
+
+        const concurrency = Math.max(1, Math.min(options.concurrency ?? 6, total));
+        let next = 0;
+        let completed = 0;
+        let warmed = 0;
+
+        const worker = async (): Promise<void> => {
+            while (next < total) {
+                // A background prefetch outlives nothing: if the scenario that
+                // asked for it unloaded, stop rather than failing per asset.
+                if (!Resources.hasSource) return;
+
+                const path = paths[next++];
+                const type = Resources._decoderTypeForPath(path);
+
+                if (type === null) {
+                    console.warn(
+                        `[Resources] Prefetch skipped "${path}" — no decoder is ` +
+                        `registered for its extension.`
+                    );
+                } else {
+                    try {
+                        await Resources.load(type, path);
+                        Resources.releaseByPath(type, path);
+                        warmed++;
+                    } catch (error) {
+                        console.warn(`[Resources] Prefetch failed for "${path}":`, error);
+                    }
+                }
+
+                completed++;
+                options.onProgress?.(completed, total);
+            }
+        };
+
+        await Promise.all(Array.from({ length: concurrency }, worker));
+        return warmed;
+    }
+
     // ==================== MEMORY MANAGEMENT ====================
 
     /**
@@ -654,6 +736,24 @@ export class Resources {
 
         // Fallback to exact path (will error at readBytes if missing)
         return basePath;
+    }
+
+    /**
+     * The asset type whose decoder claims a path's extension.
+     *
+     * When two decoders claim one extension the most recently registered wins,
+     * which is also how {@link registerDecoder} lets a custom decoder override
+     * a built-in one.
+     */
+    private static _decoderTypeForPath(path: string): (new (...args: any[]) => unknown) | null {
+        const ext = Resources._extname(path).toLowerCase();
+        if (ext === "") return null;
+
+        let match: Function | null = null;
+        for (const [type, entry] of Resources._decoders) {
+            if (entry.extensions.some(e => e.toLowerCase() === ext)) match = type;
+        }
+        return match as (new (...args: any[]) => unknown) | null;
     }
 
     /** Extracts file extension (including dot). */

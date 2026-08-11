@@ -16,7 +16,7 @@ import { Resources, type IAssetSource } from "../assets/Resources.ts";
 import { ZipAssetSource } from "../assets/ZipAssetSource.ts";
 import { StreamingAssetSource } from "../assets/StreamingAssetSource.ts";
 import type { StreamingAssetSourceOptions } from "../assets/StreamingAssetSource.ts";
-import { toScenarioManifest } from "../assets/StreamingManifest.ts";
+import { AssetPriority, toScenarioManifest } from "../assets/StreamingManifest.ts";
 /**
  * Regex to match ES module import/export specifiers.
  *
@@ -110,6 +110,23 @@ export class Scenario extends EngineObject {
     /** Where script modules are read from. Null until loaded, and after unload. */
     private _scripts: IScenarioScriptSource | null = null;
 
+    /**
+     * The streaming source, when this scenario came from a manifest.
+     *
+     * Null for a ZIP, which is what switches off progressive loading: an
+     * archive is already in memory, so there is nothing to defer.
+     */
+    private _streaming: StreamingAssetSource | null = null;
+
+    /** When {@link run} began, for {@link timeToFirstFrame}. */
+    private _runStartTime: number = 0;
+
+    /** Milliseconds from {@link run} to the first rendered frame; -1 until then. */
+    private _timeToFirstFrame: number = -1;
+
+    /** Whether the post-first-frame loading pass has been kicked off. */
+    private _deferredLoadStarted: boolean = false;
+
     /** Current lifecycle state. */
     private _loadState: ScenarioLoadState = ScenarioLoadState.Unloaded;
 
@@ -169,6 +186,21 @@ export class Scenario extends EngineObject {
      */
     public get assets(): ScenarioAssets | null {
         return this._assets;
+    }
+
+    /**
+     * Milliseconds from {@link run} to the first frame that reached the screen,
+     * or `-1` before that has happened.
+     *
+     * @remarks
+     * The number progressive loading exists to move: with a manifest, only the
+     * scripts and the assets marked `critical` stand between `run()` and the
+     * first paint, and everything else is fetched afterwards. Measuring it here
+     * rather than in the host means a ZIP run and a streamed run of the same
+     * content report it the same way, which is what makes the two comparable.
+     */
+    public get timeToFirstFrame(): number {
+        return this._timeToFirstFrame;
     }
 
     // ==================== PUBLIC: PROGRESS ====================
@@ -317,6 +349,7 @@ export class Scenario extends EngineObject {
             this._updateProgress(ScenarioLoadState.Loading, 0.8, "Preparing assets...");
 
             this._adopt(source, source);
+            this._streaming = source;
 
             this._updateProgress(ScenarioLoadState.Ready, 1, "Ready");
 
@@ -403,6 +436,9 @@ export class Scenario extends EngineObject {
 
         Scenario._current = this;
         this._loadState = ScenarioLoadState.Running;
+        this._runStartTime = performance.now();
+        this._timeToFirstFrame = -1;
+        this._deferredLoadStarted = false;
 
         try {
             // Create a dedicated scene for this scenario
@@ -413,6 +449,10 @@ export class Scenario extends EngineObject {
 
             // Activate asset source for Resources API
             this._assets!._activateAsResourceSource(this._manifest.assets);
+
+            // Warm what the first frame needs, before the entry point asks for
+            // it — so awake()'s own loads hit a cache instead of the network.
+            await this._preloadCriticalAssets();
 
             // Build the context that the entry point receives
             const context = this._createContext();
@@ -457,6 +497,81 @@ export class Scenario extends EngineObject {
         if (this._entryPoint) {
             this._entryPoint._systemLateUpdate();
         }
+    }
+
+    /**
+     * @internal — called by the game loop after a frame has been drawn.
+     *
+     * Idempotent: only the first call does anything. The loop reports every
+     * frame and the decision of what "first" means lives here, so the loop
+     * stays free of scenario state.
+     */
+    public _onFrameRendered(): void {
+        if (this._timeToFirstFrame >= 0) return;
+
+        this._timeToFirstFrame = performance.now() - this._runStartTime;
+        this._startDeferredLoading();
+    }
+
+    // ==================== PRIVATE: PROGRESSIVE LOADING ====================
+
+    /**
+     * Loads the assets marked `critical` before the entry point runs.
+     *
+     * @remarks
+     * Only streamed scenarios have anything to do here: a ZIP is already in
+     * memory, so its assets cost a decompression whenever they are asked for
+     * and nothing is gained by asking earlier.
+     */
+    private async _preloadCriticalAssets(): Promise<void> {
+        if (!this._streaming) return;
+
+        const paths = this._streaming.pathsByPriority(AssetPriority.Critical);
+        if (paths.length === 0) return;
+
+        this._reportProgress(0, `Loading ${paths.length} critical asset(s)...`);
+
+        const warmed = await Resources.prefetch(paths, {
+            onProgress: (completed, total) => this._reportProgress(
+                completed / total, `Loading critical assets (${completed}/${total})...`,
+            ),
+        });
+
+        console.log(`[Scenario] Critical assets ready: ${warmed}/${paths.length}`);
+    }
+
+    /**
+     * Starts fetching everything that was deferred past the first frame.
+     *
+     * @remarks
+     * Fire-and-forget by design: the scene is already on screen and correct
+     * without these, so a failure degrades quality rather than breaking the
+     * run — which is why it logs instead of throwing.
+     *
+     * `lazy` assets are deliberately excluded. They are the ones declared as
+     * "fetch only if something actually asks", and reading one already fetches
+     * it; preloading them here would make the declaration meaningless.
+     */
+    private _startDeferredLoading(): void {
+        if (this._deferredLoadStarted || !this._streaming) return;
+        this._deferredLoadStarted = true;
+
+        const paths = [
+            ...this._streaming.pathsByPriority(AssetPriority.High),
+            ...this._streaming.pathsByPriority(AssetPriority.Low),
+        ];
+        if (paths.length === 0) return;
+
+        console.log(
+            `[Scenario] First frame at ${this._timeToFirstFrame.toFixed(1)} ms; ` +
+            `loading ${paths.length} deferred asset(s).`
+        );
+
+        void Resources.prefetch(paths)
+            .then(warmed => console.log(
+                `[Scenario] Deferred assets ready: ${warmed}/${paths.length}`
+            ))
+            .catch(error => console.warn("[Scenario] Deferred loading failed:", error));
     }
 
     // ==================== PUBLIC: UNLOADING ====================
@@ -509,7 +624,10 @@ export class Scenario extends EngineObject {
         // 5. Release the script source and manifest. The asset source behind it
         //    was already disposed with the provider in step 3.
         this._scripts = null;
+        this._streaming = null;
         this._manifest = null;
+        this._timeToFirstFrame = -1;
+        this._deferredLoadStarted = false;
 
         // 6. Update state
         this._loadState = ScenarioLoadState.Unloaded;
@@ -888,6 +1006,21 @@ export class Scenario extends EngineObject {
                 error,
             });
         }
+    }
+
+    /**
+     * Reports progress without moving the lifecycle state.
+     *
+     * Used by the asset passes inside {@link run}: the scenario genuinely is
+     * `Running` while it warms its critical assets, and reporting `Loading`
+     * again would make `isLoaded` briefly disagree with itself.
+     */
+    private _reportProgress(progress: number, operation: string): void {
+        this._onProgressCallback?.({
+            state: this._loadState,
+            progress,
+            currentOperation: operation,
+        });
     }
 
     // ==================== PRIVATE: VALIDATION ====================

@@ -772,10 +772,19 @@ Independent of 1–4, and of each other:
   but nothing upgrades an asset as the camera nears (Stage 3). Writing them into the schema now
   means a manifest written today stays correct then.
 
-  **Still open, and mostly not in this repo:** the manifest-driven *scenario* loader (scripts
-  are pre-linked out of the ZIP by `Scenario`, so a streamed scenario needs that path too);
-  the content-addressed store and the editor's publish step (platform + editor repos); Stages
-  1–4 proper.
+  **Update 2026-08-11 — Stage 0's remainder and Stage 1's engine half both landed.** The
+  manifest-driven *scenario* loader exists: `IScenarioScriptSource` is the seam, satisfied by
+  `ZipAssetSource` and `StreamingAssetSource` alike, so pre-linking and the entry-point
+  contract are shared rather than forked. `ScenarioAssets` moved onto an `IAssetSource`, which
+  is what lets the GLTF/material/texture half serve both shapes. Stage 1 added
+  `Resources.prefetch` plus two passes in `Scenario`: `critical` warmed before the entry point
+  runs, `high`/`low` after the first drawn frame, `lazy` never. `Scenario.timeToFirstFrame`
+  reports the number on both paths, so a ZIP run and a streamed run are comparable.
+
+  **Still open, and mostly not in this repo:** the content-addressed store and the editor's
+  publish step (platform + editor repos); a streamed build of a real scenario to measure
+  against; Stages 2–4 proper — priority *ordering*, LOD upgrade as the camera nears, and
+  cross-scenario dedup.
 
 ---
 

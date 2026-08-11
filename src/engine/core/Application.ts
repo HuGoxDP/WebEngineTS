@@ -669,6 +669,13 @@ export class Application {
         // 8. UI Canvas render (overlay, after 3D scene)
         Canvas._renderAll();
 
+        // 8a. Tell the scenario a frame reached the screen. It uses the first
+        //     one to start loading whatever was deferred past first paint —
+        //     the decision lives there, so the loop needs no scenario state.
+        if (scenarioRunning) {
+            scenario!._onFrameRendered();
+        }
+
         const renderMs = performance.now() - tRenderStart;
 
         // 9. Reset per-frame input state
