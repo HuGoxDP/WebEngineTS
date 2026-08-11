@@ -27,6 +27,8 @@ export { Transform } from "./core/Transform";
 export { Scene } from "./core/Scene";
 export { SceneManager, LoadSceneMode } from "./core/SceneManager";
 export { Application, GraphicsPowerPreference } from "./core/Application";
+export { BuildInfo } from "./core/BuildInfo";
+export type { IEngineBuildInfo } from "./core/BuildInfo";
 export { GraphicsAPI } from "./core/rendering/RenderBackend";
 export type {
     RenderBackend, RenderBackendOptions, RenderBackendStats,
@@ -115,7 +117,7 @@ export { Ray } from "./core/math/Ray";
 // ASSETS (Unity-style Resources API)
 // =====================
 export { Resources } from "./core/assets/Resources";
-export type { IAssetSource } from "./core/assets/Resources";
+export type { AssetReadOptions, IAssetSource } from "./core/assets/Resources";
 export { LoadHandle } from "./core/assets/LoadHandle";
 export { AssetDatabase } from "./core/assets/AssetDatabase";
 export type { AssetEntry } from "./core/assets/AssetDatabase";
@@ -356,6 +358,7 @@ import { Transform } from "./core/Transform";
 import { Scene } from "./core/Scene";
 import { SceneManager } from "./core/SceneManager";
 import { Application, GraphicsPowerPreference } from "./core/Application";
+import { BuildInfo } from "./core/BuildInfo";
 import { GraphicsAPI } from "./core/rendering/RenderBackend";
 import { WebGLRenderBackend } from "./core/rendering/WebGLRenderBackend";
 import { Time } from "./core/Time";
@@ -542,7 +545,7 @@ import { ScenarioCategory, ScenarioLoadState } from "./core/scenario/ScenarioTyp
 const WebEngineTS = {
     // Core
     GameObject, Component, Transform, Scene, SceneManager,
-    Application, GraphicsPowerPreference, GraphicsAPI, WebGLRenderBackend,
+    Application, GraphicsPowerPreference, GraphicsAPI, WebGLRenderBackend, BuildInfo,
     Time, EngineSettings, Behaviour, ScriptableBehaviour,
     EngineObject, Input, KeyCode,
     Gamepad, GamepadState, GamepadButton,

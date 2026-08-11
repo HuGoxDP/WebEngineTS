@@ -9,6 +9,8 @@ import { Input } from "./Input.ts";
 import { Scenario } from "./scenario";
 import type { IScenarioLoadProgress } from "./scenario";
 import type { StreamingAssetSourceOptions } from "./assets/StreamingAssetSource.ts";
+import { BuildInfo } from "./BuildInfo.ts";
+import type { IEngineBuildInfo } from "./BuildInfo.ts";
 import { Transform } from "./Transform.ts";
 import { Physics } from "../physics/Physics.ts";
 import { Animation } from "./animation/Animation.ts";
@@ -92,8 +94,19 @@ export class Application {
         return Application._instance;
     }
 
-    /** Engine version string. */
-    public static readonly version: string = "0.1.0";
+    /**
+     * Engine version string.
+     *
+     * @remarks
+     * Stamped from `package.json` at build time rather than written here, so it
+     * cannot drift from the package a consumer installed. It identifies a
+     * *release*, not a build — see {@link BuildInfo} for `builtAt`, which is
+     * what tells two bundles of the same version apart.
+     */
+    public static readonly version: string = BuildInfo.version;
+
+    /** Identity of the engine build this Application belongs to. */
+    public static readonly buildInfo: IEngineBuildInfo = BuildInfo;
 
     /**
      * GPU power-preference hint for the WebGL context. Set this **before**

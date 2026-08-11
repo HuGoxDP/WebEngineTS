@@ -15,10 +15,60 @@
 //
 // ============================================
 
+import { readFileSync } from "node:fs";
 import typescript from "@rollup/plugin-typescript";
 import resolve from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
 import dts from "rollup-plugin-dts";
+
+// ─── Build identity ───
+// Stamped into src/engine/core/BuildInfo.ts so the running engine can name
+// itself. The version is single-sourced from package.json — it used to be a
+// string literal in Application, maintained by hand beside it and free to
+// drift. WEBENGINE_BUILD_VERSION overrides it, so a packaging script that
+// stamps a temporary version can pass the same value in here.
+//
+// The *timestamp* is what actually identifies a build: this repo keeps the
+// version pinned at 0.1.0 between real releases while the content changes on
+// every local pack, so two very different bundles still agree on their version.
+const pkg = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+);
+const BUILD_VERSION = process.env.WEBENGINE_BUILD_VERSION || pkg.version;
+const BUILD_TIMESTAMP = new Date().toISOString();
+
+const BUILD_INFO_MODULE = "src/engine/core/BuildInfo.ts";
+const VERSION_TOKEN = '"__WEBENGINE_VERSION__"';
+const BUILT_AT_TOKEN = '"__WEBENGINE_BUILT_AT__"';
+
+function stampBuildInfo() {
+  return {
+    name: "stamp-build-info",
+    // Note: this runs *after* @rollup/plugin-typescript has compiled the
+    // module, regardless of where it sits in the plugin array — so it matches
+    // bare string literals, which survive compilation, rather than a
+    // declaration whose type annotation does not.
+    transform(code, id) {
+      if (!id.replace(/\\/g, "/").endsWith(BUILD_INFO_MODULE)) return null;
+
+      if (!code.includes(VERSION_TOKEN) || !code.includes(BUILT_AT_TOKEN)) {
+        this.error(
+          `[stamp-build-info] ${BUILD_INFO_MODULE} no longer contains the ` +
+          `expected placeholders. A build that silently skipped stamping would ` +
+          `report itself as running from source forever.`,
+        );
+      }
+
+      const stamped = code
+        .replace(VERSION_TOKEN, JSON.stringify(BUILD_VERSION))
+        .replace(BUILT_AT_TOKEN, JSON.stringify(BUILD_TIMESTAMP));
+
+      // Both replacements stay on their own lines, so every other mapping is
+      // unaffected; returning no map costs only those two lines' columns.
+      return { code: stamped, map: null };
+    },
+  };
+}
 
 // ─── Shared: mark three as external for npm builds ───
 const external = [
@@ -61,6 +111,7 @@ function onwarn(warning, defaultHandler) {
 // ─── Shared plugins ───
 function buildPlugins() {
   return [
+    stampBuildInfo(),
     resolve({
       browser: true,
       preferBuiltins: false,

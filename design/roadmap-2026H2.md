@@ -140,6 +140,34 @@ and the editor-side panel. Supports the methodology narrative; not itself a revi
 - **P2-C. OffscreenCanvas rendering** (*~4–6 days*).
 - **P2-D. Streaming Stages 2–4** (on-demand/preload, LOD streaming, dedup + partial updates).
 
+**P1-F. Engine build identity at runtime** — *engine half done 2026-08-11*
+
+`Application.version` was a string literal maintained by hand beside `package.json`, free to
+drift from it and never a build identifier. It is now stamped from `package.json` at build time
+by the `stamp-build-info` plugin in `rollup.config.mjs`, alongside a build timestamp, and
+exposed as `BuildInfo` (`version` / `builtAt` / `isBuild`) as well as through the unchanged
+`Application.version`.
+
+**`builtAt` is the build identifier, not `version`.** This repo deliberately keeps the version
+pinned at `0.1.0` between real releases while the content changes on every local pack, so two
+entirely different bundles agree on their version; the timestamp is what tells them apart.
+Anything quoting a measurement should record it beside the number.
+
+Raised by `testv/virtual-lab`'s roadmap item R3, where telling an old engine from a new one
+"has already cost time twice" and required grepping `.d.ts` for symbols.
+
+Notes for whoever finishes it:
+- Running from sources (tests, the dev entry) reports `0.0.0-source` / `builtAt: null` /
+  `isBuild: false` rather than pretending to be a build.
+- `WEBENGINE_BUILD_VERSION` overrides the version, so `scripts/release-local.mjs` can pass the
+  temporary `0.1.0-local.<timestamp>` it stamps for `npm pack` into the build as well. It does
+  **not** today: that script builds *before* stamping, so a packed bundle reports plain `0.1.0`
+  with a distinguishing `builtAt`. Wiring the env var through is a one-line change there, left
+  alone because that file was mid-rewrite.
+- The platform half (rendering it in the `?diag=1` overlay, and deciding whether `/api/health`
+  reports an engine build at all) stays in `testv/virtual-lab` — its own R3 note argues the
+  honest split is *frontend reports engine build, backend reports API build*.
+
 ### Continuous hygiene
 
 - `npm run release:local` after every engine change that should reach a consumer — **the UI
