@@ -123,10 +123,33 @@ export class Slider extends Selectable {
     public get value(): number { return this._value; }
 
     public set value(input: number) {
+        this._setValue(input, true);
+    }
+
+    /**
+     * Moves the handle without raising {@link onValueChanged}.
+     *
+     * @remarks
+     * Equivalent to Unity's `Slider.SetValueWithoutNotify`. Use it when the
+     * slider is reflecting state the scenario just changed itself: echoing a
+     * value back through the event would let a listener that writes the value
+     * drive itself in a loop.
+     *
+     * The counterpart of `Toggle.setIsOnWithoutNotify` and the
+     * `setValueWithoutNotify` on `Dropdown` and `Scrollbar`.
+     *
+     * @param input - the value to store; clamped and stepped as usual.
+     */
+    public setValueWithoutNotify(input: number): void {
+        this._setValue(input, false);
+    }
+
+    /** Stores a sanitized value, notifying only when asked and when it moved. */
+    private _setValue(input: number, notify: boolean): void {
         const clamped = this._sanitize(input);
         if (this._value === clamped) return;
         this._value = clamped;
-        this.onValueChanged.invoke(clamped);
+        if (notify) this.onValueChanged.invoke(clamped);
     }
 
     /**

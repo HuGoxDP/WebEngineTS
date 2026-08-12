@@ -2515,6 +2515,46 @@ describe("Slider", () => {
         Canvas._reset();
     });
 
+    test("setValueWithoutNotify moves the handle without raising the event", () => {
+        // Reported from ScenarioCreator (docs/ENGINE-GAPS.md §2): Slider was the
+        // one control in the family without a silent path, so a scenario
+        // echoing a value it had just set could drive itself in a loop.
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 10;
+        let fired = 0;
+        slider.onValueChanged.addListener(() => fired++);
+
+        slider.setValueWithoutNotify(4);
+
+        expect(slider.value).toBe(4);
+        expect(fired).toBe(0);
+    });
+
+    test("the silent path still clamps and steps like the setter", () => {
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 10;
+
+        slider.setValueWithoutNotify(99);
+
+        expect(slider.value).toBe(10);
+    });
+
+    test("a later ordinary write still notifies", () => {
+        // The silent path must not leave the control permanently quiet.
+        const { slider } = makeSlider();
+        slider.minValue = 0;
+        slider.maxValue = 10;
+        slider.setValueWithoutNotify(4);
+        let fired = 0;
+        slider.onValueChanged.addListener(() => fired++);
+
+        slider.value = 7;
+
+        expect(fired).toBe(1);
+    });
+
     test("value clamps into the range", () => {
         const { slider } = makeSlider();
         slider.minValue = 0;

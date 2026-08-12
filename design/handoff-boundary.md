@@ -170,3 +170,18 @@ Any of:
 3. Section 5 becomes defensible, at which point §3.3's larger items stop competing with it.
 
 Until one of those happens, engine changes should be confined to defects.
+
+### It worked — 2026-08-12
+
+`ScenarioCreator/docs/ENGINE-GAPS.md` is the channel doing its job: two gaps found while
+building ten scenarios, each with the evidence attached rather than reported as a feeling.
+Both were defects, so both were fixed here without reopening feature work:
+
+- `PhysicMaterial.friction` never reached a contact. cannon reads friction from a
+  `ContactMaterial` registered for the *pair*, and the engine registered none, so every contact
+  fell through to the world default and the property silently did nothing.
+- `Slider` had no `setValueWithoutNotify`, alone among the controls that do.
+
+Worth keeping as the pattern: the report checked the installed engine's own `.d.ts` and bundle
+rather than assuming, and said so — which made both verifiable against current source in
+minutes. That file is where the next gaps should go too.
