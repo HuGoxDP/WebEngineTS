@@ -46,6 +46,38 @@ export class Physics {
         PhysicsWorld.instance.gravity = value;
     }
 
+    // ==================== DEFAULT SURFACE ====================
+
+    /**
+     * Friction used where a contact involves a collider with no
+     * {@link PhysicMaterial}. Defaults to `0.3`.
+     *
+     * @remarks
+     * A collider carrying a material gets the pairing of the two materials in
+     * contact; one without has nothing to pair, so it lands here. Set this to
+     * give a scene a house surface rather than assigning the same material to
+     * everything.
+     */
+    public static get defaultFriction(): number {
+        return PhysicsWorld.instance.defaultFriction;
+    }
+
+    public static set defaultFriction(value: number) {
+        PhysicsWorld.instance.defaultFriction = value;
+    }
+
+    /**
+     * Bounciness used where a contact involves a collider with no
+     * {@link PhysicMaterial}. Defaults to `0`.
+     */
+    public static get defaultBounciness(): number {
+        return PhysicsWorld.instance.defaultBounciness;
+    }
+
+    public static set defaultBounciness(value: number) {
+        PhysicsWorld.instance.defaultBounciness = value;
+    }
+
     // ==================== REGISTRATION ====================
 
     /** @internal Called by Collider on enable. */

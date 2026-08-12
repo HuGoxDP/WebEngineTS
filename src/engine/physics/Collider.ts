@@ -68,6 +68,11 @@ export abstract class Collider extends Behaviour {
     public get sharedMaterial(): PhysicMaterial | null { return this._material; }
     public set sharedMaterial(value: PhysicMaterial | null) {
         this._material = value;
+        if (value) {
+            // Without a registered pairing the solver ignores this material
+            // entirely and uses the world default instead.
+            PhysicsWorld.instance._registerMaterial(value);
+        }
         if (this._cannonShape) {
             this._cannonShape.material = value ? value._cannonMaterial : null;
         }
@@ -134,6 +139,7 @@ export abstract class Collider extends Behaviour {
             this._cannonShape = this._createCannonShape();
             this._cannonShape.collisionResponse = !this._isTrigger;
             if (this._material) {
+                PhysicsWorld.instance._registerMaterial(this._material);
                 this._cannonShape.material = this._material._cannonMaterial;
             }
         }
