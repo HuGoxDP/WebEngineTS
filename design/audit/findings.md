@@ -16,6 +16,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F2 | 1 | `Destroy(obj, delay)` counts wall-clock, not game time | **open** |
 | F3 | 1 | `FindObjectsOfType` promises "active" and does not filter | doc fixed; semantics **open** |
 | F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | **open** |
+| F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `pending` |
 
 ---
 
@@ -144,3 +145,40 @@ places activation is discovered.
 **Not asserted in tests**, deliberately — a test of the current behaviour would cement it.
 `tests/GameObjectLifecycle.test.ts` covers the transitions that *are* correct and says so at the
 top.
+
+### F5. Coroutines paused where Unity stops them — deactivation half fixed
+
+**Wanted.** Unity's two rules, which pull in opposite directions:
+
+- `gameObject.SetActive(false)` **stops** coroutines. Reactivating does not resume them.
+- `behaviour.enabled = false` does **not** stop them; they keep running.
+
+**What happened.** Both merely paused. Coroutines are ticked from `_systemUpdate`, which returns
+early unless `isActiveAndEnabled` — so either flag suspended them, and clearing either one
+resumed them exactly where they left off. An object deactivated and later reactivated finished a
+sequence the scene had moved on from.
+
+**Why.** `ScriptableBehaviour._systemUpdate` guards everything, coroutine ticking included:
+
+```ts
+public _systemUpdate(): void {
+    if (!this.isActiveAndEnabled) return;
+    ...
+    this._coroutineRunner?.tickUpdate();
+}
+```
+
+**Affected.** Nothing today: across ScriptableCreator's ten scenarios there are **zero** uses of
+`startCoroutine`, against 52 of `setActive`. That is why the deactivation half could be fixed
+without risk, and why it was worth fixing before the first scenario relies on the wrong
+behaviour.
+
+**Fixed.** `ScriptableBehaviour._onEnabledChanged` now stops coroutines when the transition
+leaves the GameObject inactive — not when only `enabled` went false. Covered in
+`tests/Coroutine.test.ts`; the test fails with the stop removed.
+
+**Still open — the `enabled = false` half.** Making coroutines keep running while a behaviour is
+disabled means ticking the runner outside the update guard, which means the dispatch has to
+visit disabled behaviours. That is a change to the core loop rather than to this class, and it
+needs its own pass: today a disabled behaviour is skipped wholesale, and nothing else about it
+runs either.

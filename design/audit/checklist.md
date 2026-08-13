@@ -12,7 +12,7 @@ all six known defects survived 1133 green tests.
 
 | Part | Area | Classes | Done | Status |
 |---|---|---:|---:|---|
-| 1 | Core object model and lifecycle | 22 | 5 | in progress |
+| 1 | Core object model and lifecycle | 22 | 14 | in progress |
 | 2 | Graphics assets | 11 | 0 | not started |
 | 3 | Rendering and components | 17 | 0 | not started |
 | 4 | Assets and scenario | 12 | 0 | not started |
@@ -22,7 +22,7 @@ all six known defects survived 1133 green tests.
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **5** | |
+| | **Total** | **175** | **14** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -49,13 +49,13 @@ accessor symmetry (`transform.position.x = 1`), registry cleanup on destroy.
 - `core/Input.ts` — [ ] Input
 - `core/RenderSettings.ts` — [ ] RenderSettings
 - `core/ScriptableObject.ts` — [ ] ScriptableObject
-- `core/ScriptableBehaviour.ts` — [ ] ScriptableBehaviour
+- `core/ScriptableBehaviour.ts` — [x] ScriptableBehaviour *(coroutine ownership; F5)*
 - `core/pool/ObjectPool.ts` — [ ] ObjectPool
-- `core/Coroutine.ts` — [ ] Coroutine · [ ] CoroutineRunner · [ ] WaitForSeconds ·
-  [ ] WaitForSecondsRealtime · [ ] WaitUntil · [ ] WaitWhile · [ ] WaitForEndOfFrame ·
-  [ ] WaitForFixedUpdate
+- `core/Coroutine.ts` — [x] Coroutine · [x] CoroutineRunner · [x] WaitForSeconds ·
+  [x] WaitForSecondsRealtime · [x] WaitUntil · [x] WaitWhile · [x] WaitForEndOfFrame ·
+  [x] WaitForFixedUpdate *(scaled vs realtime clocks verified correct)*
 
-**Findings:** F1 (fixed), F2, F3, F4 — see [`findings.md`](findings.md)
+**Findings:** F1, F5 (fixed), F2, F3, F4 — see [`findings.md`](findings.md)
 
 ---
 

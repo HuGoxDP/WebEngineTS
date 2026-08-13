@@ -7,6 +7,8 @@ import {
     YieldInstruction
 } from "../src/engine/core/Coroutine";
 import { Time } from "../src/engine/core/Time";
+import { GameObject } from "../src/engine/core/GameObject";
+import { ScriptableBehaviour } from "../src/engine/core/ScriptableBehaviour";
 
 function setDt(dt: number) { (Time as any)._deltaTime = dt; }
 function setUdt(udt: number) { (Time as any)._unscaledDeltaTime = udt; }
@@ -236,5 +238,53 @@ describe("Coroutine", () => {
             expect(a).toBe(2);
             expect(runner.count).toBe(0);
         });
+    });
+});
+
+describe("Coroutine — stopped by deactivation, as Unity stops them", () => {
+    // Unity: deactivating a GameObject stops its coroutines for good, and
+    // reactivating does not resume them. The engine used to merely pause,
+    // so an object that came back finished a sequence the scene had moved on
+    // from. Found by audit part 1 (F5).
+    class Counter extends ScriptableBehaviour {
+        public ticks = 0;
+        public *count(): Generator<YieldInstruction, void, void> {
+            while (true) { this.ticks++; yield null; }
+        }
+    }
+
+    function pump(b: ScriptableBehaviour, frames: number): void {
+        for (let i = 0; i < frames; i++) {
+            (b as unknown as { _systemUpdate(): void })._systemUpdate();
+        }
+    }
+
+    test("deactivating the GameObject stops them", () => {
+        const go = new GameObject("go");
+        const c = go.addComponent(Counter);
+        c.startCoroutine(c.count());
+        pump(c, 3);
+        const before = c.ticks;
+        expect(before).toBeGreaterThan(0);
+
+        go.setActive(false);
+        go.setActive(true);
+        pump(c, 3);
+
+        expect(c.ticks).toBe(before);
+    });
+
+    test("a coroutine started after reactivation runs normally", () => {
+        // Stopping must not leave the runner permanently broken.
+        const go = new GameObject("go");
+        const c = go.addComponent(Counter);
+        c.startCoroutine(c.count());
+        go.setActive(false);
+        go.setActive(true);
+
+        c.startCoroutine(c.count());
+        pump(c, 2);
+
+        expect(c.ticks).toBeGreaterThan(0);
     });
 });

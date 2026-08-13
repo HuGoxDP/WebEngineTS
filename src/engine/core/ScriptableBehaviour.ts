@@ -126,6 +126,32 @@ export class ScriptableBehaviour extends Behaviour {
         this._coroutineRunner?.stopAllCoroutines();
     }
 
+    /**
+     * @internal
+     * Stops coroutines when the GameObject is deactivated.
+     *
+     * @remarks
+     * Unity draws a line the engine previously did not: deactivating a
+     * GameObject **stops** its coroutines for good, and reactivating it does
+     * not resume them. Merely disabling the behaviour does not stop them at
+     * all. Without this, a deactivate/reactivate cycle resumed a coroutine
+     * mid-flight — the object came back and finished a sequence the scene had
+     * moved on from.
+     *
+     * The `enabled = false` half of Unity's rule is not implemented; see F5 in
+     * `design/audit/findings.md`. Coroutines still pause while a behaviour is
+     * disabled, because the update dispatch skips disabled behaviours entirely.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public override _onEnabledChanged(): void {
+        super._onEnabledChanged();
+
+        if (!this.gameObject.activeInHierarchy) {
+            this._coroutineRunner?.stopAllCoroutines();
+        }
+    }
+
     // ==================== USER LIFECYCLE HOOKS ====================
 
     /**
