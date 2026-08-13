@@ -15,6 +15,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F1 | 1 | `Transform.parent` did not preserve world position | fixed `7ab9fa2` |
 | F2 | 1 | `Destroy(obj, delay)` counts wall-clock, not game time | **open** |
 | F3 | 1 | `FindObjectsOfType` promises "active" and does not filter | doc fixed; semantics **open** |
+| F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | **open** |
 
 ---
 
@@ -99,3 +100,47 @@ change for consumers who currently rely on finding inactive objects, and it need
 to reason about `GameObject`/`Component` without importing them — a duck-typed check, or moving
 the filtering to a `Scene`-level API. Worth doing with `Scene.findObjectsOfType`
 (`Scene.ts:270`, which also claims Unity equivalence) rather than piecemeal.
+
+### F4. `Awake` fires on `addComponent` even when the GameObject is inactive — **open**
+
+**Wanted.** Unity's rule: "If a GameObject is inactive during start up, Awake is not called
+until it is made active." Adding a component to an inactive object should defer `Awake` to
+activation, so a script can assume `Awake` runs shortly before its first `OnEnable`.
+
+**What happens.** `Awake` runs immediately, whatever the object's state:
+
+```ts
+// GameObject.addComponent
+const component = new type(this);
+this._components.push(component);
+if (component instanceof ScriptableBehaviour) component._systemAwake();   // unconditional
+else if (component instanceof Behaviour) component._internalInitialize(); // unconditional
+if (component instanceof Behaviour && this.activeInHierarchy && component.enabled) {
+    component._onEnabledChanged();                                        // conditional
+}
+```
+
+Only the `OnEnable` step consults `activeInHierarchy`. `Awake` does not.
+
+**Affected.** Building a hierarchy under a deactivated root — the usual pooling and
+"assemble hidden, then reveal" pattern. A script whose `awake()` assumes it is about to become
+active, or that reads state the enabling code sets up, will see a different order than it would
+in Unity. Nothing in the ten current scenarios does this, so nothing is broken today.
+
+**Why it was not fixed here.** The same call site initialises **built-in** components through
+`_internalInitialize` — that is where `Camera`, `Light` and the renderers create their Three.js
+objects. Deferring that would mean a `Camera` added to an inactive GameObject has no backing
+object until activation, and every built-in component would need to tolerate the gap. That is a
+change across the whole component library, not a one-line fix, and it wants its own pass with
+its own blast-radius check.
+
+**Fix sketch.** Split the two paths: keep `_internalInitialize` eager (built-ins need their
+backing objects to exist), and defer only `ScriptableBehaviour._systemAwake` until the first
+activation, guarded by an `_awakeCalled` flag so it runs exactly once. That gets Unity's
+semantics where user code can observe them, and leaves the engine's own components alone.
+Verify against `GameObject.setActive` and `_onParentActiveStateChanged`, which are the two
+places activation is discovered.
+
+**Not asserted in tests**, deliberately — a test of the current behaviour would cement it.
+`tests/GameObjectLifecycle.test.ts` covers the transitions that *are* correct and says so at the
+top.
