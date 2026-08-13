@@ -185,3 +185,12 @@ Both were defects, so both were fixed here without reopening feature work:
 Worth keeping as the pattern: the report checked the installed engine's own `.d.ts` and bundle
 rather than assuming, and said so — which made both verifiable against current source in
 minutes. That file is where the next gaps should go too.
+
+`testv/virtual-lab/docs/upstream/` did the same a day later, from the other side: five engine
+questions with repros, four of which were real. The streamed path holding ~2.9× the texture VRAM
+turned out to be two independent asset caches decoding everything twice.
+
+**Six defects, all found by consumers, none by 1133 green tests.** That is the argument for
+[`engine-audit-plan.md`](engine-audit-plan.md) — a class-by-class hunt for the specific failure
+shapes this codebase actually produces, rather than more features on top. It sits below the line
+as maintenance, not above it as feature work.
