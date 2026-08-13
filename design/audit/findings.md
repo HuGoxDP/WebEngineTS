@@ -17,7 +17,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F3 | 1 | `FindObjectsOfType` promises "active" and does not filter | doc fixed; semantics **open** |
 | F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | **open** |
 | F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `e6e0b45` |
-| F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `pending` |
+| F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `5c585b0` |
 
 ---
 
