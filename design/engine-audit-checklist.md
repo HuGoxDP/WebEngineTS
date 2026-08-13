@@ -57,7 +57,7 @@ accessor symmetry (`transform.position.x = 1`), registry cleanup on destroy.
 
 **Findings:**
 
-- **`Transform.parent` did not preserve world position — fixed, `bd50cbe`.** The setter passed
+- **`Transform.parent` did not preserve world position — fixed, `7ab9fa2`.** The setter passed
   `worldPositionStays: false`, so an object jumped when reparented. Unity keeps it in place, and
   the engine's own `setParent` already defaulted to `true`, so the property contradicted both.
   The JSDoc claimed Unity equivalence in one sentence and described the opposite in the next.
