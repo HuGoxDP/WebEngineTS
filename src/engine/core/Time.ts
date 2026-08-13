@@ -32,6 +32,9 @@ export class Time {
     /** Scaled delta time for the current frame. */
     private static _deltaTime: number = 0;
 
+    /** Whether the engine is currently inside the fixed-timestep phase. */
+    private static _inFixedUpdate: boolean = false;
+
     /** Raw (unscaled) delta time for the current frame. */
     private static _unscaledDeltaTime: number = 0;
 
@@ -75,12 +78,39 @@ export class Time {
      * The interval in seconds from the last frame to the current one,
      * scaled by {@link timeScale}.
      *
+     * **Inside `fixedUpdate` this returns {@link fixedDeltaTime}** instead,
+     * because that is the step the simulation actually advanced by. The fixed
+     * loop runs zero or more times per frame, so integrating with the frame's
+     * delta there is wrong in two ways at once: the wrong size, and a different
+     * number of times than the frame implies.
+     *
      * @remarks
-     * Equivalent to Unity's `Time.deltaTime`.
+     * Equivalent to Unity's `Time.deltaTime`, including the fixed-phase rule.
      * Use this for all gameplay movement and logic.
      */
     public static get deltaTime(): number {
-        return Time._deltaTime;
+        return Time._inFixedUpdate ? Time._fixedDeltaTime : Time._deltaTime;
+    }
+
+    /**
+     * @internal
+     * Marks the start of the fixed-timestep phase, so {@link deltaTime} reports
+     * the step the simulation is advancing by.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _beginFixedUpdate(): void {
+        Time._inFixedUpdate = true;
+    }
+
+    /**
+     * @internal
+     * Marks the end of the fixed-timestep phase.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _endFixedUpdate(): void {
+        Time._inFixedUpdate = false;
     }
 
     /**

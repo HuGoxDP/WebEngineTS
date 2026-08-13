@@ -599,6 +599,10 @@ export class Application {
         // 4. Fixed updates (physics timestep) - components then scenario then physics
         const tFixedStart = performance.now();
         this._fixedUpdateAccumulator += frameDelta;
+        // Time.deltaTime reports the fixed step for the whole phase, as Unity
+        // does — the loop runs 0..N times per frame, so the frame's delta is
+        // the wrong figure to integrate with here.
+        Time._beginFixedUpdate();
         while (this._fixedUpdateAccumulator >= EngineSettings.Time.FIXED_TIMESTEP) {
             PluginManager._onFixedUpdate(EngineSettings.Time.FIXED_TIMESTEP);
             scene._fixedUpdate();
@@ -608,6 +612,7 @@ export class Application {
             Physics._step(EngineSettings.Time.FIXED_TIMESTEP);
             this._fixedUpdateAccumulator -= EngineSettings.Time.FIXED_TIMESTEP;
         }
+        Time._endFixedUpdate();
 
         const tUpdateStart = performance.now();
         const fixedUpdateMs = tUpdateStart - tFixedStart;

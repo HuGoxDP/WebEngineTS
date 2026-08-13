@@ -16,7 +16,8 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F2 | 1 | `Destroy(obj, delay)` counts wall-clock, not game time | **open** |
 | F3 | 1 | `FindObjectsOfType` promises "active" and does not filter | doc fixed; semantics **open** |
 | F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | **open** |
-| F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `pending` |
+| F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `e6e0b45` |
+| F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `pending` |
 
 ---
 
@@ -182,3 +183,32 @@ disabled means ticking the runner outside the update guard, which means the disp
 visit disabled behaviours. That is a change to the core loop rather than to this class, and it
 needs its own pass: today a disabled behaviour is skipped wholesale, and nothing else about it
 runs either.
+
+### F6. `Time.deltaTime` reported the frame delta inside `fixedUpdate` — fixed
+
+**Wanted.** Unity's documented rule: "The interval in seconds from the last frame to the current
+one. **When called from inside MonoBehaviour.FixedUpdate, returns Time.fixedDeltaTime.**"
+
+**What happened.** `deltaTime` returned the frame delta everywhere. Code integrating inside
+`fixedUpdate` — the Unity-idiomatic `velocity += accel * Time.deltaTime` — used the wrong step,
+and used it the wrong number of times: the fixed loop runs zero or more times per frame, so at
+60 fps against a 1/50 timestep it ran roughly 1.2 times while reporting ~16.7 ms instead of
+20 ms. Both the size and the count were wrong, in a way that jitters with frame rate.
+
+**Why.** There was no notion of a fixed phase anywhere in the engine — `grep` for a phase flag
+returned nothing. `deltaTime` was a plain field read.
+
+**Affected.** Any scenario integrating inside `fixedUpdate`. The engine's own consumers of
+`Time.deltaTime` — `Animation`, `CinemachineBrain`, `Coroutine`, `ParticleSystem` — all run in
+the Update phase and are untouched by the change. ScenarioCreator's ten scenarios mention
+`fixedUpdate` twice, so the change is a correction where it applies at all.
+
+**Fix.** `Time._beginFixedUpdate()` / `_endFixedUpdate()` bracket the fixed loop in
+`Application._loop`, and `deltaTime` returns `fixedDeltaTime` while the flag is set.
+`unscaledDeltaTime` deliberately does **not** follow the rule — it keeps meaning real frame
+time, which is what a profiler reads. Covered by `tests/TimeFixedPhase.test.ts`; the fixed-phase
+test fails with the rule removed.
+
+**Related and not done:** Unity applies the same substitution to `Time.time` inside the fixed
+phase (it reports `fixedTime`). Left alone — nothing in the engine or the scenarios reads
+`Time.time` from `fixedUpdate`, and the deltaTime rule is the one with a wrong number attached.
