@@ -1,7 +1,7 @@
 # Engine audit — checklist
 
 Every exported class in the engine, split into the ten parts of
-[`engine-audit-plan.md`](engine-audit-plan.md). Extracted from the tree at `48ade91`:
+[`method.md`](method.md). Extracted from the tree at `48ade91`:
 **175 classes across 141 files.**
 
 Tick a class when it has been walked against the failure-shape list in the plan — not when it
@@ -12,7 +12,7 @@ all six known defects survived 1133 green tests.
 
 | Part | Area | Classes | Done | Status |
 |---|---|---:|---:|---|
-| 1 | Core object model and lifecycle | 22 | 1 | in progress |
+| 1 | Core object model and lifecycle | 22 | 2 | in progress |
 | 2 | Graphics assets | 11 | 0 | not started |
 | 3 | Rendering and components | 17 | 0 | not started |
 | 4 | Assets and scenario | 12 | 0 | not started |
@@ -22,12 +22,12 @@ all six known defects survived 1133 green tests.
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **1** | |
+| | **Total** | **175** | **2** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
-(`not started` → `in progress` → `done`). A finding goes in the part's **Findings** block right
-below its list — fixed ones with the commit, unfixed ones in the `ENGINE-GAPS.md` shape (what
-was wanted / what happens / why, with evidence / what is affected / what a fix looks like).
+(`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
+are not defects in [`improvements.md`](improvements.md); each part's **Findings** line just names
+the entries, so this file stays a progress table rather than growing into a report.
 
 ---
 
@@ -37,11 +37,11 @@ Everything sits on this, and `Transform`, `GameObject`, `Scene` and `EngineObjec
 direct tests. Watch for: lifecycle order against Unity, deferred vs immediate destroy,
 accessor symmetry (`transform.position.x = 1`), registry cleanup on destroy.
 
-- `core/EngineObject.ts` — [ ] EngineObject
+- `core/EngineObject.ts` — [x] EngineObject *(registry, destroy, find; F2, F3)*
 - `core/GameObject.ts` — [ ] GameObject
 - `core/Component.ts` — [ ] Component
 - `core/Behaviour.ts` — [ ] Behaviour
-- `core/Transform.ts` — [x] Transform *(hierarchy + accessors; see Findings)*
+- `core/Transform.ts` — [x] Transform *(hierarchy, accessors; F1)*
 - `core/Scene.ts` — [ ] Scene
 - `core/SceneManager.ts` — [ ] SceneManager
 - `core/Application.ts` — [ ] Application
@@ -55,18 +55,7 @@ accessor symmetry (`transform.position.x = 1`), registry cleanup on destroy.
   [ ] WaitForSecondsRealtime · [ ] WaitUntil · [ ] WaitWhile · [ ] WaitForEndOfFrame ·
   [ ] WaitForFixedUpdate
 
-**Findings:**
-
-- **`Transform.parent` did not preserve world position — fixed, `7ab9fa2`.** The setter passed
-  `worldPositionStays: false`, so an object jumped when reparented. Unity keeps it in place, and
-  the engine's own `setParent` already defaulted to `true`, so the property contradicted both.
-  The JSDoc claimed Unity equivalence in one sentence and described the opposite in the next.
-  Checked across ScenarioCreator's 10 scenarios first: 45 uses of `.parent =`, none of which set
-  a world position beforehand, so no content depended on the old behaviour.
-- **Not a defect: `Transform`'s vector getters return clones.** `transform.position.x = 1`
-  silently does nothing, which is a genuine trap in TypeScript — but it matches Unity, where
-  `Vector3` is a struct and the compiler refuses the same line. The JSDoc already says "returns
-  a **clone**" and shows the read-modify-write. Left as is.
+**Findings:** F1 (fixed), F2, F3 — see [`findings.md`](findings.md)
 
 ---
 
@@ -86,7 +75,7 @@ ImageBitmap `.close()` path, the enum-zero shape in `Shader`.
 - `core/graphics/Mesh.ts` — [ ] Mesh · [ ] SubMesh
 - `core/graphics/Sprite.ts` — [ ] Sprite · [ ] SpriteBorder
 
-**Findings:** _none yet_
+**Findings:** none yet — see [`findings.md`](findings.md)
 
 ---
 
@@ -113,7 +102,7 @@ layer culling. `LineRenderer` also carries an open TODO and a Ukrainian comment 
 - `core/components/LineRenderer.ts` — [ ] LineRenderer
 - `core/components/SpriteRenderer.ts` — [ ] SpriteRenderer
 
-**Findings:** _none yet_
+**Findings:** none yet — see [`findings.md`](findings.md)
 
 ---
 
@@ -135,7 +124,7 @@ parser against input it has not seen.
 - `core/scenario/ScenarioAssets.ts` — [ ] ScenarioAssets
 - `core/scenario/ScenarioBehaviour.ts` — [ ] ScenarioBehaviour
 
-**Findings:** _none yet_
+**Findings:** none yet — see [`findings.md`](findings.md)
 
 ---
 
@@ -158,7 +147,7 @@ consumes it.
 - `physics/RaycastHit.ts` — [ ] RaycastHit
 - `physics/Joint.ts` — [ ] Joint · [ ] FixedJoint · [ ] HingeJoint · [ ] SpringJoint
 
-**Findings:** _none yet_
+**Findings:** none yet — see [`findings.md`](findings.md)
 
 ---
 
@@ -185,7 +174,7 @@ repaint hash missing a field that affects drawing.
 - `core/ui/LayoutGroup.ts` — [ ] LayoutGroup · [ ] LayoutPadding · [ ] LinearLayoutGroup ·
   [ ] HorizontalLayoutGroup · [ ] VerticalLayoutGroup
 
-**Findings:** _none yet_
+**Findings:** none yet — see [`findings.md`](findings.md)
 
 ---
 
@@ -212,7 +201,7 @@ see who is missing what.
 - `core/ui/RichText.ts` — [ ] RichText
 - `core/ui/UITween.ts` — [ ] UITween · [ ] UITweenHandle
 
-**Findings:** _none yet_
+**Findings:** none yet — see [`findings.md`](findings.md)
 
 ---
 
@@ -235,7 +224,7 @@ constants, `Object.freeze` on typed arrays, zero-length normalize, degenerate bo
 - `core/math/Mathf.ts` — [ ] Mathf
 - `core/math/AnimationCurve.ts` — [ ] AnimationCurve · [ ] Keyframe
 
-**Findings:** _none yet_
+**Findings:** none yet — see [`findings.md`](findings.md)
 
 ---
 
@@ -260,7 +249,7 @@ first-frame Cut behaviour actually holding, damping at very small and very large
 - `core/cinemachine/CinemachineOrbitalAim.ts` — [ ] CinemachineOrbitalAim
 - `core/cinemachine/CinemachinePOVAim.ts` — [ ] CinemachinePOVAim
 
-**Findings:** _none yet_
+**Findings:** none yet — see [`findings.md`](findings.md)
 
 ---
 
@@ -295,7 +284,7 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/plugins/PluginManager.ts` — [ ] PluginManager
 - `core/plugins/Plugin.ts` — [ ] Plugin
 
-**Findings:** _none yet_
+**Findings:** none yet — see [`findings.md`](findings.md)
 
 ---
 

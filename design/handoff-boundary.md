@@ -191,6 +191,6 @@ questions with repros, four of which were real. The streamed path holding ~2.9×
 turned out to be two independent asset caches decoding everything twice.
 
 **Six defects, all found by consumers, none by 1133 green tests.** That is the argument for
-[`engine-audit-plan.md`](engine-audit-plan.md) — a class-by-class hunt for the specific failure
+[`../docs/audit/`](../docs/audit/README.md) — a class-by-class hunt for the specific failure
 shapes this codebase actually produces, rather than more features on top. It sits below the line
 as maintenance, not above it as feature work.

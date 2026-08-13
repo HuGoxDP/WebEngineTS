@@ -368,14 +368,22 @@ export class EngineObject {
     }
 
     /**
-     * Returns all active loaded objects of the specified type.
+     * Returns every registered object of the given type that has not been
+     * destroyed.
      *
      * @param type The class/constructor to search for
      * @returns Array of found objects (empty if none)
      *
      * @remarks
-     * This searches all registered EngineObjects.
-     * Can be slow with many objects - use sparingly.
+     * **Includes objects on inactive GameObjects**, unlike Unity's
+     * `Object.FindObjectsOfType`, which excludes them. Only destruction is
+     * filtered here, not activity — an earlier version of this comment said
+     * "active" and meant "not destroyed", which promised a filter that does
+     * not exist. Check `activeInHierarchy` yourself if you need Unity's set.
+     *
+     * Searches every registered EngineObject, assets included, so it is also
+     * how the diagnostics subsystem enumerates textures and meshes. Can be slow
+     * with many objects — use sparingly.
      *
      * @example
      * const allLights = EngineObject.FindObjectsOfType(Light);
