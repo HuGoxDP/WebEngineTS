@@ -31,10 +31,15 @@ export interface IEngineBuildInfo {
      * When the bundle was built, ISO-8601, or `null` when running from source.
      *
      * @remarks
-     * **This, not {@link version}, is what identifies a build.** The repo keeps
-     * `version` fixed at `0.1.0` between real releases while the content changes
-     * on every local pack, so two bundles that differ entirely still agree on
-     * their version. The timestamp is what tells them apart.
+     * Always distinguishes two builds. {@link version} usually does too — a
+     * packaging script that stamps a unique version and passes it through
+     * `WEBENGINE_BUILD_VERSION` (as `scripts/release-local.mjs` does) gives
+     * every local pack its own `0.1.0-local.<timestamp>`. A plain
+     * `npm run build` reports whatever `package.json` says, which stays at
+     * `0.1.0` between real releases; that is the case where only this field
+     * separates two bundles.
+     *
+     * Check `version` first — it is the one a consumer's lockfile also records.
      */
     readonly builtAt: string | null;
 

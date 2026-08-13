@@ -396,6 +396,19 @@ describe("StreamingAssetSource — URL resolution", () => {
         expect(await source.readText("textures/earth.ktx2")).toBe("OK");
     });
 
+    test("a root-relative asset URL is not appended to a root-relative base", () => {
+        // Reported from virtual-lab (docs/upstream/webenginets.md §3): a
+        // manifest at /a/manifests/x.json with an asset url of /a/objects/… was
+        // requested as /a/manifests//a/objects/… — a 404 that cost a round of
+        // debugging and one abandoned store layout.
+        const source = new StreamingAssetSource(parseStreamingManifest({
+            schema: 1, id: "x",
+            assets: [{ path: "a.js", lods: [{ url: "/a/objects/54/5400.js" }] }],
+        }), { baseUrl: "/a/manifests/solar-system.json" });
+
+        expect(source.urlFor("a.js")).toBe("/a/objects/54/5400.js");
+    });
+
     test("an absolute asset URL ignores the base", () => {
         const source = new StreamingAssetSource(parseStreamingManifest({
             schema: 1, id: "x",

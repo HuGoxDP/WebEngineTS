@@ -530,14 +530,54 @@ export class StreamingAssetSource implements IAssetSource {
         return chosen;
     }
 
+    /**
+     * Resolves an asset URL against the base, the way a browser would.
+     *
+     * @remarks
+     * A **root-relative** base — `/a/manifests/solar.json`, which is what a
+     * host serving manifests from its own path gives — is not a valid URL to
+     * resolve against, so this makes it one against the document location
+     * first. Without that step the fallback joined textually and an asset URL
+     * of `/a/objects/…` became `/a/manifests//a/objects/…`, a 404 that looks
+     * obviously wrong only in hindsight.
+     *
+     * Off a document there is no origin to borrow, so the textual join stays —
+     * but an already-root-relative asset URL is returned untouched, since it is
+     * complete on its own.
+     */
     private _resolveUrl(url: string): string {
         if (!this._baseUrl) return url;
-        try {
-            return new URL(url, this._baseUrl).toString();
-        } catch {
-            // A relative base (a path on the same origin) is not a valid URL to
-            // resolve against; joining textually is the right answer there.
-            return this._baseUrl.replace(/[^/]*$/, "") + url;
+
+        const base = StreamingAssetSource._absoluteBase(this._baseUrl);
+        if (base !== null) {
+            // Leaves an absolute url alone and resolves "/a/x" against the
+            // origin instead of appending it to the base path.
+            return new URL(url, base).toString();
         }
+
+        if (StreamingAssetSource._isAbsolute(url)) return url;
+        return this._baseUrl.replace(/[^/]*$/, "") + url;
+    }
+
+    /** The base as an absolute URL, or null when there is no origin to use. */
+    private static _absoluteBase(base: string): string | null {
+        try {
+            return new URL(base).toString();
+        } catch {
+            // Relative — needs an origin.
+        }
+
+        const here = globalThis.location?.href;
+        if (!here) return null;
+        try {
+            return new URL(base, here).toString();
+        } catch {
+            return null;
+        }
+    }
+
+    /** Whether a URL already stands on its own, with or without a scheme. */
+    private static _isAbsolute(url: string): boolean {
+        return url.startsWith("/") || /^[a-z][a-z0-9+.-]*:/i.test(url);
     }
 }
