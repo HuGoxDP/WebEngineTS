@@ -224,19 +224,23 @@ export class Transform extends Component {
     /**
      * The parent Transform, or `null` if this is a root-level Transform.
      *
-     * Setting the parent moves this Transform into the new parent's
-     * child list and updates the Three.js hierarchy accordingly.
+     * Setting the parent moves this Transform into the new parent's child list
+     * and updates the Three.js hierarchy accordingly. **The world position,
+     * rotation and scale are preserved** — the local values are recomputed
+     * against the new parent so the object does not appear to move.
      *
      * @remarks
-     * Equivalent to Unity's `Transform.parent`.
-     * To preserve world position when reparenting, use {@link setParent}.
+     * Equivalent to Unity's `Transform.parent`, which preserves world position
+     * for the same reason. Use {@link setParent} with `worldPositionStays:
+     * false` to keep the local values instead and let the object move with its
+     * new parent.
      */
     public get parent(): Transform | null {
         return this._parent;
     }
 
     public set parent(newParent: Transform | null) {
-        this.setParent(newParent, false);
+        this.setParent(newParent, true);
     }
 
     /**

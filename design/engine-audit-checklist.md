@@ -12,7 +12,7 @@ all six known defects survived 1133 green tests.
 
 | Part | Area | Classes | Done | Status |
 |---|---|---:|---:|---|
-| 1 | Core object model and lifecycle | 22 | 0 | not started |
+| 1 | Core object model and lifecycle | 22 | 1 | in progress |
 | 2 | Graphics assets | 11 | 0 | not started |
 | 3 | Rendering and components | 17 | 0 | not started |
 | 4 | Assets and scenario | 12 | 0 | not started |
@@ -22,7 +22,7 @@ all six known defects survived 1133 green tests.
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **0** | |
+| | **Total** | **175** | **1** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). A finding goes in the part's **Findings** block right
@@ -41,7 +41,7 @@ accessor symmetry (`transform.position.x = 1`), registry cleanup on destroy.
 - `core/GameObject.ts` — [ ] GameObject
 - `core/Component.ts` — [ ] Component
 - `core/Behaviour.ts` — [ ] Behaviour
-- `core/Transform.ts` — [ ] Transform
+- `core/Transform.ts` — [x] Transform *(hierarchy + accessors; see Findings)*
 - `core/Scene.ts` — [ ] Scene
 - `core/SceneManager.ts` — [ ] SceneManager
 - `core/Application.ts` — [ ] Application
@@ -55,7 +55,18 @@ accessor symmetry (`transform.position.x = 1`), registry cleanup on destroy.
   [ ] WaitForSecondsRealtime · [ ] WaitUntil · [ ] WaitWhile · [ ] WaitForEndOfFrame ·
   [ ] WaitForFixedUpdate
 
-**Findings:** _none yet_
+**Findings:**
+
+- **`Transform.parent` did not preserve world position — fixed, `bd50cbe`.** The setter passed
+  `worldPositionStays: false`, so an object jumped when reparented. Unity keeps it in place, and
+  the engine's own `setParent` already defaulted to `true`, so the property contradicted both.
+  The JSDoc claimed Unity equivalence in one sentence and described the opposite in the next.
+  Checked across ScenarioCreator's 10 scenarios first: 45 uses of `.parent =`, none of which set
+  a world position beforehand, so no content depended on the old behaviour.
+- **Not a defect: `Transform`'s vector getters return clones.** `transform.position.x = 1`
+  silently does nothing, which is a genuine trap in TypeScript — but it matches Unity, where
+  `Vector3` is a struct and the compiler refuses the same line. The JSDoc already says "returns
+  a **clone**" and shows the read-modify-write. Left as is.
 
 ---
 
