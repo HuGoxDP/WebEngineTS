@@ -61,12 +61,6 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      */
     private readonly _archive: ZipAssetSource | null;
 
-    /** Cache: normalized asset path → loaded Texture2D. */
-    private _textureCache: Map<string, Texture2D> = new Map();
-
-    /** Cache: normalized asset path → root GameObject (prefab template). */
-    private _modelCache: Map<string, GameObject> = new Map();
-
     /** All blob URLs created by this provider — revoked on dispose. */
     private _blobUrls: string[] = [];
 
@@ -160,20 +154,13 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
     public async loadTexture(path: string): Promise<Texture2D> {
         const normalizedPath = ScenarioAssets._normalizePath("textures", path);
 
-        // Return cached
-        const cached = this._textureCache.get(normalizedPath);
-        if (cached) return cached;
-
-        const bytes = await this._source.readBytes(`assets/${normalizedPath}`);
-        const data = ScenarioAssets._toArrayBuffer(bytes);
-
-        // Texture2D.fromArrayBuffer handles blob URL + THREE.Texture internally
-        const texture = await Texture2D.fromArrayBuffer(data);
-        texture.name = path;
-
-        // Cache
-        this._textureCache.set(normalizedPath, texture);
-
+        // Through Resources, not a cache of our own: keeping a second cache
+        // meant an asset already decoded by a prefetch was decoded again here,
+        // leaving two engine textures alive for one GPU texture. On the
+        // streaming path, where every manifest asset is prefetched, that
+        // roughly tripled the reported texture VRAM against the ZIP path.
+        const texture = await Resources.load(Texture2D, normalizedPath);
+        if (!texture.name) texture.name = normalizedPath;
         return texture;
     }
 
@@ -208,43 +195,11 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
     public async loadModel(path: string): Promise<GameObject> {
         const normalizedPath = ScenarioAssets._normalizePath("models", path);
 
-        // Return cached prefab
-        const cached = this._modelCache.get(normalizedPath);
-        if (cached) return cached;
-
-        const bytes = await this._source.readBytes(`assets/${normalizedPath}`);
-        const data = ScenarioAssets._toArrayBuffer(bytes);
-
-        // Parse directly from ArrayBuffer — no blob URL round-trip
-        const gltf = await this._parseGLTF(data, normalizedPath);
-
-        // Convert Three.js scene graph → engine GameObjects
-        const root = this._convertGLTFScene(gltf, path);
-
-        // Attach animation clips from GLTF (if any)
-        if (gltf.animations.length > 0) {
-            const anim = root.addComponent(Animation);
-            for (const threeClip of gltf.animations) {
-                anim.addClip(new AnimationClip(threeClip));
-            }
-        }
-
-        // Dispose the original Three.js scene — engine now owns all data.
-        // Geometries are safe to dispose (data was copied into engine Mesh).
-        // Materials are safe to dispose (replaced by StandardMaterial).
-        // Textures are NOT disposed — they are shared with engine Texture2D.
-        // Animation clips are NOT disposed — they are referenced by the Animation component.
-        ScenarioAssets._disposeThreeScene(gltf.scene);
-
-        // Cache as prefab template
-        this._modelCache.set(normalizedPath, root);
-
-        console.log(
-            `[ScenarioAssets] Model loaded: "${path}" ` +
-            `(${this._countMeshes(root)} meshes, ${gltf.animations.length} animations)`
-        );
-
-        return root;
+        // Through Resources for the same reason as loadTexture: one cache, so a
+        // model already decoded by a prefetch is not parsed and converted a
+        // second time. The decoder registered by _activateAsResourceSource does
+        // the GLTF work, so both routes produce the same hierarchy.
+        return Resources.load(GameObject, normalizedPath);
     }
 
     // ==================== MEMORY MANAGEMENT ====================
@@ -311,23 +266,10 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      * Called automatically by `Scenario.unload()`.
      */
     public dispose(): void {
+        // Destroys every decoded asset as it clears the cache — which is now
+        // the only place they live, since loadTexture and loadModel go through
+        // Resources rather than caching separately.
         Resources._clearSource();
-
-        // Destroy cached textures (triggers Texture.onDestroy → THREE.Texture.dispose)
-        for (const texture of this._textureCache.values()) {
-            if (texture.exists()) {
-                texture.destroy();
-            }
-        }
-        this._textureCache.clear();
-
-        // Destroy cached model prefabs
-        for (const model of this._modelCache.values()) {
-            if (model.exists()) {
-                model.destroy();
-            }
-        }
-        this._modelCache.clear();
 
         // Revoke all blob URLs
         for (const url of this._blobUrls) {
