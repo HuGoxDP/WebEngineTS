@@ -339,7 +339,40 @@ export class EngineObject {
      */
     public static DontDestroyOnLoad(obj: EngineObject | null | undefined): void {
         if (!obj || !obj.exists()) return;
+
+        // Only roots survive a load: SceneManager collects survivors by walking
+        // each scene's root GameObjects. Recording the mark for a child would
+        // make _isPersistent() report a survival that never happens, so refuse
+        // it and say why — Unity refuses the same case, and also warns.
+        const owner = EngineObject._rootCandidate(obj);
+        if (owner !== null && owner.transform.parent !== null) {
+            console.warn(
+                `[EngineObject] DontDestroyOnLoad only works on root GameObjects. ` +
+                `"${obj.name}" is a child of "${owner.transform.parent.gameObject.name}" ` +
+                `and will still be destroyed on load. Detach it first, or mark its root.`
+            );
+            return;
+        }
+
         EngineObject._persistentObjects.add(obj._instanceID);
+    }
+
+    /**
+     * The GameObject whose root-ness decides persistence, or null when the
+     * object is not part of a scene hierarchy at all (an asset, say).
+     *
+     * Duck-typed rather than imported: `GameObject` and `Component` both import
+     * `EngineObject`, so naming either here would close a cycle. The shape is
+     * stable — a GameObject has a `transform`, a Component has a `gameObject`.
+     */
+    private static _rootCandidate(
+        obj: EngineObject,
+    ): { name: string; transform: { parent: { gameObject: { name: string } } | null } } | null {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above
+        const any = obj as any;
+        if (any.transform?.parent !== undefined) return any;
+        if (any.gameObject?.transform?.parent !== undefined) return any.gameObject;
+        return null;
     }
 
     /**

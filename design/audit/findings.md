@@ -18,6 +18,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | **open** |
 | F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `e6e0b45` |
 | F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `5c585b0` |
+| F7 | 1 | `DontDestroyOnLoad` on a child recorded a survival that never happened | fixed `pending` |
 
 ---
 
@@ -212,3 +213,38 @@ test fails with the rule removed.
 **Related and not done:** Unity applies the same substitution to `Time.time` inside the fixed
 phase (it reports `fixedTime`). Left alone — nothing in the engine or the scenarios reads
 `Time.time` from `fixedUpdate`, and the deltaTime rule is the one with a wrong number attached.
+
+### F7. `DontDestroyOnLoad` on a child marked it and destroyed it anyway — fixed
+
+**Wanted.** Either the object survives a scene load, or the caller is told it will not.
+
+**What happened.** Neither. `DontDestroyOnLoad(child)` recorded the mark unconditionally, but
+survivors are collected by walking **root** GameObjects only:
+
+```ts
+// SceneManager._collectPersistentRoots
+for (const scene of SceneManager._loadedScenes) {
+    for (const go of scene.getRootGameObjects()) {
+        if (go._isPersistent()) out.push(go);
+    }
+}
+```
+
+So a marked child was destroyed with its scene while `_isPersistent()` kept answering `true` —
+the state described a survival that never happened, silently.
+
+**Why it matters.** This is the same shape as `PhysicMaterial.friction`: a public API that
+accepts the call, changes recorded state, and has no effect. The mark makes it worse than doing
+nothing, because a caller checking `_isPersistent()` is told the opposite of the truth.
+
+**Affected.** No scenario uses `DontDestroyOnLoad` today (zero across the ten), and the engine's
+three internal uses are on roots. It is a trap rather than a live break.
+
+**Fix.** Refuse a non-root and warn, naming the parent and what to do instead — which is what
+Unity does for the same case, minus the recorded lie. Assets keep working: the guard only fires
+for objects that actually have a hierarchy, found by duck-typing rather than importing
+`GameObject`/`Component`, since both import `EngineObject` and naming either would close a
+cycle.
+
+Covered in `tests/SceneManagement.test.ts`, including that an asset is unaffected; the child
+test fails with the guard removed.

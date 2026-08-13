@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, vi } from "vitest";
 import { GameObject } from "../src/engine/core/GameObject";
 import { EngineObject } from "../src/engine/core/EngineObject";
 import { SceneManager, LoadSceneMode } from "../src/engine/core/SceneManager";
+import { Texture } from "../src/engine/core/graphics/Texture";
 
 /** Leaves exactly one empty scene loaded, whatever the previous test did. */
 function resetScenes(): void {
@@ -183,5 +184,60 @@ describe("EngineObject.DontDestroyOnLoad", () => {
 
         expect(child.exists()).toBe(true);
         expect(keeper.transform.childCount).toBe(1);
+    });
+});
+
+describe("DontDestroyOnLoad — only roots survive, and it says so", () => {
+    // Survivors are collected by walking each scene's *root* GameObjects, so a
+    // marked child was recorded as persistent and destroyed anyway —
+    // _isPersistent() reported a survival that never happened. Unity refuses
+    // the same case and warns. Audit part 1, finding F7.
+
+    test("marking a child is refused, with a warning naming the parent", () => {
+        const parent = new GameObject("Parent");
+        const child = new GameObject("Child");
+        child.transform.parent = parent.transform;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        EngineObject.DontDestroyOnLoad(child);
+
+        expect(warn).toHaveBeenCalledOnce();
+        expect(String(warn.mock.calls[0][0])).toContain("Parent");
+        expect(child._isPersistent()).toBe(false);
+        warn.mockRestore();
+    });
+
+    test("a root is marked without complaint", () => {
+        const root = new GameObject("Root");
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        EngineObject.DontDestroyOnLoad(root);
+
+        expect(warn).not.toHaveBeenCalled();
+        expect(root._isPersistent()).toBe(true);
+        warn.mockRestore();
+    });
+
+    test("a detached child can then be marked", () => {
+        const parent = new GameObject("Parent");
+        const child = new GameObject("Child");
+        child.transform.parent = parent.transform;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        child.transform.parent = null;
+        EngineObject.DontDestroyOnLoad(child);
+
+        expect(child._isPersistent()).toBe(true);
+        warn.mockRestore();
+    });
+
+    test("an asset with no hierarchy is marked as before", () => {
+        // The root rule is about scene objects; an asset has no transform and
+        // must not be caught by it.
+        const asset = new Texture();
+
+        EngineObject.DontDestroyOnLoad(asset);
+
+        expect(asset._isPersistent()).toBe(true);
     });
 });
