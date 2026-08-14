@@ -28,6 +28,8 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F14 | 3 | `renderScene` allocates a `Color` every frame | **open** |
 | F15 | 4 | Asset identity outlived the destroyed instance | fixed `c709fb5` |
 | F16 | 4 | A load landing after its source was released cached itself anyway | fixed `daecc97` |
+| F17 | 4 | A failed `LoadHandle` nobody awaited raised an unhandled rejection | fixed `9903a90` |
+| F18 | 4 | `TextAsset.lines` left a carriage return on every Windows line | fixed `ddbc1eb` |
 
 ---
 
@@ -611,6 +613,56 @@ let the next caller start a duplicate read.
 
 Covered by `tests/ResourcesSourceLifetime.test.ts`; 4 of its 5 tests fail against the old code.
 The fifth is a regression guard that passes either way, and says so.
+
+### F17. A failed `LoadHandle` nobody awaited raised an unhandled rejection — fixed `9903a90`
+
+**Wanted.** The two documented ways of reading a failure to both work: `await handle.promise`,
+or poll `handle.isDone` and `handle.error`.
+
+**What happened.** Polling worked, but the rejection stayed unobserved, so the host saw an
+`unhandledrejection` for a failure the caller was handling. In a browser that is a red console
+error and a fired `window.onunhandledrejection`; a platform that surfaces global errors would
+show a dialog for a load the scenario dealt with itself.
+
+**Why.** The constructor builds the promise and stores the error, and nothing ever attaches a
+handler to the promise it built. `error` is public API — the class *invites* the path that
+leaves the rejection unobserved.
+
+**Affected.** `Resources.loadAsync` and `Resources.loadBatch`, the only producers, and any
+caller that polls rather than awaits. Demonstrated by running such a caller under Vitest, which
+reported `Errors 1 error` alongside a passing test.
+
+**Fix.** `this.promise.catch(() => {})` in the constructor. It marks the rejection observed
+without consuming it: a caller who awaits `promise` still gets it — and their own unhandled
+rejection if they do not catch, which is theirs to own.
+
+Covered by `tests/LoadHandleFailure.test.ts`, which asserts against a real
+`process.on("unhandledRejection")` listener rather than a mock, because what the *host*
+observes is the whole point. 2 of its 4 tests fail with the line removed.
+
+### F18. `TextAsset.lines` left a carriage return on every Windows line — fixed `ddbc1eb`
+
+**Wanted.** `asset.lines` to give the lines of the file.
+
+**What happened.** `split("
+")` alone, so a CRLF file yielded `"1,Earth"` and every
+comparison against a value written in the file failed.
+
+**Why.** The engine's own repo is CRLF and scenario content is authored on Windows; `.csv` is
+one of the extensions that decodes to `TextAsset`, and CSV is the format people split by line.
+Reachable rather than theoretical.
+
+**Affected.** Scenario data files only — nothing in the engine calls `lines`, which is why it
+went unnoticed. Unity has no `TextAsset.lines`, so there was no parity check to catch it either.
+
+**Fix.** Split on `/
+||
+/`. A trailing newline still yields a final empty string:
+dropping it would make the line count depend on whether the author's editor ends files with a
+newline, so it is documented instead of guessed at.
+
+The same commit corrected the `BinaryAsset` example, which built a `DataView` from
+`bytes.buffer` alone — wrong for any array that is a view into a larger buffer.
 
 ---
 

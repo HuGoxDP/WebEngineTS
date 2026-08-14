@@ -241,3 +241,12 @@ ambiguous; serializer round-trips for every `FieldType`; audio disposal.
 
 Performance and rendering correctness. Nothing here catches "the shadow is in the wrong place" —
 that needs a browser and an eye. The audit is for behaviour that can be asserted in a test.
+
+**A scripted negative control can be vacuous, and then it lies in the safe direction.** The
+control for F18 was a `python` one-liner that swapped the fix back out, ran the tests, and
+swapped it in again. The tests passed — which should have been impossible — because the
+replacement string never matched: an escaping layer had eaten the backslashes, `str.replace`
+found nothing and said nothing, and the tests ran against the *fixed* code. Redoing it with a
+real edit showed 3 of 5 failing. So: after scripting a negative control, check that the file
+actually changed before believing the run. The failure mode is silent and always reports
+success.

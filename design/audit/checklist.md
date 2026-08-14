@@ -118,13 +118,13 @@ parser against input it has not seen.
 - `core/assets/ZipAssetSource.ts` — [ ] ZipAssetSource
 - `core/assets/TextureStreaming.ts` — [ ] TextureStreaming
 - `core/assets/AssetDatabase.ts` — [x] AssetDatabase *(identity lifetime; F15)*
-- `core/assets/LoadHandle.ts` — [x] LoadHandle
-- `core/assets/AssetTypes.ts` — [x] JsonAsset · [x] TextAsset · [x] BinaryAsset
+- `core/assets/LoadHandle.ts` — [x] LoadHandle *(F17)*
+- `core/assets/AssetTypes.ts` — [x] JsonAsset · [x] TextAsset *(F18)* · [x] BinaryAsset
 - `core/scenario/Scenario.ts` — [ ] Scenario
 - `core/scenario/ScenarioAssets.ts` — [ ] ScenarioAssets
 - `core/scenario/ScenarioBehaviour.ts` — [ ] ScenarioBehaviour
 
-**Findings:** F15, F16 — see [`findings.md`](findings.md)
+**Findings:** F15, F16, F17, F18 — see [`findings.md`](findings.md)
 
 ---
 
