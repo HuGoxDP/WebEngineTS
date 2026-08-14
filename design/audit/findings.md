@@ -22,6 +22,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F8 | 1 | Held keys and mouse buttons stuck after focus loss | fixed `aca2caa` |
 | F9 | 2 | `releaseSourceImage` has no upload guard; the documented one does not exist | docs fixed; guard **open** |
 | F10 | 2, 3, 9 | Sixteen getters handed out shared math constants | fixed `ec73f3a` |
+| F11 | 3 | `Light.shadowStrength` was stored and never applied | fixed `04e1e31` |
 
 ---
 
