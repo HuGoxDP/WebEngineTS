@@ -61,9 +61,17 @@ export class TextAsset extends EngineObject {
         return this.text.length;
     }
 
-    /** Split text into lines. */
+    /**
+     * The text split into lines.
+     *
+     * @remarks
+     * All three line endings are accepted — `\n`, `\r\n` and a lone `\r` — so a
+     * file authored on Windows does not yield lines with a trailing carriage
+     * return. A trailing newline produces a final empty string, as
+     * `String.split` does.
+     */
     public get lines(): string[] {
-        return this.text.split("\n");
+        return this.text.split(/\r\n|\r|\n/);
     }
 }
 
@@ -75,7 +83,8 @@ export class TextAsset extends EngineObject {
  * @example
  * ```ts
  * const nav = await Resources.load(BinaryAsset, "data/navmesh.bin");
- * const view = new DataView(nav.bytes.buffer);
+ * // Offset and length included: the array may be a view into a larger buffer.
+ * const view = new DataView(nav.bytes.buffer, nav.bytes.byteOffset, nav.bytes.byteLength);
  * ```
  */
 export class BinaryAsset extends EngineObject {
