@@ -15,14 +15,14 @@ all six known defects survived 1133 green tests.
 | 1 | Core object model and lifecycle | 22 | **22** | **done** |
 | 2 | Graphics assets | 11 | **11** | **done** |
 | 3 | Rendering and components | 17 | **17** | **done** |
-| 4 | Assets and scenario | 12 | 9 | in progress |
+| 4 | Assets and scenario | 12 | 10 | in progress |
 | 5 | Physics | 16 | 0 | not started |
 | 6 | UI core | 21 | 0 | not started |
 | 7 | UI controls | 18 | 0 | not started |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **59** | |
+| | **Total** | **175** | **60** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -122,9 +122,9 @@ parser against input it has not seen.
 - `core/assets/AssetTypes.ts` — [x] JsonAsset · [x] TextAsset *(F18)* · [x] BinaryAsset
 - `core/scenario/Scenario.ts` — [ ] Scenario
 - `core/scenario/ScenarioAssets.ts` — [ ] ScenarioAssets
-- `core/scenario/ScenarioBehaviour.ts` — [ ] ScenarioBehaviour
+- `core/scenario/ScenarioBehaviour.ts` — [x] ScenarioBehaviour *(loop entry; F21, F22)*
 
-**Findings:** F15, F16, F17, F18, F19, F20 — see [`findings.md`](findings.md)
+**Findings:** F15–F22 — see [`findings.md`](findings.md)
 
 ---
 

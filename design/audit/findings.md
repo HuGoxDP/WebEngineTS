@@ -32,6 +32,8 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F18 | 4 | `TextAsset.lines` left a carriage return on every Windows line | fixed `ddbc1eb` |
 | F19 | 4 | A streaming pass could overlap, and kept a level it never loaded | fixed `9b49401` |
 | F20 | 4 | Disposing a streaming source left its queue running | fixed `0906e35` |
+| F21 | 1, 4 | A throwing callback left `Time` and `Input` broken for the rest of the run | fixed `c338cda` |
+| F22 | 4 | No per-callback isolation: one bad script stops the frame | **open** |
 
 ---
 
@@ -727,6 +729,55 @@ their bytes are wanted by whoever is mid-decode.
 
 Covered in `tests/ProgressiveLoading.test.ts`; each half has its own negative control, and
 removing the read guard fails both tests.
+
+### F21. A throwing callback left `Time` and `Input` broken for the rest of the run — fixed `c338cda`
+
+Found reading `ScenarioBehaviour`, which is where user code enters the loop; the defect is in
+`Application._loop`.
+
+**Wanted.** An exception in scenario code to break that frame and nothing else.
+
+**What happened.** It broke every frame afterwards. The loop calls
+`requestAnimationFrame(this._loop)` before running anything, so a throw does not stop the
+engine — the next frame is already scheduled. That is the right behaviour, and it is also what
+makes the damage permanent:
+
+- A throw inside the fixed phase skipped `Time._endFixedUpdate()`, so `Time.deltaTime` reported
+  `fixedDeltaTime` from then on. That flag arrived with **F6** a few commits earlier: the fix
+  for one Unity-parity bug created the state this one strands.
+- A throw anywhere in the frame skipped `Input._resetFrame()`, so every "pressed this frame"
+  flag stayed set — `getKeyDown` answering true forever, and forever is right, because an error
+  in `update` repeats every frame.
+- `Profiler._recordFrame` was skipped too, so the most expensive frames were the ones missing
+  from the timings.
+
+**Affected.** Every scenario during development, and student-facing scenarios on the platform.
+A single typo in one `update` is enough.
+
+**Fix.** Close what the frame brackets in `finally` — the fixed phase, the input reset, the
+profiler record. The error is not caught: it still reaches the host, and the frame it broke
+stays broken. Only bookkeeping is restored. The body is indented one level as a result;
+`git diff -w` is the real change, 32 lines.
+
+Covered by `tests/LoopFrameIntegrity.test.ts`, each half negative-controlled separately.
+
+### F22. One bad script stops every callback after it in the frame — **open**
+
+**Wanted.** Unity's isolation: an exception in one `MonoBehaviour.Update` is logged, and the
+next component still updates.
+
+**What happens.** `scene._update()` walks components in a plain loop, so the first throw skips
+every component after it, the scenario's own `update`, animation, particles, UI layout and
+input. F21 stopped that from corrupting engine state, but the frame is still cut short at the
+first error.
+
+**Why it is not fixed here.** It is a design decision, not an oversight. Wrapping every
+callback in `try`/`catch` costs a little per call in the hottest loop in the engine and — more
+importantly — changes what a scenario author sees: an error becomes a console line rather than
+a stopped scene, which hides bugs during authoring. Unity makes that trade because it has an
+editor console nobody can miss; a browser console is easier to ignore. Worth deciding
+deliberately, with a `console.error` per failure and a policy for repeat offenders, rather than
+adding it to a bug-fix commit.
 
 ---
 
