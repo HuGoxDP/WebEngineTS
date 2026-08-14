@@ -18,8 +18,8 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | **open** |
 | F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `e6e0b45` |
 | F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `5c585b0` |
-| F8 | 1 | Held keys and mouse buttons stuck after focus loss | fixed `aca2caa` |
 | F7 | 1 | `DontDestroyOnLoad` on a child recorded a survival that never happened | fixed `ac95d83` |
+| F8 | 1 | Held keys and mouse buttons stuck after focus loss | fixed `aca2caa` |
 
 ---
 

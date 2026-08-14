@@ -12,7 +12,7 @@ all six known defects survived 1133 green tests.
 
 | Part | Area | Classes | Done | Status |
 |---|---|---:|---:|---|
-| 1 | Core object model and lifecycle | 22 | 19 | in progress |
+| 1 | Core object model and lifecycle | 22 | **22** | **done** |
 | 2 | Graphics assets | 11 | 0 | not started |
 | 3 | Rendering and components | 17 | 0 | not started |
 | 4 | Assets and scenario | 12 | 0 | not started |
@@ -22,7 +22,7 @@ all six known defects survived 1133 green tests.
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **19** | |
+| | **Total** | **175** | **22** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -47,10 +47,10 @@ accessor symmetry (`transform.position.x = 1`), registry cleanup on destroy.
 - `core/Application.ts` — [x] Application *(loop order, fixed phase)*
 - `core/Time.ts` — [x] Time *(clocks, fixed phase; F6)*
 - `core/Input.ts` — [x] Input *(per-frame edges, focus loss; F8)*
-- `core/RenderSettings.ts` — [ ] RenderSettings
-- `core/ScriptableObject.ts` — [ ] ScriptableObject
+- `core/RenderSettings.ts` — [x] RenderSettings *(symmetric accessors, dirty flags — clean)*
+- `core/ScriptableObject.ts` — [x] ScriptableObject *(create, JSON round-trip — clean)*
 - `core/ScriptableBehaviour.ts` — [x] ScriptableBehaviour *(coroutine ownership; F5)*
-- `core/pool/ObjectPool.ts` — [ ] ObjectPool
+- `core/pool/ObjectPool.ts` — [x] ObjectPool *(double-release guarded, Unity parity — clean)*
 - `core/Coroutine.ts` — [x] Coroutine · [x] CoroutineRunner · [x] WaitForSeconds ·
   [x] WaitForSecondsRealtime · [x] WaitUntil · [x] WaitWhile · [x] WaitForEndOfFrame ·
   [x] WaitForFixedUpdate *(scaled vs realtime clocks verified correct)*
