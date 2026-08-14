@@ -21,7 +21,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F7 | 1 | `DontDestroyOnLoad` on a child recorded a survival that never happened | fixed `ac95d83` |
 | F8 | 1 | Held keys and mouse buttons stuck after focus loss | fixed `aca2caa` |
 | F9 | 2 | `releaseSourceImage` has no upload guard; the documented one does not exist | docs fixed; guard **open** |
-| F10 | 2, 3, 9 | Sixteen getters handed out shared math constants | fixed `pending` |
+| F10 | 2, 3, 9 | Sixteen getters handed out shared math constants | fixed `ec73f3a` |
 
 ---
 
