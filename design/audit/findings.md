@@ -473,3 +473,9 @@ Sweeps that found nothing are evidence too, and stop the next pass repeating the
   real case.
 - **The enum-zero shape does not recur in graphics.** `Shader.getPropertyType` already uses `??`
   with a comment explaining why `||` was wrong there.
+- **No registry leaks a registration.** Every static `Set`/`Map` in the engine was scanned for
+  adds without a matching remove: 27 examined, 3 flagged — `Resources._decoders`,
+  `Shader._shaderRegistry`, `Input._axisValues` — and all three are bounded type tables that are
+  permanent by design, not per-instance registries. The instance registries that matter
+  (`LODGroup._activeInstances`, `Light`'s count, the renderer lists) all remove on both
+  `onDisable` and `onDestroy`.

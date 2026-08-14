@@ -14,7 +14,7 @@ all six known defects survived 1133 green tests.
 |---|---|---:|---:|---|
 | 1 | Core object model and lifecycle | 22 | **22** | **done** |
 | 2 | Graphics assets | 11 | **11** | **done** |
-| 3 | Rendering and components | 17 | 9 | in progress |
+| 3 | Rendering and components | 17 | 13 | in progress |
 | 4 | Assets and scenario | 12 | 0 | not started |
 | 5 | Physics | 16 | 0 | not started |
 | 6 | UI core | 21 | 0 | not started |
@@ -22,7 +22,7 @@ all six known defects survived 1133 green tests.
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **42** | |
+| | **Total** | **175** | **46** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -87,7 +87,7 @@ layer culling. `LineRenderer` also carries an open TODO and a Ukrainian comment 
 
 - `core/rendering/Renderer.ts` — [x] Renderer *(clone-on-write verified against Unity)*
 - `core/rendering/MeshFilter.ts` — [x] MeshFilter *(mesh/sharedMesh is Unity-correct; F12)*
-- `core/rendering/MeshRenderer.ts` — [ ] MeshRenderer
+- `core/rendering/MeshRenderer.ts` — [x] MeshRenderer *(via Renderer + shape sweeps)*
 - `core/rendering/InstancedMeshRenderer.ts` — [ ] InstancedMeshRenderer
 - `core/rendering/StaticBatchingUtility.ts` — [ ] StaticBatchingUtility
 - `core/rendering/ShaderWarmup.ts` — [ ] ShaderWarmup
@@ -98,9 +98,9 @@ layer culling. `LineRenderer` also carries an open TODO and a Ukrainian comment 
 - `core/components/PointLight.ts` — [x] PointLight *(clean)*
 - `core/components/SpotLight.ts` — [x] SpotLight *(clamping, inner≤outer — clean)*
 - `core/components/AmbientLight.ts` — [x] AmbientLight *(no setters — clean)*
-- `core/components/LODGroup.ts` — [ ] LODGroup · [ ] LOD
+- `core/components/LODGroup.ts` — [x] LODGroup · [x] LOD *(registry removes on disable and destroy — clean)*
 - `core/components/LineRenderer.ts` — [x] LineRenderer *(fallback returns; F10 — open TODO and non-English comment remain)*
-- `core/components/SpriteRenderer.ts` — [ ] SpriteRenderer
+- `core/components/SpriteRenderer.ts` — [x] SpriteRenderer *(all 10 setters sync — clean)*
 
 **Findings:** F10, F11, F12 — see [`findings.md`](findings.md)
 
