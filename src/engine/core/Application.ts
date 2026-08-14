@@ -567,6 +567,15 @@ export class Application {
      * 3. LateUpdate - components, then scenario
      * 4. Render
      * 5. Input reset
+     *
+     * **Exception safety.** Scenario and component callbacks are user code and
+     * can throw. The next frame is already scheduled by then, so the loop keeps
+     * running — which is why the state a frame *brackets* is closed in `finally`
+     * rather than in sequence. Without that, one throw inside the fixed phase
+     * left `Time.deltaTime` reporting the fixed step for the rest of the run,
+     * and one anywhere in the frame left `Input` never reset, so every
+     * `getKeyDown` stayed true. The error itself is not swallowed: it still
+     * reaches the host, and the frame it broke stays broken.
      */
     private _loop = (): void => {
         if (!this.isPlaying) return;
@@ -596,122 +605,139 @@ export class Application {
         const scenario = Scenario.current;
         const scenarioRunning = scenario?.isRunning ?? false;
 
-        // 4. Fixed updates (physics timestep) - components then scenario then physics
-        const tFixedStart = performance.now();
-        this._fixedUpdateAccumulator += frameDelta;
-        // Time.deltaTime reports the fixed step for the whole phase, as Unity
-        // does — the loop runs 0..N times per frame, so the frame's delta is
-        // the wrong figure to integrate with here.
-        Time._beginFixedUpdate();
-        while (this._fixedUpdateAccumulator >= EngineSettings.Time.FIXED_TIMESTEP) {
-            PluginManager._onFixedUpdate(EngineSettings.Time.FIXED_TIMESTEP);
-            scene._fixedUpdate();
-            if (scenarioRunning) {
-                scenario!._onFixedUpdate();
+        // Phase costs, declared here so the profiler is still told about a frame
+        // that a callback cut short.
+        let fixedUpdateMs = 0;
+        let updateMs = 0;
+        let lateUpdateMs = 0;
+        let renderMs = 0;
+
+        try {
+            // 4. Fixed updates (physics timestep) - components then scenario then physics
+            const tFixedStart = performance.now();
+            this._fixedUpdateAccumulator += frameDelta;
+            // Time.deltaTime reports the fixed step for the whole phase, as Unity
+            // does — the loop runs 0..N times per frame, so the frame's delta is
+            // the wrong figure to integrate with here.
+            Time._beginFixedUpdate();
+            try {
+                while (this._fixedUpdateAccumulator >= EngineSettings.Time.FIXED_TIMESTEP) {
+                    PluginManager._onFixedUpdate(EngineSettings.Time.FIXED_TIMESTEP);
+                    scene._fixedUpdate();
+                    if (scenarioRunning) {
+                        scenario!._onFixedUpdate();
+                    }
+                    Physics._step(EngineSettings.Time.FIXED_TIMESTEP);
+                    this._fixedUpdateAccumulator -= EngineSettings.Time.FIXED_TIMESTEP;
+                }
+            } finally {
+                Time._endFixedUpdate();
             }
-            Physics._step(EngineSettings.Time.FIXED_TIMESTEP);
-            this._fixedUpdateAccumulator -= EngineSettings.Time.FIXED_TIMESTEP;
+
+            const tUpdateStart = performance.now();
+            fixedUpdateMs = tUpdateStart - tFixedStart;
+
+            // 5. Per-frame updates - plugins, components, then scenario
+            PluginManager._onUpdate(frameDelta);
+            scene._update();
+            if (scenarioRunning) {
+                scenario!._onUpdate();
+            }
+
+            // 6. Animation mixer updates (after Update, before LateUpdate)
+            // State machines first: a transition decided this frame is the one
+            // the mixer then plays, rather than landing a frame late.
+            Animator._updateAll();
+            Animation._updateAll();
+
+            // 6a. Particle system simulation (after Update, before LateUpdate)
+            ParticleSystem._updateAll();
+
+            const tLateStart = performance.now();
+            updateMs = tLateStart - tUpdateStart;
+
+            // 7. Late updates - components, scenario, then plugins
+            scene._lateUpdate();
+            if (scenarioRunning) {
+                scenario!._onLateUpdate();
+            }
+            PluginManager._onLateUpdate(frameDelta);
+
+            // 7a. Audio spatial sync (after LateUpdate — uses final world positions)
+            AudioListener._updateAll();
+            AudioSource._updateAll();
+
+            // 7b. UI layout — groups arrange their children, then fitters resize to
+            // the result. Ahead of input so a click hit-tests the positions that
+            // will actually be drawn this frame.
+            // Tweens first: a tweened size or position must be laid out and drawn on
+            // the same frame it changed, not one behind.
+            UITween._updateAll();
+
+            LayoutGroup._updateAll();
+            ContentSizeFitter._updateAll();
+
+            // Aspect ratios are resolved last of the three: they constrain one axis
+            // against the other, so they need both to have settled first.
+            AspectRatioFitter._updateAll();
+
+            // Scroll views move content once its size is settled, so inertia and
+            // spring-back cannot fight a layout pass that has not run yet.
+            ScrollRect._updateAll();
+
+            // Where each canvas sits on the render surface — for a world-space one,
+            // this frame's projection. Ahead of the event pass so a click hit-tests
+            // the position the paint pass is about to use.
+            Canvas._updateTransforms();
+
+            // 7c. UI event processing (before UI render so button states are up-to-date)
+            EventSystem._update();
+
+            // 7c-bis. Control transitions, after the states they read have settled.
+            Selectable._updateAll();
+
+            // 7d. Level-of-detail selection (uses final world transforms + Camera.main)
+            LODGroup._updateAll();
+
+            // 7e. Streamed texture quality against the VRAM budget. Rate-limited
+            // and fire-and-forget — it issues a fetch, so the loop never waits on
+            // it. No-op unless a budget and a streaming source are both in place.
+            TextureStreaming._update();
+
+            const tRenderStart = performance.now();
+            lateUpdateMs = tRenderStart - tLateStart;
+
+            // 7. Render
+            this._render();
+
+            // 8. UI Canvas render (overlay, after 3D scene)
+            Canvas._renderAll();
+
+            // 8a. Tell the scenario a frame reached the screen. It uses the first
+            //     one to start loading whatever was deferred past first paint —
+            //     the decision lives there, so the loop needs no scenario state.
+            if (scenarioRunning) {
+                scenario!._onFrameRendered();
+            }
+
+            renderMs = performance.now() - tRenderStart;
+
+        } finally {
+            // 9. Reset per-frame input state. In `finally` because a callback
+            // that threw would otherwise leave every "pressed this frame" flag
+            // set, and the loop runs on regardless — the next frame is already
+            // scheduled.
+            Input._resetFrame();
+            Touch._postUpdate();
+
+            // 10. Report this frame's main-thread cost and phase split to the
+            // profiler — the single source of timing data for diagnostics. A
+            // frame cut short is still a frame that cost time.
+            Profiler._recordFrame(
+                performance.now() - now,
+                fixedUpdateMs, updateMs, lateUpdateMs, renderMs,
+            );
         }
-        Time._endFixedUpdate();
-
-        const tUpdateStart = performance.now();
-        const fixedUpdateMs = tUpdateStart - tFixedStart;
-
-        // 5. Per-frame updates - plugins, components, then scenario
-        PluginManager._onUpdate(frameDelta);
-        scene._update();
-        if (scenarioRunning) {
-            scenario!._onUpdate();
-        }
-
-        // 6. Animation mixer updates (after Update, before LateUpdate)
-        // State machines first: a transition decided this frame is the one
-        // the mixer then plays, rather than landing a frame late.
-        Animator._updateAll();
-        Animation._updateAll();
-
-        // 6a. Particle system simulation (after Update, before LateUpdate)
-        ParticleSystem._updateAll();
-
-        const tLateStart = performance.now();
-        const updateMs = tLateStart - tUpdateStart;
-
-        // 7. Late updates - components, scenario, then plugins
-        scene._lateUpdate();
-        if (scenarioRunning) {
-            scenario!._onLateUpdate();
-        }
-        PluginManager._onLateUpdate(frameDelta);
-
-        // 7a. Audio spatial sync (after LateUpdate — uses final world positions)
-        AudioListener._updateAll();
-        AudioSource._updateAll();
-
-        // 7b. UI layout — groups arrange their children, then fitters resize to
-        // the result. Ahead of input so a click hit-tests the positions that
-        // will actually be drawn this frame.
-        // Tweens first: a tweened size or position must be laid out and drawn on
-        // the same frame it changed, not one behind.
-        UITween._updateAll();
-
-        LayoutGroup._updateAll();
-        ContentSizeFitter._updateAll();
-
-        // Aspect ratios are resolved last of the three: they constrain one axis
-        // against the other, so they need both to have settled first.
-        AspectRatioFitter._updateAll();
-
-        // Scroll views move content once its size is settled, so inertia and
-        // spring-back cannot fight a layout pass that has not run yet.
-        ScrollRect._updateAll();
-
-        // Where each canvas sits on the render surface — for a world-space one,
-        // this frame's projection. Ahead of the event pass so a click hit-tests
-        // the position the paint pass is about to use.
-        Canvas._updateTransforms();
-
-        // 7c. UI event processing (before UI render so button states are up-to-date)
-        EventSystem._update();
-
-        // 7c-bis. Control transitions, after the states they read have settled.
-        Selectable._updateAll();
-
-        // 7d. Level-of-detail selection (uses final world transforms + Camera.main)
-        LODGroup._updateAll();
-
-        // 7e. Streamed texture quality against the VRAM budget. Rate-limited
-        // and fire-and-forget — it issues a fetch, so the loop never waits on
-        // it. No-op unless a budget and a streaming source are both in place.
-        TextureStreaming._update();
-
-        const tRenderStart = performance.now();
-        const lateUpdateMs = tRenderStart - tLateStart;
-
-        // 7. Render
-        this._render();
-
-        // 8. UI Canvas render (overlay, after 3D scene)
-        Canvas._renderAll();
-
-        // 8a. Tell the scenario a frame reached the screen. It uses the first
-        //     one to start loading whatever was deferred past first paint —
-        //     the decision lives there, so the loop needs no scenario state.
-        if (scenarioRunning) {
-            scenario!._onFrameRendered();
-        }
-
-        const renderMs = performance.now() - tRenderStart;
-
-        // 9. Reset per-frame input state
-        Input._resetFrame();
-        Touch._postUpdate();
-
-        // 10. Report this frame's main-thread cost and phase split to the
-        // profiler — the single source of timing data for diagnostics.
-        Profiler._recordFrame(
-            performance.now() - now,
-            fixedUpdateMs, updateMs, lateUpdateMs, renderMs,
-        );
     };
 
     // ==================== RENDERING (PRIVATE) ====================
