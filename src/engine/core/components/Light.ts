@@ -226,10 +226,18 @@ export abstract class Light extends Behaviour {
     }
 
     /**
-     * Bounce intensity for global illumination (reserved).
+     * Bounce intensity for global illumination.
      *
-     * @remarks Equivalent to Unity's `Light.bounceIntensity`.
+     * @remarks
+     * **Stored and not applied.** Unity uses it to scale indirect light from a
+     * baked or realtime GI system; this engine has neither, so nothing reads
+     * the value. It is kept so a scene authored against Unity's shape
+     * round-trips through serialization without losing the field.
      */
+    // TODO: apply once the engine has any indirect-lighting path. Until then
+    // this is deliberately inert, and says so above rather than implying an
+    // effect it does not have.
+
     @SerializedField()
     public get bounceIntensity(): number {
         return this._bounceIntensity;
@@ -251,6 +259,7 @@ export abstract class Light extends Behaviour {
 
     public set shadowStrength(value: number) {
         this._shadowStrength = Math.max(0, Math.min(1, value));
+        this._syncShadowBias();
     }
 
     // ==================== SHADOW PROPERTIES ====================
@@ -366,6 +375,7 @@ export abstract class Light extends Behaviour {
         if (shadow) {
             shadow.bias = this._shadowBias;
             shadow.normalBias = this._shadowNormalBias;
+            shadow.intensity = this._shadowStrength;
         }
     }
 }

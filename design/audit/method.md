@@ -78,6 +78,12 @@ apply.
   area.
 - **Non-English comment or identifier.** `LineRenderer.ts:581` is Ukrainian, against the repo's
   own rule.
+- **A getter that is safe on one path and unsafe on another.** Sixteen getters cloned on their
+  hit path and returned a shared `Color.white` / `Vector3.zero` on their **miss** path, so
+  read-modify-write corrupted the global constant — but only when the property happened to be
+  unset. *Ask of every getter with a fallback: what does the miss path return, and who owns it?*
+  Grep the shape across the tree rather than reading class by class; that found all sixteen at
+  once.
 
 ---
 

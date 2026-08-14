@@ -382,3 +382,37 @@ with a single site reverted.
 
 **Worth keeping as a lesson.** This was found by asking "what does the *miss* path return?", not
 by reading the happy path. Any getter with a fallback is a candidate.
+
+---
+
+## Part 3 — Rendering and components
+
+### F11. `Light.shadowStrength` was stored and never applied — fixed
+
+**Wanted.** `light.shadowStrength = 0.25` to lighten the shadow, as Unity's does.
+
+**What happened.** Nothing. The value was clamped, stored, and read by no one.
+
+**Why.** Every other setter on `Light` ends in a sync — `_syncColorAndIntensity`,
+`_syncShadowSettings`, `_syncShadowBias`. Two did not: `shadowStrength` and
+`bounceIntensity`. Grepping the whole engine for either name outside `Light.ts` returned no
+hits at all, so the values reached neither Three.js nor any engine subsystem.
+
+**Why it was not simply unimplementable.** three 0.182 has `LightShadow.intensity`, with the
+same 0..1 meaning and the same direction as Unity's `shadowStrength`. The property was unwired,
+not unsupported.
+
+**Affected.** Any scene tuning shadow darkness. Silent, like every member of this shape: the
+value reads back correctly from the getter, so a caller checking their own work sees success.
+
+**Fix.** `shadowStrength` now rides `_syncShadowBias` — which already writes the other two
+shadow fields — and the test covers that bias and strength do not clobber one another, since
+they now share a helper.
+
+**`bounceIntensity` stays inert, and now says so.** Unity uses it to scale indirect light from a
+GI system; this engine has neither baked nor realtime GI, so there is nothing to apply it to.
+Its JSDoc said "(reserved)", which reads like a hint rather than a contract, and claimed Unity
+equivalence besides. It now states plainly that the value is stored and not applied, why it is
+kept (a Unity-shaped scene round-trips through serialization without losing the field), and
+carries a `TODO` naming what would have to exist first — which is what the repo's completeness
+rule asks for.
