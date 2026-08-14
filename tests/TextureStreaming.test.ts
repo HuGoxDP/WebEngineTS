@@ -218,21 +218,40 @@ describe("TextureStreaming — the loop driver", () => {
         expect(source.getLodLevel("textures/big.ktx2")).toBe(2);
     });
 
-    test("a pass is rate-limited, not run every frame", async () => {
+    test("a pass is rate-limited, and the limit expires", async () => {
         const source = install();
         await loadBoth();
         Resources.vramBudgetBytes = 1 * KB;
         TextureStreaming.enabled = true;
 
+        // The limit is measured against performance.now(), so the clock is
+        // pinned rather than trusted. Against the real one this test asserted
+        // "less than 500 ms of wall time passed", which is a statement about
+        // how loaded the machine is — it failed once during a slow full-suite
+        // run, and a flaky test is worse than none.
+        // Starts well past the interval: reset() zeroes _lastPassTime, so a
+        // clock frozen at 0 would rate-limit the very first pass out.
+        let now = 10_000;
+        const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+        // vi.waitFor is avoided here for the same reason: it reads the clock
+        // this test has frozen.
+        const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+
         TextureStreaming._update();
-        await vi.waitFor(() => {
-            expect(source.getLodLevel("textures/big.ktx2")).toBe(1);
-        });
-
-        // Immediately after, the interval has not elapsed.
-        for (let i = 0; i < 5; i++) TextureStreaming._update();
-        await Promise.resolve();
-
+        await settle();
         expect(source.getLodLevel("textures/big.ktx2")).toBe(1);
+
+        // No time has passed, so no further pass may run.
+        for (let i = 0; i < 5; i++) TextureStreaming._update();
+        await settle();
+        expect(source.getLodLevel("textures/big.ktx2")).toBe(1);
+
+        // Once the interval has elapsed, the next update does run one.
+        now += TextureStreaming.intervalMs + 1;
+        TextureStreaming._update();
+        await settle();
+        expect(source.getLodLevel("textures/big.ktx2")).toBe(0);
+
+        clock.mockRestore();
     });
 });

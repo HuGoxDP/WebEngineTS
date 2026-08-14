@@ -41,6 +41,11 @@ Ordered by how much each has paid off here.
 4. **Grep for the call site that should exist.** `addContactMaterial` had zero call sites; that
    one grep was the whole diagnosis.
 5. **Measure before asserting.** A claim here about compression was wrong until measured.
+6. **A test that reads the real clock tests the machine, not the code.** The rate-limit test in
+   `TextureStreaming` asserted "less than 500 ms of wall time passed between these lines", which
+   is true until the suite runs slowly — it failed once during a 39-second full run and passed
+   on retry. Pin the clock instead. Two traps when doing so: `vi.waitFor` reads the clock you
+   just froze, and a clock frozen at `0` collides with counters that start at `0`.
 
 ## The failure shapes to hunt
 
