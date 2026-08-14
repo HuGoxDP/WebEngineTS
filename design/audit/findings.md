@@ -24,7 +24,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F10 | 2, 3, 9 | Sixteen getters handed out shared math constants | fixed `ec73f3a` |
 | F11 | 3 | `Light.shadowStrength` was stored and never applied | fixed `04e1e31` |
 | F12 | 2, 3, 8 | 680 lines of non-English comments, most of it public JSDoc | **open** |
-| F13 | 3 | Batching twice drew every source mesh twice | fixed `pending` |
+| F13 | 3 | Batching twice drew every source mesh twice | fixed `f064a58` |
 
 ---
 
