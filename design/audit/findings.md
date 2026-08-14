@@ -24,6 +24,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F10 | 2, 3, 9 | Sixteen getters handed out shared math constants | fixed `ec73f3a` |
 | F11 | 3 | `Light.shadowStrength` was stored and never applied | fixed `04e1e31` |
 | F12 | 2, 3, 8 | 680 lines of non-English comments, most of it public JSDoc | **open** |
+| F13 | 3 | Batching twice drew every source mesh twice | fixed `pending` |
 
 ---
 
@@ -459,6 +460,39 @@ should not swallow it.
 **Suggested order.** The math classes first (`Vector2/3/4`, `Color`, `Quaternion`, `Bounds`) —
 most read, smallest per-file risk, and part 8 of this audit will be reading them anyway. Then
 `Mesh` and `RenderingEnums`, then the rest.
+
+### F13. Batching twice drew every source mesh twice — fixed
+
+**Wanted.** `StaticBatchingUtility.combineRoot(root)` called a second time — after adding
+content, or simply on a reload — to batch what is new and leave what is already batched alone.
+
+**What happened.** It produced a second batch containing every source mesh **twice**, then
+disabled the first batch. The scene rendered the same geometry doubled and overlapping, with no
+error and no warning.
+
+**Why.** `getComponentsInChildren` filters on GameObject *activeness*, not on renderer
+`enabled`:
+
+```ts
+public getComponentsInChildren<T>(type, includeInactive: boolean = false): T[]
+// ... collection checks `_activeSelf`, never `renderer.enabled`
+```
+
+So the second call collected the originals the first call had disabled — their GameObjects are
+still active — *and* the batch object the first call created. All shared one material, so they
+landed in one group: N originals plus a batch that already contains those N. `Mesh.combine`
+duly merged the geometry twice over.
+
+**Affected.** Nobody today — zero uses across the ten scenarios — but the failure is silent and
+the trigger is ordinary: batch on load, add scenery, batch again.
+
+**Fix.** Skip renderers that are already disabled. That is independently correct — a disabled
+renderer draws nothing, so batching it *adds* geometry to the frame — and it makes the second
+call safe by itself: the originals are skipped, leaving the first batch alone in its group and
+below the two-member minimum, so nothing is created and nothing is disabled.
+
+Covered in `tests/StaticBatching.test.ts`, including that an already-hidden renderer stays out
+of the batch. All three fail with the guard removed.
 
 ---
 

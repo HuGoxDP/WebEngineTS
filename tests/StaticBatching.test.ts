@@ -75,3 +75,58 @@ describe("StaticBatchingUtility", () => {
         expect(c2.renderer.enabled).toBe(false);
     });
 });
+
+describe("StaticBatchingUtility — batching twice does not double the geometry", () => {
+    // getComponentsInChildren filters on GameObject activeness, not renderer
+    // enabled, so a second combineRoot picked up the originals this method had
+    // already disabled *and* the batch it had created — producing a second
+    // batch holding every source mesh twice, silently. Audit part 3, F13.
+
+    function scene(): { root: GameObject; material: StandardMaterial } {
+        const root = new GameObject("Root");
+        const material = new StandardMaterial();
+        for (let i = 0; i < 3; i++) {
+            const go = new GameObject(`Box${i}`);
+            go.transform.parent = root.transform;
+            go.addComponent(MeshFilter).sharedMesh = Mesh.createCube();
+            go.addComponent(MeshRenderer).sharedMaterial = material;
+        }
+        return { root, material };
+    }
+
+    test("a second call creates nothing", () => {
+        const { root } = scene();
+
+        const first = StaticBatchingUtility.combineRoot(root);
+        const second = StaticBatchingUtility.combineRoot(root);
+
+        expect(first).toHaveLength(1);
+        expect(second).toHaveLength(0);
+    });
+
+    test("the first batch stays enabled after a second call", () => {
+        const { root } = scene();
+        const [batch] = StaticBatchingUtility.combineRoot(root);
+
+        StaticBatchingUtility.combineRoot(root);
+
+        expect(batch.getComponent(MeshRenderer)!.enabled).toBe(true);
+    });
+
+    test("an already-disabled renderer is never batched", () => {
+        // It draws nothing, so including it would add geometry to the frame.
+        const { root, material } = scene();
+        const hidden = new GameObject("Hidden");
+        hidden.transform.parent = root.transform;
+        hidden.addComponent(MeshFilter).sharedMesh = Mesh.createCube();
+        const hiddenRenderer = hidden.addComponent(MeshRenderer);
+        hiddenRenderer.sharedMaterial = material;
+        hiddenRenderer.enabled = false;
+
+        const [batch] = StaticBatchingUtility.combineRoot(root);
+        const batched = batch.getComponent(MeshFilter)!.sharedMesh!;
+        const perCube = Mesh.createCube().vertexCount;
+
+        expect(batched.vertexCount).toBe(perCube * 3);
+    });
+});

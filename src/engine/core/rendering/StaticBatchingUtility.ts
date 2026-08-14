@@ -56,6 +56,13 @@ export class StaticBatchingUtility {
             if (renderer === null || filter === null) continue;
             if (renderer.sharedMaterials.length > 1) continue; // multi-material not supported
 
+            // A disabled renderer draws nothing, so batching it would *add*
+            // geometry to the frame. It is also what makes a second call safe:
+            // the originals this method disabled are skipped, and the batch it
+            // created is then alone in its group and falls below the minimum.
+            // Without this, batching twice drew every source mesh twice.
+            if (!renderer.enabled) continue;
+
             const material = renderer.sharedMaterial;
             const mesh = filter.sharedMesh;
             if (material === null || mesh === null) continue;
