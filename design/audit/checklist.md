@@ -15,14 +15,14 @@ all six known defects survived 1133 green tests.
 | 1 | Core object model and lifecycle | 22 | **22** | **done** |
 | 2 | Graphics assets | 11 | **11** | **done** |
 | 3 | Rendering and components | 17 | **17** | **done** |
-| 4 | Assets and scenario | 12 | 8 | in progress |
+| 4 | Assets and scenario | 12 | 9 | in progress |
 | 5 | Physics | 16 | 0 | not started |
 | 6 | UI core | 21 | 0 | not started |
 | 7 | UI controls | 18 | 0 | not started |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **58** | |
+| | **Total** | **175** | **59** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -114,7 +114,7 @@ double-decode paths, blob-URL lifetime, unload leaving registries populated, the
 parser against input it has not seen.
 
 - `core/assets/Resources.ts` — [x] Resources *(refcounts, destruction funnel, source lifetime; F15, F16)*
-- `core/assets/StreamingAssetSource.ts` — [ ] StreamingAssetSource
+- `core/assets/StreamingAssetSource.ts` — [x] StreamingAssetSource *(queue, disposal; F20)*
 - `core/assets/ZipAssetSource.ts` — [x] ZipAssetSource *(clean)*
 - `core/assets/TextureStreaming.ts` — [x] TextureStreaming *(pass state; F19)*
 - `core/assets/AssetDatabase.ts` — [x] AssetDatabase *(identity lifetime; F15)*
@@ -124,7 +124,7 @@ parser against input it has not seen.
 - `core/scenario/ScenarioAssets.ts` — [ ] ScenarioAssets
 - `core/scenario/ScenarioBehaviour.ts` — [ ] ScenarioBehaviour
 
-**Findings:** F15, F16, F17, F18, F19 — see [`findings.md`](findings.md)
+**Findings:** F15, F16, F17, F18, F19, F20 — see [`findings.md`](findings.md)
 
 ---
 

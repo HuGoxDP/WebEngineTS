@@ -31,6 +31,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F17 | 4 | A failed `LoadHandle` nobody awaited raised an unhandled rejection | fixed `9903a90` |
 | F18 | 4 | `TextAsset.lines` left a carriage return on every Windows line | fixed `ddbc1eb` |
 | F19 | 4 | A streaming pass could overlap, and kept a level it never loaded | fixed `9b49401` |
+| F20 | 4 | Disposing a streaming source left its queue running | fixed `0906e35` |
 
 ---
 
@@ -690,6 +691,42 @@ anything".
 Both are covered in `tests/TextureStreaming.test.ts`, and each half has its own negative
 control: removing one makes two tests fail, removing the other makes two *different* tests
 fail.
+
+### F20. Disposing a streaming source left its queue running — fixed `0906e35`
+
+**Wanted.** `dispose()` to end the source: revoke what it handed out, stop asking for more.
+
+**What happened.** It revoked the blob URLs, cleared the in-flight map, and left the request
+queue standing. Two consequences, both reachable by unloading a scenario mid-fetch — what a
+student leaving a page does.
+
+**Queued requests were still sent.** Nothing cancels the pump, so the next completion drained
+the queue and issued fetches for a scenario that had ended. Their callers heard nothing either
+way: the promises never settled.
+
+**A read after disposal could resolve to nothing.** `_shared` checks the queue before the
+in-flight map and returns the shared promise for a queued URL:
+
+```ts
+const queued = this._queued.get(url);
+if (queued) {
+    if (rank < queued.rank) queued.rank = rank;
+    return this._inFlight.get(url)!;   // invariant: queued ⇒ in-flight
+}
+```
+
+`dispose()` broke that invariant by clearing one map and not the other, and the non-null
+assertion then handed back `undefined` — which awaits to `undefined` and decodes as an empty
+asset. A blank texture instead of an error, which is the outcome `ZipAssetSource` explicitly
+refuses ("a silent empty read would hide it until a texture failed to appear").
+
+**Fix.** Reject every queued request — it was never sent, so nothing is salvaged by letting it
+through — and throw on reads afterwards, the way `ZipAssetSource` throws once released.
+`isDisposed` mirrors its `isReleased`. In-flight reads are still left to settle, as documented:
+their bytes are wanted by whoever is mid-decode.
+
+Covered in `tests/ProgressiveLoading.test.ts`; each half has its own negative control, and
+removing the read guard fails both tests.
 
 ---
 

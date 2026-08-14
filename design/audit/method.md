@@ -250,3 +250,11 @@ found nothing and said nothing, and the tests ran against the *fixed* code. Redo
 real edit showed 3 of 5 failing. So: after scripting a negative control, check that the file
 actually changed before believing the run. The failure mode is silent and always reports
 success.
+
+**An unobserved rejection in a test fails files it never touched.** Writing the F20 tests,
+`void source.readBytes(...)` left a rejection nobody handled. Vitest reported it as one
+unhandled error — and eight tests in `RenderBackend.test.ts`, a file with nothing to do with
+assets, failed with timeouts in the same run while passing on their own. So: a sudden cluster
+of failures in an unrelated file is worth reading as *this run is poisoned* before it is read
+as a regression. It is F17 one level up — the same defect the audit had just fixed in
+`LoadHandle`, reproduced in the tests written to prove it.
