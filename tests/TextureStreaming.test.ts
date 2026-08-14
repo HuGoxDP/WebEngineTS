@@ -19,7 +19,7 @@ const KB = 1024;
  * Two textures with three levels each. The served body is the pixel size, so a
  * level change shows up as a VRAM change through the real estimator.
  */
-function install() {
+function install(unavailable: ReadonlySet<string> = new Set()) {
     const sizes: Record<string, number> = {
         "big-0": 64, "big-1": 256, "big-2": 512,
         "small-0": 16, "small-1": 32, "small-2": 64,
@@ -27,7 +27,7 @@ function install() {
 
     const impl: FetchLike = async (url: string) => {
         const key = url.split("/").pop()!.replace(".ktx2", "");
-        const size = sizes[key];
+        const size = unavailable.has(key) ? undefined : sizes[key];
         if (size === undefined) return { ok: false, status: 404 } as unknown as Response;
         const bytes = new TextEncoder().encode(String(size));
         return {
@@ -201,6 +201,65 @@ describe("TextureStreaming — restoring with headroom", () => {
         const pass = await TextureStreaming.evaluate();
 
         expect(pass.direction).toBe("none");
+        expect(source.getLodLevel("textures/big.ktx2")).toBe(0);
+    });
+});
+
+describe("TextureStreaming — a pass that cannot finish", () => {
+    test("puts the level back when the fetch fails", async () => {
+        // The texture still holds what it had, so a source left claiming the
+        // level that failed would have the next pass planning against a
+        // detail level nothing ever decoded. Audit part 4, F19.
+        const source = install(new Set(["big-1"]));
+        await loadBoth();
+        Resources.vramBudgetBytes = Resources.estimatedVramBytes / 2;
+
+        await expect(TextureStreaming.evaluate()).rejects.toThrow();
+
+        expect(source.getLodLevel("textures/big.ktx2")).toBe(2);
+    });
+
+    test("leaves the next pass free to run", async () => {
+        const source = install(new Set(["big-1"]));
+        await loadBoth();
+        Resources.vramBudgetBytes = Resources.estimatedVramBytes / 2;
+
+        await TextureStreaming.evaluate().catch(() => { /* expected */ });
+        // `big` fails every time, so the pass that follows must at least be
+        // allowed to try rather than be locked out by a stuck busy flag.
+        await expect(TextureStreaming.evaluate()).rejects.toThrow();
+    });
+});
+
+describe("TextureStreaming — passes do not overlap", () => {
+    test("a second pass started mid-flight does nothing", async () => {
+        // The class documents that passes never overlap, and the loop driver
+        // honours it — but `evaluate` is public, for a host on its own
+        // schedule, and used to walk straight past. Audit part 4, F19.
+        const source = install();
+        await loadBoth();
+        Resources.vramBudgetBytes = 1 * KB;
+
+        const first = TextureStreaming.evaluate();
+        const second = await TextureStreaming.evaluate();
+
+        expect(second.direction).toBe("none");
+        expect(second.path).toBeNull();
+
+        expect((await first).path).toBe("assets/textures/big.ktx2");
+        expect(source.getLodLevel("textures/big.ktx2")).toBe(1);
+    });
+
+    test("and the one after it runs normally", async () => {
+        const source = install();
+        await loadBoth();
+        Resources.vramBudgetBytes = 1 * KB;
+
+        const first = TextureStreaming.evaluate();
+        await TextureStreaming.evaluate();
+        await first;
+
+        expect((await TextureStreaming.evaluate()).level).toBe(0);
         expect(source.getLodLevel("textures/big.ktx2")).toBe(0);
     });
 });

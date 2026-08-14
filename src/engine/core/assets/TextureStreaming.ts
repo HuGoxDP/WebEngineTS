@@ -127,6 +127,12 @@ export class TextureStreaming {
         if (!(source instanceof StreamingAssetSource)) return idle;
         if (!Number.isFinite(budget) || budget <= 0) return idle;
 
+        // `_update` checks this too, but a host driving passes from its own
+        // schedule reaches this method directly, and two passes in flight would
+        // both reload the same texture and pick their next target from VRAM
+        // figures the other is about to invalidate.
+        if (TextureStreaming._busy) return idle;
+
         const lower = before > budget;
         const raise = before < budget * TextureStreaming.restoreHeadroom;
         if (!lower && !raise) return idle;
@@ -136,10 +142,21 @@ export class TextureStreaming {
             : TextureStreaming._pickToRaise(source);
         if (!target) return idle;
 
+        // Nothing above awaits, so the flag is set before any other caller can
+        // observe the pass — keep it that way if this method grows.
+        const previous = source.getLodLevel(target.path);
         TextureStreaming._busy = true;
         try {
             source.setLodLevel(target.path, target.level);
             await Resources.reload(Texture2D, target.path);
+        } catch (error) {
+            // The fetch or the decode failed, so the texture still holds the
+            // content of the level it had. Leaving the request where it failed
+            // would make the source claim a detail level nothing ever decoded,
+            // and the next pass would plan against that fiction.
+            if (previous === null) source.clearLodLevel(target.path);
+            else source.setLodLevel(target.path, previous);
+            throw error;
         } finally {
             TextureStreaming._busy = false;
         }
