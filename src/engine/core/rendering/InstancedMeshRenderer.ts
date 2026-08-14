@@ -196,6 +196,10 @@ export class InstancedMeshRenderer extends Renderer {
      * The color modulates the material's base color for this instance only.
      * The first call allocates the per-instance color buffer.
      *
+     * **Alpha is ignored.** The per-instance buffer is RGB, so transparency has
+     * to come from the shared material; passing a `Color` with `a < 1` changes
+     * nothing about how the instance is blended.
+     *
      * @param index — zero-based instance index.
      * @param color — the instance color.
      */

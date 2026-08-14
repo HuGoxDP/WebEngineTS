@@ -14,7 +14,7 @@ all six known defects survived 1133 green tests.
 |---|---|---:|---:|---|
 | 1 | Core object model and lifecycle | 22 | **22** | **done** |
 | 2 | Graphics assets | 11 | **11** | **done** |
-| 3 | Rendering and components | 17 | 14 | in progress |
+| 3 | Rendering and components | 17 | 15 | in progress |
 | 4 | Assets and scenario | 12 | 0 | not started |
 | 5 | Physics | 16 | 0 | not started |
 | 6 | UI core | 21 | 0 | not started |
@@ -22,7 +22,7 @@ all six known defects survived 1133 green tests.
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **47** | |
+| | **Total** | **175** | **48** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -88,7 +88,7 @@ layer culling. `LineRenderer` also carries an open TODO and a Ukrainian comment 
 - `core/rendering/Renderer.ts` — [x] Renderer *(clone-on-write verified against Unity)*
 - `core/rendering/MeshFilter.ts` — [x] MeshFilter *(mesh/sharedMesh is Unity-correct; F12)*
 - `core/rendering/MeshRenderer.ts` — [x] MeshRenderer *(via Renderer + shape sweeps)*
-- `core/rendering/InstancedMeshRenderer.ts` — [ ] InstancedMeshRenderer
+- `core/rendering/InstancedMeshRenderer.ts` — [x] InstancedMeshRenderer *(capacity growth, carry-over, flag order — clean)*
 - `core/rendering/StaticBatchingUtility.ts` — [x] StaticBatchingUtility *(re-batching; F13)*
 - `core/rendering/ShaderWarmup.ts` — [ ] ShaderWarmup
 - `core/rendering/WebGLRenderBackend.ts` — [ ] WebGLRenderBackend
