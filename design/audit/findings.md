@@ -23,6 +23,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F9 | 2 | `releaseSourceImage` has no upload guard; the documented one does not exist | docs fixed; guard **open** |
 | F10 | 2, 3, 9 | Sixteen getters handed out shared math constants | fixed `ec73f3a` |
 | F11 | 3 | `Light.shadowStrength` was stored and never applied | fixed `04e1e31` |
+| F12 | 2, 3, 8 | 680 lines of non-English comments, most of it public JSDoc | **open** |
 
 ---
 
@@ -417,3 +418,58 @@ equivalence besides. It now states plainly that the value is stored and not appl
 kept (a Unity-shaped scene round-trips through serialization without losing the field), and
 carries a `TODO` naming what would have to exist first — which is what the repo's completeness
 rule asks for.
+
+### F12. 680 lines of non-English comments, most of it public JSDoc — **open**
+
+**Wanted.** What `CLAUDE.md` requires: "All comments and identifiers in English."
+
+**What is there.** 680 lines of Ukrainian/Russian comments across 13 files, swept by scanning
+every `.ts` under `src/engine` for Cyrillic:
+
+| File | Lines |
+|---|---:|
+| `core/graphics/Mesh.ts` | ~170 |
+| `core/components/LineRenderer.ts` | ~99 |
+| `core/graphics/RenderingEnums.ts` | ~73 |
+| `core/math/Vector3.ts` | ~62 |
+| `core/math/Color.ts` | ~56 |
+| `core/math/Vector2.ts` | ~50 |
+| `core/math/Vector4.ts` | ~46 |
+| `core/math/Bounds.ts` | ~42 |
+| `core/math/Quaternion.ts` | ~40 |
+| `core/rendering/MeshFilter.ts` | ~22 |
+| `core/EngineSettings.ts` | ~15 |
+| `physics/RaycastHit.ts` | ~6 |
+| `core/scenario/index.ts` | 1 |
+
+**Why it is more than tidiness.** Most of it is **public JSDoc** on the most-used types in the
+engine — `Vector3`, `Vector2`, `Color`, `Quaternion`, `Bounds`, `Mesh`. That text is what
+TypeDoc publishes and what a consumer's IDE shows on hover. Every scenario author and every
+consumer repo reads it, and the rule exists because not all of them read Ukrainian.
+
+**Scale corrected.** An earlier note in this audit recorded "a Ukrainian comment at
+`LineRenderer.ts:581`", from having seen one line. Sweeping found ninety-nine in that file
+alone. Reading a sample is not an inventory.
+
+**Not fixed here, deliberately.** 680 lines of translation is a large diff with no test to catch
+a mistranslated parameter, and JSDoc is exactly where a wrong word becomes someone else's bug.
+It wants its own pass, file by file, and it is mechanical rather than exploratory — the audit
+should not swallow it.
+
+**Suggested order.** The math classes first (`Vector2/3/4`, `Color`, `Quaternion`, `Bounds`) —
+most read, smallest per-file risk, and part 8 of this audit will be reading them anyway. Then
+`Mesh` and `RenderingEnums`, then the rest.
+
+---
+
+## Negative results worth recording
+
+Sweeps that found nothing are evidence too, and stop the next pass repeating them.
+
+- **The F11 shape does not recur.** Every `public set` in `core/components`, `core/rendering`
+  and `physics` was scanned for a body that never reaches a backend: 86 setters examined, 9
+  flagged, all 9 false positives that reach one through a spelling the pattern did not know
+  (`setPositions`, `setLODs`, `_body.*`, `_world.*`, `_localBounds.copy`). `Light` was the only
+  real case.
+- **The enum-zero shape does not recur in graphics.** `Shader.getPropertyType` already uses `??`
+  with a comment explaining why `||` was wrong there.
