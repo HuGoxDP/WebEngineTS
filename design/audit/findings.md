@@ -20,6 +20,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `5c585b0` |
 | F7 | 1 | `DontDestroyOnLoad` on a child recorded a survival that never happened | fixed `ac95d83` |
 | F8 | 1 | Held keys and mouse buttons stuck after focus loss | fixed `aca2caa` |
+| F9 | 2 | `releaseSourceImage` has no upload guard; the documented one does not exist | docs fixed; guard **open** |
 
 ---
 
@@ -273,3 +274,64 @@ clearing held keys and buttons. No synthetic "up" is raised: polling reports the
 immediately, while code listening for a *release* is not handed one the user never performed —
 the same trade Unity makes on focus loss. Covered by `tests/InputFocusLoss.test.ts`, including
 that input works again once focus returns.
+
+---
+
+## Part 2 — Graphics assets
+
+### F9. `releaseSourceImage` blanks a texture that has not been uploaded yet — docs fixed, guard **open**
+
+**Wanted.** Release the CPU copy of a texture's pixels without losing the texture.
+
+**What happens.** Called before the texture has been drawn once, it nulls the image and the
+texture is blank for the rest of the run. Nothing in the engine prevents it, and two things
+actively suggest it is safe.
+
+**Why.** Three uploads pixels during the first `render()` that draws with the texture. Both
+`Texture2D.releaseSourceImage` and `Cubemap.releaseSourceImage` null the image immediately, and
+both then set `needsUpdate = false` under a comment claiming that "prevents the *no image data
+found* warning". It does not: three's setter only acts on `true` —
+
+```js
+// node_modules/three/src/textures/Texture.js
+set needsUpdate( value ) {
+    if ( value === true ) { this.version ++; this.source.needsUpdate = true; }
+}
+```
+
+so the write was inert, and the comment described a protection that never ran.
+
+**The engine's own docs pointed at the unsafe call site.** `Texture2D`'s example said to call it
+"Later, in start() or update()" — and `start()` runs *before* that frame's render.
+
+**Worse, the protection is documented as existing.** `CLAUDE.md` states: "`releaseSourceImage()`
+uses a two-frame countdown (`_releaseCountdown = 2`) to ensure GPU upload completes before CPU
+data is released." There is no `_releaseCountdown` anywhere in `src/`. The countdown is real —
+but it lives in **scenario content**, reinvented by whoever hit the bug:
+
+```ts
+// ScenarioCreator/Scenarios/solar-system-scenario/scripts/Scenario.ts
+// Cannot release in awake() or start() — Three.js needs image data
+// for the initial texImage2D GPU upload that happens during render().
+this._releaseCountdown = 2;
+```
+
+So the hazard is confirmed by someone who hit it, the workaround is duplicated into content, and
+the engine claims credit for a guard it does not implement.
+
+**Affected.** `Resources.releaseAllSourceImages()` is public and does this to every cached
+texture at once, so a host calling it during loading would blank the scene. One scenario uses
+the per-texture call, correctly, via its own countdown.
+
+**Done.** Removed the inert `needsUpdate = false` from both classes — it changed nothing and
+claimed to change something — and rewrote the `Texture2D` JSDoc to say plainly that the call is
+unsafe before the first render, with an example that defers.
+
+**Still open: the guard itself.** The fix is the countdown `CLAUDE.md` already promises: schedule
+the release, tick it after render from `Application._loop`, and free when it reaches zero. That
+deletes the workaround from every scenario. It needs a per-frame driver and a shared home —
+`Cubemap` extends `EngineObject`, not `Texture`, so the scheduling cannot simply live on the
+base class.
+
+**`CLAUDE.md` is wrong until that lands** and should be corrected either way; it is outside this
+audit's reach because it carries unrelated uncommitted edits.

@@ -489,14 +489,20 @@ export class Texture2D extends Texture {
      * this method calls `.close()` which is required because `ImageBitmap`
      * is not garbage-collected through normal dereferencing.
      *
+     * **Call this only after the texture has been rendered at least once.**
+     * Three.js uploads the pixels to the GPU during the first `render()` that
+     * draws with it, so releasing in `awake()` or `start()` — both of which run
+     * before that frame's render — leaves the texture permanently blank. The
+     * engine does not defer the release for you; see F9 in
+     * `design/audit/findings.md`.
+     *
      * @example
      * ```ts
-     * // In start() — after the first render frame:
      * const tex = await Resources.load(Texture2D, "textures/earth");
      * material.albedoTexture = tex;
      *
-     * // Later, in start() or update():
-     * tex.releaseSourceImage();
+     * // In update(), a couple of frames later — never in awake() or start():
+     * if (--this._framesUntilRelease === 0) tex.releaseSourceImage();
      * ```
      */
     public releaseSourceImage(): void {
@@ -512,13 +518,6 @@ export class Texture2D extends Texture {
         // Null out the source image — Three.js keeps the WebGLTexture alive
         // in its internal cache, rendering continues from VRAM
         threeTex.image = null;
-
-        // Prevent Three.js from attempting to re-upload null data.
-        // If the texture was already uploaded (needsUpdate was consumed by
-        // the renderer), this is a no-op. If called before first render,
-        // this prevents the "no image data found" warning — but the texture
-        // will not have been uploaded and will appear blank.
-        threeTex.needsUpdate = false;
 
         // Release any cached pixel data
         this._pixels = null;

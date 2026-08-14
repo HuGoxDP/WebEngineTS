@@ -262,7 +262,6 @@ export class Cubemap extends EngineObject {
             (tex as THREE.Texture).image = null;
         }
 
-        tex.needsUpdate = false;
     }
 
     // ==================== CLEANUP ====================
