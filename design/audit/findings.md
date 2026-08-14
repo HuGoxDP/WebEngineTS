@@ -30,6 +30,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F16 | 4 | A load landing after its source was released cached itself anyway | fixed `daecc97` |
 | F17 | 4 | A failed `LoadHandle` nobody awaited raised an unhandled rejection | fixed `9903a90` |
 | F18 | 4 | `TextAsset.lines` left a carriage return on every Windows line | fixed `ddbc1eb` |
+| F19 | 4 | A streaming pass could overlap, and kept a level it never loaded | fixed `9b49401` |
 
 ---
 
@@ -645,7 +646,8 @@ observes is the whole point. 2 of its 4 tests fail with the line removed.
 **Wanted.** `asset.lines` to give the lines of the file.
 
 **What happened.** `split("
-")` alone, so a CRLF file yielded `"1,Earth"` and every
+")` alone, so a CRLF file yielded `"1,Earth
+"` and every
 comparison against a value written in the file failed.
 
 **Why.** The engine's own repo is CRLF and scenario content is authored on Windows; `.csv` is
@@ -656,13 +658,38 @@ Reachable rather than theoretical.
 went unnoticed. Unity has no `TextAsset.lines`, so there was no parity check to catch it either.
 
 **Fix.** Split on `/
-||
+|
+|
 /`. A trailing newline still yields a final empty string:
 dropping it would make the line count depend on whether the author's editor ends files with a
 newline, so it is documented instead of guessed at.
 
 The same commit corrected the `BinaryAsset` example, which built a `DataView` from
 `bytes.buffer` alone — wrong for any array that is a view into a larger buffer.
+
+### F19. A streaming pass could overlap, and kept a level it never loaded — fixed `9b49401`
+
+Two ways one `TextureStreaming` pass left state the next one would plan against.
+
+**A failed reload kept the level that failed.** `evaluate()` sets the requested level on the
+source, then reloads the texture. When the fetch or the decode threw, the texture still held
+the content of the level it had, while the source went on claiming the new one. The next pass
+then planned against a detail level nothing had ever decoded — in the test it steps *down* from
+that level, succeeds, and hides the failure completely. Reachable the moment one LOD is missing
+from the CDN, which is the failure a per-level manifest makes possible in the first place. The
+level is now restored on the way out, and cleared if there was no explicit one.
+
+**Passes could overlap.** The class documents that they never do, and `_update` honours it —
+but `evaluate()` is public *precisely* so a host can drive quality on its own schedule, and it
+walked straight past the flag. Two passes in flight both reload a texture and pick their next
+target from VRAM figures the other is about to invalidate; `Resources.reload` itself documents
+that concurrent reloads of one path are not deduplicated and the last to finish wins. It now
+returns an idle pass while one is running, which is also the honest answer to "did this pass do
+anything".
+
+Both are covered in `tests/TextureStreaming.test.ts`, and each half has its own negative
+control: removing one makes two tests fail, removing the other makes two *different* tests
+fail.
 
 ---
 
