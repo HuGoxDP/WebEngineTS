@@ -43,7 +43,7 @@ export class CameraState {
     public static cameraLookRotation(from: Vector3, to: Vector3): Quaternion {
         const dir = new Vector3(to.x - from.x, to.y - from.y, to.z - from.z);
         const len = dir.magnitude();
-        if (len < 0.0001) return Quaternion.identity;
+        if (len < 0.0001) return Quaternion.identity.clone();
         return Quaternion.lookRotation(dir, new Vector3(0, 1, 0));
     }
 }

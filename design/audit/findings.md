@@ -21,6 +21,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F7 | 1 | `DontDestroyOnLoad` on a child recorded a survival that never happened | fixed `ac95d83` |
 | F8 | 1 | Held keys and mouse buttons stuck after focus loss | fixed `aca2caa` |
 | F9 | 2 | `releaseSourceImage` has no upload guard; the documented one does not exist | docs fixed; guard **open** |
+| F10 | 2, 3, 9 | Sixteen getters handed out shared math constants | fixed `pending` |
 
 ---
 
@@ -335,3 +336,49 @@ base class.
 
 **`CLAUDE.md` is wrong until that lands** and should be corrected either way; it is outside this
 audit's reach because it carries unrelated uncommitted edits.
+
+### F10. Sixteen getters handed out shared math constants — fixed
+
+**Wanted.** The read-modify-write the engine's own `Transform` docs teach:
+
+```ts
+const c = material.color;
+c.r = 0.5;
+material.color = c;
+```
+
+**What happened.** When the property was unset, that corrupted `Color.white` process-wide, and
+every later reader of the constant — including every other material's unset colour — saw the
+change.
+
+**Why.** `Color.white`, `Vector3.zero`, `Matrix4x4.identity` and the rest are shared instances;
+their own JSDoc says "Shared instance — do not mutate!". Sixteen public getters returned one
+directly on their **miss** path while cloning on the hit path:
+
+```ts
+public getColor(propertyName: string): Color {
+    const value = this._properties.get(propertyName);
+    if (value instanceof Color) return value.clone();  // hit: safe
+    return Color.white;                                 // miss: the global
+}
+```
+
+The inconsistency is what made it invisible: the same getter is safe or unsafe depending on
+whether the property happens to be set, so it behaves correctly right up until a default is
+read.
+
+**Affected.** `Material` (5 sites), `Camera` (4), `LineRenderer` (3), `Texture2D` (3),
+`CinemachineCore` (1) — parts 2, 3 and 9 of this audit. All are fallback or error paths, which
+is exactly where a caller is least likely to be careful.
+
+**Fix.** `.clone()` on every one of the sixteen, found by grepping for the shape rather than by
+reading each class. The cost is one allocation on a path that previously returned a landmine;
+none of them is a per-frame hot path except `CinemachineCore`'s degenerate-direction branch,
+where an allocation is cheaper than a corrupted global.
+
+Covered by `tests/SharedConstantLeak.test.ts`, including that two reads of an unset property are
+independent — the property whose absence made this so hard to trace. Four of its five tests fail
+with a single site reverted.
+
+**Worth keeping as a lesson.** This was found by asking "what does the *miss* path return?", not
+by reading the happy path. Any getter with a fallback is a candidate.

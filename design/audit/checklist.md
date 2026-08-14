@@ -13,7 +13,7 @@ all six known defects survived 1133 green tests.
 | Part | Area | Classes | Done | Status |
 |---|---|---:|---:|---|
 | 1 | Core object model and lifecycle | 22 | **22** | **done** |
-| 2 | Graphics assets | 11 | 4 | in progress |
+| 2 | Graphics assets | 11 | **11** | **done** |
 | 3 | Rendering and components | 17 | 0 | not started |
 | 4 | Assets and scenario | 12 | 0 | not started |
 | 5 | Physics | 16 | 0 | not started |
@@ -22,7 +22,7 @@ all six known defects survived 1133 green tests.
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **26** | |
+| | **Total** | **175** | **33** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -65,17 +65,17 @@ Two defects came out of here in one week, both by accident. Watch for: state los
 backing object is replaced, `sharedMaterial` vs `material` clone-on-write, disposal and the
 ImageBitmap `.close()` path, the enum-zero shape in `Shader`.
 
-- `core/graphics/Material.ts` — [ ] Material
-- `core/graphics/StandardMaterial.ts` — [ ] StandardMaterial
-- `core/graphics/UnlitMaterial.ts` — [ ] UnlitMaterial
+- `core/graphics/Material.ts` — [x] Material *(property accessors; F10)*
+- `core/graphics/StandardMaterial.ts` — [x] StandardMaterial
+- `core/graphics/UnlitMaterial.ts` — [x] UnlitMaterial
 - `core/graphics/Shader.ts` — [x] Shader *(enum-zero shape already guarded — clean)*
 - `core/graphics/Texture.ts` — [x] Texture *(referent index, disposal)*
 - `core/graphics/Texture2D.ts` — [x] Texture2D *(release path; F9)*
 - `core/graphics/Cubemap.ts` — [x] Cubemap *(release path; F9)*
-- `core/graphics/Mesh.ts` — [ ] Mesh · [ ] SubMesh
-- `core/graphics/Sprite.ts` — [ ] Sprite · [ ] SpriteBorder
+- `core/graphics/Mesh.ts` — [x] Mesh · [x] SubMesh *(thin wrapper — clean)*
+- `core/graphics/Sprite.ts` — [x] Sprite · [x] SpriteBorder *(Y-down documented — clean)*
 
-**Findings:** F9 — see [`findings.md`](findings.md)
+**Findings:** F9, F10 — see [`findings.md`](findings.md)
 
 ---
 

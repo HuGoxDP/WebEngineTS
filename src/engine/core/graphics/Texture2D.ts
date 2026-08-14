@@ -290,12 +290,12 @@ export class Texture2D extends Texture {
     public getPixel(x: number, y: number): Color {
         if (!this._isReadable) {
             console.warn("[Texture2D] Cannot read from non-readable texture");
-            return Color.black;
+            return Color.black.clone();
         }
 
         if (x < 0 || x >= this._width || y < 0 || y >= this._height) {
             console.warn(`[Texture2D] getPixel: coords (${x}, ${y}) out of bounds`);
-            return Color.clear;
+            return Color.clear.clone();
         }
 
         this._ensurePixelData();
@@ -333,7 +333,7 @@ export class Texture2D extends Texture {
     public getPixelBilinear(u: number, v: number): Color {
         if (!this._isReadable) {
             console.warn("[Texture2D] Cannot read from non-readable texture");
-            return Color.black;
+            return Color.black.clone();
         }
 
         this._ensurePixelData();

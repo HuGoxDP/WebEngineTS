@@ -369,7 +369,7 @@ export class LineRenderer extends Renderer {
     public getPosition(index: number): Vector3 {
         if (index < 0 || index >= this._positions.length) {
             console.warn(`[LineRenderer] Index ${index} out of range [0, ${this._positions.length})`);
-            return Vector3.zero;
+            return Vector3.zero.clone();
         }
         return this._positions[index].clone();
     }
@@ -544,7 +544,7 @@ export class LineRenderer extends Renderer {
     private sampleGradient(t: number): Color {
         const keys = this._colorGradient;
         
-        if (keys.length === 0) return Color.white;
+        if (keys.length === 0) return Color.white.clone();
         if (keys.length === 1) return keys[0].color.clone();
         if (t <= keys[0].time) return keys[0].color.clone();
         if (t >= keys[keys.length - 1].time) return keys[keys.length - 1].color.clone();
@@ -557,7 +557,7 @@ export class LineRenderer extends Renderer {
             }
         }
 
-        return Color.white;
+        return Color.white.clone();
     }
 
     /**

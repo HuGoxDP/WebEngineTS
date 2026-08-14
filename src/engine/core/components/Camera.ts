@@ -419,7 +419,7 @@ export class Camera extends Behaviour {
      * @remarks Equivalent to Unity's `Camera.WorldToScreenPoint`.
      */
     public worldToScreenPoint(position: Vector3): Vector3 {
-        if (this._threeCamera === null) return Vector3.zero;
+        if (this._threeCamera === null) return Vector3.zero.clone();
 
         _tvec3.set(position.x, position.y, position.z);
         _tvec3.project(this._threeCamera);
@@ -444,7 +444,7 @@ export class Camera extends Behaviour {
      * @remarks Equivalent to Unity's `Camera.ScreenToWorldPoint`.
      */
     public screenToWorldPoint(screenPos: Vector3): Vector3 {
-        if (this._threeCamera === null) return Vector3.zero;
+        if (this._threeCamera === null) return Vector3.zero.clone();
 
         const screenWidth = window.innerWidth;
         const screenHeight = window.innerHeight;
@@ -495,7 +495,7 @@ export class Camera extends Behaviour {
      * @remarks Equivalent to Unity's `Camera.projectionMatrix`.
      */
     public get projectionMatrix(): Matrix4x4 {
-        if (this._threeCamera === null) return Matrix4x4.identity;
+        if (this._threeCamera === null) return Matrix4x4.identity.clone();
 
         const result = new Matrix4x4();
         const src = this._threeCamera.projectionMatrix.elements;
@@ -511,7 +511,7 @@ export class Camera extends Behaviour {
      * @remarks Equivalent to Unity's inverse of `Camera.cameraToWorldMatrix`.
      */
     public get worldToCameraMatrix(): Matrix4x4 {
-        if (this._threeCamera === null) return Matrix4x4.identity;
+        if (this._threeCamera === null) return Matrix4x4.identity.clone();
 
         const result = new Matrix4x4();
         const src = this._threeCamera.matrixWorldInverse.elements;

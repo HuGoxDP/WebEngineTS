@@ -242,7 +242,7 @@ export class Material extends EngineObject implements ITextureReferent {
         if (value instanceof Color) {
             return value.clone();
         }
-        return Color.white;
+        return Color.white.clone();
     }
 
     /**
@@ -309,7 +309,7 @@ export class Material extends EngineObject implements ITextureReferent {
         if (value instanceof Vector4) {
             return value.clone();
         }
-        return Vector4.zero;
+        return Vector4.zero.clone();
     }
 
     /**
@@ -334,7 +334,7 @@ export class Material extends EngineObject implements ITextureReferent {
         if (value instanceof Matrix4x4) {
             return value.clone();
         }
-        return Matrix4x4.identity;
+        return Matrix4x4.identity.clone();
     }
 
     /**
@@ -431,7 +431,7 @@ export class Material extends EngineObject implements ITextureReferent {
             const offset = texture._internalThreeTexture.offset;
             return new Vector2(offset.x, offset.y);
         }
-        return Vector2.zero;
+        return Vector2.zero.clone();
     }
 
     /**
@@ -456,7 +456,7 @@ export class Material extends EngineObject implements ITextureReferent {
             const repeat = texture._internalThreeTexture.repeat;
             return new Vector2(repeat.x, repeat.y);
         }
-        return Vector2.one;
+        return Vector2.one.clone();
     }
 
     /**
