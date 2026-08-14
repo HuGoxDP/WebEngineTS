@@ -360,6 +360,104 @@ describe("StreamingAssetSource — priority queue", () => {
     });
 });
 
+describe("StreamingAssetSource — disposal stops the queue", () => {
+    /** A fetch whose responses are held open until released. */
+    function gatedFetch() {
+        const started: string[] = [];
+        const gates = new Map<string, () => void>();
+
+        const impl: FetchLike = (url: string) => {
+            started.push(url);
+            return new Promise<Response>(resolve => {
+                gates.set(url, () => {
+                    const bytes = new TextEncoder().encode("ok");
+                    resolve({
+                        ok: true, status: 200,
+                        arrayBuffer: async () => bytes.buffer.slice(0),
+                    } as unknown as Response);
+                });
+            });
+        };
+
+        return {
+            impl,
+            started,
+            async release(url: string) {
+                gates.get(url)!();
+                gates.delete(url);
+                for (let i = 0; i < 8; i++) await Promise.resolve();
+            },
+        };
+    }
+
+    function makeSource() {
+        const fetcher = gatedFetch();
+        const source = new StreamingAssetSource(
+            parseStreamingManifest({
+                schema: 1, id: "x",
+                assets: [
+                    { path: "a.json", lods: [{ url: "a.json" }] },
+                    { path: "b.json", lods: [{ url: "b.json" }] },
+                ],
+            }),
+            { baseUrl: "https://cdn.test/a/", fetch: fetcher.impl, maxConcurrentRequests: 1 },
+        );
+        return { source, fetcher };
+    }
+
+    const url = (name: string) => `https://cdn.test/a/${name}`;
+
+    test("a queued request is not sent once the scenario is gone", async () => {
+        // dispose() documents that in-flight reads are left to settle. A queued
+        // one was never sent — and used to be sent afterwards, fetching for a
+        // scenario that had ended. Audit part 4, F20.
+        const { source, fetcher } = makeSource();
+
+        const first = source.readBytes("a.json");
+        const queued = source.readBytes("b.json");
+        await Promise.resolve();
+        expect(fetcher.started).toEqual([url("a.json")]);
+
+        source.dispose();
+        await expect(queued).rejects.toThrow(/dispos/i);
+
+        await fetcher.release(url("a.json"));
+        await first;
+
+        expect(fetcher.started).toEqual([url("a.json")]);
+        expect(source.pendingRequestCount).toBe(0);
+    });
+
+    test("a read after disposal fails instead of resolving to nothing", async () => {
+        // The queue kept its entry while `dispose` emptied the in-flight map,
+        // so the shared-request path handed back `undefined` — which decodes as
+        // an empty asset, the one outcome worse than an error.
+        const { source } = makeSource();
+
+        // Caught, not `void`ed: dispose rejects the queued one, and a rejection
+        // nobody handles is reported as an unhandled error for the whole run.
+        const inFlight = source.readBytes("a.json").catch(() => { /* never settles */ });
+        const queued = source.readBytes("b.json").catch(() => { /* expected */ });
+        await Promise.resolve();
+
+        source.dispose();
+        await queued;
+        void inFlight;
+
+        await expect(source.readBytes("b.json")).rejects.toThrow(/dispos/i);
+        await expect(source.readText("a.json")).rejects.toThrow(/dispos/i);
+        await expect(source.readScript("scripts/main.js")).rejects.toThrow();
+    });
+
+    test("it says so", async () => {
+        const { source } = makeSource();
+
+        expect(source.isDisposed).toBe(false);
+        source.dispose();
+        expect(source.isDisposed).toBe(true);
+    });
+});
+
 describe("Scenario — deferred loading after the first frame", () => {
     const manifestUrl = "https://cdn.test/s/scenario.json";
 

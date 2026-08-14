@@ -135,6 +135,7 @@ export class StreamingAssetSource implements IAssetSource {
     private _activeRequests: number = 0;
     private _sequence: number = 0;
     private _maxConcurrentRequests: number;
+    private _disposed: boolean = false;
 
     private _bytesFetched: number = 0;
     private _requestCount: number = 0;
@@ -398,17 +399,39 @@ export class StreamingAssetSource implements IAssetSource {
         return url;
     }
 
+    /** Whether the source has been disposed and reads would now throw. */
+    public get isDisposed(): boolean {
+        return this._disposed;
+    }
+
     /**
-     * Revokes every blob URL this source handed out.
+     * Revokes every blob URL this source handed out, and ends the queue.
      *
      * @remarks
      * Mirrors `ScenarioAssets.dispose`. In-flight reads are left to settle —
      * cancelling them would reject callers that are mid-decode, and their bytes
      * are dropped anyway once nothing holds the result.
+     *
+     * A **queued** read is a different case: it was never sent, so there is
+     * nothing to salvage by letting it through, and its caller has to hear that
+     * it will not arrive. Each one is rejected, which is also what stops the
+     * pump issuing fetches for a scenario that has ended.
+     *
+     * Reads afterwards throw, the way `ZipAssetSource` throws once released: a
+     * source that has been disposed cannot serve bytes, and a silent empty read
+     * would surface as a blank texture rather than an error.
      */
     public dispose(): void {
         for (const url of this._blobUrls) URL.revokeObjectURL(url);
         this._blobUrls.length = 0;
+        this._disposed = true;
+
+        for (const request of this._queued.values()) {
+            request.reject(new Error(
+                `[StreamingAssetSource] Disposed before "${request.path}" was fetched.`
+            ));
+        }
+        this._queued.clear();
         this._inFlight.clear();
     }
 
@@ -439,6 +462,13 @@ export class StreamingAssetSource implements IAssetSource {
      * left alone: it cannot be usefully un-sent, and its bytes are wanted.
      */
     private _shared(url: string, path: string, rank: _Rank): Promise<ArrayBuffer> {
+        if (this._disposed) {
+            throw new Error(
+                `[StreamingAssetSource] The source has been disposed; ` +
+                `"${path}" cannot be read.`
+            );
+        }
+
         // Queued is checked before in-flight: a queued URL is present in both,
         // and it is the only one still worth re-ranking.
         const queued = this._queued.get(url);
