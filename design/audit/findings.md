@@ -34,6 +34,8 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F20 | 4 | Disposing a streaming source left its queue running | fixed `0906e35` |
 | F21 | 1, 4 | A throwing callback left `Time` and `Input` broken for the rest of the run | fixed `c338cda` |
 | F22 | 4 | No per-callback isolation: one bad script stops the frame | **open** |
+| F23 | 4 | A failed `run()` left a scene, a source and blob URLs behind | fixed `9bdad0e` |
+| F24 | 4 | `unload()` emptied the scene but left it registered and active | fixed `9bdad0e` |
 
 ---
 
@@ -778,6 +780,49 @@ a stopped scene, which hides bugs during authoring. Unity makes that trade becau
 editor console nobody can miss; a browser console is easier to ignore. Worth deciding
 deliberately, with a `console.error` per failure and a policy for repeat offenders, rather than
 adding it to a bug-fix commit.
+
+### F23. A failed `run()` left a scene, a source and blob URLs behind — fixed `9bdad0e`
+
+**Wanted.** A scenario that fails to start to leave the engine as it found it.
+
+**What happened.** `run()` creates a Scene, installs the asset source through
+`_activateAsResourceSource`, mints a blob URL per script and may run an entry point that has
+already built part of a world. Its `catch` set the state to `Error` and rethrew — everything
+else stayed. The host was then holding a scenario it could neither run nor clean up: `unload`
+was never called, and `isLoaded` is false after an error, so there was no obvious handle on it
+either. The assets stayed in memory until some *later* load happened to unload it.
+
+**Affected.** Every failing start: a script with a syntax error, an entry point whose `awake`
+throws, a `critical` asset that 404s. On the platform, the visible symptom is a scenario that
+failed to open still holding its textures.
+
+**Fix.** The catch unloads before rethrowing, then records `Error`. Nothing is lost by it:
+`isLoaded` was already false after an error, so no caller could have retried `run()`.
+
+### F24. `unload()` emptied the scene but left it registered and active — fixed `9bdad0e`
+
+Found because the test for F23 would not pass: the scene was still there after the cleanup.
+
+**What happened.** `unload()` called `scene.destroy()` directly. That empties a scene —
+destroys its GameObjects, clears its Three.js scene, sets `_isLoaded = false` — and leaves the
+object itself in `SceneManager._loadedScenes`, and active. So afterwards:
+
+- `SceneManager.getSceneByName(name)` answered with a destroyed scene;
+- `SceneManager.activeScene` *was* that destroyed scene, and the loop went on calling
+  `_update` and rendering it;
+- `onSceneUnloaded` never fired — for the one scene a host most wants to hear about.
+
+It self-healed on the next scenario load only because `loadScene` in Single mode wipes
+everything, which is why nothing had noticed.
+
+**Fix.** Go through `SceneManager.unloadScene`, and when the scenario's scene was the only one
+loaded — the usual case, since `createScene` replaces — load an empty scene in its place.
+SceneManager always keeps one loaded; this leaves the engine where a fresh start would, with
+one live, empty, active scene and the scenario's own gone from the registry.
+
+Both are covered by `tests/ScenarioRunFailure.test.ts`, which induces the failure through the
+environment rather than faking it: `run()` imports the entry point from a blob URL, which Node
+cannot do, and that is a real failure in the same place a broken scenario script fails.
 
 ---
 
