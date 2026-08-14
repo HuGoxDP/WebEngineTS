@@ -51,6 +51,14 @@ export class LoadHandle<T> {
                 },
             );
         });
+
+        // The handle offers two ways to read a failure: await `promise`, or poll
+        // `isDone` and `error`. Without this, taking the second one leaves the
+        // rejection unobserved, and the host sees an `unhandledrejection` for a
+        // failure the caller is in fact handling. Attaching a handler here marks
+        // it observed without consuming it — a caller awaiting `promise` still
+        // gets the rejection.
+        this.promise.catch(() => { /* observed via `error` */ });
     }
 
     /** Loading progress from 0 to 1. */
@@ -68,7 +76,14 @@ export class LoadHandle<T> {
         return this._result;
     }
 
-    /** The error (available if the load failed). */
+    /**
+     * The error (available if the load failed).
+     *
+     * @remarks
+     * Polling this instead of awaiting {@link promise} is a supported way to
+     * handle a failure: the handle observes its own rejection, so a failed load
+     * nobody awaits does not surface as an `unhandledrejection`.
+     */
     public get error(): Error | undefined {
         return this._error;
     }
