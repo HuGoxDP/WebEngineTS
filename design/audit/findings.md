@@ -27,7 +27,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F13 | 3 | Batching twice drew every source mesh twice | fixed `f064a58` |
 | F14 | 3 | `renderScene` allocates a `Color` every frame | **open** |
 | F15 | 4 | Asset identity outlived the destroyed instance | fixed `c709fb5` |
-| F16 | 4 | A load landing after its source was released cached itself anyway | fixed `pending` |
+| F16 | 4 | A load landing after its source was released cached itself anyway | fixed `daecc97` |
 
 ---
 
@@ -564,7 +564,7 @@ Two details worth keeping:
 
 Covered by `tests/AssetIdentityLifetime.test.ts`; three of its five fail with the unbind removed.
 
-### F16. A load that landed after its source was released cached itself anyway — fixed `pending`
+### F16. A load that landed after its source was released cached itself anyway — fixed `daecc97`
 
 **Wanted.** Unloading a scenario to end everything it started. A texture still decoding when
 the scenario goes away belongs to nothing and should be dropped.
