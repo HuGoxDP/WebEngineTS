@@ -494,6 +494,37 @@ below the two-member minimum, so nothing is created and nothing is disabled.
 Covered in `tests/StaticBatching.test.ts`, including that an already-hidden renderer stays out
 of the batch. All three fail with the guard removed.
 
+### F14. `renderScene` allocates a `Color` every frame — **open**
+
+**Observed.** `WebGLRenderBackend.renderScene` ends with, on every frame that does not use a
+skybox:
+
+```ts
+if (!useSkybox) this.setClearColor(camera.backgroundColor);
+```
+
+`Camera.backgroundColor` returns a **clone** — the convention for value types throughout the
+engine — so this allocates one `Color` per frame in the render path.
+
+**Why it matters, mildly.** `CLAUDE.md` is explicit: "Never allocate in hot paths (Update,
+LateUpdate, FixedUpdate)", and the render path is hotter than any of them. One small object per
+frame is not a leak and will not show up in a frame-time graph, but it is exactly the allocation
+the rule exists to prevent, and the file two lines above it already keeps a module-level
+`_clearColor` "so setting the clear colour allocates nothing per frame" — the intent was there
+and the caller undoes it.
+
+**Fix sketch.** Either an out-parameter on the getter (`camera.getBackgroundColor(out)`, matching
+the engine's zero-allocation math convention) or an `@internal` accessor returning the stored
+instance for the backend to read components off. The first is more useful to scenario code as
+well; the second is smaller. Not done here because it changes `Camera`'s public surface, which
+deserves its own decision rather than a drive-by.
+
+**Also fixed while reading:** `RenderBackendStats` now documents that a backend may return the
+same object each frame, refreshed in place. The fields are `readonly`, which stops a caller
+writing to them but not from being surprised when a retained reference changes underneath —
+the F10 shape at the backend seam, caught by the type system on the write side and by nothing
+on the read side.
+
 ---
 
 ## Negative results worth recording

@@ -21,15 +21,16 @@ codebase actually produces, listed in [`method.md`](method.md).
 
 ## Progress
 
-**48 of 175 classes walked — parts 1 and 2 complete.** Live counts are in [`checklist.md`](checklist.md#progress); the
+**50 of 175 classes walked — parts 1 to 3 complete.** Live counts are in [`checklist.md`](checklist.md#progress); the
 summary below is updated when a part changes state.
 
 | Part | Area | Classes | State |
 |---|---|---:|---|
 | 1 | Core object model and lifecycle | 22 | **done** — 8 findings, 5 fixed |
 | 2 | Graphics assets | 11 | **done** — 2 findings |
-| 3 | Rendering and components | 17 | in progress — 15 walked, 4 findings |
-| 4–10 | everything else | 125 | not started |
+| 3 | Rendering and components | 17 | **done** — 5 findings |
+| 4 | Assets and scenario | 12 | next |
+| 5–10 | everything else | 113 | not started |
 
 ## The loop
 

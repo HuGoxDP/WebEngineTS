@@ -35,6 +35,15 @@ export enum GraphicsAPI {
  * Deliberately a plain engine-typed record rather than the backend's own
  * counters, so diagnostics do not have to know which API produced them.
  */
+/**
+ * GPU counters for the last frame.
+ *
+ * @remarks
+ * **A backend may hand back the same object every time**, refreshed in place,
+ * so that reading counters costs no allocation per frame. The fields are
+ * `readonly`, which stops a caller writing to them but not from being surprised
+ * that a retained reference changes. Copy what you need before the next read.
+ */
 export interface RenderBackendStats {
     /** Draw calls submitted last frame. */
     readonly drawCalls: number;
