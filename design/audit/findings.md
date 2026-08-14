@@ -27,6 +27,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F13 | 3 | Batching twice drew every source mesh twice | fixed `f064a58` |
 | F14 | 3 | `renderScene` allocates a `Color` every frame | **open** |
 | F15 | 4 | Asset identity outlived the destroyed instance | fixed `c709fb5` |
+| F16 | 4 | A load landing after its source was released cached itself anyway | fixed `pending` |
 
 ---
 
@@ -562,6 +563,54 @@ Two details worth keeping:
   live one.
 
 Covered by `tests/AssetIdentityLifetime.test.ts`; three of its five fail with the unbind removed.
+
+### F16. A load that landed after its source was released cached itself anyway — fixed `pending`
+
+**Wanted.** Unloading a scenario to end everything it started. A texture still decoding when
+the scenario goes away belongs to nothing and should be dropped.
+
+**What happened.** It was cached under whatever source was installed next, at `refCount: 1`,
+and its guid bound over the new scenario's database. Nothing ever released that reference, so
+neither `unloadUnused()` nor `evictToBudget()` would touch it — both only take entries at zero
+references. The VRAM stayed held for the lifetime of the page, and `AssetDatabase.get(guid)`
+answered with an asset from a scenario that had ended.
+
+**Why.** `_load` read the source late:
+
+```ts
+const bytes = await Resources._source!.readBytes(fullPath, { speculative });
+const asset = await entry.decoder(bytes, fullPath, Resources._source!);
+Resources._cache.set(cacheKey, { asset, refCount: 1, ... });
+AssetDatabase._bind(fullPath, asset as object);
+```
+
+Every one of those `Resources._source` reads happens *after* an await, so they see the source
+of whenever the bytes arrive rather than the one the load was started against. `_clearSource`
+clears `_cache`, `_inFlight` and `_source`, but a promise already in the air is not a map entry
+— clearing the map does not cancel it, and the landing had no way to tell that it was stale.
+The second read is worse than the first: after an unload `_source` is `null`, so a decoder that
+uses it (models resolving their textures through `getBlobUrl`) dereferences null; after a
+*replacement* it is somebody else's archive.
+
+**Affected.** Any unload or source swap racing a load — which is the normal case on the
+platform, where a student can leave a scenario while its textures are still decoding, and on
+the streaming path, where loads are many and long. Reachable through
+`Application.loadScenario*` (each one releases the previous source) as well as
+`Resources.releaseSource()`.
+
+**Fix.** Capture the source and a `_sourceEpoch` counter when the load starts; read the bytes
+and decode through the captured source; on landing, if the epoch has moved, destroy the decoded
+asset and reject. The rejection is the honest answer — the caller asked a scenario that no
+longer exists for an asset, `tryLoad` turns it into `null`, and `prefetch` already logs and
+carries on.
+
+One consequence worth stating: the `finally` that clears `_inFlight` now only clears **its
+own** promise. `_clearSource` empties that map, so by the time a stale load finishes the key
+may belong to a load the *new* source started for the same path, and deleting that one would
+let the next caller start a duplicate read.
+
+Covered by `tests/ResourcesSourceLifetime.test.ts`; 4 of its 5 tests fail against the old code.
+The fifth is a regression guard that passes either way, and says so.
 
 ---
 

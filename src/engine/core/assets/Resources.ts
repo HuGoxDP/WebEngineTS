@@ -167,6 +167,14 @@ export class Resources {
     private static _useClock: number = 0;
 
     /**
+     * Bumped whenever the active source changes. A load captures it when it
+     * starts and checks it when it lands, so an asset decoded for a scenario
+     * that has since unloaded is thrown away instead of cached under the next
+     * one.
+     */
+    private static _sourceEpoch: number = 0;
+
+    /**
      * Estimated GPU budget for cached assets, in bytes. `Infinity` — the
      * default — means no budget and no eviction.
      *
@@ -212,6 +220,7 @@ export class Resources {
      */
     public static _setSource(source: IAssetSource): void {
         Resources._source = source;
+        Resources._sourceEpoch++;
         if (!Resources._initialized) {
             Resources._registerBuiltinDecoders();
             Resources._initialized = true;
@@ -228,6 +237,7 @@ export class Resources {
         Resources._cache.clear();
         Resources._inFlight.clear();
         Resources._source = null;
+        Resources._sourceEpoch++;
     }
 
     /** Whether an asset source is installed and loading can happen. */
@@ -403,9 +413,30 @@ export class Resources {
         }
 
         // 3. Load and decode
+        //
+        // The source and the epoch are captured here, not read again when the
+        // bytes arrive: a load is async, and the scenario that asked for it can
+        // unload — or be replaced — while it is still in the air. Reading them
+        // late meant decoding through whatever source was installed by then, or
+        // through `null`.
+        const source = Resources._source!;
+        const epoch = Resources._sourceEpoch;
+
         const loadPromise = (async () => {
-            const bytes = await Resources._source!.readBytes(fullPath, { speculative });
-            const asset = await entry.decoder(bytes, fullPath, Resources._source!);
+            const bytes = await source.readBytes(fullPath, { speculative });
+            const asset = await entry.decoder(bytes, fullPath, source);
+
+            if (epoch !== Resources._sourceEpoch) {
+                // Nothing can use it: its source is gone, and caching it would
+                // pin GPU memory under a scenario that never asked for it, at a
+                // reference count `unloadUnused` and `evictToBudget` refuse to
+                // touch.
+                Resources._destroyAsset(asset);
+                throw new Error(
+                    `[Resources] "${fullPath}" finished loading after its asset ` +
+                    `source was released — the result was discarded.`
+                );
+            }
 
             Resources._cache.set(cacheKey, {
                 asset,
@@ -432,7 +463,13 @@ export class Resources {
         try {
             return (await loadPromise) as T;
         } finally {
-            Resources._inFlight.delete(cacheKey);
+            // Only if it is still this load's entry — `_clearSource` empties the
+            // map, so by now the key may belong to a load the *new* source
+            // started for the same path, and deleting that one would let a third
+            // caller start a duplicate read.
+            if (Resources._inFlight.get(cacheKey) === loadPromise) {
+                Resources._inFlight.delete(cacheKey);
+            }
         }
     }
 
