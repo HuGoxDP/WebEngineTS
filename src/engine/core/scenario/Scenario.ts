@@ -466,8 +466,17 @@ export class Scenario extends EngineObject {
             console.log(`[Scenario] Running: ${this._manifest.name}`);
 
         } catch (error) {
-            this._loadState = ScenarioLoadState.Error;
             console.error("[Scenario] Failed to run:", error);
+
+            // Nothing half-built survives. This method creates a Scene, installs
+            // the asset source, mints script blob URLs and may run an entry
+            // point that already built part of a world — all of it outlived the
+            // exception, and the host was left holding a scenario it could
+            // neither run nor clean up, since `isLoaded` is false after an
+            // error and `unload` was never reached.
+            this.unload();
+            this._loadState = ScenarioLoadState.Error;
+
             throw error;
         }
     }
@@ -601,10 +610,19 @@ export class Scenario extends EngineObject {
         }
         this._entryPoint = null;
 
-        // 2. Destroy the scenario's scene (all GameObjects, Three.js objects)
+        // 2. Destroy the scenario's scene (all GameObjects, Three.js objects).
+        //    Through SceneManager, not `scene.destroy()` directly: destroying it
+        //    in place emptied the scene but left it registered and active, so
+        //    `getSceneByName` still answered with a destroyed scene, the loop
+        //    went on updating and rendering it, and `onSceneUnloaded` never
+        //    fired for the one scene a host most wants to hear about.
         const scene = SceneManager.getSceneByName(this.name);
-        if (scene) {
-            scene.destroy();
+        if (scene && !SceneManager.unloadScene(scene)) {
+            // It was the only loaded scene, and SceneManager always keeps one.
+            // Loading an empty one in its place unregisters this scene properly
+            // and leaves the engine where a fresh start would: one live, empty,
+            // active scene.
+            SceneManager.loadScene("Default Scene");
         }
 
         // 3. Dispose asset provider (textures, models, blob URLs)
