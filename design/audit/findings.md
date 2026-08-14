@@ -25,6 +25,8 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F11 | 3 | `Light.shadowStrength` was stored and never applied | fixed `04e1e31` |
 | F12 | 2, 3, 8 | 680 lines of non-English comments, most of it public JSDoc | **open** |
 | F13 | 3 | Batching twice drew every source mesh twice | fixed `f064a58` |
+| F14 | 3 | `renderScene` allocates a `Color` every frame | **open** |
+| F15 | 4 | Asset identity outlived the destroyed instance | fixed `c709fb5` |
 
 ---
 
@@ -529,7 +531,7 @@ on the read side.
 
 ## Part 4 — Assets and scenario
 
-### F15. Asset identity outlived the destroyed instance — fixed
+### F15. Asset identity outlived the destroyed instance — fixed `c709fb5`
 
 **Wanted.** `AssetDatabase.isLoaded(guid)` to mean what it says: is this asset in memory right
 now.
