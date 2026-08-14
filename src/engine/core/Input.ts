@@ -114,6 +114,8 @@ export class Input {
         contextmenu: (e: Event) => void;
         pointerlockchange: () => void;
         resize: () => void;
+        blur: () => void;
+        visibilitychange: () => void;
     } | null = null;
 
     // ==================== INITIALIZATION ====================
@@ -182,6 +184,12 @@ export class Input {
             resize: () => {
                 Input._canvasRect = canvas.getBoundingClientRect();
             },
+            blur: () => {
+                Input._clearHeldState();
+            },
+            visibilitychange: () => {
+                if (document.hidden) Input._clearHeldState();
+            },
         };
 
         Input._handlers = handlers;
@@ -190,6 +198,8 @@ export class Input {
         window.addEventListener("keydown", handlers.keydown);
         window.addEventListener("keyup", handlers.keyup);
         window.addEventListener("resize", handlers.resize);
+        window.addEventListener("blur", handlers.blur);
+        document.addEventListener("visibilitychange", handlers.visibilitychange);
 
         // Attach mouse to canvas
         canvas.addEventListener("mousedown", handlers.mousedown);
@@ -213,6 +223,8 @@ export class Input {
         window.removeEventListener("keydown", h.keydown);
         window.removeEventListener("keyup", h.keyup);
         window.removeEventListener("resize", h.resize);
+        window.removeEventListener("blur", h.blur);
+        document.removeEventListener("visibilitychange", h.visibilitychange);
 
         canvas.removeEventListener("mousedown", h.mousedown);
         canvas.removeEventListener("mouseup", h.mouseup);
@@ -231,6 +243,30 @@ export class Input {
      * Clears per-frame input buffers (down/up events, scroll).
      * Must be called at the **end** of each frame by Application.
      */
+    /**
+     * @internal
+     * Drops everything currently held, on focus loss or a hidden tab.
+     *
+     * @remarks
+     * A browser delivers `keydown` and then no `keyup` when the window loses
+     * focus, and no `mouseup` when a button is released outside the canvas. So
+     * a key held across an Alt-Tab, or a drag that ends off-canvas, stayed down
+     * for the rest of the session — the character kept walking after the user
+     * came back.
+     *
+     * Held state is cleared; no synthetic "up" is raised. Polling
+     * ({@link getKey}, {@link getMouseButton}) therefore reports the truth
+     * immediately, while code listening for a *release* does not receive one
+     * the user never performed. That is the same trade Unity makes when focus
+     * is lost.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _clearHeldState(): void {
+        Input._currentKeys.clear();
+        for (let i = 0; i < 3; i++) Input._mouseButtons[i] = false;
+    }
+
     public static _resetFrame(): void {
         Input._downKeys.clear();
         Input._upKeys.clear();

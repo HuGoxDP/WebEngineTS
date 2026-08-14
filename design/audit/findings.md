@@ -18,6 +18,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | **open** |
 | F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `e6e0b45` |
 | F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `5c585b0` |
+| F8 | 1 | Held keys and mouse buttons stuck after focus loss | fixed `pending` |
 | F7 | 1 | `DontDestroyOnLoad` on a child recorded a survival that never happened | fixed `ac95d83` |
 
 ---
@@ -248,3 +249,27 @@ cycle.
 
 Covered in `tests/SceneManagement.test.ts`, including that an asset is unaffected; the child
 test fails with the guard removed.
+
+### F8. Held keys and mouse buttons stuck after focus loss — fixed
+
+**Wanted.** Alt-Tab away with a key held, come back, and the key is not still down.
+
+**What happened.** It was, for the rest of the session. `Input` listened for `keydown`/`keyup`
+and `mousedown`/`mouseup` and nothing else — `grep` for `blur` or `visibilitychange` in the file
+returned nothing.
+
+Browsers do not deliver `keyup` after the window loses focus, and `mouseup` was bound to the
+**canvas**, so a drag that ended anywhere else never arrived either. `_currentKeys` and
+`_mouseButtons` kept the stale entry, and only pressing and releasing the same input again
+cleared it. This is the "character keeps walking after Alt-Tab" bug, and it needed no unusual
+sequence to reproduce.
+
+**Why the per-frame reset did not save it.** `_resetFrame` clears the *edge* buffers —
+`_downKeys`, `_upKeys`, scroll and mouse deltas — deliberately, because held state must survive
+between frames. The held sets are the ones that had no way to be cleared.
+
+**Fix.** A `blur` listener on the window and a `visibilitychange` listener on the document, both
+clearing held keys and buttons. No synthetic "up" is raised: polling reports the truth
+immediately, while code listening for a *release* is not handed one the user never performed —
+the same trade Unity makes on focus loss. Covered by `tests/InputFocusLoss.test.ts`, including
+that input works again once focus returns.
