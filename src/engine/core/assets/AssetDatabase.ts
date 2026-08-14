@@ -139,6 +139,34 @@ export class AssetDatabase {
     }
 
     /**
+     * @internal
+     * Forgets a destroyed asset's instance, keeping its path↔guid mapping.
+     *
+     * @remarks
+     * Destruction removes the *instance*, not the identity: the file is still
+     * at its path and the guid still names it, so a scene referring to it must
+     * keep resolving once it is loaded again. What must not survive is the
+     * pointer to the dead object — `isLoaded` means "in memory right now", and
+     * without this it answered `true` for something already destroyed, handing
+     * `get` a disposed texture.
+     *
+     * @param asset - the instance being destroyed.
+     */
+    public static _unbind(asset: object | null | undefined): void {
+        if (!asset || typeof asset !== "object") return;
+
+        const guid = AssetDatabase._guidByAsset.get(asset);
+        if (guid === undefined) return;
+
+        AssetDatabase._guidByAsset.delete(asset);
+        // Only if it is still the current instance — a reload may already have
+        // bound a fresh one under the same id.
+        if (AssetDatabase._assetByGuid.get(guid) === asset) {
+            AssetDatabase._assetByGuid.delete(guid);
+        }
+    }
+
+    /**
      * Records that an asset has moved.
      *
      * @remarks

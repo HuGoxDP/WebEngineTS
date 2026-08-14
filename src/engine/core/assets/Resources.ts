@@ -982,8 +982,13 @@ export class Resources {
         }
     }
 
-    /** Destroys an asset if it knows how. */
+    /** Destroys an asset if it knows how, and drops its identity binding. */
     private static _destroyAsset(asset: unknown): void {
+        // Before destroying: AssetDatabase maps a guid to the live instance, and
+        // a destroyed one left in that map makes `isLoaded` report memory that
+        // is gone and `get` hand back a disposed object.
+        AssetDatabase._unbind(asset as object);
+
         const destroy = (asset as { destroy?: () => void } | null)?.destroy;
         if (typeof destroy === "function") destroy.call(asset);
     }

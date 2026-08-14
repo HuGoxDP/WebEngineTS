@@ -527,6 +527,42 @@ on the read side.
 
 ---
 
+## Part 4 — Assets and scenario
+
+### F15. Asset identity outlived the destroyed instance — fixed
+
+**Wanted.** `AssetDatabase.isLoaded(guid)` to mean what it says: is this asset in memory right
+now.
+
+**What happened.** It answered `true` for assets that had been destroyed, and `get(guid)` handed
+the destroyed object back. A deserialized scene resolving an asset reference would assign a
+disposed texture to a material.
+
+**Why.** `AssetDatabase` had `_bind` and `_bindGuid` and **no unbind at all**. `Resources`
+binds on every successful load; nothing removed the binding when the asset was destroyed by
+`unloadUnused()` or by `evictToBudget()`. Only `AssetDatabase.clear()`, on scenario unload,
+emptied the maps — so within a run the map only ever grew, and grew stale.
+
+**Affected.** Anything holding assets by id across an unload: the serializer, prefab
+instantiation, and the VRAM budget, which was introduced during this same series and made
+eviction routine rather than exceptional. That is what turned a latent gap into a reachable one.
+
+**Fix.** `AssetDatabase._unbind(asset)`, called from `Resources._destroyAsset` — the single
+funnel every destruction already goes through, which is why this is one call site and not four.
+
+Two details worth keeping:
+
+- **The path↔guid mapping is kept; only the instance pointer is dropped.** Destruction removes
+  what is in memory, not what the file is called, so a scene referring to the asset resolves
+  again the moment it reloads. A test covers exactly that round trip.
+- **The guid is only cleared if it still points at the asset being destroyed.** A reload may
+  already have bound a fresh instance under the same id, and unbinding blindly would erase the
+  live one.
+
+Covered by `tests/AssetIdentityLifetime.test.ts`; three of its five fail with the unbind removed.
+
+---
+
 ## Negative results worth recording
 
 Sweeps that found nothing are evidence too, and stop the next pass repeating them.
