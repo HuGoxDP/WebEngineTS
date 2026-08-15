@@ -49,6 +49,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F35 | 6 | A tween kept animating a destroyed element | fixed `0a571e3` |
 | F36 | 1, 6 | `isActiveAndEnabled` was true for destroyed components | fixed `2c32687` |
 | F37 | 6 | A `LayoutElement` shadowed the size its own control reported | fixed `f9083e3` |
+| F38 | 6 | `FixedRowCount` did not fix the row count | fixed `6e25971` |
 
 ---
 
@@ -1207,6 +1208,39 @@ reported size is stale.
 
 Covered by `tests/LayoutReportedSize.test.ts`, which asserts both component orders agree; 3 of
 its 6 fail with the `LayoutElement` back in the scan, 1 with the enabled check dropped.
+
+### F38. `FixedRowCount` did not fix the row count — fixed `6e25971`
+
+**Wanted.** Unity's `GridLayoutGroup` constraint: exactly this many rows, columns worked out to
+suit.
+
+**What happened.** The rows were worked out too, from the columns that had just been worked out
+from the rows:
+
+```ts
+const columns = this._columnCount(children.length, innerW);   // ceil(count / rows)
+const rows = Math.ceil(children.length / columns);            // …and back again
+```
+
+Four children in three fixed rows gives `columns = ceil(4/3) = 2`, then `rows = ceil(4/2) = 2`.
+A 2×2 grid — precisely what asking for two *columns* would have given, so the constraint had no
+effect. Unity keeps the requested figure as `cellCountY` and derives only `cellCountX`.
+
+**Affected.** Any count that is not a multiple of the row count: 4 in 3, 6 in 4, 8 in 5. Both
+the layout pass and `preferredHeight` used the same round trip, so they agreed with each other
+and disagreed with the author — which is why it reads as "the grid is just compact" rather than
+as a bug.
+
+**Fix.** One helper, `_rowCount`, used by both the layout pass and `preferredHeight`, returning
+the constraint's figure when there is one.
+
+Covered by `tests/GridFixedRows.test.ts`; 3 of its 6 fail with the derivation put back.
+
+**A note on how the tests ended up.** The first draft asserted child *positions* after driving
+`LayoutGroup._updateAll()`, and every child sat at its default rect: laying out for real needs
+the canvas resolution pass, which this fix does not touch. Asserting the reserved size instead
+tests the property the change actually controls. A test that needs half the engine running to
+say anything is testing the engine, not the fix.
 
 ---
 
