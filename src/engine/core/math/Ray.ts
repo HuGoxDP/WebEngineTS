@@ -30,7 +30,14 @@ export class Ray {
 
     // ==================== PROPERTIES ====================
 
-    /** Starting point of the ray */
+    /**
+     * Starting point of the ray.
+     *
+     * @remarks
+     * The ray's own vector, not a copy — writing through it moves the ray,
+     * which is what makes `ray.origin.set(…)` work and costs no allocation in a
+     * per-frame cast. Keep a copy if you need the value to outlive the ray.
+     */
     get origin(): Vector3 {
         return this._origin;
     }
@@ -41,7 +48,17 @@ export class Ray {
 
     /**
      * Normalized direction of the ray.
-     * Setting this will normalize the input vector.
+     *
+     * @remarks
+     * Assigning normalizes what you give it, and so does {@link set}. The
+     * getter hands back the ray's own vector, so writing *through* it —
+     * `ray.direction.set(1, 1, 1)` — skips that and leaves the ray with a
+     * direction that is not unit length.
+     *
+     * Everything that consumes a ray assumes it is: `Bounds.intersectRay`
+     * returns a distance measured in units of that vector, so a direction of
+     * length 2 reports half the distance it should. Assign, or call `set`, or
+     * normalize what you wrote.
      */
     get direction(): Vector3 {
         return this._direction;
