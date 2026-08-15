@@ -117,6 +117,27 @@ export class TintCache {
         TintCache._evictToLimit();
     }
 
+    /**
+     * @internal
+     * Drops every buffer tinted from one source texture.
+     *
+     * @remarks
+     * Called when that texture is destroyed — by a scenario unloading, or by
+     * `Resources` evicting it under the VRAM budget. The buffers are keyed by
+     * the texture's instance id, which is never reused, so without this they
+     * are unreachable and still counted: full-resolution copies of pixels that
+     * no longer exist, held until the 32 MB budget happened to push them out.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _dropTexture(textureId: number): void {
+        for (const [key, entry] of TintCache._entries) {
+            if (entry.textureId !== textureId) continue;
+            TintCache._entries.delete(key);
+            TintCache._bytes -= entry.bytes;
+        }
+    }
+
     /** @internal Resets to a pristine state, for tests. */
     public static _reset(): void {
         TintCache.clear();

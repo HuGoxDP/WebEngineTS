@@ -399,7 +399,23 @@ export class Texture extends EngineObject {
         // Holders keep their own reference to this texture; what they must not
         // keep is a place in a set that outlives it.
         this._referents.clear();
+
+        Texture._onDestroyed?.(this.getInstanceID());
     }
+
+    /**
+     * @internal
+     * Called with a texture's instance id as it is destroyed, so caches keyed by
+     * that id can drop what belongs to it.
+     *
+     * @remarks
+     * A callback rather than an import: the UI's tint cache is the subscriber,
+     * and graphics must not depend on the UI. The dependent module installs this
+     * at load, the same way `Collider` installs `Rigidbody._onEnabled`.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _onDestroyed: ((textureId: number) => void) | null = null;
 
     // ==================== PRIVATE SYNC ====================
 

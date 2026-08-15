@@ -4,6 +4,7 @@ import { HASH_SEED, cssColor, hashBool, hashColor, hashNumber, hashString, round
 import { Rect } from "../math/Rect";
 import { TintCache } from "./TintCache";
 import { Sprite } from "../graphics/Sprite";
+import { Texture } from "../graphics/Texture";
 import type { Texture2D } from "../graphics/Texture2D";
 import { Serializable, SerializedField } from "../reflection/Decorators";
 import { FieldType } from "../reflection/Types";
@@ -640,3 +641,9 @@ export class UIImage extends UIBehaviour {
             : source.height;
     }
 }
+
+// A tinted copy is only meaningful while its source exists, and the cache keys
+// by an instance id that is never reused. Registered here rather than in
+// `Texture` so the dependency stays one-directional: the UI knows about
+// graphics, graphics knows nothing about the UI.
+Texture._onDestroyed = (textureId: number) => TintCache._dropTexture(textureId);
