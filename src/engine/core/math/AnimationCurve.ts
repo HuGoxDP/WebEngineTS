@@ -41,17 +41,25 @@ export class Keyframe {
     public outTangent: number;
 
     /**
-     * Incoming weight for weighted tangent mode (0–1).
-     * 0 = auto length, 1 = tangent reaches exactly to the next key.
+     * Incoming weight, stored but **not applied**.
      *
-     * @remarks Equivalent to Unity's `Keyframe.inWeight`.
+     * @remarks
+     * Unity uses this only when a key's `weightedMode` asks for it, and applies
+     * it by evaluating the segment as a cubic Bezier rather than a Hermite
+     * spline. This engine has no `weightedMode` and evaluates every segment as a
+     * Hermite spline, so the field is carried — through `clone`, and so a curve
+     * authored elsewhere survives a round trip — and never changes a value
+     * {@link AnimationCurve.evaluate} returns.
+     *
+     * Defaults to `1/3`, Unity's default, which is the weight at which a
+     * weighted segment and an unweighted one agree.
      */
+    // TODO: apply the weights, which needs a `weightedMode` per key and a
+    // Bezier evaluator that solves for the parameter at a given time.
     public inWeight: number;
 
     /**
-     * Outgoing weight for weighted tangent mode (0–1).
-     *
-     * @remarks Equivalent to Unity's `Keyframe.outWeight`.
+     * Outgoing weight, stored but **not applied**. See {@link inWeight}.
      */
     public outWeight: number;
 
