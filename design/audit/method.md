@@ -290,3 +290,9 @@ and nothing tells it. The signature in the tests is always the same — most ass
 either way, because using a destroyed object rarely complains, and only the assertion "was the
 reference dropped" fails. So when auditing a class that stores an `EngineObject`, write that
 assertion first; the behavioural ones will not tell you anything.
+
+**Check a comment's claim before treating it as evidence.** F56 was a comment stating that
+`Vector3.up` was "corrupted", and the first instinct was to record that as a finding about
+`Vector3`. The claim was untestable-by-inspection but trivially testable by code: the constant is
+frozen and the only consumer reads it. The comment was the defect. A note asserting a fact about
+another part of the engine is a hypothesis, not a source.

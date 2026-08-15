@@ -67,6 +67,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F53 | 9 | A virtual camera kept following a destroyed target | fixed `90deb81` |
 | F54 | 9 | A dead block allocated in the camera's LateUpdate forever | fixed `5fdd6a3` |
 | F55 | 9 | Damping of zero froze the camera instead of removing the damping | fixed `8d235c3` |
+| F56 | 9 | A workaround for a corruption that cannot happen | fixed `c0023cb` |
 
 ---
 
@@ -1685,9 +1686,39 @@ faster, a tiny step barely moves, and a huge step lands on the target rather tha
 That last one is the property that makes this formula the right choice, so it is worth having a
 test say so.
 
+### F56. A workaround for a corruption that cannot happen — fixed `c0023cb`
+
+**What was there.** `cameraLookRotation` passed `new Vector3(0, 1, 0)` as its up vector, with a
+comment: *"Passes inline `new Vector3(0, 1, 0)` as up vector to avoid the corrupted `Vector3.up`
+shared static instance."*
+
+**Why it cannot be true.** `Vector3`'s constants are frozen — a write throws rather than
+silently succeeding — and `Quaternion.lookRotation` only ever *reads* its up vector; it is even
+that method's default argument. Whatever the original symptom was, the note outlived it.
+
+**Why the comment is the defect.** A note claiming a core constant is unreliable is worse than
+no note: it invites the next reader to distrust every use of `Vector3.up` in the engine, and to
+copy the workaround into new code. This audit nearly did exactly that — the comment was read as
+evidence for a *fifth* finding before checking whether the claim held.
+
+**Fix.** The argument is gone, so the method uses `lookRotation`'s default; the comment records
+what was actually true. One allocation per call goes with it, in the active camera's per-frame
+path.
+
+**Removing a workaround is only safe with a witness.** Seven tests pin the resulting rotation —
+along each axis, straight down and straight up where forward and up are parallel and the
+fallback up has to take over, a diagonal, and the degenerate case where `from` equals `to`. One
+asserts the claim the comment made: that `Vector3.up` survives being used.
+
 ---
 
 ## Negative results worth recording
+
+**`Animation` has the most careful teardown in the engine, and it is worth naming.** Its
+registry is maintained on enable, disable *and* destroy; `onDestroy` stops the Three.js mixer's
+actions, drops the mixer, and clears the action map, the clip list, the blend weights and the
+fade-out reference. It is the class the reference-holding family (F15, F34, F35, F44, F53) would
+have been checked against if anyone had thought to compare.
 
 **Part 9 — the two things the part was opened to check both hold.** `BlendTree` normalizes:
 weights are divided by their total, non-positive ones are skipped, and two children sharing a

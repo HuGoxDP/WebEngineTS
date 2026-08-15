@@ -20,9 +20,9 @@ all six known defects survived 1133 green tests.
 | 6 | UI core | 21 | **21** | **done** |
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
-| 9 | Animation and Cinemachine | 17 | 10 | in progress |
+| 9 | Animation and Cinemachine | 17 | 14 | in progress |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **140** | |
+| | **Total** | **175** | **144** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -234,13 +234,13 @@ Both drive transforms per frame. Cinemachine has **zero** tests across 11 classe
 blend weights not summing to 1, a transition consuming a trigger twice, the documented
 first-frame Cut behaviour actually holding, damping at very small and very large steps.
 
-- `core/animation/Animation.ts` — [ ] Animation
+- `core/animation/Animation.ts` — [x] Animation *(clean; exemplary teardown)*
 - `core/animation/AnimationClip.ts` — [ ] AnimationClip
 - `core/animation/Animator.ts` — [x] Animator *(trigger consumption verified)* · [x] AnimatorState · [x] AnimatorTransition
 - `core/animation/BlendTree.ts` — [x] BlendTree *(weights verified)*
 - `core/cinemachine/CinemachineBrain.ts` — [x] CinemachineBrain *(F54; first-frame Cut verified)*
-- `core/cinemachine/CinemachineCore.ts` — [ ] CameraState · [ ] CinemachineBody ·
-  [ ] CinemachineAim
+- `core/cinemachine/CinemachineCore.ts` — [x] CameraState *(F56)* · [x] CinemachineBody ·
+  [x] CinemachineAim
 - `core/cinemachine/CinemachineVirtualCamera.ts` — [x] CinemachineVirtualCamera *(F52, F53)*
 - `core/cinemachine/CinemachineFollowBody.ts` — [x] CinemachineFollowBody *(F55)*
 - `core/cinemachine/CinemachineOrbitalBody.ts` — [x] CinemachineOrbitalBody *(F55)*
@@ -249,7 +249,7 @@ first-frame Cut behaviour actually holding, damping at very small and very large
 - `core/cinemachine/CinemachineOrbitalAim.ts` — [x] CinemachineOrbitalAim *(F52)*
 - `core/cinemachine/CinemachinePOVAim.ts` — [ ] CinemachinePOVAim
 
-**Findings:** F52–F55 — see [`findings.md`](findings.md)
+**Findings:** F52–F56 — see [`findings.md`](findings.md)
 
 ---
 
