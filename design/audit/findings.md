@@ -64,6 +64,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F50 | 8 | `Keyframe`'s tangent weights are stored and never applied | documented `3d24607`; weighting **open** |
 | F51 | 8 | Writing through `Ray.direction` bypassed its normalization | documented `954e6ea` |
 | F52 | 9 | Cinemachine printed debug traces in shipped builds | fixed `16aa7ab` |
+| F53 | 9 | A virtual camera kept following a destroyed target | fixed `90deb81` |
 
 ---
 
@@ -1612,6 +1613,27 @@ the early return, where someone reading the code would look for it.
 
 No behaviour change: the counters gated nothing but output. 5 insertions against 49 deletions,
 suite unchanged.
+
+### F53. A virtual camera kept following a destroyed target — fixed `90deb81`
+
+**F44's shape, in Cinemachine**, and the fourth place this engine holds a reference nobody tells
+it about — after `AssetDatabase`'s guids (F15), `TintCache`'s bitmaps (F34), `UITween`'s targets
+(F35) and `ScrollRect`'s content (F44).
+
+**What happened.** `follow` and `lookAt` are Transforms a scenario assigns once, and the thing a
+camera follows is very often the thing that gets destroyed — a vehicle that explodes, an object
+swapped for another, a scene rebuilt around the camera. The camera went on reading a destroyed
+Transform's position every frame, and kept it, and the Three.js object under it, alive for as
+long as the camera existed.
+
+**Fix.** Both reads go through a guard that drops the reference. A body or aim with no target
+keeps the state it had, which is exactly what happens before a target is ever assigned — so the
+strategies gained no new case to handle.
+
+**The negative control repeats F44's lesson.** Two of six tests fail without the guard: the two
+that ask whether the reference was let go. The others pass either way, because reading a
+destroyed Transform does not complain — which is why this family is invisible until somebody
+goes looking for it.
 
 ---
 

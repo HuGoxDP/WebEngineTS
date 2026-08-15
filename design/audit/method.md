@@ -283,3 +283,10 @@ group chain updated, the mask chain did not, from the same fix. The temptation i
 test; the truth was that both chains shared one cache key, so whichever resolver ran first
 marked the element fresh and the other kept its stale answer. When a fix works for one of two
 symmetric cases, the asymmetry is in the code.
+
+**The reference-holding family now has five members, and one recognisable signature.** F15,
+F34, F35, F44, F53: something keeps a pointer to an engine object that a scenario can destroy,
+and nothing tells it. The signature in the tests is always the same — most assertions pass
+either way, because using a destroyed object rarely complains, and only the assertion "was the
+reference dropped" fails. So when auditing a class that stores an `EngineObject`, write that
+assertion first; the behavioural ones will not tell you anything.

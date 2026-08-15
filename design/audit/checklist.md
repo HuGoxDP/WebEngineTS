@@ -241,7 +241,7 @@ first-frame Cut behaviour actually holding, damping at very small and very large
 - `core/cinemachine/CinemachineBrain.ts` — [ ] CinemachineBrain
 - `core/cinemachine/CinemachineCore.ts` — [ ] CameraState · [ ] CinemachineBody ·
   [ ] CinemachineAim
-- `core/cinemachine/CinemachineVirtualCamera.ts` — [x] CinemachineVirtualCamera *(F52)*
+- `core/cinemachine/CinemachineVirtualCamera.ts` — [x] CinemachineVirtualCamera *(F52, F53)*
 - `core/cinemachine/CinemachineFollowBody.ts` — [ ] CinemachineFollowBody
 - `core/cinemachine/CinemachineOrbitalBody.ts` — [ ] CinemachineOrbitalBody
 - `core/cinemachine/CinemachineFlyBody.ts` — [ ] CinemachineFlyBody
@@ -249,7 +249,7 @@ first-frame Cut behaviour actually holding, damping at very small and very large
 - `core/cinemachine/CinemachineOrbitalAim.ts` — [x] CinemachineOrbitalAim *(F52)*
 - `core/cinemachine/CinemachinePOVAim.ts` — [ ] CinemachinePOVAim
 
-**Findings:** F52 — see [`findings.md`](findings.md)
+**Findings:** F52, F53 — see [`findings.md`](findings.md)
 
 ---
 
