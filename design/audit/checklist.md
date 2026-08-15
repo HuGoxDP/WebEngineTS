@@ -16,13 +16,13 @@ all six known defects survived 1133 green tests.
 | 2 | Graphics assets | 11 | **11** | **done** |
 | 3 | Rendering and components | 17 | **17** | **done** |
 | 4 | Assets and scenario | 12 | 12 | **done** |
-| 5 | Physics | 16 | 2 | in progress |
+| 5 | Physics | 16 | 6 | in progress |
 | 6 | UI core | 21 | 0 | not started |
 | 7 | UI controls | 18 | 0 | not started |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **64** | |
+| | **Total** | **175** | **68** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -137,17 +137,17 @@ consumes it.
 - `physics/Physics.ts` — [ ] Physics
 - `physics/PhysicsWorld.ts` — [x] PhysicsWorld *(clean)*
 - `physics/Rigidbody.ts` — [x] Rigidbody *(gravity; F26)*
-- `physics/Collider.ts` — [ ] Collider
-- `physics/BoxCollider.ts` — [ ] BoxCollider
-- `physics/SphereCollider.ts` — [ ] SphereCollider
-- `physics/CapsuleCollider.ts` — [ ] CapsuleCollider
+- `physics/Collider.ts` — [x] Collider *(shape offset; F27)*
+- `physics/BoxCollider.ts` — [x] BoxCollider *(F27)*
+- `physics/SphereCollider.ts` — [x] SphereCollider *(F27)*
+- `physics/CapsuleCollider.ts` — [x] CapsuleCollider *(F27)*
 - `physics/PhysicMaterial.ts` — [ ] PhysicMaterial
 - `physics/LayerCollisionMatrix.ts` — [ ] LayerCollisionMatrix
 - `physics/Collision.ts` — [ ] Collision · [ ] ContactPoint
 - `physics/RaycastHit.ts` — [ ] RaycastHit
 - `physics/Joint.ts` — [ ] Joint · [ ] FixedJoint · [ ] HingeJoint · [ ] SpringJoint
 
-**Findings:** F26 — see [`findings.md`](findings.md)
+**Findings:** F26, F27 — see [`findings.md`](findings.md)
 
 ---
 

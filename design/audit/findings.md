@@ -38,6 +38,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F24 | 4 | `unload()` emptied the scene but left it registered and active | fixed `9bdad0e` |
 | F25 | 1, 4 | `Instantiate` on a GameObject returned an empty object | refuses now `030ae4b`; cloning **open** |
 | F26 | 5 | `useGravity = false` did nothing after the first frame | fixed `27e4134` |
+| F27 | 5 | `Collider.center` moved the ray proxy, not the shape | fixed `54c54e4` |
 
 ---
 
@@ -908,6 +909,37 @@ transforms, and burying a force in it is what let the mismatch go unnoticed.
 Covered by `tests/RigidbodyGravity.test.ts` — 5 of its 6 tests fail without the per-step call.
 They include the Unity semantics that make this more than "y stays still": turning gravity off
 mid-fall keeps the velocity already gained and stops only the acceleration.
+
+### F27. `Collider.center` moved the ray proxy, not the shape — fixed `54c54e4`
+
+The same shape as F26, one class along: a property written into one of a collider's two
+representations and not the other.
+
+**Wanted.** Unity's `BoxCollider.center`: the shape sits at that local offset, for collisions
+and for raycasts alike.
+
+**What happened.** Only the raycast agreed. Every collider keeps two representations — an
+invisible Three.js mesh that `Physics.Raycast` intersects, and a cannon shape that the
+simulation collides with. `center` set `_center` and moved the Three.js proxy; the cannon shape
+was added with `body.addShape(shape)` and no offset, so it stayed at the object's origin.
+
+**Affected.** A capsule offset so a character stands on its feet — the standard use — falls
+through the floor it can see. Any raycast against an offset collider reports a hit at a place
+nothing collides with, which is worse than either being wrong on its own, because the two
+disagree.
+
+**Why it hid.** `size` and `radius` are applied to *both* representations in the same setters,
+so the pattern looks right at a glance; `center` is the one that stops halfway. And the
+raycast, being the thing a scenario author checks first, is the half that works.
+
+**Fix.** Plumbed through the base class, since cannon stores the offset on the **body** next to
+the shape rather than on the shape: `_shapeCenter()` (overridden by the three colliders that
+have a `center`), the offset passed to `addShape` for both the Rigidbody body and the implicit
+static one, and `_syncShapeOffset()` for a `center` changed after attachment — which must also
+recompute the bounding radius and the inertia, exactly as `addShape` does.
+
+Covered by `tests/ColliderCenter.test.ts`; 6 of its 7 tests fail with the offset dropped, one
+of them asserting precisely that the proxy and the simulation agree.
 
 ---
 
