@@ -55,6 +55,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F41 | 6 | An element moved between canvases kept the old one for a frame | fixed `9b2049b` |
 | F42 | 6 | A click reached the element its own pointer-up had closed | fixed `6cc8aea` |
 | F43 | 7 | An open dropdown stayed open after focus moved on | fixed `57dbbe9` |
+| F44 | 7 | A scroll view kept driving content that was destroyed | fixed `3cd0286` |
 
 ---
 
@@ -1383,9 +1384,41 @@ four pin what must *not* change: the value survives the close, `onValueChanged` 
 for it, re-selecting the control that already holds focus is not a reason to close, and losing
 focus while closed does nothing.
 
+### F44. A scroll view kept driving content that was destroyed — fixed `3cd0286`
+
+**F35's shape in a control:** a per-frame driver acting on a target nobody told it about.
+
+**What happened.** `ScrollRect.content` is a reference a scenario assigns. Rebuilding a list
+destroys that object — the ordinary way to refresh one — and nothing told the scroll view. Its
+tick went on pinning anchors and writing `anchoredPosition` to a destroyed `RectTransform` every
+frame, and the field held that component alive for as long as the scroll view existed.
+
+**Fix.** Every internal read goes through `_liveContent()`, which drops the reference once the
+component is gone. Clearing rather than merely skipping is the point: skipping stops the writes
+and keeps the object alive, and a scenario that rebuilt its list is about to assign the new one
+anyway.
+
+**Two things worth keeping from getting there.**
+
+The first version made `_liveContent` call itself — the helper was inserted before the
+mechanical rewrite of the reads, then rewritten along with them. The tests failed with a stack
+overflow rather than an assertion, which is its own kind of clear signal.
+
+The negative control fails only **two** of the five tests, and that is the finding in miniature:
+without the guard the tick writes to a dead object without complaining, so most of what one
+would naturally assert still passes. The two that fail are the ones that ask whether the
+reference was let go.
+
 ---
 
 ## Negative results worth recording
+
+**`Selectable` and `Slider` are clean, including the case that produced F44 elsewhere.**
+`Selectable` counts hovers and presses rather than flagging them, because several fingers can do
+either at once — and `onDisable` zeroes both counters with the comment "a control disabled
+mid-press would otherwise come back stuck", which is exactly the defect this part was hunting.
+`Slider` re-clamps its value when `minValue` or `maxValue` moves, and notifies only if the
+stored value actually changed.
 
 **`ToggleGroup` and `Toggle` are clean under the registry question.** Membership is removed on
 `onDisable`, on `onDestroy`, *and* in the `group` setter when a toggle is moved between groups —
