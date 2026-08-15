@@ -96,7 +96,7 @@ export class GridLayoutGroup extends LayoutGroup {
     public get preferredHeight(): number {
         const count = this._collect().length;
         const columns = this._columnCount(count, this._innerWidth());
-        const rows = count === 0 ? 0 : Math.ceil(count / columns);
+        const rows = this._rowCount(count, columns);
         return this.padding.top + this.padding.bottom
             + rows * this.cellSize.y
             + Math.max(0, rows - 1) * this.spacing.y;
@@ -115,7 +115,7 @@ export class GridLayoutGroup extends LayoutGroup {
         const innerH = Math.max(0, rect.height - this.padding.top - this.padding.bottom);
 
         const columns = this._columnCount(children.length, innerW);
-        const rows = Math.ceil(children.length / columns);
+        const rows = this._rowCount(children.length, columns);
 
         const gridW = columns * this.cellSize.x + (columns - 1) * this.spacing.x;
         const gridH = rows * this.cellSize.y + (rows - 1) * this.spacing.y;
@@ -175,6 +175,25 @@ export class GridLayoutGroup extends LayoutGroup {
                 return Math.max(1, Math.min(count, fits));
             }
         }
+    }
+
+    /**
+     * Rows to use for `count` children across `columns`.
+     *
+     * @remarks
+     * `FixedRowCount` means exactly that many rows, as Unity's `cellCountY`
+     * does. Deriving it back from the column count instead — `ceil(count /
+     * columns)` — quietly collapsed the grid: four children in three fixed rows
+     * became a 2×2 grid, which is what asking for two *columns* would have
+     * given, leaving the constraint with no effect at all.
+     */
+    private _rowCount(count: number, columns: number): number {
+        if (count === 0) return 0;
+
+        if (this.constraint === GridConstraint.FixedRowCount) {
+            return Math.max(1, Math.floor(this.constraintCount));
+        }
+        return Math.ceil(count / columns);
     }
 
     private _innerWidth(): number {
