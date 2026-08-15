@@ -236,6 +236,22 @@ export class Dropdown extends Selectable {
         this.close();
     }
 
+    /**
+     * @internal
+     * Closes the list when focus moves elsewhere — another control being
+     * clicked, Tab, Escape.
+     *
+     * @remarks
+     * An open list is not a decoration: it draws over whatever is beneath it
+     * and, through {@link _expandsHitArea} and {@link _hitTest}, swallows
+     * pointer input across its whole height. Left open after the user has
+     * plainly moved on, it covers the control they moved on to.
+     */
+    public override _onFocusLost(): void {
+        super._onFocusLost();
+        this.close();
+    }
+
     // ── private ──────────────────────────────────────────────────────
 
     /** Total drawn height: the field, plus the list when it is open. */
