@@ -21,8 +21,8 @@ all six known defects survived 1133 green tests.
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
 | 9 | Animation and Cinemachine | 17 | **17** | **done** |
-| 10 | The tail | 29 | 8 | in progress |
-| | **Total** | **175** | **155** | |
+| 10 | The tail | 29 | 10 | in progress |
+| | **Total** | **175** | **157** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -274,8 +274,8 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/particles/ParticleSystem.ts` — [x] ParticleSystem *(teardown verified)* · [ ] ParticleBurst
 - `core/particles/ParticleShape.ts` — [ ] ParticleShape
 - `core/particles/Gradient.ts` — [x] Gradient *(F59)* · [x] GradientColorKey · [x] GradientAlphaKey
-- `core/postprocessing/PostProcessing.ts` — [ ] PostProcessing
-- `core/postprocessing/PostEffect.ts` — [ ] PostEffect
+- `core/postprocessing/PostProcessing.ts` — [x] PostProcessing *(F61)*
+- `core/postprocessing/PostEffect.ts` — [x] PostEffect *(clean)*
 - `core/postprocessing/BloomEffect.ts` — [ ] BloomEffect
 - `core/postprocessing/VignetteEffect.ts` — [ ] VignetteEffect
 - `core/input/Touch.ts` — [ ] Touch · [ ] TouchInfo
@@ -284,7 +284,7 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/plugins/PluginManager.ts` — [ ] PluginManager
 - `core/plugins/Plugin.ts` — [ ] Plugin
 
-**Findings:** F58, F59, F60 — see [`findings.md`](findings.md)
+**Findings:** F58–F61 — see [`findings.md`](findings.md)
 
 ---
 

@@ -308,3 +308,9 @@ question — what must stop being true when this component stops taking part —
 disagree, one of them is usually wrong. `AudioSource` destroyed silently and disabled loudly
 (F58). The UI registries pass this check: every one removes in both. It costs one diff per class
 and needs no test to run.
+
+**Write the test against the code path, not against a paraphrase of it.** F61's first helper
+registered a pass by always calling `_createPass`, where the real builder only calls it when the
+map has nothing. The paraphrase passed with and without the fix; reproducing the branch made the
+test fail correctly. A helper that "does what the engine does" is a second implementation, and
+the one thing it must copy exactly is the branch under test.

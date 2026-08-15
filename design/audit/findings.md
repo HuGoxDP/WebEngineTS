@@ -72,6 +72,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F58 | 10 | Disabling an `AudioSource` left the sound playing | fixed `e232954` |
 | F59 | 10 | An empty `Gradient` threw from inside the particle update | fixed `01f3b01` |
 | F60 | 10 | The two texture counters sat side by side, one of them unexplained | documented `5b0c6cc` |
+| F61 | 10 | `clear` kept the passes it had just disposed | fixed `21c7ea7` |
 
 ---
 
@@ -1798,6 +1799,31 @@ uploaded and *includes* render targets; the engine counts what is alive and *exc
 scene holding textures it has not drawn reads high on the estimate and low on the counter; a
 scene with shadows reads the other way. Neither is wrong, and a measurement that gets quoted in
 a paper should not require the reader to work that out.
+
+### F61. `clear` kept the passes it had just disposed — fixed `21c7ea7`
+
+**Two methods, one question, two answers.** `PostProcessing.removeEffect` disposes an effect's
+pass *and* deletes it from the pass map. `clear` disposed and kept it.
+
+**Why that matters.** `_buildPipeline` reuses whatever the map holds —
+`let pass = _passes.get(eff); if (!pass) { … }` — so re-adding a cleared effect handed it
+straight back its own disposed pass, and the pipeline was built on freed GPU resources.
+Reachable by a scenario that swaps post-processing setups: clear the pipeline, add the same
+effect instances back for the next scene.
+
+**Found by the two checks this audit carries.** A map keyed by objects that something forgets to
+prune (the reference-holding family), and two methods answering the same question differently
+(the `onDisable`/`onDestroy` comparison from F58). Both pointed at the same line.
+
+**One claim did not survive checking.** The first version of the fix called `_passes.clear()`
+and the reasoning said the map "would hold every effect ever cleared". It is a `WeakMap`:
+nothing leaks, the entries go when the effects do — and `clear()` does not exist on one. The
+defect is only the stale pass, and the fix is a `delete` per effect.
+
+**The test needed the same care.** Its first helper always created a fresh pass, so it passed
+with and without the fix. It now reproduces `_buildPipeline`'s reuse branch, which is the
+behaviour under test — negative control: 2 of 6 fail without the delete, where the sloppy
+version failed 1.
 
 ---
 
