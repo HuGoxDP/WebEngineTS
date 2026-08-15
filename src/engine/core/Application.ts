@@ -461,8 +461,17 @@ export class Application {
         // Stop the game loop
         this.stop();
 
-        // Remove event listeners
+        // Remove event listeners — this Application's own, and the ones the
+        // input modules attached to its canvas when it was constructed. Both
+        // `Input._dispose` and `Touch._teardown` document themselves as being
+        // called on engine shutdown, and nothing was calling them: a host that
+        // opens a scenario, disposes, and opens another — which is what the
+        // platform does every time a student leaves a page — accumulated a full
+        // set of keyboard, mouse and touch listeners per visit, all writing
+        // into the same static state on behalf of a canvas that is gone.
         window.removeEventListener("resize", this._resizeHandler);
+        Input._dispose();
+        Touch._teardown();
 
         // Release the graphics context
         this._backend.dispose();
