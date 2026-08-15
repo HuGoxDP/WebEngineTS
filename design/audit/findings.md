@@ -39,6 +39,8 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F25 | 1, 4 | `Instantiate` on a GameObject returned an empty object | refuses now `030ae4b`; cloning **open** |
 | F26 | 5 | `useGravity = false` did nothing after the first frame | fixed `27e4134` |
 | F27 | 5 | `Collider.center` moved the ray proxy, not the shape | fixed `54c54e4` |
+| F28 | 5 | Raycast normals were local-space; hits used stale matrices | fixed `09341b7` |
+| F29 | 5 | `overlapSphere` tests origins, not shapes | **open** |
 
 ---
 
@@ -940,6 +942,55 @@ recompute the bounding radius and the inertia, exactly as `addShape` does.
 
 Covered by `tests/ColliderCenter.test.ts`; 6 of its 7 tests fail with the offset dropped, one
 of them asserting precisely that the proxy and the simulation agree.
+
+### F28. Raycast normals were local-space, and hits used last frame's matrices — fixed `09341b7`
+
+**Wanted.** Unity's `Physics.Raycast`: a hit against the world as it is now, with
+`RaycastHit.normal` in world space.
+
+**Two defects, both demonstrated.**
+
+*The normal was in the hit object's local space.* Three's `Intersection.face.normal` is local;
+Unity's is world. A rotated collider reported a normal pointing somewhere the ray never came
+from, so every use of one — reflecting a bounce, aligning a decal, asking which way is up here
+— was wrong by the object's rotation. Now put through the normal matrix of the object's world
+matrix.
+
+*A collider moved earlier in the same Update was hit at its previous position.* Transform writes
+can be deferred to `Transform._syncAllDirty`, and Three composes world matrices in
+`updateMatrixWorld`, which only the render pass calls. A raycast in `update()` therefore tested
+last frame's world. It now flushes dirty transforms and refreshes the world matrix of each
+collider it is about to test.
+
+Also cleaned up: `hitInfo.normal` kept the *previous* call's value when a hit had no face, and
+`collider`/`transform` kept the previous call's object when the hit carried none. A stale answer
+that looks fresh is worse than an empty one.
+
+**One change that is not a fix.** `activeSelf` became `activeInHierarchy`, which matches Unity's
+wording — but a collider under a deactivated parent is already unregistered through `onDisable`,
+so the old check was never reachable. Its tests pass either way and say so. Recorded here so the
+commit is not read as three fixes.
+
+**A lesson the negative control taught.** Reverting both defects at once made the normal test
+*pass*: with a stale matrix the box was never rotated, so the local normal was accidentally the
+world one. Two defects in one path can mask each other, so the control has to revert one at a
+time.
+
+### F29. `overlapSphere` tests origins, not shapes — **open**
+
+**What happens.** `Physics.overlapSphere(position, radius)` compares the sphere against each
+collider's **transform position**. A large box whose origin sits outside the sphere is missed
+even when half of it is inside; a collider whose origin is inside is returned however far its
+shape extends away.
+
+**Why it is not fixed here.** The honest fix is a real shape query, and the pieces for it are
+already in the simulation: every cannon body maintains an AABB, and `world.broadphase` exists to
+answer exactly this kind of question. Wiring `overlapSphere` (and the missing `overlapBox`,
+`checkSphere`, `sphereCast`) into cannon is a small feature rather than a repair, and it wants
+its own commit and its own tests.
+
+Until then the JSDoc says what it does — "colliders whose origin lies within the sphere" — so
+nobody plans a trigger volume around a promise the method does not keep.
 
 ---
 

@@ -258,3 +258,9 @@ assets, failed with timeouts in the same run while passing on their own. So: a s
 of failures in an unrelated file is worth reading as *this run is poisoned* before it is read
 as a regression. It is F17 one level up — the same defect the audit had just fixed in
 `LoadHandle`, reproduced in the tests written to prove it.
+
+**Revert one defect at a time.** The negative control for F28 reverted both of the raycast
+defects at once and the normal test *passed* — with a stale world matrix the test's box was
+never rotated, so the local-space normal happened to equal the world one. Two defects in one
+code path can cancel, and a control that removes both can therefore report that neither exists.
+Restoring one half and re-running showed the second failure immediately.
