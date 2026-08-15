@@ -21,8 +21,8 @@ all six known defects survived 1133 green tests.
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
 | 9 | Animation and Cinemachine | 17 | **17** | **done** |
-| 10 | The tail | 29 | 6 | in progress |
-| | **Total** | **175** | **153** | |
+| 10 | The tail | 29 | 7 | in progress |
+| | **Total** | **175** | **154** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -259,7 +259,7 @@ Watch for: the diagnostics numbers themselves — `MemoryProfiler` sums *engine*
 host compares against `renderer.info`, and that mismatch is what made the 2.9× report
 ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal.
 
-- `core/diagnostics/MemoryProfiler.ts` — [ ] MemoryProfiler
+- `core/diagnostics/MemoryProfiler.ts` — [x] MemoryProfiler *(counter semantics; F60)*
 - `core/diagnostics/Profiler.ts` — [ ] Profiler
 - `core/diagnostics/Benchmark.ts` — [ ] Benchmark
 - `core/serialization/SceneSerializer.ts` — [ ] SceneSerializer
@@ -284,7 +284,7 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/plugins/PluginManager.ts` — [ ] PluginManager
 - `core/plugins/Plugin.ts` — [ ] Plugin
 
-**Findings:** F58, F59 — see [`findings.md`](findings.md)
+**Findings:** F58, F59, F60 — see [`findings.md`](findings.md)
 
 ---
 

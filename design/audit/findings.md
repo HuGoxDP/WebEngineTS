@@ -71,6 +71,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F57 | 9 | A POV damping above one turned the camera to NaN | fixed `a6bf47e` |
 | F58 | 10 | Disabling an `AudioSource` left the sound playing | fixed `e232954` |
 | F59 | 10 | An empty `Gradient` threw from inside the particle update | fixed `01f3b01` |
+| F60 | 10 | The two texture counters sat side by side, one of them unexplained | documented `5b0c6cc` |
 
 ---
 
@@ -1775,6 +1776,28 @@ now agree, instead of one of them being fatal.
 blending between two, clamping outside 0–1 rather than extrapolating, two keys sharing a time
 not dividing by zero, and `Fixed` mode stepping rather than blending. The class is careful
 everywhere except at the one input nobody pictured.
+
+### F60. The two texture counters sat side by side, one of them unexplained — documented `5b0c6cc`
+
+**The worry this part was opened on.** `MemoryProfiler` sums *engine* objects while a host
+compares against `renderer.info`, and that mismatch is what made the 2.9× texture-memory report
+ambiguous.
+
+**Half of it was already handled.** `estimatedTextureVramBytes` documents itself precisely:
+"counts every live engine texture whether or not it is currently uploaded to the GPU, and
+excludes render targets".
+
+**The other half was the gap.** `textures` and `geometries` — the raw `renderer.info.memory`
+counters, sitting in the same object — had no documentation at all. A reader sees two texture
+numbers side by side in one report with one of them explained, which is worse than either
+having no explanation: it invites the assumption that the undocumented one is the same thing
+measured better.
+
+**Fix.** Both now state what they count and why they disagree. The renderer counts what it has
+uploaded and *includes* render targets; the engine counts what is alive and *excludes* them. A
+scene holding textures it has not drawn reads high on the estimate and low on the counter; a
+scene with shadows reads the other way. Neither is wrong, and a measurement that gets quoted in
+a paper should not require the reader to work that out.
 
 ---
 
