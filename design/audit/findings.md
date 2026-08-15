@@ -48,6 +48,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F34 | 6 | Tinted copies outlived the textures they came from | fixed `8a7a042` |
 | F35 | 6 | A tween kept animating a destroyed element | fixed `0a571e3` |
 | F36 | 1, 6 | `isActiveAndEnabled` was true for destroyed components | fixed `2c32687` |
+| F37 | 6 | A `LayoutElement` shadowed the size its own control reported | fixed `f9083e3` |
 
 ---
 
@@ -1177,6 +1178,35 @@ suite passes unchanged — nothing depended on the old answer.
 question, and each answer sat one level below the last: a cache with no notification, a list
 with no liveness check, and finally the liveness check itself being wrong. The audit's own
 method note now says to follow that chain rather than stopping at the first fix.
+
+### F37. A `LayoutElement` shadowed the size its own control reported — fixed `f9083e3`
+
+**Wanted.** A label inside a layout group to be given the width its text needs, whether or not
+it also carries a `LayoutElement` for something else.
+
+**What happened.** It got the width of its current rect instead — but only sometimes.
+
+**Why.** `LayoutUtility` resolves a size in three steps: an explicit `LayoutElement` override,
+then any component reporting `preferredWidth`/`preferredHeight`, then the element's own rect.
+The second step is duck-typed on purpose, so a scenario's control can join in without extending
+anything from the engine. `LayoutElement` exposes both numbers too, and unset they are `-1`:
+
+```ts
+const reported = LayoutUtility._reported(rt);
+if (reported && reported.preferredWidth > 0) return reported.preferredWidth;
+return rt._resolvedLocalRect.width;
+```
+
+The scan returned the first match in component order, so a `LayoutElement` added *before* the
+label answered for it, `-1 > 0` failed, and the real reporter was never asked. Added after, it
+worked. Order-dependent, and invisible in the code that reads it.
+
+**Fix.** The scan skips `LayoutElement` — already consulted explicitly one step earlier — and
+skips disabled components, since a control switched off is not describing anything and its last
+reported size is stale.
+
+Covered by `tests/LayoutReportedSize.test.ts`, which asserts both component orders agree; 3 of
+its 6 fail with the `LayoutElement` back in the scan, 1 with the enabled check dropped.
 
 ---
 

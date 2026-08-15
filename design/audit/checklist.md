@@ -17,12 +17,12 @@ all six known defects survived 1133 green tests.
 | 3 | Rendering and components | 17 | **17** | **done** |
 | 4 | Assets and scenario | 12 | 12 | **done** |
 | 5 | Physics | 16 | **16** | **done** |
-| 6 | UI core | 21 | 7 | in progress |
+| 6 | UI core | 21 | 9 | in progress |
 | 7 | UI controls | 18 | 0 | not started |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **85** | |
+| | **Total** | **175** | **87** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -167,14 +167,14 @@ repaint hash missing a field that affects drawing.
 - `core/ui/PointerEventData.ts` — [ ] PointerEventData
 - `core/ui/UIEvent.ts` — [x] UIEvent *(clean)*
 - `core/ui/TintCache.ts` — [x] TintCache *(lifetime; F34)*
-- `core/ui/LayoutElement.ts` — [ ] LayoutElement · [ ] LayoutUtility
+- `core/ui/LayoutElement.ts` — [x] LayoutElement · [x] LayoutUtility *(size protocol; F37)*
 - `core/ui/ContentSizeFitter.ts` — [ ] ContentSizeFitter
 - `core/ui/AspectRatioFitter.ts` — [ ] AspectRatioFitter
 - `core/ui/GridLayoutGroup.ts` — [ ] GridLayoutGroup
 - `core/ui/LayoutGroup.ts` — [ ] LayoutGroup · [ ] LayoutPadding · [ ] LinearLayoutGroup ·
   [ ] HorizontalLayoutGroup · [ ] VerticalLayoutGroup
 
-**Findings:** F33, F34, F35, F36 — see [`findings.md`](findings.md)
+**Findings:** F33–F37 — see [`findings.md`](findings.md)
 
 ---
 
