@@ -89,7 +89,6 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
 
     /** Last computed state (used as input for next frame). */
     private _state: CameraState = new CameraState();
-    private _debugged: boolean = false;
 
     // ==================== CONSTRUCTOR ====================
 
@@ -162,16 +161,6 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
             rotation = this.transform.rotation;
         }
 
-        if (!this._debugged) {
-            this._debugged = true;
-            const e = rotation.eulerAngles;
-            console.log(
-                `[VCam] "${this.gameObject.name}" first state: ` +
-                `pos=(${position.x.toFixed(1)},${position.y.toFixed(1)},${position.z.toFixed(1)}) ` +
-                `q=(${rotation.x.toFixed(4)},${rotation.y.toFixed(4)},${rotation.z.toFixed(4)},${rotation.w.toFixed(4)}) ` +
-                `euler=(${e.x.toFixed(1)},${e.y.toFixed(1)},${e.z.toFixed(1)})`
-            );
-        }
 
         this._state = new CameraState(position, rotation, this.fieldOfView);
         return this._state;
@@ -215,7 +204,6 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
             if (!this._body && comp instanceof CinemachineBody) this._body = comp;
             if (!this._aim && comp instanceof CinemachineAim) this._aim = comp;
         }
-        console.log(`[VCam] "${this.gameObject.name}" body=${this._body?.name ?? "NONE"} aim=${this._aim?.name ?? "NONE"}`);
     }
 
     // ==================== UNUSED LIFECYCLE (silent) ====================
