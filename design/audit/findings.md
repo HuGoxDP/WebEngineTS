@@ -54,6 +54,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F40 | 6 | A re-parent above an element left its masks and groups stale | fixed `2041f38` |
 | F41 | 6 | An element moved between canvases kept the old one for a frame | fixed `9b2049b` |
 | F42 | 6 | A click reached the element its own pointer-up had closed | fixed `6cc8aea` |
+| F43 | 7 | An open dropdown stayed open after focus moved on | fixed `57dbbe9` |
 
 ---
 
@@ -1359,9 +1360,37 @@ Covered by `tests/ClickAfterUp.test.ts`; 3 of its 6 fail without the check. The 
 private `_release` path, which is where the ordering lives — simulating a real press needs the
 `Touch` and `Input` plumbing and would be testing that instead.
 
+## Part 7 — UI controls
+
+### F43. An open dropdown stayed open after focus moved on — fixed `57dbbe9`
+
+**Wanted.** Clicking elsewhere to put the list away, as every dropdown in every toolkit does.
+
+**What happened.** It stayed open. `Selectable` publishes `_onFocusLost` for precisely this and
+`Dropdown` did not override it, so nothing closed the list when the user clicked another
+control, tabbed away or pressed Escape.
+
+**Not cosmetic.** An open list draws over whatever is beneath it, and through
+`_expandsHitArea` and `_hitTest` it swallows pointer input across its whole height. So it covers
+the control the user has just moved to — and the click that moved focus there is the very event
+that should have closed it.
+
+**Fix.** Override the hook. `Dropdown` already closes on `onDisable`; losing focus is the same
+thought, and the hook was already sitting there unused.
+
+Covered by `tests/DropdownFocus.test.ts`; 2 of its 6 fail with the override emptied. The other
+four pin what must *not* change: the value survives the close, `onValueChanged` does not fire
+for it, re-selecting the control that already holds focus is not a reason to close, and losing
+focus while closed does nothing.
+
 ---
 
 ## Negative results worth recording
+
+**`ToggleGroup` and `Toggle` are clean under the registry question.** Membership is removed on
+`onDisable`, on `onDestroy`, *and* in the `group` setter when a toggle is moved between groups —
+the three ways a member can leave. `_notifyTurnedOn` goes through `_setFromGroup` so a sibling
+cannot bounce the notification back and start a loop.
 
 **`EventSystem`'s other held references are guarded correctly.** `pressedGraphic`, `dragTarget`
 and `hoverOwner` survive across frames, and every other delivery path — drag, end-drag, exit,

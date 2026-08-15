@@ -18,11 +18,11 @@ all six known defects survived 1133 green tests.
 | 4 | Assets and scenario | 12 | 12 | **done** |
 | 5 | Physics | 16 | **16** | **done** |
 | 6 | UI core | 21 | **21** | **done** |
-| 7 | UI controls | 18 | 0 | not started |
+| 7 | UI controls | 18 | 3 | in progress |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **100** | |
+| | **Total** | **175** | **103** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -189,10 +189,10 @@ see who is missing what.
 - `core/ui/Navigation.ts` — [ ] Navigation
 - `core/ui/Button.ts` — [ ] Button
 - `core/ui/Slider.ts` — [ ] Slider
-- `core/ui/Toggle.ts` — [ ] Toggle
-- `core/ui/ToggleGroup.ts` — [ ] ToggleGroup
+- `core/ui/Toggle.ts` — [x] Toggle *(clean)*
+- `core/ui/ToggleGroup.ts` — [x] ToggleGroup *(clean)*
 - `core/ui/Scrollbar.ts` — [ ] Scrollbar
-- `core/ui/Dropdown.ts` — [ ] Dropdown
+- `core/ui/Dropdown.ts` — [x] Dropdown *(focus; F43)*
 - `core/ui/InputField.ts` — [ ] InputField
 - `core/ui/ScrollRect.ts` — [ ] ScrollRect
 - `core/ui/VirtualJoystick.ts` — [ ] VirtualJoystick
@@ -201,7 +201,7 @@ see who is missing what.
 - `core/ui/RichText.ts` — [ ] RichText
 - `core/ui/UITween.ts` — [ ] UITween · [ ] UITweenHandle
 
-**Findings:** none yet — see [`findings.md`](findings.md)
+**Findings:** F43 — see [`findings.md`](findings.md)
 
 ---
 
