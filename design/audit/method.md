@@ -314,3 +314,10 @@ registered a pass by always calling `_createPass`, where the real builder only c
 map has nothing. The paraphrase passed with and without the fix; reproducing the branch made the
 test fail correctly. A helper that "does what the engine does" is a second implementation, and
 the one thing it must copy exactly is the branch under test.
+
+**A precaution is a checklist.** F63 fixed one dispatch loop that could skip an element when its
+list changed mid-pass, and noted that `UIEvent` had solved the same problem years earlier with a
+comment explaining why. Following that comment to its twins found five more (F64). The habit
+generalises: when a class takes a named precaution — a snapshot, a defensive copy, an epoch
+counter — the other places doing the same *kind* of work are worth checking immediately, and the
+comment is what tells you what to look for.

@@ -35,7 +35,7 @@ summary below is updated when a part changes state.
 | 7 | UI controls | 18 | **done** — 5 findings, 5 addressed |
 | 8 | Math | 12 | **done** — 4 findings, 2 fixed, 2 documented |
 | 9 | Animation and Cinemachine | 17 | **done** — 6 findings, all fixed |
-| 10 | The tail | 29 | in progress — 17 walked, 6 findings |
+| 10 | The tail | 29 | in progress — 17 walked, 7 findings |
 
 ## The loop
 

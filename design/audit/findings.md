@@ -75,6 +75,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F61 | 10 | `clear` kept the passes it had just disposed | fixed `21c7ea7` |
 | F62 | 10 | Disposing an Application left every input listener attached | fixed `861e4c5` |
 | F63 | 10 | A plugin leaving mid-frame made the dispatch skip the next one | fixed `0028b9f` |
+| F64 | 6, 10 | Every UI per-frame driver could skip an element mid-pass | fixed `072073c` |
 
 ---
 
@@ -1873,6 +1874,32 @@ a dispatch starts on the *next* frame rather than running twice in this one — 
 Negative control: 3 of 6 fail against direct iteration. One of the three that pass either way is
 kept deliberately: a plugin that throws does not stop the others, which is the isolation the
 component loops still lack (**F22**).
+
+### F64. Every UI per-frame driver could skip an element mid-pass — fixed `072073c`
+
+**F63's defect, found by taking F63's own lesson seriously.** That finding ended with a rule:
+when a class solves a problem with a named precaution, the comment explaining it is a list of
+the other places to check. `UIEvent.invoke` snapshots its listeners; `PluginManager` now
+snapshots its plugins; the five UI drivers did not.
+
+**What happened.** `Selectable`, `LayoutGroup`, `ScrollRect`, `ContentSizeFitter` and
+`AspectRatioFitter` each walk `_instances` by index, while their components splice themselves
+out of that same array in `onDisable`. Anything disabled during a pass shifts the array, and the
+index loop skips whatever followed it.
+
+**Which one a scenario can reach.** `ScrollRect`: its tick raises `onValueChanged`, and a
+listener that hides a panel disables real components. The other four reach user code only
+indirectly. They are fixed anyway — the hazard is identical, and working out which of them is
+reachable today is not worth an afternoon that the fix costs five lines.
+
+**A copy, not a backwards loop.** Reversing would also stop the skip, and would quietly change
+the order layout groups rebuild in. The snapshot preserves order exactly.
+
+The helper is shared and documented once in `UIUtils`, because this is now the third place in
+the engine taking the same precaution.
+
+Negative control: reverting `ScrollRect` alone fails the test that a second view still ticks
+after the first disables itself.
 
 ---
 

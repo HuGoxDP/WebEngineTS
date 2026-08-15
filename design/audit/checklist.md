@@ -284,7 +284,7 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/plugins/PluginManager.ts` — [x] PluginManager *(F63)*
 - `core/plugins/Plugin.ts` — [x] Plugin *(clean)*
 
-**Findings:** F58–F63 — see [`findings.md`](findings.md)
+**Findings:** F58–F64 — see [`findings.md`](findings.md)
 
 ---
 
