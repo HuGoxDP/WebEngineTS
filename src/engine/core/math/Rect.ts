@@ -36,7 +36,7 @@ export class Rect {
 
     // ==================== CACHED READONLY INSTANCES ====================
 
-    private static readonly _zero = new Rect(0, 0, 0, 0);
+    private static readonly _zero = Object.freeze(new Rect(0, 0, 0, 0));
 
     /**
      * Creates a new Rect.

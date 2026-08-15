@@ -15,10 +15,10 @@ export class Vector4 {
     public w: number;
 
     // ==================== CACHED READONLY INSTANCES ====================
-    private static readonly _zero = new Vector4(0, 0, 0, 0);
-    private static readonly _one = new Vector4(1, 1, 1, 1);
-    private static readonly _positiveInfinity = new Vector4(Infinity, Infinity, Infinity, Infinity);
-    private static readonly _negativeInfinity = new Vector4(-Infinity, -Infinity, -Infinity, -Infinity);
+    private static readonly _zero = Object.freeze(new Vector4(0, 0, 0, 0));
+    private static readonly _one = Object.freeze(new Vector4(1, 1, 1, 1));
+    private static readonly _positiveInfinity = Object.freeze(new Vector4(Infinity, Infinity, Infinity, Infinity));
+    private static readonly _negativeInfinity = Object.freeze(new Vector4(-Infinity, -Infinity, -Infinity, -Infinity));
 
     constructor(x: number = 0, y: number = 0, z: number = 0, w: number = 0) {
         this.x = x;

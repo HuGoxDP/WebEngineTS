@@ -17,17 +17,17 @@ export class Color {
     public a: number;
 
     // ==================== CACHED READONLY INSTANCES ====================
-    private static readonly _white = new Color(1, 1, 1, 1);
-    private static readonly _black = new Color(0, 0, 0, 1);
-    private static readonly _red = new Color(1, 0, 0, 1);
-    private static readonly _green = new Color(0, 1, 0, 1);
-    private static readonly _blue = new Color(0, 0, 1, 1);
-    private static readonly _yellow = new Color(1, 0.92, 0.016, 1);
-    private static readonly _cyan = new Color(0, 1, 1, 1);
-    private static readonly _magenta = new Color(1, 0, 1, 1);
-    private static readonly _gray = new Color(0.5, 0.5, 0.5, 1);
-    private static readonly _grey = new Color(0.5, 0.5, 0.5, 1); // Unity has both spellings
-    private static readonly _clear = new Color(0, 0, 0, 0);
+    private static readonly _white = Object.freeze(new Color(1, 1, 1, 1));
+    private static readonly _black = Object.freeze(new Color(0, 0, 0, 1));
+    private static readonly _red = Object.freeze(new Color(1, 0, 0, 1));
+    private static readonly _green = Object.freeze(new Color(0, 1, 0, 1));
+    private static readonly _blue = Object.freeze(new Color(0, 0, 1, 1));
+    private static readonly _yellow = Object.freeze(new Color(1, 0.92, 0.016, 1));
+    private static readonly _cyan = Object.freeze(new Color(0, 1, 1, 1));
+    private static readonly _magenta = Object.freeze(new Color(1, 0, 1, 1));
+    private static readonly _gray = Object.freeze(new Color(0.5, 0.5, 0.5, 1));
+    private static readonly _grey = Object.freeze(new Color(0.5, 0.5, 0.5, 1)); // Unity has both spellings
+    private static readonly _clear = Object.freeze(new Color(0, 0, 0, 0));
 
     /**
      * Створює новий колір.
