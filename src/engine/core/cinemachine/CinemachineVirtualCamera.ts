@@ -134,6 +134,30 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
     }
 
     /**
+     * Reads {@link follow} or {@link lookAt}, dropping it if the target has
+     * been destroyed.
+     *
+     * @remarks
+     * Both are references a scenario assigns once, and the thing a camera
+     * follows is very often the thing that gets destroyed — a vehicle that
+     * explodes, an object swapped for another. Nothing tells the camera, so
+     * without this it goes on reading a destroyed Transform's position every
+     * frame and keeps it, and the Three.js object under it, alive for as long
+     * as the camera exists.
+     *
+     * A body or aim with no target keeps the state it had, which is the same
+     * thing that happens before a target is ever assigned.
+     */
+    private _liveTarget(which: "follow" | "lookAt"): Transform | null {
+        const target = this[which];
+        if (target && !target.exists()) {
+            this[which] = null;
+            return null;
+        }
+        return target;
+    }
+
+    /**
      * Runs the Body → Aim pipeline and returns the computed state.
      *
      * Called by {@link CinemachineBrain} each frame for the active VCam.
@@ -144,8 +168,8 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
      * @internal
      */
     public _computeState(dt: number): CameraState {
-        if (this._body) this._body.followTarget = this.follow;
-        if (this._aim) this._aim.lookAtTarget = this.lookAt;
+        if (this._body) this._body.followTarget = this._liveTarget("follow");
+        if (this._aim) this._aim.lookAtTarget = this._liveTarget("lookAt");
 
         let position: Vector3;
         if (this._body && this._body.isActiveAndEnabled) {
