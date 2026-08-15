@@ -993,6 +993,12 @@ export class Canvas extends Behaviour {
             const overflow = g._drawOverflow();
             gh = hashNumber(gh, overflow);
 
+            // What clips an element is part of how it looks, and none of it is
+            // visible in the element's own state: a mask's padding, or a mask
+            // being switched off, changes the picture while every graphic
+            // beneath it hashes the same as before.
+            gh = Canvas._hashMasks(gh, g);
+
             const changed = unknown || !g._repaintValid || gh !== g._repaintHash;
             if (changed) {
                 anyChanged = true;
@@ -1052,6 +1058,34 @@ export class Canvas extends Behaviour {
     }
 
     /** Grows `target` to also contain `other`. */
+    /**
+     * Folds the clipping an element is subject to into its repaint hash.
+     *
+     * @remarks
+     * A mask is not part of the element it clips, so nothing else here would
+     * notice it changing. Each mask contributes the window it clips to and where
+     * that window is on the canvas — a mask that moves with the element it
+     * clips changes both, and one whose padding shrinks changes only the first.
+     * The chain's own length covers a mask being enabled or destroyed.
+     */
+    private static _hashMasks(hash: number, graphic: UIBehaviour): number {
+        const masks = graphic._maskChain();
+        let h = hashNumber(hash, masks.length);
+
+        for (let i = 0; i < masks.length; i++) {
+            const mask = masks[i];
+            const clip = mask._clipRect();
+            h = hashNumber(h, clip.x);
+            h = hashNumber(h, clip.y);
+            h = hashNumber(h, clip.width);
+            h = hashNumber(h, clip.height);
+
+            const m = mask.rectTransform._canvasMatrix;
+            for (let k = 0; k < 6; k++) h = hashNumber(h, m[k]);
+        }
+        return h;
+    }
+
     private static _union(target: Rect, other: Rect): void {
         const x0 = Math.min(target.x, other.x);
         const y0 = Math.min(target.y, other.y);
