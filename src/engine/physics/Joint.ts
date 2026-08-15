@@ -91,11 +91,19 @@ export abstract class Joint extends Behaviour {
         this._teardown();
         if (!this.isActiveAndEnabled) return;
 
-        const self = this.gameObject.getComponent(Rigidbody)?._body ?? null;
+        const own = this.gameObject.getComponent(Rigidbody);
+        const self = own?._body ?? null;
         if (!self) {
             console.warn(`[${this.constructor.name}] needs a Rigidbody on the same GameObject.`);
             return;
         }
+
+        // A joint's geometry is expressed relative to where the bodies *are*,
+        // and a body only reaches its transform's position when its own
+        // onEnable runs. Component order is not something a scenario author
+        // should have to think about, so both ends are brought up to date here.
+        own!._syncTransformToBody();
+        this._connectedBody?._syncTransformToBody();
 
         // A null connected body means "the world": a static body at the origin,
         // which is what anchors a joint to nothing in particular.
@@ -180,19 +188,37 @@ export class HingeJoint extends Joint {
         self: CANNON.Body,
         other: CANNON.Body,
     ): CANNON.Constraint {
-        return new CANNON.HingeConstraint(self, other, {
-            pivotA: new CANNON.Vec3(this.anchor.x, this.anchor.y, this.anchor.z),
-            axisA: new CANNON.Vec3(this.axis.x, this.axis.y, this.axis.z),
-        });
+        const pivotA = new CANNON.Vec3(this.anchor.x, this.anchor.y, this.anchor.z);
+        const axisA = new CANNON.Vec3(this.axis.x, this.axis.y, this.axis.z);
+
+        // The other end of the hinge has to describe the *same* line, in its own
+        // frame. cannon defaults pivotB to that body's origin and axisB to its
+        // local X, so leaving them out hinged the two bodies about different
+        // axes through different points — they snapped together and twisted.
+        // Unity computes this for you; `autoConfigureConnectedAnchor` is the
+        // name of doing exactly what follows.
+        const pivotB = other.pointToLocalFrame(self.pointToWorldFrame(pivotA, new CANNON.Vec3()));
+        const axisB = other.vectorToLocalFrame(self.vectorToWorldFrame(axisA, new CANNON.Vec3()));
+
+        return new CANNON.HingeConstraint(self, other, { pivotA, axisA, pivotB, axisB });
     }
 }
 
 /**
- * Keeps two bodies a fixed distance apart, springily.
+ * Holds two bodies a fixed distance apart.
  *
  * @remarks
- * Equivalent to Unity's `SpringJoint`. `distance` is the rest length; the
- * bodies are pulled back towards it when pushed away.
+ * **Named for Unity's `SpringJoint`, but stiffer than one.** Underneath is a
+ * cannon `DistanceConstraint`: a rod of fixed length that the solver satisfies
+ * every step, not a spring that oscillates around a rest length. There is no
+ * damping, and {@link stiffness} is the solver's force limit — how hard the link
+ * may pull before it gives — rather than a spring constant. Raising it makes the
+ * link more rigid; it does not make it bouncier.
+ *
+ * A real spring means cannon's `Spring`, which applies a force each step rather
+ * than being a constraint, so it belongs to a different lifecycle than the rest
+ * of {@link Joint}. Until then this is what the class does, and the name is kept
+ * because scenarios already use it.
  */
 @Serializable({ typeName: "SpringJoint", category: "Physics" })
 export class SpringJoint extends Joint {
@@ -200,7 +226,7 @@ export class SpringJoint extends Joint {
     private _distance: number = 1;
     private _stiffness: number = 100;
 
-    /** Rest length in world units. */
+    /** The distance the link holds, in world units. */
     @SerializedField()
     public get distance(): number { return this._distance; }
 
@@ -211,7 +237,13 @@ export class SpringJoint extends Joint {
         this._rebuild();
     }
 
-    /** How hard the spring pulls back. Higher is stiffer. */
+    /**
+     * The maximum force the link may apply, in newtons.
+     *
+     * @remarks
+     * cannon's `maxForce`, not a spring constant — see the class remarks. Higher
+     * makes the fixed distance harder to violate; it does not add bounce.
+     */
     @SerializedField()
     public get stiffness(): number { return this._stiffness; }
 
