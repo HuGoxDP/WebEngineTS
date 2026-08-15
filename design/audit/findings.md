@@ -44,6 +44,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F30 | 5 | A hinge told cannon only half of itself | fixed `8825050` |
 | F31 | 5 | `SpringJoint` is a rigid rod, not a spring | docs fixed `8825050`; spring **open** |
 | F32 | 5 | A material on a `Rigidbody` was unregistered and unreadable | fixed `24771f2` |
+| F33 | 6 | A mask change did not repaint what it clips | fixed `1192778` |
 
 ---
 
@@ -1058,9 +1059,49 @@ Covered by `tests/RigidbodyMaterial.test.ts`; 4 of its 6 fail without the regist
 including the one that matters most: changing the material's bounciness *afterwards* only
 reaches the solver if a pairing exists to refresh.
 
+## Part 6 — UI core
+
+### F33. A mask change did not repaint what it clips — fixed `1192778`
+
+**Wanted.** `mask.padding.setAll(20)` to take effect on screen.
+
+**What happened.** Nothing, until something unrelated forced a repaint. A canvas in `OnDemand`
+mode redraws when a graphic's hash changes, and that hash covers the graphic's *own* state:
+local rect, canvas matrix, group alpha, `_visualHash()`, draw overflow. What clips it is not
+part of it, so a `RectMask2D` padding change — or the mask being switched off — left every
+graphic beneath hashing exactly as before.
+
+**Why it is worse than a stale pixel.** Hit-testing reads the mask live, through
+`_passesMasks`, so the two halves disagreed: a button could be clickable where nothing was
+drawn, or drawn where it could not be clicked. The class's own promise is that clipping applies
+"to drawing *and* to hit-testing".
+
+**Fix.** The per-graphic hash folds its mask chain: each mask's clip rect and canvas matrix,
+plus the chain length, which covers a mask being enabled, disabled or destroyed. The chain is
+already cached on the element and already walked for hit-testing, so the cost is a few numbers
+per masked element per frame — the same order as the group-alpha walk on the line above.
+
+**What was already right, and worth saying.** `CanvasGroup.alpha` *is* folded into the hash
+(`g._groupAlpha()`), which is why the identical defect does not exist for groups. Two mechanisms
+of the same shape, one of them remembered. That is the pattern to check for in the rest of this
+part: state that lives above an element and changes how it draws.
+
+Covered by `tests/MaskRepaint.test.ts`; 5 of its 6 fail without the fold.
+
 ---
 
 ## Negative results worth recording
+
+**Part 6 — `CanvasGroup` and `RectMask2D` are clean in themselves.** Both were read for the
+F33 shape and both do their own half correctly: the structure-version counters they publish are
+what let elements cache an ancestor walk that no transform change would otherwise invalidate,
+and `RectMask2D` documents the Y-down convention on every padding field, as the repo requires.
+The defect was in the canvas that consumes them, not in either class.
+
+`UIImage._visualHash` and `UIText._visualHash` were checked field by field against what their
+draw paths read, since a hash missing a field is this part's named risk. Both are complete —
+`UIImage` even folds the Three.js texture `version` and the decoded source size, so a texture
+repainted in place or decoded late still triggers a redraw.
 
 **Part 5 — `LayerCollisionMatrix`, `Collision`, `ContactPoint`, `PhysicsWorld` are clean.** The
 matrix was checked at its edges, where bitmask code usually breaks: layer 31 sets the sign bit,
