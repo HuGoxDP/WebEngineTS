@@ -57,6 +57,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F43 | 7 | An open dropdown stayed open after focus moved on | fixed `57dbbe9` |
 | F44 | 7 | A scroll view kept driving content that was destroyed | fixed `3cd0286` |
 | F45 | 7 | `InputField` had no `setTextWithoutNotify` | added `67f5c9b` |
+| F46 | 7 | Explicit navigation moved focus onto controls that were gone | fixed `d00df46` |
 
 ---
 
@@ -1433,9 +1434,40 @@ the end exactly as assigning `text` leaves it.
 without the method. What they pin instead is that it behaves like its siblings, and that
 assigning `text` still notifies — the half that must not change.
 
+### F46. Explicit navigation moved focus onto controls that were gone — fixed `d00df46`
+
+**Two paths, one guarded.** `Selectable.findSelectable` either searches automatically or follows
+an explicit link. The search walks `EventSystem._allSelectables()`, whose membership enable,
+disable and destroy maintain, so it cannot return a control that is not there. The explicit path
+follows a reference the scenario set once — `navigation.selectOnRight` and friends — and asked
+only `isInteractable()`, which is about the interactable flag and the `CanvasGroup`s above it,
+not about whether the control still exists.
+
+**What happened.** An arrow key moved focus onto a destroyed or deactivated control. Focus then
+sat where nothing could clear it: the destroy path runs `_unregisterSelectable`, which clears
+the focus a control *held*, not focus set onto it afterwards. The keyboard user is left pressed
+against a control that is not on screen, and every further key goes to it.
+
+**Fix.** Require `isActiveAndEnabled` as well — the pair Unity requires (`IsActive() &&
+IsInteractable()`) for exactly this reason. **F36** is again what makes the check mean anything:
+before it, `isActiveAndEnabled` answered `true` for destroyed components.
+
+Covered by `tests/ExplicitNavigation.test.ts`; 4 of its 6 fail without the check. One of the
+other two is the non-interactable case, which passed before and is kept so the pair stays a
+pair.
+
 ---
 
 ## Negative results worth recording
+
+**`Navigation` and `RichText` are clean.** `Navigation` states the Y-down convention on the
+enum itself and maps `Up` to `(0, -1)`, which is the direction that would be wrong if anyone had
+carried a Y-up habit into it. `RichText` caps its tag stack, refuses to pop the base style on an
+unbalanced closing tag, and leaves an unrecognised tag as literal text — all three documented,
+and all three the tolerant reading, which is what Unity's markup does too. Its one quirk is that
+a closing tag pops whatever is on top rather than matching by name, so `<b><color=red>x</b>`
+closes the colour; that is malformed input, it cannot corrupt the styles after it, and it is not
+worth trading the simplicity for.
 
 **The rest of the control family tabulates clean.** `interactable` is consulted in every
 interaction path of all five controls (four guarded call sites each), and every one raises its

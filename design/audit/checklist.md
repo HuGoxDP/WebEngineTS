@@ -18,11 +18,11 @@ all six known defects survived 1133 green tests.
 | 4 | Assets and scenario | 12 | 12 | **done** |
 | 5 | Physics | 16 | **16** | **done** |
 | 6 | UI core | 21 | **21** | **done** |
-| 7 | UI controls | 18 | 12 | in progress |
+| 7 | UI controls | 18 | 14 | in progress |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **112** | |
+| | **Total** | **175** | **114** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -184,9 +184,9 @@ The `Slider` gap was found by tabulating the family. Do that first: put `Without
 `interactable`, `onValueChanged` and the transition hooks side by side across all of these and
 see who is missing what.
 
-- `core/ui/Selectable.ts` — [x] Selectable *(clean)*
+- `core/ui/Selectable.ts` — [x] Selectable *(navigation; F46)*
 - `core/ui/SelectableTransition.ts` — [ ] ColorBlock · [ ] SpriteState
-- `core/ui/Navigation.ts` — [ ] Navigation
+- `core/ui/Navigation.ts` — [x] Navigation *(clean)*
 - `core/ui/Button.ts` — [x] Button *(clean)*
 - `core/ui/Slider.ts` — [x] Slider *(clean)*
 - `core/ui/Toggle.ts` — [x] Toggle *(clean)*
@@ -198,10 +198,10 @@ see who is missing what.
 - `core/ui/VirtualJoystick.ts` — [x] VirtualJoystick *(clean)*
 - `core/ui/UIImage.ts` — [ ] UIImage
 - `core/ui/UIText.ts` — [ ] UIText
-- `core/ui/RichText.ts` — [ ] RichText
+- `core/ui/RichText.ts` — [x] RichText *(clean)*
 - `core/ui/UITween.ts` — [x] UITween · [x] UITweenHandle *(F35)*
 
-**Findings:** F43, F44, F45 — see [`findings.md`](findings.md)
+**Findings:** F43–F46 — see [`findings.md`](findings.md)
 
 ---
 
