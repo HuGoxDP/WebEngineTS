@@ -17,12 +17,12 @@ all six known defects survived 1133 green tests.
 | 3 | Rendering and components | 17 | **17** | **done** |
 | 4 | Assets and scenario | 12 | 12 | **done** |
 | 5 | Physics | 16 | **16** | **done** |
-| 6 | UI core | 21 | 5 | in progress |
+| 6 | UI core | 21 | 6 | in progress |
 | 7 | UI controls | 18 | 0 | not started |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **83** | |
+| | **Total** | **175** | **84** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -174,7 +174,7 @@ repaint hash missing a field that affects drawing.
 - `core/ui/LayoutGroup.ts` — [ ] LayoutGroup · [ ] LayoutPadding · [ ] LinearLayoutGroup ·
   [ ] HorizontalLayoutGroup · [ ] VerticalLayoutGroup
 
-**Findings:** F33, F34 — see [`findings.md`](findings.md)
+**Findings:** F33, F34, F35 — see [`findings.md`](findings.md)
 
 ---
 

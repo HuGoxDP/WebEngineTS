@@ -46,6 +46,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F32 | 5 | A material on a `Rigidbody` was unregistered and unreadable | fixed `24771f2` |
 | F33 | 6 | A mask change did not repaint what it clips | fixed `1192778` |
 | F34 | 6 | Tinted copies outlived the textures they came from | fixed `8a7a042` |
+| F35 | 6 | A tween kept animating a destroyed element | fixed `0a571e3` |
 
 ---
 
@@ -1117,9 +1118,43 @@ and covers eviction as well as unload.
 
 Covered by `tests/TintCacheLifetime.test.ts`; 4 of its 5 fail with the notification removed.
 
+### F35. A tween kept animating a destroyed element — fixed `0a571e3`
+
+The fourth instance of the shape named after F34, and the first found by *going looking* for it
+rather than by reading a class end to end: the audit swept the UI folder's static registries and
+asked who tells each one that its subject died.
+
+**What happened.** `UITween` keeps running tweens in a static list and applies each every frame,
+with no check that the target still exists. A panel destroyed mid-fade — a dialog closed while
+animating, a scenario tearing down its UI — was written to on every frame afterwards, and the
+list writing to it kept it alive.
+
+**The class knew.** `cancelAll()` is documented as "worth calling when a scenario tears down its
+UI, so nothing keeps writing to discarded components". The responsibility was handed to the
+caller, and nothing in the engine called it — exactly as `TintCache.clear()` was in F34.
+
+**Fix, and why it differs from F34's.** Each handle carries its target's own `exists()`,
+duck-typed because every real target is an `EngineObject` while `fade` also accepts any plain
+object with an `alpha` — one of those never expires. This is a **pull**, not a notification: a
+tween is already visited every frame so asking is free, whereas wiring a destroy hook into every
+tweenable type would not be. F34 went the other way because a tinted bitmap is *not* visited
+until someone draws it.
+
+A cancelled tween does not raise `onComplete`; the motion did not finish.
+
+Covered by `tests/TweenLifetime.test.ts`; 4 of its 7 fail without the check.
+
 ---
 
 ## Negative results worth recording
+
+**Part 6 — the UI's other static registries hold up.** The same sweep that found F35 checked
+every static collection in `core/ui/`: `Canvas._instances` / `_live`, `Selectable._instances`,
+`LayoutGroup`, `ScrollRect`, `ContentSizeFitter` and `AspectRatioFitter`'s instance lists, and
+`EventSystem`'s `_selectables`, `_joysticks` and `_pointers`. Every one of them is removed from
+in `onDisable` **and** `onDestroy` — the pair matters, because a component destroyed while
+disabled reaches only the second. `Selectable` is the clearest example: it splices itself out of
+both.
 
 **Part 6 — `CanvasGroup` and `RectMask2D` are clean in themselves.** Both were read for the
 F33 shape and both do their own half correctly: the structure-version counters they publish are
