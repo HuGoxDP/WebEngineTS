@@ -322,26 +322,31 @@ export class Transform extends Component {
         // Ensure matrices are up to date
         this._object3D.updateMatrixWorld(true);
 
-        Transform._onHierarchyChanged?.();
+        Transform._hierarchyEpoch++;
     }
+
+    /** Bumped by every re-parent. See {@link _hierarchyVersion}. */
+    private static _hierarchyEpoch: number = 0;
 
     /**
      * @internal
-     * Called after any re-parent, so subsystems caching an ancestor walk can
-     * discard it.
+     * A counter that changes whenever anything is re-parented.
      *
      * @remarks
-     * A callback rather than an import: the UI caches which masks and groups sit
-     * above each element, and core must not depend on the UI. The dependent
-     * module installs this at load, as `UIImage` installs `Texture._onDestroyed`.
+     * Anything caching a walk *up* the hierarchy — which masks clip an element,
+     * which groups fade it, which Canvas it belongs to — is only valid while the
+     * hierarchy is. A node moving several levels up changes the ancestry of
+     * everything beneath it while touching none of their own parent links, so
+     * nothing local to those elements can notice.
      *
-     * It fires for *every* re-parent, including moves that no cache cares about
-     * — a comparison per cached chain is cheaper than working out which
-     * subtrees were affected.
+     * A counter rather than a notification, so that any number of subsystems can
+     * compare against it without core knowing they exist.
      *
      * **NEVER use in user-facing code.**
      */
-    public static _onHierarchyChanged: (() => void) | null = null;
+    public static get _hierarchyVersion(): number {
+        return Transform._hierarchyEpoch;
+    }
 
     /**
      * The number of direct children.

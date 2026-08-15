@@ -7,7 +7,7 @@ import type { Component as ComponentType } from "../Component";
 import { Serializable, SerializedField } from "../reflection/Decorators";
 import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
-import type { Transform } from "../Transform";
+import { Transform } from "../Transform";
 
 /** @internal Canvas constructor type for lazy lookups. */
 type CanvasCtor = new (...args: any[]) => ComponentType & { width: number; height: number };
@@ -164,6 +164,7 @@ export class RectTransform extends Component {
 
     private _cachedCanvas: Canvas | null = null;
     private _canvasLookupFrame: number = -1;
+    private _canvasHierarchy: number = -1;
     private _canvasResolved: boolean = false;
 
     // ── resolved-rect cache ──────────────────────────────────────────
@@ -256,11 +257,19 @@ export class RectTransform extends Component {
      * once per element per ancestor per frame. A Canvas appearing on an ancestor
      * later invalidates the cache through {@link invalidateLayoutCache}, which
      * `Canvas.onEnable` drives across its subtree.
+     *
+     * The frame is not enough on its own: an element moved to another Canvas
+     * mid-frame — a tooltip re-homed to a top-most overlay, an item dragged
+     * between two panels — would keep answering with the one it left, and lay
+     * itself out against that canvas's size for the rest of the frame. So the
+     * hierarchy version is part of the key.
      */
     public get canvas(): Canvas | null {
         if (!_CanvasCtor) return null;
 
-        if (this._canvasResolved && this._canvasLookupFrame === Time.frameCount) {
+        if (this._canvasResolved
+            && this._canvasLookupFrame === Time.frameCount
+            && this._canvasHierarchy === Transform._hierarchyVersion) {
             return this._cachedCanvas;
         }
 
@@ -274,6 +283,7 @@ export class RectTransform extends Component {
 
         this._cachedCanvas = found;
         this._canvasLookupFrame = Time.frameCount;
+        this._canvasHierarchy = Transform._hierarchyVersion;
         this._canvasResolved = true;
         return found;
     }

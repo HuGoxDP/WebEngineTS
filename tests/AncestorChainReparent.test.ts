@@ -117,6 +117,39 @@ describe("Re-parenting a node above an element", () => {
         expect(leaf._groupAlpha()).toBe(1);
     });
 
+    test("an element moved to another canvas belongs to it at once", () => {
+        // Time.frameCount does not advance here, which is exactly the situation
+        // a scenario creates by re-homing an element inside one Update: the
+        // per-frame lookup would answer with the canvas it left.
+        const { canvas, leaf } = setup();
+        expect(leaf.rectTransform.canvas).toBe(canvas);
+
+        const otherGO = new GameObject("Other Canvas");
+        made.push(otherGO);
+        const other = otherGO.addComponent(Canvas);
+        vi.spyOn(other, "width", "get").mockReturnValue(400);
+        vi.spyOn(other, "height", "get").mockReturnValue(300);
+
+        leaf.gameObject.transform.parent = otherGO.transform;
+
+        expect(leaf.rectTransform.canvas).toBe(other);
+    });
+
+    test("and a move higher up re-homes what is below it", () => {
+        const { canvas, holder, leaf } = setup();
+        expect(leaf.rectTransform.canvas).toBe(canvas);
+
+        const otherGO = new GameObject("Other Canvas");
+        made.push(otherGO);
+        const other = otherGO.addComponent(Canvas);
+        vi.spyOn(other, "width", "get").mockReturnValue(400);
+        vi.spyOn(other, "height", "get").mockReturnValue(300);
+
+        holder.transform.parent = otherGO.transform;
+
+        expect(leaf.rectTransform.canvas).toBe(other);
+    });
+
     test("nothing moving leaves the chains cached", () => {
         const { canvas, leaf } = setup();
         const first = leaf._maskChain();
