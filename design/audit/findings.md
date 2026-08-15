@@ -50,6 +50,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F36 | 1, 6 | `isActiveAndEnabled` was true for destroyed components | fixed `2c32687` |
 | F37 | 6 | A `LayoutElement` shadowed the size its own control reported | fixed `f9083e3` |
 | F38 | 6 | `FixedRowCount` did not fix the row count | fixed `6e25971` |
+| F39 | 6 | Layout groups never shrank, so `minWidth` was inert | fixed `a06a2c5` |
 
 ---
 
@@ -1242,9 +1243,42 @@ the canvas resolution pass, which this fix does not touch. Asserting the reserve
 tests the property the change actually controls. A test that needs half the engine running to
 say anything is testing the engine, not the fix.
 
+### F39. Layout groups never shrank, so `minWidth` was inert — fixed `a06a2c5`
+
+Part 5's shape, in the UI: a documented property the code never reads.
+
+**What it promises.** `LayoutElement.minWidth` — "smallest width this element may be shrunk
+to". `minHeight` likewise.
+
+**What happened.** No layout group ever shrank anything. `_distributeSpare` began with
+`if (spare <= 0) return;`, so when the children's preferred sizes did not fit, every child kept
+its preferred size and the row overflowed its panel. The minimums could not be honoured because
+nothing went looking for them: `LayoutUtility.minWidth` was read only by `ContentSizeFitter`'s
+`MinSize` mode, never by a group.
+
+**Fix.** Shrink proportionally to what each child can give up — `preferred - min` — which is
+Unity's rule. It is opt-in by construction: `LayoutUtility.minWidth` falls back to the preferred
+size, so an element with no explicit minimum has nothing to give and lays out exactly as before.
+Only a layout that *both* sets a minimum *and* overflows changes at all, which is what makes
+this safe to add to an engine with scenarios already running.
+
+A child never goes below its minimum, so a group asked to fit more than its minimums allow still
+overflows — by the least it can. That is the honest outcome, and again Unity's.
+
+Covered by `tests/LayoutShrink.test.ts`; 5 of its 7 fail with the early return restored. The
+tests drive `_distributeSpare` directly, for the reason F38 recorded: placement needs the canvas
+resolution pass, and the defect is in the arithmetic.
+
 ---
 
 ## Negative results worth recording
+
+**`PointerEventData` and `AspectRatioFitter` are clean.** The pointer data is a plain carrier
+that states both things a caller needs — canvas units with Y down, and that the instance is
+reused per pointer so anything worth keeping must be copied. The aspect fitter's four cases were
+checked one by one against what each should produce (fit/envelope × parent wider/taller); the
+XOR that picks the binding axis is right in all four, and forcing stretch anchors in the
+parent-relative modes is what Unity does too.
 
 **`CanvasScaler` is clean, checked against Unity's formulas rather than by eye.**
 `MatchWidthOrHeight` blends the two ratios in log space —
