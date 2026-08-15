@@ -184,6 +184,32 @@ export class InputField extends Selectable {
         if (this._element) this._element.value = this._text;
     }
 
+    /**
+     * Sets the value without raising {@link onValueChanged}.
+     *
+     * @remarks
+     * Equivalent to Unity's `InputField.SetTextWithoutNotify`. Use it when the
+     * field is reflecting state the scenario just changed itself: echoing the
+     * value back through the event would let a listener that writes the field
+     * drive itself in a loop.
+     *
+     * The counterpart of `Slider.setValueWithoutNotify`,
+     * `Toggle.setIsOnWithoutNotify` and the `setValueWithoutNotify` on
+     * `Dropdown` and `Scrollbar` — this was the one control in that family
+     * without it.
+     *
+     * Filtering and the character limit still apply, so what lands here is what
+     * typing the same value would have produced.
+     *
+     * @param value - the text to store.
+     */
+    public setTextWithoutNotify(value: string): void {
+        this._applyText(this._filter(value ?? ""), false);
+        this._caret = this._text.length;
+        this._anchor = this._caret;
+        if (this._element) this._element.value = this._text;
+    }
+
     /** What the field accepts. Changing it re-filters the current value. */
     @SerializedField({ type: FieldType.Enum })
     public get contentType(): InputFieldContentType { return this._contentType; }
