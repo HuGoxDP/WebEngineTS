@@ -52,6 +52,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F38 | 6 | `FixedRowCount` did not fix the row count | fixed `6e25971` |
 | F39 | 6 | Layout groups never shrank, so `minWidth` was inert | fixed `a06a2c5` |
 | F40 | 6 | A re-parent above an element left its masks and groups stale | fixed `2041f38` |
+| F41 | 6 | An element moved between canvases kept the old one for a frame | fixed `9b2049b` |
 
 ---
 
@@ -1284,8 +1285,10 @@ scan per ancestor. The cache is keyed on two counters: a global one bumped when 
 is added or removed, and a per-element check for *that element's* parent changing. A node moving
 higher up touches neither.
 
-**Fix.** `Transform` announces every re-parent through a static hook, `UIBehaviour` installs the
-subscriber — the F34 arrangement, keeping the dependency one-directional. Every cached chain is
+**Fix.** `Transform` publishes a `_hierarchyVersion` counter, bumped by `setParent`, and the
+cached chains include it in their key. (The first version of this fix used a static callback in
+the F34 style; **F41** wanted the same key, so it became a plain counter that any number of
+subsystems can read without core knowing they exist.) Every cached chain is
 discarded on any re-parent; a comparison per chain beats working out which subtrees were
 affected, and chains rebuild lazily.
 
@@ -1303,6 +1306,33 @@ the mask tests failed, which is exactly the kind of partial pass that looks like
 field per chain.
 
 Covered by `tests/AncestorChainReparent.test.ts`; 3 of its 5 fail with the notification removed.
+
+### F41. An element moved between canvases kept the old one for a frame — fixed `9b2049b`
+
+**Wanted.** Re-homing an element to another Canvas to put it on that canvas.
+
+**What happened.** For the rest of the frame it still belonged to the one it had left, and laid
+itself out against that canvas's size. `RectTransform.canvas` caches the lookup — it walks every
+ancestor and is read once per element per ancestor per frame — and the key was the frame number
+alone.
+
+**Reachable in the two places a scenario re-homes anything:** a tooltip moved to a top-most
+overlay so it draws above everything, and an item dragged from one panel to another. Both do it
+inside an `Update`, which is exactly when the frame number does not change.
+
+**Fix, and why it made F40 simpler.** The key it needed is the one F40 had just introduced, so
+F40's static callback became a plain counter on `Transform` — `_hierarchyVersion`, bumped by
+`setParent`. Any number of subsystems compare against it without core knowing they exist, which
+is less machinery than a hook and has no install-order question.
+
+That both defects wanted the same key is the point worth keeping: *anything cached from a walk
+up the hierarchy is valid only while the hierarchy is* is one rule, and it now has one place to
+be checked against. The remaining per-frame caches in `RectTransform` were re-read with that
+rule in mind — `parentRectTransform` compares the live parent object rather than trusting the
+frame, so it was already correct.
+
+Covered by `tests/AncestorChainReparent.test.ts`; the two canvas tests fail with the counter
+dropped from the key.
 
 ---
 
