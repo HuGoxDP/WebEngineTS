@@ -321,7 +321,27 @@ export class Transform extends Component {
 
         // Ensure matrices are up to date
         this._object3D.updateMatrixWorld(true);
+
+        Transform._onHierarchyChanged?.();
     }
+
+    /**
+     * @internal
+     * Called after any re-parent, so subsystems caching an ancestor walk can
+     * discard it.
+     *
+     * @remarks
+     * A callback rather than an import: the UI caches which masks and groups sit
+     * above each element, and core must not depend on the UI. The dependent
+     * module installs this at load, as `UIImage` installs `Texture._onDestroyed`.
+     *
+     * It fires for *every* re-parent, including moves that no cache cares about
+     * — a comparison per cached chain is cheaper than working out which
+     * subtrees were affected.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _onHierarchyChanged: (() => void) | null = null;
 
     /**
      * The number of direct children.

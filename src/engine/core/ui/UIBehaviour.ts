@@ -8,7 +8,7 @@ import type { Canvas } from "./Canvas";
 import type { PointerEventData } from "./PointerEventData";
 import type { Rect } from "../math/Rect";
 import type { GameObject } from "../GameObject";
-import type { Transform } from "../Transform";
+import { Transform } from "../Transform";
 
 /** Depth cap for the CanvasGroup walk, matching the RectTransform ancestor walk. */
 const MAX_GROUP_DEPTH = 64;
@@ -219,6 +219,36 @@ export abstract class UIBehaviour extends Behaviour {
     private _groupChainVersion: number = -1;
 
     /**
+     * Bumped whenever any element is re-parented.
+     *
+     * @remarks
+     * A cached chain is only valid while the ancestors it was walked from are
+     * still the ancestors. `CanvasGroup._structureVersion` covers a group being
+     * added or removed and the per-element check covers *this* element moving —
+     * but moving a node higher up changes the ancestry of everything beneath it
+     * without touching either, and those elements kept resolving through the
+     * masks and groups they used to sit under.
+     */
+    private static _hierarchyVersion: number = 0;
+
+    /**
+     * The hierarchy version each cached chain was built against.
+     *
+     * @remarks
+     * One field per chain, deliberately. Sharing one made whichever resolver
+     * ran first mark the element up to date, and the second then trusted its own
+     * stale cache — the group walk runs before the mask walk in the canvas's
+     * hash, so the masks were the half that stayed wrong.
+     */
+    private _groupChainHierarchy: number = -1;
+    private _maskChainHierarchy: number = -1;
+
+    /** @internal Invalidates every cached ancestor chain. */
+    public static _invalidateHierarchy(): void {
+        UIBehaviour._hierarchyVersion++;
+    }
+
+    /**
      * @internal
      * Combined opacity of every {@link CanvasGroup} above this element.
      * `1` when there are none.
@@ -267,7 +297,9 @@ export abstract class UIBehaviour extends Behaviour {
      * clips it.
      */
     public _maskChain(): readonly RectMask2D[] {
-        if (this._maskChainCache && this._maskChainVersion === RectMask2D._structureVersion) {
+        if (this._maskChainCache
+            && this._maskChainVersion === RectMask2D._structureVersion
+            && this._maskChainHierarchy === UIBehaviour._hierarchyVersion) {
             return this._maskChainCache;
         }
 
@@ -284,6 +316,7 @@ export abstract class UIBehaviour extends Behaviour {
 
         this._maskChainCache = chain;
         this._maskChainVersion = RectMask2D._structureVersion;
+        this._maskChainHierarchy = UIBehaviour._hierarchyVersion;
         return chain;
     }
 
@@ -446,7 +479,9 @@ export abstract class UIBehaviour extends Behaviour {
      * at one that ignores its parents.
      */
     private _resolveGroupChain(): readonly CanvasGroup[] {
-        if (this._groupChain && this._groupChainVersion === CanvasGroup._structureVersion) {
+        if (this._groupChain
+            && this._groupChainVersion === CanvasGroup._structureVersion
+            && this._groupChainHierarchy === UIBehaviour._hierarchyVersion) {
             return this._groupChain;
         }
 
@@ -464,6 +499,7 @@ export abstract class UIBehaviour extends Behaviour {
 
         this._groupChain = chain;
         this._groupChainVersion = CanvasGroup._structureVersion;
+        this._groupChainHierarchy = UIBehaviour._hierarchyVersion;
         return chain;
     }
 
@@ -477,3 +513,10 @@ export abstract class UIBehaviour extends Behaviour {
         target?._registerGraphic(this);
     }
 }
+
+// Every element caches which masks and groups sit above it. A re-parent
+// anywhere can change that for a whole subtree without touching any of its
+// elements, so the walk has to be discarded when the hierarchy moves.
+// Registered here rather than in `Transform` so the dependency stays
+// one-directional: the UI knows about core, core knows nothing about the UI.
+Transform._onHierarchyChanged = () => UIBehaviour._invalidateHierarchy();
