@@ -6,23 +6,23 @@ import { EngineSettings } from '../EngineSettings';
 
 /**
  * Bounds.ts
- * Осесіметрична обмежувальна коробка (Axis-Aligned Bounding Box - AABB).
- * Використовується для: визначення меж мешів, culling, перевірки перетинів.
+ * An axis-aligned bounding box (AABB).
+ * Used for mesh extents, culling and intersection tests.
  *
  * @remarks
- * Bounds описується центром + розміром (як у Unity).
- * API максимально наближений до Unity Bounds.
+ * Described by a centre and a size, as Unity's is.
+ * Equivalent to Unity's `Bounds`.
  */
 export class Bounds {
-    /** Центр обмежувальної коробки */
+    /** Centre of the box. */
     private _center: Vector3;
-    /** Повний розмір коробки (ширина, висота, глибина) */
+    /** Full size of the box: width, height, depth. */
     private _size: Vector3;
 
     /**
-     * Створює новий Bounds.
-     * @param center Центр коробки (за замовчуванням (0,0,0))
-     * @param size Розмір коробки (за замовчуванням (0,0,0))
+     * Creates a new Bounds.
+     * @param center — centre of the box. Defaults to (0, 0, 0).
+     * @param size — size of the box. Defaults to (0, 0, 0).
      */
     constructor(center?: Vector3, size?: Vector3) {
         this._center = center ? center.clone() : new Vector3(0, 0, 0);
@@ -31,7 +31,7 @@ export class Bounds {
 
     // ==================== PROPERTIES ====================
 
-    /** Центр обмежувальної коробки */
+    /** Centre of the box. */
     get center(): Vector3 {
         return this._center;
     }
@@ -40,7 +40,7 @@ export class Bounds {
         this._center.copy(value);
     }
 
-    /** Повний розмір коробки */
+    /** Full size of the box. */
     get size(): Vector3 {
         return this._size;
     }
@@ -50,7 +50,7 @@ export class Bounds {
     }
 
     /**
-     * Половина розміру (від центру до краю).
+     * Half the size — centre to edge.
      * WARNING: Allocates new Vector3. Use getExtents(out) in hot paths.
      */
     get extents(): Vector3 {
@@ -67,7 +67,7 @@ export class Bounds {
 
 
     /**
-     * Мінімальна точка коробки.
+     * The corner with the smallest coordinates.
      * WARNING: Allocates new Vector3. Use getMin(out) in hot paths.
      */
     get min(): Vector3 {
@@ -84,7 +84,7 @@ export class Bounds {
     }
 
     /**
-     * Максимальна точка коробки.
+     * The corner with the largest coordinates.
      * WARNING: Allocates new Vector3. Use getMax(out) in hot paths.
      */
     get max(): Vector3 {
@@ -137,7 +137,7 @@ export class Bounds {
     // ==================== INSTANCE METHODS ====================
 
     /**
-     * Встановлює центр та розмір.
+     * Sets the centre and the size.
      */
     set(center: Vector3, size: Vector3): this {
         this._center.copy(center);
@@ -145,7 +145,7 @@ export class Bounds {
         return this;
     }
     /**
-     * Встановлює bounds через мінімальну та максимальну точки.
+     * Sets the box from its minimum and maximum corners.
      */
     setMinMax(min: Vector3, max: Vector3): this {
         this._size.set(
@@ -162,7 +162,7 @@ export class Bounds {
     }
 
     /**
-     * Копіює значення з іншого Bounds.
+     * Copies the values of another Bounds.
      */
     copy(other: Bounds): this {
         this._center.copy(other._center);
@@ -171,14 +171,14 @@ export class Bounds {
     }
 
     /**
-     * Створює копію цього Bounds.
+     * Returns a copy of this Bounds.
      */
     clone(): Bounds {
         return new Bounds(this._center.clone(), this._size.clone());
     }
 
     /**
-     * Перевіряє, чи містить Bounds вказану точку.
+     * Whether the box contains the given point.
      * Zero-allocation implementation.
      */
     contains(point: Vector3): boolean {
@@ -193,7 +193,7 @@ export class Bounds {
     }
 
     /**
-     * Перевіряє, чи перетинається з іншим Bounds.
+     * Whether this box overlaps another.
      * Zero-allocation implementation.
      */
     intersects(other: Bounds): boolean {
@@ -211,7 +211,7 @@ export class Bounds {
     }
 
     /**
-     * Розширює Bounds, щоб включити вказану точку.
+     * Grows the box to include the given point.
      */
     encapsulatePoint(point: Vector3): this {
         // Compute current min/max inline
@@ -244,7 +244,7 @@ export class Bounds {
     }
 
     /**
-     * Розширює Bounds, щоб включити інший Bounds.
+     * Grows the box to include another box.
      */
     encapsulateBounds(bounds: Bounds): this {
         // Get other bounds min/max
@@ -277,7 +277,7 @@ export class Bounds {
     }
 
     /**
-     * Розширює Bounds, щоб включити точку або інший Bounds.
+     * Grows the box to include a point or another box.
      * @overload
      */
     encapsulate(point: Vector3): this;
@@ -291,7 +291,7 @@ export class Bounds {
     }
 
     /**
-     * Розширює Bounds на вказану величину.
+     * Grows the box by the given amount on every side.
      */
     expand(amount: number): this;
     expand(amount: Vector3): this;
@@ -309,9 +309,9 @@ export class Bounds {
     }
 
     /**
-     * Повертає найближчу точку на поверхні або всередині Bounds.
-     * @param point Вхідна точка
-     * @param out Опціонально вектор для результату
+     * The closest point on the surface of the box, or the point itself if inside.
+     * @param point — the point to test.
+     * @param out — optional vector to write the result into.
      */
     closestPoint(point: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -330,7 +330,7 @@ export class Bounds {
     }
 
     /**
-     * Повертає квадрат відстані від точки до найближчої точки Bounds.
+     * Squared distance from a point to the closest point of the box.
      * Zero-allocation implementation.
      */
     sqrDistance(point: Vector3): number {
@@ -352,16 +352,16 @@ export class Bounds {
     }
 
     /**
-     * Перевіряє перетин з променем.
-     * @param ray Промінь для перевірки
-     * @returns Відстань до точки перетину, або -1 якщо немає перетину
+     * Tests a ray against the box.
+     * @param ray — the ray to test.
+     * @returns distance to the intersection, or `-1` when the ray misses.
      */
     intersectRay(ray: Ray): number;
     /**
-     * Перевіряє перетин з променем (задається напрямом та початком).
-     * @param origin Початок променя
-     * @param direction Напрямок променя (має бути нормалізований)
-     * @returns Відстань до точки перетину, або -1 якщо немає перетину
+     * Tests a ray against the box, given its origin and direction.
+     * @param origin — where the ray starts.
+     * @param direction — the ray's direction. Must be normalized.
+     * @returns distance to the intersection, or `-1` when the ray misses.
      */
     intersectRay(origin: Vector3, direction: Vector3): number;
     intersectRay(originOrRay: Vector3 | Ray, direction?: Vector3): number {
@@ -430,7 +430,7 @@ export class Bounds {
     }
 
     /**
-     * Порівнює два Bounds на рівність.
+     * Whether two boxes are equal.
      */
     equals(other: Bounds, epsilon: number = EngineSettings.Math.EPSILON): boolean {
         return (
@@ -444,14 +444,14 @@ export class Bounds {
     }
 
     /**
-     * Перевіряє чи Bounds порожній (розмір нуль).
+     * Whether the box is empty — zero on every axis.
      */
     isEmpty(): boolean {
         return this._size.x === 0 && this._size.y === 0 && this._size.z === 0;
     }
 
     /**
-     * Скидає Bounds до початкових значень.
+     * Resets the box to a zero-sized one at the origin.
      */
     reset(): this {
         this._center.set(0, 0, 0);
@@ -466,7 +466,7 @@ export class Bounds {
     // ==================== STATIC METHODS ====================
 
     /**
-     * Створює Bounds з мінімальної та максимальної точок.
+     * Creates a Bounds from its minimum and maximum corners.
      */
     static fromMinMax(min: Vector3, max: Vector3, out?: Bounds): Bounds {
         const bounds = out ?? new Bounds();
@@ -475,7 +475,7 @@ export class Bounds {
     }
 
     /**
-     * Створює Bounds, що охоплює набір точок.
+     * Creates the smallest Bounds containing every given point.
      */
     static fromPoints(points: Vector3[], out?: Bounds): Bounds {
         const bounds = out ?? new Bounds();
@@ -510,7 +510,7 @@ export class Bounds {
     }
 
     /**
-     * Об'єднує два Bounds в один.
+     * Returns the smallest Bounds containing both.
      */
     static merge(a: Bounds, b: Bounds, out?: Bounds): Bounds {
         const result = out ?? new Bounds();
@@ -520,7 +520,7 @@ export class Bounds {
     }
 
     /**
-     * Перевіряє перетин двох Bounds.
+     * Whether two boxes overlap.
      */
     static intersect(a: Bounds, b: Bounds): boolean {
         return a.intersects(b);
