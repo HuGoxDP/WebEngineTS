@@ -31,7 +31,32 @@ export interface MemoryReport {
 
     /** Three.js renderer memory counters. */
     renderer: {
+        /**
+         * Textures the renderer currently holds on the GPU, from
+         * `renderer.info.memory.textures`.
+         *
+         * @remarks
+         * **This counts a different set from {@link estimatedTextureVramBytes},
+         * and comparing them without knowing that is how a memory report gets
+         * misread.** The renderer counts what it has uploaded: a texture is in
+         * this figure once something drawn has used it, and render targets —
+         * shadow maps, post-processing buffers — are in it too. The engine's
+         * estimate counts every live `Texture` object, uploaded or not, and
+         * excludes render targets, which are reported separately in
+         * {@link estimatedRenderTargetVramBytes}.
+         *
+         * So a scene that has loaded textures it has not drawn yet reads high
+         * on the estimate and low here, and a scene with shadows reads the
+         * other way. Neither is wrong; they answer different questions.
+         */
         textures: number;
+
+        /**
+         * Geometries the renderer currently holds on the GPU, from
+         * `renderer.info.memory.geometries`. Related to
+         * {@link estimatedGeometryVramBytes} the same way {@link textures} is
+         * related to {@link estimatedTextureVramBytes}: uploaded versus live.
+         */
         geometries: number;
         /**
          * Estimated VRAM occupied by all live engine textures (2D + cubemaps),
