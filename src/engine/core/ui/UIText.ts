@@ -242,7 +242,7 @@ export class UIText extends UIBehaviour {
         if (this.richText) {
             const tokens = RichText.tokenize(ctx, this.text, this.fontSize, this.fontFamily);
             const lines = RichText.layout(ctx, tokens, width, this.wordWrap && width > 0, this.fontFamily);
-            return lines.length * this.fontSize * this.lineHeight;
+            return this._richHeight(lines);
         }
 
         const font = this._font();
@@ -423,13 +423,17 @@ export class UIText extends UIBehaviour {
             ctx.lineJoin = "round";
         }
 
-        const lineH = size * this.lineHeight;
-        let y = this._textStartY(rect, lines.length * lineH);
+        let y = this._textStartY(rect, this._richHeight(lines, size));
         const bottom = rect.y + rect.height;
         const clips = this.overflow !== TextOverflow.Overflow;
         const baseFill = cssColor(this.color);
 
         for (const line of lines) {
+            // Each line is as tall as its largest run. A uniform advance from
+            // the label's own size made a `<size=40>` run inside a 16pt label
+            // draw over the line beneath it, and made the label report a height
+            // that could not hold what it was about to draw.
+            const lineH = (line.maxSize > 0 ? line.maxSize : size) * this.lineHeight;
             if (clips && y + lineH > bottom) break;
 
             let x = rect.x;
@@ -455,6 +459,22 @@ export class UIText extends UIBehaviour {
 
             y += lineH;
         }
+    }
+
+    /**
+     * Total height of laid-out rich text, each line measured by its own largest
+     * run.
+     *
+     * @param lines - the laid-out lines.
+     * @param fallback - size for a line with no runs, such as a blank
+     *                   paragraph. Defaults to the label's own font size.
+     */
+    private _richHeight(lines: readonly RichLine[], fallback: number = this.fontSize): number {
+        let total = 0;
+        for (const line of lines) {
+            total += (line.maxSize > 0 ? line.maxSize : fallback) * this.lineHeight;
+        }
+        return total;
     }
 
     /** Tokenizes and wraps, reusing the result while nothing relevant changed. */
