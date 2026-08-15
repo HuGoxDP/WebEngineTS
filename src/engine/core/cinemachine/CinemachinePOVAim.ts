@@ -25,8 +25,16 @@ export class CinemachinePOVAim extends CinemachineAim {
     public requirePointerLock: boolean = true;
 
     /**
-     * Smoothing factor for mouse input. 0 = no smoothing (raw), 1 = maximum smoothing.
-     * Recommended range: 0.05–0.3 for FPS-style feel.
+     * Smoothing factor for mouse input: `0` is raw, approaching `1` is
+     * treacle. Recommended range 0.05–0.3 for an FPS feel.
+     *
+     * @remarks
+     * **A fraction, not a rate** — the opposite of `damping` on
+     * `CinemachineFollowBody` and `CinemachineOrbitalBody`, where a *larger*
+     * value means a snappier camera. Values outside `[0, 1]` are clamped into
+     * it: `1 - damping` is raised to a fractional power each frame, and a
+     * negative base there produces `NaN`, which would leave the camera pointing
+     * nowhere for the rest of the session.
      */
     public damping: number = 0;
     /**
@@ -77,9 +85,10 @@ export class CinemachinePOVAim extends CinemachineAim {
             this._targetPitch = Math.max(this.minPitch, Math.min(this.maxPitch, this._targetPitch));
         }
 
-        // Smooth toward target (damping=0 → instant, damping=1 → very slow)
-        if (this.damping > 0 && dt > 0) {
-            const speed = 1 - this.damping;
+        // Smooth toward target (damping=0 → instant, approaching 1 → very slow)
+        const damping = Math.min(1, Math.max(0, this.damping));
+        if (damping > 0 && dt > 0) {
+            const speed = 1 - damping;
             // Exponential smoothing: lerp factor based on damping
             const t = 1 - Math.pow(speed, dt * 60);
             this._yaw += (this._targetYaw - this._yaw) * t;
