@@ -632,6 +632,36 @@ export class GameObject extends EngineObject {
         this.transform.destroyImmediate();
     }
 
+    // ==================== CLONING ====================
+
+    /**
+     * @internal
+     * Not implemented — see the error text.
+     *
+     * @remarks
+     * `EngineObject.Instantiate` reaches this. The inherited implementation
+     * built `new GameObject(name + " (Clone)")` and returned it: an object with
+     * no components, no children and none of the transform, added to the scene
+     * and invisible. Every caller of the most-used API in Unity got that
+     * silently, so refusing is the honest answer until cloning is real.
+     *
+     * Doing it properly means copying arbitrary component state, which the
+     * engine cannot do generically yet — that is what the serialization system
+     * in `design/unity-parity-plan.md` (Stage 1) is for. `Component._clone`
+     * already refers to this method as the one that duplicates components; when
+     * it does, this error goes away.
+     */
+    protected override _clone(): EngineObject {
+        // TODO: implement real prefab cloning once components can serialize
+        // themselves — hierarchy and transform are easy, component state is not.
+        throw new Error(
+            `EngineObject.Instantiate("${this.name}"): cloning a GameObject is not ` +
+            `implemented. It would return an empty object with no components or ` +
+            `children, which is worse than an error. Build the object explicitly, ` +
+            `or load it again through Resources. See design/unity-parity-plan.md.`
+        );
+    }
+
     // ==================== STATIC CONVENIENCE METHODS ====================
 
     /**

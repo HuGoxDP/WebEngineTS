@@ -182,11 +182,16 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      * @returns a root GameObject containing the full model hierarchy.
      *
      * @remarks
-     * The first load parses the GLTF and caches the result as a "prefab".
-     * Subsequent loads return the same reference.
+     * The first load parses the GLTF; every later load of the same path returns
+     * **the same GameObject**, already in the scene — not a copy. Moving it
+     * moves the one everybody has. Two cars means loading two models, or
+     * building the second explicitly: `EngineObject.Instantiate` cannot copy a
+     * GameObject yet (see `design/unity-parity-plan.md`), and says so rather
+     * than handing back an empty one.
      *
      * @example
      * ```ts
+     * // One instance, shared: position it once, at load.
      * const car = await this.context.assets.loadModel("vehicles/car.glb");
      * car.transform.position = new Vector3(0, 0, 5);
      * car.transform.localScale = new Vector3(0.01, 0.01, 0.01);

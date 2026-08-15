@@ -254,7 +254,11 @@ export abstract class Component extends EngineObject {
      * @remarks
      * The base implementation throws because a Component cannot be cloned
      * in isolation — it must be cloned as part of a GameObject clone.
-     * {@link GameObject._clone} handles component duplication.
+     *
+     * Cloning a GameObject refuses for its own reason today: duplicating
+     * component state generically needs the serialization system
+     * (`design/unity-parity-plan.md`, Stage 1). So neither half of this works
+     * yet, and both say so rather than returning something half-copied.
      *
      * Subclasses that support standalone cloning should override this method.
      */
