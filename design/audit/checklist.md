@@ -17,12 +17,12 @@ all six known defects survived 1133 green tests.
 | 3 | Rendering and components | 17 | **17** | **done** |
 | 4 | Assets and scenario | 12 | 12 | **done** |
 | 5 | Physics | 16 | **16** | **done** |
-| 6 | UI core | 21 | 10 | in progress |
+| 6 | UI core | 21 | 12 | in progress |
 | 7 | UI controls | 18 | 0 | not started |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **88** | |
+| | **Total** | **175** | **90** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -158,7 +158,7 @@ invalidation and the once-per-frame driver order, hit-testing under rotation and
 repaint hash missing a field that affects drawing.
 
 - `core/ui/Canvas.ts` — [x] Canvas *(repaint hash; F33)*
-- `core/ui/CanvasScaler.ts` — [ ] CanvasScaler
+- `core/ui/CanvasScaler.ts` — [x] CanvasScaler *(clean)*
 - `core/ui/CanvasGroup.ts` — [x] CanvasGroup *(clean)*
 - `core/ui/RectTransform.ts` — [ ] RectTransform
 - `core/ui/RectMask2D.ts` — [x] RectMask2D *(clean; F33 is its consumer)* · [x] MaskPadding
@@ -168,7 +168,7 @@ repaint hash missing a field that affects drawing.
 - `core/ui/UIEvent.ts` — [x] UIEvent *(clean)*
 - `core/ui/TintCache.ts` — [x] TintCache *(lifetime; F34)*
 - `core/ui/LayoutElement.ts` — [x] LayoutElement · [x] LayoutUtility *(size protocol; F37)*
-- `core/ui/ContentSizeFitter.ts` — [ ] ContentSizeFitter
+- `core/ui/ContentSizeFitter.ts` — [x] ContentSizeFitter *(clean; see I5)*
 - `core/ui/AspectRatioFitter.ts` — [ ] AspectRatioFitter
 - `core/ui/GridLayoutGroup.ts` — [x] GridLayoutGroup *(row constraint; F38)*
 - `core/ui/LayoutGroup.ts` — [ ] LayoutGroup · [ ] LayoutPadding · [ ] LinearLayoutGroup ·

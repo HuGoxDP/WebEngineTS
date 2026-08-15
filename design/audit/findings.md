@@ -1246,6 +1246,21 @@ say anything is testing the engine, not the fix.
 
 ## Negative results worth recording
 
+**`CanvasScaler` is clean, checked against Unity's formulas rather than by eye.**
+`MatchWidthOrHeight` blends the two ratios in log space —
+`pow(2, lerp(log2(ratioW), log2(ratioH), match))` — which is Unity's own expression, and the
+reason halfway between 2× and 8× is 4× rather than 5×. `Expand` takes the smaller ratio,
+`Shrink` the larger, both matching. `ConstantPhysicalSize` divides out `devicePixelRatio` before
+the unit conversion, which is a deliberate departure documented in place: Unity's DPI is a panel
+query, the browser's is derived from `devicePixelRatio` against the 96-DPI CSS reference, so
+folding it back out is what makes a point a point.
+
+**`ContentSizeFitter` is clean in itself**, including the detail worth stealing elsewhere: it
+writes `sizeDelta` by subtracting the anchor span times the parent size, because `sizeDelta` is
+a delta on top of that span and assigning the size directly would double it for a stretched
+element. The open question about *nested* fitters is recorded as I5 in `improvements.md`, not as
+a finding, because it is not demonstrated.
+
 **Part 6 — the UI's other static registries hold up.** The same sweep that found F35 checked
 every static collection in `core/ui/`: `Canvas._instances` / `_live`, `Selectable._instances`,
 `LayoutGroup`, `ScrollRect`, `ContentSizeFitter` and `AspectRatioFitter`'s instance lists, and

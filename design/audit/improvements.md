@@ -88,3 +88,31 @@ mode is silent. That makes it the strongest candidate on this page.
 resolves it; surfacing it means a new engine-typed enum (the authoring `TextureFormat` must not
 grow GPU formats — they are different things) and a decision about what to report for textures
 that never went through a transcoder.
+
+---
+
+## I5. Rebuild layout bottom-up, or say that it does not
+
+**Found while walking** `ContentSizeFitter` (audit part 6).
+
+**Now.** The per-frame drivers run in one pass each, in the order
+`LayoutGroup._updateAll()` → `ContentSizeFitter._updateAll()` → `AspectRatioFitter._updateAll()`,
+and each iterates its own instances in **enable order**. Unity instead rebuilds a dirty *tree*,
+children before parents for size fitters and parents before children for groups, because a
+fitter's answer is an input to whatever contains it.
+
+**The question this leaves open.** A fitter inside a fitter — a label that sizes to its text,
+inside a panel that sizes to its content — resolves in one pass only if the inner one runs
+first. Enable order usually puts it first, since a child is normally built after its parent, but
+nothing enforces it, and a panel enabled after its label would measure a stale size.
+
+**Not recorded as a finding, because it is not demonstrated.** Reaching it needs the canvas
+resolution pass, and the parent's measurement runs through `LayoutUtility`, which reads
+*reported* sizes rather than fitted rects — so the stale value may never be consulted. Settling
+it means a test that builds a real nested canvas and checks the outer size after exactly one
+frame. Worth doing before either fixing or documenting, since the two answers lead to different
+work: sorting each driver's instances by hierarchy depth, or a sentence saying nesting settles
+over two frames.
+
+**Cost.** Small to establish, small to fix if real (depth is a parent walk, cached per instance
+and re-sorted when the set changes).
