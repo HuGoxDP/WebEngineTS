@@ -109,6 +109,13 @@ export class AudioSource extends Behaviour {
 
     protected override onDisable(): void {
         AudioSource._activeInstances.delete(this);
+
+        // Unity stops a source when it is disabled, and so must this: a
+        // disabled source has already been dropped from the spatial update, so
+        // leaving it playing gives a sound that carries on from wherever its
+        // object was when it was switched off. Hiding a thing has to silence
+        // it, which is what a scenario means by hiding it.
+        this.stop();
     }
 
     protected override onDestroy(): void {
