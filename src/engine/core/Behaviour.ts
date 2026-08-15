@@ -79,9 +79,21 @@ export abstract class Behaviour extends Component {
      * Equivalent to Unity's `Behaviour.isActiveAndEnabled`.
      * Takes the full parent hierarchy into account via
      * {@link GameObject.activeInHierarchy}.
+     *
+     * **A destroyed component is not active.** `enabled` is never cleared by
+     * destruction — Unity's own field is not either — and a destroyed
+     * GameObject keeps whatever `activeSelf` it had, so without the existence
+     * test this answered `true` for objects that are gone. Every caller uses it
+     * as "may I touch this", which is why the test belongs here rather than at
+     * each call site. Unity reaches the same answer differently: a destroyed
+     * object compares equal to null, so asking it anything is already an error.
+     *
+     * During teardown the component is still alive: `_destroyImmediate` fires
+     * `onDisable` *before* marking it destroyed, so cleanup code that checks
+     * this sees what it did before.
      */
     public get isActiveAndEnabled(): boolean {
-        return this._enabled && this.gameObject.activeInHierarchy;
+        return this.exists() && this._enabled && this.gameObject.activeInHierarchy;
     }
 
     // ==================== INTERNAL METHODS ====================
