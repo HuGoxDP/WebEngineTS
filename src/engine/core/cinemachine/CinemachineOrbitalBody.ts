@@ -152,7 +152,10 @@ export class CinemachineOrbitalBody extends CinemachineBody {
         }
 
         // ── Smooth interpolation ──
-        const lerpFactor = 1 - Math.exp(-this.damping * dt);
+        // `damping` is a rate, so zero means "no damping at all" — snap to the
+        // target — rather than "never move". Exponential decay gives the second
+        // for free: 1 - exp(0) is 0, and the camera would sit where it started.
+        const lerpFactor = this.damping > 0 ? 1 - Math.exp(-this.damping * dt) : 1;
         this._currentDistance += (this.distance - this._currentDistance) * lerpFactor;
 
         this._currentCenter = new Vector3(

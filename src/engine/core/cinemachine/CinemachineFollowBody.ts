@@ -42,7 +42,16 @@ export class CinemachineFollowBody extends CinemachineBody {
     public offset: Vector3 = new Vector3(0, 5, -10);
 
     /**
-     * Damping factor (higher = snappier, lower = smoother).
+     * How quickly the camera catches up with its target, as a rate.
+     *
+     * @remarks
+     * Higher is snappier, lower is smoother, and the response is
+     * framerate-independent — the camera closes the same fraction of the gap
+     * per second whatever the frame rate.
+     *
+     * `0` — or any non-positive value — means **no damping**: the camera is
+     * exactly where the target says, every frame. Unity reads a damping of zero
+     * the same way.
      */
     public damping: number = 5;
 
@@ -83,7 +92,10 @@ export class CinemachineFollowBody extends CinemachineBody {
         );
 
         // Smooth follow using exponential decay
-        const lerpFactor = 1 - Math.exp(-this.damping * dt);
+        // `damping` is a rate, so zero means "no damping at all" — snap to the
+        // target — rather than "never move". Exponential decay gives the second
+        // for free: 1 - exp(0) is 0, and the camera would sit where it started.
+        const lerpFactor = this.damping > 0 ? 1 - Math.exp(-this.damping * dt) : 1;
         this._position = new Vector3(
             this._position.x + (desiredPos.x - this._position.x) * lerpFactor,
             this._position.y + (desiredPos.y - this._position.y) * lerpFactor,
