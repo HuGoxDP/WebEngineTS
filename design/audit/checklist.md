@@ -17,12 +17,12 @@ all six known defects survived 1133 green tests.
 | 3 | Rendering and components | 17 | **17** | **done** |
 | 4 | Assets and scenario | 12 | 12 | **done** |
 | 5 | Physics | 16 | **16** | **done** |
-| 6 | UI core | 21 | 21 | **done** |
+| 6 | UI core | 21 | **21** | **done** |
 | 7 | UI controls | 18 | 0 | not started |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **99** | |
+| | **Total** | **175** | **100** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -163,7 +163,7 @@ repaint hash missing a field that affects drawing.
 - `core/ui/RectTransform.ts` — [x] RectTransform *(lookup caches; F41)*
 - `core/ui/RectMask2D.ts` — [x] RectMask2D *(clean; F33 is its consumer)* · [x] MaskPadding
 - `core/ui/UIBehaviour.ts` — [x] UIBehaviour *(ancestor chains; F40)*
-- `core/ui/EventSystem.ts` — [ ] EventSystem
+- `core/ui/EventSystem.ts` — [x] EventSystem *(release ordering; F42)*
 - `core/ui/PointerEventData.ts` — [x] PointerEventData *(clean)*
 - `core/ui/UIEvent.ts` — [x] UIEvent *(clean)*
 - `core/ui/TintCache.ts` — [x] TintCache *(lifetime; F34)*
@@ -174,7 +174,7 @@ repaint hash missing a field that affects drawing.
 - `core/ui/LayoutGroup.ts` — [x] LayoutGroup · [x] LayoutPadding · [x] LinearLayoutGroup *(F39)* ·
   [x] HorizontalLayoutGroup · [x] VerticalLayoutGroup
 
-**Findings:** F33–F41 — see [`findings.md`](findings.md)
+**Findings:** F33–F42 — see [`findings.md`](findings.md)
 
 ---
 

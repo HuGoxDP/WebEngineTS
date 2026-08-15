@@ -53,6 +53,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F39 | 6 | Layout groups never shrank, so `minWidth` was inert | fixed `a06a2c5` |
 | F40 | 6 | A re-parent above an element left its masks and groups stale | fixed `2041f38` |
 | F41 | 6 | An element moved between canvases kept the old one for a frame | fixed `9b2049b` |
+| F42 | 6 | A click reached the element its own pointer-up had closed | fixed `6cc8aea` |
 
 ---
 
@@ -1334,9 +1335,39 @@ frame, so it was already correct.
 Covered by `tests/AncestorChainReparent.test.ts`; the two canvas tests fail with the counter
 dropped from the key.
 
+### F42. A click reached the element its own pointer-up had closed — fixed `6cc8aea`
+
+The consequence **F36** predicted, in the place it predicted it.
+
+**What happens on a release.** Up, then Click, to the element the press started on.
+
+**What went wrong.** Up is user code, and the ordinary thing for it to do is close what was
+pressed — a dialog dismissing itself, a button disabling itself against a double submit, a close
+button destroying its panel. The Click went out regardless: to a component that was by then
+destroyed, or to a control that had just declared itself non-interactive.
+
+**Fix.** Re-check between the two, not before both. A control must always hear that the press it
+was holding has ended, whatever its Up handler then does — that ordering is pinned by its own
+test, because "guard the whole release" is the obvious wrong simplification.
+
+**Why it could not have been fixed before F36.** `isActiveAndEnabled` answered `true` for
+destroyed components until then, so this check would have caught the *disabled* case and missed
+the destroyed one — the more common of the two, and the one that ends in a handler running
+against a dead object.
+
+Covered by `tests/ClickAfterUp.test.ts`; 3 of its 6 fail without the check. The tests drive the
+private `_release` path, which is where the ordering lives — simulating a real press needs the
+`Touch` and `Input` plumbing and would be testing that instead.
+
 ---
 
 ## Negative results worth recording
+
+**`EventSystem`'s other held references are guarded correctly.** `pressedGraphic`, `dragTarget`
+and `hoverOwner` survive across frames, and every other delivery path — drag, end-drag, exit,
+and the cancellation path for a pointer that vanishes without releasing — checks
+`isActiveAndEnabled` before dispatching. `_unregisterSelectable` also clears the focus if the
+control being removed held it. The release path was the one gap, and only in its second half.
 
 **`PointerEventData` and `AspectRatioFitter` are clean.** The pointer data is a plain carrier
 that states both things a caller needs — canvas units with Y down, and that the instance is
