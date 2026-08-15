@@ -61,6 +61,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F47 | 7 | A `<size>` run drew over the line beneath it | fixed `aa36804` |
 | F48 | 8 | `Mathf.round` rounded halves the JavaScript way, not Unity's | fixed `8d1b1d0` |
 | F49 | 8 | Only `Vector3`'s shared constants were frozen | fixed `31d7ad5` |
+| F50 | 8 | `Keyframe`'s tangent weights are stored and never applied | documented `3d24607`; weighting **open** |
 
 ---
 
@@ -1540,6 +1541,30 @@ corrupting the next through a shared constant is exactly what this does to a sce
 **`Matrix4x4.identity` and `zero` stay unfrozen**, as their own JSDoc explains: `Object.freeze`
 throws on a `Float32Array` that has elements, so the guarantee cannot be had there. That one
 really is a contract, and it is documented as one.
+
+### F50. `Keyframe`'s tangent weights are stored and never applied — documented `3d24607`, weighting **open**
+
+The F39 shape in the math: a documented property nothing reads.
+
+**What is there.** `Keyframe.inWeight` and `outWeight` are public, documented as "weighted
+tangent mode", default to Unity's `1/3`, and are carried through `clone()`.
+
+**What reads them.** Nothing. `_hermite` is a plain Hermite spline and there is no
+`weightedMode` to turn weighting on. A curve authored with weighted tangents in Unity therefore
+loads, keeps its weights, and draws a different shape — quietly, since the numbers are all
+present and plausible.
+
+**Done.** The fields say what they are: stored so a curve survives a round trip, never applied,
+with a `TODO` naming what applying them needs.
+
+**Open.** Real weighting means a `weightedMode` per key and a cubic Bezier evaluator that solves
+for the parameter at a given time. That is a feature, and it is not something to smuggle into a
+documentation commit — the same call as F31's spring.
+
+**What was checked while there.** The wrap modes are the part of this class with an independent
+reference: `Mathf.repeat` and `Mathf.pingPong` answer the same question through different code.
+Compared across times before the curve as well as after — a negative cycle count and a parity
+test being where ping-pong usually breaks — they agree exactly. `tests/AnimationCurveWrap.test.ts`.
 
 ---
 

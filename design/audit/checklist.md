@@ -19,10 +19,10 @@ all six known defects survived 1133 green tests.
 | 5 | Physics | 16 | **16** | **done** |
 | 6 | UI core | 21 | **21** | **done** |
 | 7 | UI controls | 18 | **18** | **done** |
-| 8 | Math | 12 | 9 | in progress |
+| 8 | Math | 12 | 11 | in progress |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **127** | |
+| | **Total** | **175** | **129** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -222,9 +222,9 @@ constants, `Object.freeze` on typed arrays, zero-length normalize, degenerate bo
 - `core/math/Rect.ts` — [x] Rect *(F49)*
 - `core/math/Ray.ts` — [ ] Ray
 - `core/math/Mathf.ts` — [x] Mathf *(rounding; F48)*
-- `core/math/AnimationCurve.ts` — [ ] AnimationCurve · [ ] Keyframe
+- `core/math/AnimationCurve.ts` — [x] AnimationCurve *(wrapping verified)* · [x] Keyframe *(F50)*
 
-**Findings:** F48, F49, and F12's math half — see [`findings.md`](findings.md)
+**Findings:** F48, F49, F50, and F12's math half — see [`findings.md`](findings.md)
 
 ---
 
