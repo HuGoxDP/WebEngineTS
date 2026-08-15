@@ -115,7 +115,11 @@ describe("Mathf", () => {
         test("floorToInt", () => expect(Mathf.floorToInt(2.7)).toBe(2));
         test("ceil", () => expect(Mathf.ceil(2.1)).toBe(3));
         test("ceilToInt", () => expect(Mathf.ceilToInt(2.1)).toBe(3));
-        test("round", () => expect(Mathf.round(2.5)).toBe(3));
+        // 2.5 rounds to 2, not 3: halves go to the even neighbour, as Unity's
+        // Mathf.Round does. This assertion said 3 until audit F48 — it was
+        // pinning JavaScript's Math.round, which is what the method used to
+        // call. See tests/MathfRounding.test.ts for the full contract.
+        test("round", () => expect(Mathf.round(2.5)).toBe(2));
         test("roundToInt", () => expect(Mathf.roundToInt(2.4)).toBe(2));
     });
 

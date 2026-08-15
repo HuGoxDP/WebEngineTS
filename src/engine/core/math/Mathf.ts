@@ -392,14 +392,44 @@ export class Mathf {
         return Math.ceil(f) | 0;
     }
 
-    /** Returns `f` rounded to the nearest integer. */
+    /**
+     * Returns `f` rounded to the nearest integer, halves going to the **even**
+     * neighbour.
+     *
+     * @remarks
+     * Equivalent to Unity's `Mathf.Round()`, which is .NET's `Math.Round` and
+     * therefore banker's rounding: `0.5` and `-0.5` give `0`, `1.5` gives `2`,
+     * `2.5` gives `2`. JavaScript's own `Math.round` rounds halves toward
+     * positive infinity instead — `0.5` to `1`, `-1.5` to `-1` — which is the
+     * one case where a scenario ported from Unity would quietly get a different
+     * answer.
+     *
+     * Banker's rounding is not a curiosity: rounding halves in a consistent
+     * direction biases a sum of many rounded values, which is why the platforms
+     * this engine mirrors chose it.
+     */
     public static round(f: number): number {
-        return Math.round(f);
+        const floor = Math.floor(f);
+        const fraction = f - floor;
+
+        const rounded = fraction > 0.5 ? floor + 1
+            : fraction < 0.5 ? floor
+            : floor % 2 === 0 ? floor : floor + 1;
+
+        // Rounding a small negative gives negative zero on .NET, and the
+        // difference is observable through `Object.is` and `1 / x`.
+        return rounded === 0 && f < 0 ? -0 : rounded;
     }
 
-    /** Returns `f` rounded to the nearest integer (as an integer). */
+    /**
+     * Returns `f` rounded to the nearest integer, as an integer.
+     *
+     * @remarks
+     * Equivalent to Unity's `Mathf.RoundToInt()`. Rounds the same way
+     * {@link round} does, halves to even.
+     */
     public static roundToInt(f: number): number {
-        return Math.round(f) | 0;
+        return Mathf.round(f) | 0;
     }
 
     // ==================== TRIGONOMETRY ====================
