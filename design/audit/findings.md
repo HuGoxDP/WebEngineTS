@@ -70,6 +70,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F56 | 9 | A workaround for a corruption that cannot happen | fixed `c0023cb` |
 | F57 | 9 | A POV damping above one turned the camera to NaN | fixed `a6bf47e` |
 | F58 | 10 | Disabling an `AudioSource` left the sound playing | fixed `e232954` |
+| F59 | 10 | An empty `Gradient` threw from inside the particle update | fixed `01f3b01` |
 
 ---
 
@@ -1756,9 +1757,34 @@ cheap check that has now found this and, in the other direction, F44's clearing.
 
 Covered by `tests/AudioSourceDisable.test.ts`; 5 of its 6 fail without the stop.
 
+### F59. An empty `Gradient` threw from inside the particle update — fixed `01f3b01`
+
+**What happened.** `setKeys` takes whatever arrays it is given, and every branch of `evaluate`
+indexes key 0. A gradient with no keys threw `Cannot read properties of undefined (reading
+'time')` — from inside the particle update, once per particle per frame.
+
+**How a scenario gets there.** Building keys from data: filter a list of colour stops down to
+none, or load a config where the array is missing. The particle system then stops with a
+TypeError instead of drawing something plain.
+
+**Fix.** An empty gradient evaluates to opaque white — the state a fresh `Gradient` is already
+in, since its default keys are white at 0 and white at 1. "No keys" and "no colour information"
+now agree, instead of one of them being fatal.
+
+**The rest of the edges already held**, and the tests say so: a single key answering everywhere,
+blending between two, clamping outside 0–1 rather than extrapolating, two keys sharing a time
+not dividing by zero, and `Fixed` mode stepping rather than blending. The class is careful
+everywhere except at the one input nobody pictured.
+
 ---
 
 ## Negative results worth recording
+
+**Part 10 — `ParticleSystem` and `AudioListener` pass the disable/destroy comparison that found
+F58.** `ParticleSystem` hides its points and unregisters on disable, then on destroy unregisters,
+detaches the Three.js child and disposes the geometry and material: disable stops it being seen,
+destroy frees what it owns, which is the right division. `AudioListener` does the same thing in
+both paths because it owns nothing but its registration.
 
 **Part 9 closes.** `AnimationClip` is a thin wrapper over a Three.js clip with nothing to get
 wrong, and `CinemachineFlyBody` has no damping and no held references. The part's four risks

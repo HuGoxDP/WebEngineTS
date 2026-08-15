@@ -21,8 +21,8 @@ all six known defects survived 1133 green tests.
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
 | 9 | Animation and Cinemachine | 17 | **17** | **done** |
-| 10 | The tail | 29 | 1 | in progress |
-| | **Total** | **175** | **148** | |
+| 10 | The tail | 29 | 6 | in progress |
+| | **Total** | **175** | **153** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -269,11 +269,11 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/reflection/TypeRegistry.ts` — [ ] TypeRegistry
 - `core/audio/AudioManager.ts` — [ ] AudioManager
 - `core/audio/AudioSource.ts` — [x] AudioSource *(F58)*
-- `core/audio/AudioListener.ts` — [ ] AudioListener
+- `core/audio/AudioListener.ts` — [x] AudioListener *(clean)*
 - `core/audio/AudioClip.ts` — [ ] AudioClip
-- `core/particles/ParticleSystem.ts` — [ ] ParticleSystem · [ ] ParticleBurst
+- `core/particles/ParticleSystem.ts` — [x] ParticleSystem *(teardown verified)* · [ ] ParticleBurst
 - `core/particles/ParticleShape.ts` — [ ] ParticleShape
-- `core/particles/Gradient.ts` — [ ] Gradient · [ ] GradientColorKey · [ ] GradientAlphaKey
+- `core/particles/Gradient.ts` — [x] Gradient *(F59)* · [x] GradientColorKey · [x] GradientAlphaKey
 - `core/postprocessing/PostProcessing.ts` — [ ] PostProcessing
 - `core/postprocessing/PostEffect.ts` — [ ] PostEffect
 - `core/postprocessing/BloomEffect.ts` — [ ] BloomEffect
@@ -284,7 +284,7 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/plugins/PluginManager.ts` — [ ] PluginManager
 - `core/plugins/Plugin.ts` — [ ] Plugin
 
-**Findings:** F58 — see [`findings.md`](findings.md)
+**Findings:** F58, F59 — see [`findings.md`](findings.md)
 
 ---
 
