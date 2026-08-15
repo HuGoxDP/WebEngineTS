@@ -36,6 +36,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F22 | 4 | No per-callback isolation: one bad script stops the frame | **open** |
 | F23 | 4 | A failed `run()` left a scene, a source and blob URLs behind | fixed `9bdad0e` |
 | F24 | 4 | `unload()` emptied the scene but left it registered and active | fixed `9bdad0e` |
+| F25 | 1, 4 | `Instantiate` on a GameObject returned an empty object | refuses now `030ae4b`; cloning **open** |
 
 ---
 
@@ -823,6 +824,42 @@ one live, empty, active scene and the scenario's own gone from the registry.
 Both are covered by `tests/ScenarioRunFailure.test.ts`, which induces the failure through the
 environment rather than faking it: `run()` imports the entry point from a blob URL, which Node
 cannot do, and that is a real failure in the same place a broken scenario script fails.
+
+### F25. `Instantiate` on a GameObject returned an empty object — made honest `030ae4b`, cloning still **open**
+
+Found reading `ScenarioAssets.loadModel`, whose docs promise a "prefab".
+
+**Wanted.** Unity's `Instantiate(prefab)`: a copy, with the same components, children and
+transform.
+
+**What happened.** `GameObject` never overrode `_clone`, so `EngineObject.Instantiate` fell
+through to the base implementation — `new GameObject(name + " (Clone)")`. No components, no
+children, none of the transform. Added to the scene, and invisible. The most-used API in Unity,
+failing silently.
+
+**Why it went unnoticed.** The code documents the missing piece without noticing:
+`Component._clone` throws *"components are cloned as part of GameObject.Instantiate()"* and its
+JSDoc names `GameObject._clone` as the method that duplicates them. That method did not exist.
+Nothing in the ten ScenarioCreator scenarios or the editor calls `Instantiate`, so the empty
+object never reached anyone — checked before changing it.
+
+**What was done.** The failure is now honest: an error naming the object, saying cloning is not
+implemented, and pointing at `design/unity-parity-plan.md`. The stub carries a `TODO`, per the
+repo's own completeness rule.
+
+**What is still open.** Real cloning. It means copying arbitrary component state, which the
+engine cannot do generically until components serialize themselves — Stage 1 of the parity
+plan, which is already the prerequisite for the editor. When it lands, `Component._clone`'s
+message becomes true and this error goes away.
+
+**A wider version of the same defect, not fixed here.** `EngineObject._clone` assumes every
+subclass has a `(name)` constructor. `Texture2D`'s takes `(width, height)`, so
+`Instantiate(texture)` builds one whose width is the string `"… (Clone)"`. Same shape as the
+GameObject case; less reachable, and the honest fix is the same serialization work.
+
+`tests/InstantiateGameObject.test.ts` covers the refusal; 4 of its 5 tests fail with the
+override removed. The commit also corrected `loadModel`'s example, which positioned the shared
+instance as though it were a fresh copy — the trap this defect made unavoidable.
 
 ---
 
