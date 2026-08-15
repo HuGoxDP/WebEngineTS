@@ -51,6 +51,17 @@ export class UITweenHandle {
     /** @internal */
     public _done: boolean = false;
 
+    /**
+     * @internal
+     * The target's own liveness test, when it has one.
+     *
+     * @remarks
+     * Every real target is an `EngineObject` — a `RectTransform`, a `UIImage`, a
+     * `CanvasGroup` — so this is duck-typed rather than imported, and a target
+     * that has no `exists()` simply never expires.
+     */
+    public _alive: { exists(): boolean } | null = null;
+
     /** @internal */
     constructor(
         /** @internal */ public readonly _duration: number,
@@ -132,6 +143,15 @@ export class UITween {
             const t = active[i];
             if (t._done) { active.splice(i, 1); continue; }
 
+            // A tween outliving its target writes to a destroyed component
+            // every frame and, being held in a static list, keeps it alive.
+            // Asking costs nothing here — the tween is already being visited.
+            if (t._alive !== null && !t._alive.exists()) {
+                t.cancel();
+                active.splice(i, 1);
+                continue;
+            }
+
             t._elapsed += t._unscaled ? unscaled : scaled;
             const raw = t.progress;
             t._apply(UITween._ease(t._ease, raw));
@@ -186,7 +206,7 @@ export class UITween {
         unscaled: boolean = true,
     ): UITweenHandle {
         const from = target.alpha;
-        return UITween._start(duration, ease, unscaled, (t) => {
+        return UITween._start(target, duration, ease, unscaled, (t) => {
             target.alpha = from + (to - from) * t;
         });
     }
@@ -210,7 +230,7 @@ export class UITween {
     ): UITweenHandle {
         const from = target.color.clone();
         const end = to.clone();
-        return UITween._start(duration, ease, unscaled, (t) => {
+        return UITween._start(target, duration, ease, unscaled, (t) => {
             target.color.set(
                 from.r + (end.r - from.r) * t,
                 from.g + (end.g - from.g) * t,
@@ -241,7 +261,7 @@ export class UITween {
         const fromY = target.localScale.y;
         const toX = to.x;
         const toY = to.y;
-        return UITween._start(duration, ease, unscaled, (t) => {
+        return UITween._start(target, duration, ease, unscaled, (t) => {
             target.localScale.set(fromX + (toX - fromX) * t, fromY + (toY - fromY) * t);
         });
     }
@@ -270,7 +290,7 @@ export class UITween {
         const fromY = target.anchoredPosition.y;
         const toX = to.x;
         const toY = to.y;
-        return UITween._start(duration, ease, unscaled, (t) => {
+        return UITween._start(target, duration, ease, unscaled, (t) => {
             target.anchoredPosition.set(fromX + (toX - fromX) * t, fromY + (toY - fromY) * t);
         });
     }
@@ -296,7 +316,7 @@ export class UITween {
         unscaled: boolean = true,
     ): UITweenHandle {
         const from = target.localRotation;
-        return UITween._start(duration, ease, unscaled, (t) => {
+        return UITween._start(target, duration, ease, unscaled, (t) => {
             target.localRotation = from + (to - from) * t;
         });
     }
@@ -304,12 +324,14 @@ export class UITween {
     // ── private ──────────────────────────────────────────────────────
 
     private static _start(
+        target: unknown,
         duration: number,
         ease: UIEase,
         unscaled: boolean,
         apply: (t: number) => void,
     ): UITweenHandle {
         const handle = new UITweenHandle(Math.max(0, duration), ease, unscaled, apply);
+        handle._alive = UITween._liveness(target);
 
         // A zero-length tween is a plain assignment, and callers rely on it
         // landing before the next line rather than a frame later.
@@ -320,6 +342,12 @@ export class UITween {
 
         UITween._active.push(handle);
         return handle;
+    }
+
+    /** A target's `exists()`, when it is an engine object that has one. */
+    private static _liveness(target: unknown): { exists(): boolean } | null {
+        const exists = (target as { exists?: () => boolean } | null)?.exists;
+        return typeof exists === "function" ? (target as { exists(): boolean }) : null;
     }
 
     private static _ease(kind: UIEase, t: number): number {
