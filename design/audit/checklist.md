@@ -21,8 +21,8 @@ all six known defects survived 1133 green tests.
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
 | 9 | Animation and Cinemachine | 17 | **17** | **done** |
-| 10 | The tail | 29 | 15 | in progress |
-| | **Total** | **175** | **162** | |
+| 10 | The tail | 29 | 17 | in progress |
+| | **Total** | **175** | **164** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -281,10 +281,10 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/input/Touch.ts` — [x] Touch *(F62)* · [x] TouchInfo
 - `core/input/Gamepad.ts` — [x] Gamepad *(polled, no listeners)* · [x] GamepadState
 - `core/input/DeviceSensors.ts` — [x] DeviceSensors *(listeners balanced)*
-- `core/plugins/PluginManager.ts` — [ ] PluginManager
-- `core/plugins/Plugin.ts` — [ ] Plugin
+- `core/plugins/PluginManager.ts` — [x] PluginManager *(F63)*
+- `core/plugins/Plugin.ts` — [x] Plugin *(clean)*
 
-**Findings:** F58–F62 — see [`findings.md`](findings.md)
+**Findings:** F58–F63 — see [`findings.md`](findings.md)
 
 ---
 

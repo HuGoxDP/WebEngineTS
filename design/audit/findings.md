@@ -74,6 +74,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F60 | 10 | The two texture counters sat side by side, one of them unexplained | documented `5b0c6cc` |
 | F61 | 10 | `clear` kept the passes it had just disposed | fixed `21c7ea7` |
 | F62 | 10 | Disposing an Application left every input listener attached | fixed `861e4c5` |
+| F63 | 10 | A plugin leaving mid-frame made the dispatch skip the next one | fixed `0028b9f` |
 
 ---
 
@@ -1849,9 +1850,40 @@ attached" rather than a list of the listeners anyone remembered. That is what wi
 next listener added without a matching removal. One case runs five create/dispose cycles — the
 platform's shape.
 
+### F63. A plugin leaving mid-frame made the dispatch skip the next one — fixed `0028b9f`
+
+**What happened.** The three dispatch loops walked `_ordered` directly. A plugin that
+unregisters itself from inside its own update — how a one-shot plugin ends, and what
+`unregister`'s documentation invites — splices that array while the loop is walking it, so the
+plugin registered *after* it is skipped for that frame.
+
+**Fix.** The loops iterate a reusable buffer copied before dispatch. Reusable rather than a
+fresh slice because this runs three times a frame: the copy is a length assignment and N index
+writes, with no allocation after the first.
+
+**The engine already knew this.** `UIEvent.invoke` snapshots its listeners, with a comment
+saying that re-entrant subscription changes are the only case where it bites. One place had the
+precaution and the other did not, which is the whole of this finding — and the second instance
+of that exact pair (see F33, where `CanvasGroup` was hashed and `RectMask2D` was not).
+
+**The snapshot settles the other direction too**, and a test pins it: a plugin registered during
+a dispatch starts on the *next* frame rather than running twice in this one — the same rule
+`UIEvent` applies.
+
+Negative control: 3 of 6 fail against direct iteration. One of the three that pass either way is
+kept deliberately: a plugin that throws does not stop the others, which is the isolation the
+component loops still lack (**F22**).
+
 ---
 
 ## Negative results worth recording
+
+**`PluginManager` is otherwise the best-behaved registry in the engine**, and worth naming as
+the pattern the others should follow: `register`/`unregister` keep the map and the ordered list
+in step, `_reset` unregisters each plugin properly rather than emptying the containers, and every
+dispatch wraps the call in `try`/`catch` so one plugin cannot break a frame. That last is exactly
+the isolation `Scene._update` does not give components — recorded as F22, and here is a working
+example of it inside the same engine.
 
 **A method documented as "called on shutdown" is a claim to check, not a fact.** Both teardowns
 in F62 read as though they were wired up; neither was. The same sentence appears on
