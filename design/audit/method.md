@@ -277,3 +277,9 @@ never asked), which led to F36 (the liveness test everything asks being wrong fo
 objects). Each fix was correct and each one exposed the next question rather than closing it.
 When a fix ends "…and it checks X", the next move is to verify that X actually means what the
 fix assumes.
+
+**A partial pass is a clue, not a flake.** Fixing F40, three tests failed and one passed — the
+group chain updated, the mask chain did not, from the same fix. The temptation is to suspect the
+test; the truth was that both chains shared one cache key, so whichever resolver ran first
+marked the element fresh and the other kept its stale answer. When a fix works for one of two
+symmetric cases, the asymmetry is in the code.

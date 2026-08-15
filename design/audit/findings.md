@@ -51,6 +51,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F37 | 6 | A `LayoutElement` shadowed the size its own control reported | fixed `f9083e3` |
 | F38 | 6 | `FixedRowCount` did not fix the row count | fixed `6e25971` |
 | F39 | 6 | Layout groups never shrank, so `minWidth` was inert | fixed `a06a2c5` |
+| F40 | 6 | A re-parent above an element left its masks and groups stale | fixed `2041f38` |
 
 ---
 
@@ -1268,6 +1269,40 @@ overflows — by the least it can. That is the honest outcome, and again Unity's
 Covered by `tests/LayoutShrink.test.ts`; 5 of its 7 fail with the early return restored. The
 tests drive `_distributeSpare` directly, for the reason F38 recorded: placement needs the canvas
 resolution pass, and the defect is in the arithmetic.
+
+### F40. A re-parent above an element left its masks and groups stale — fixed `2041f38`
+
+**Wanted.** Moving a panel to a different container to move everything in it — out of the old
+mask and group, into the new ones.
+
+**What happened.** Only the panel itself moved, as far as the UI was concerned. Every element
+inside kept the ancestry it had: clipped by a mask no longer above it, faded by a group it no
+longer belongs to, and neither clipped nor faded by the ones it had moved under.
+
+**Why.** Each element caches its mask and group chains, because resolving one means a component
+scan per ancestor. The cache is keyed on two counters: a global one bumped when a mask or group
+is added or removed, and a per-element check for *that element's* parent changing. A node moving
+higher up touches neither.
+
+**Fix.** `Transform` announces every re-parent through a static hook, `UIBehaviour` installs the
+subscriber — the F34 arrangement, keeping the dependency one-directional. Every cached chain is
+discarded on any re-parent; a comparison per chain beats working out which subtrees were
+affected, and chains rebuild lazily.
+
+**Both wrong attempts are worth keeping.**
+
+*First:* the hook went into `Canvas._revalidateParents`, which already detects re-parents — but
+only of **graphics**. The moved node in the test is a plain container with no `UIBehaviour`, so
+nothing fired. Re-parenting is a `Transform` event, not a graphics event, and putting the
+notification anywhere else means missing the movers that are not themselves drawn.
+
+*Second:* one `_chainHierarchy` field, shared by both resolvers. Whichever ran first marked the
+element up to date and the second then trusted its own stale cache. The canvas hashes group
+alpha before masks, so masks were the half that stayed wrong — and the group test passed while
+the mask tests failed, which is exactly the kind of partial pass that looks like a test bug. One
+field per chain.
+
+Covered by `tests/AncestorChainReparent.test.ts`; 3 of its 5 fail with the notification removed.
 
 ---
 

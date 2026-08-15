@@ -21,7 +21,7 @@ codebase actually produces, listed in [`method.md`](method.md).
 
 ## Progress
 
-**97 of 175 classes walked — parts 1 to 5 complete, part 6 all but RectTransform, UIBehaviour and EventSystem.** Live counts are in [`checklist.md`](checklist.md#progress); the
+**98 of 175 classes walked — parts 1 to 5 complete, part 6 all but RectTransform and EventSystem.** Live counts are in [`checklist.md`](checklist.md#progress); the
 summary below is updated when a part changes state.
 
 | Part | Area | Classes | State |
@@ -31,7 +31,7 @@ summary below is updated when a part changes state.
 | 3 | Rendering and components | 17 | **done** — 5 findings |
 | 4 | Assets and scenario | 12 | **done** — 11 findings, 9 fixed |
 | 5 | Physics | 16 | **done** — 7 findings, 5 fixed |
-| 6 | UI core | 21 | in progress — 19 walked, 7 findings |
+| 6 | UI core | 21 | in progress — 20 walked, 8 findings |
 | 7–10 | everything else | 76 | not started |
 
 ## The loop
