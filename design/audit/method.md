@@ -296,3 +296,9 @@ assertion first; the behavioural ones will not tell you anything.
 `Vector3`. The claim was untestable-by-inspection but trivially testable by code: the constant is
 frozen and the only consumer reads it. The comment was the defect. A note asserting a fact about
 another part of the engine is a hypothesis, not a source.
+
+**Do not test with the idealised frame time.** F57's first tests passed against the broken code
+because `dt = 1/60` makes `dt * 60` exactly `1`, and an integer exponent is the one case where
+`Math.pow` accepts a negative base. Every real frame time — 59 fps, 120 fps, a 16 ms step —
+exposed it. Where a formula's behaviour depends on a computed exponent, an index, or a modulus,
+the round number is the value most likely to be accidentally safe.

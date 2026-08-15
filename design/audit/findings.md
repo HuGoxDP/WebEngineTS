@@ -68,6 +68,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F54 | 9 | A dead block allocated in the camera's LateUpdate forever | fixed `5fdd6a3` |
 | F55 | 9 | Damping of zero froze the camera instead of removing the damping | fixed `8d235c3` |
 | F56 | 9 | A workaround for a corruption that cannot happen | fixed `c0023cb` |
+| F57 | 9 | A POV damping above one turned the camera to NaN | fixed `a6bf47e` |
 
 ---
 
@@ -1710,9 +1711,39 @@ along each axis, straight down and straight up where forward and up are parallel
 fallback up has to take over, a diagonal, and the degenerate case where `from` equals `to`. One
 asserts the claim the comment made: that `Vector3.up` survives being used.
 
+### F57. A POV damping above one turned the camera to NaN — fixed `a6bf47e`
+
+**What happened.** POV smoothing computes `1 - Math.pow(1 - damping, dt * 60)`. Above a damping
+of `1` the base is negative, and a negative base with a fractional exponent is `NaN`. Yaw and
+pitch became `NaN` and stayed there: the camera pointing nowhere for the rest of the session,
+with nothing logged to say why.
+
+**Reachable by copying a number between two classes in the same subsystem.** `damping` on
+`CinemachineFollowBody` and `CinemachineOrbitalBody` is a *rate* — larger is snappier, `5` is
+the default. On `CinemachinePOVAim` it is a *fraction* — `0` is raw, approaching `1` is treacle.
+Same name, same namespace, opposite meanings, and the body's default value is poison here.
+
+**Fix.** The value is clamped into `[0, 1]`, and the field states the convention and that it is
+the inverse of the bodies'. Making the meanings agree would be the better fix and is not a
+bug-fix commit's to make: scenarios already set this.
+
+**The tests are the lesson.** The first version passed against the unfixed code. `dt * 60` with
+`dt = 1/60` is exactly `1` — an integer exponent, which `Math.pow` evaluates happily for a
+negative base — so **the tidiest possible frame time is the one value that hides this defect**.
+Real ones (59 fps, 120 fps, a 16 ms step) all produce fractional exponents and NaN. A test that
+uses the idealised frame time is testing an idealised engine.
+
 ---
 
 ## Negative results worth recording
+
+**Part 9 closes.** `AnimationClip` is a thin wrapper over a Three.js clip with nothing to get
+wrong, and `CinemachineFlyBody` has no damping and no held references. The part's four risks
+were named in the checklist before it started: blend weights summing to 1 (they do), a
+transition consuming a trigger twice (it cannot), the documented first-frame Cut (it holds, and
+now has a test), and damping at extreme steps — which is where two of the six findings were,
+though not in the direction expected. The damping curve is exact at large and small `dt`; it is
+at the *ends of the parameter's own range* that both cameras broke.
 
 **`Animation` has the most careful teardown in the engine, and it is worth naming.** Its
 registry is maintained on enable, disable *and* destroy; `onDestroy` stops the Three.js mixer's

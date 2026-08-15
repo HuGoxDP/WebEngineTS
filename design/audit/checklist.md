@@ -20,9 +20,9 @@ all six known defects survived 1133 green tests.
 | 6 | UI core | 21 | **21** | **done** |
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
-| 9 | Animation and Cinemachine | 17 | 14 | in progress |
+| 9 | Animation and Cinemachine | 17 | **17** | **done** |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **144** | |
+| | **Total** | **175** | **147** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -235,7 +235,7 @@ blend weights not summing to 1, a transition consuming a trigger twice, the docu
 first-frame Cut behaviour actually holding, damping at very small and very large steps.
 
 - `core/animation/Animation.ts` — [x] Animation *(clean; exemplary teardown)*
-- `core/animation/AnimationClip.ts` — [ ] AnimationClip
+- `core/animation/AnimationClip.ts` — [x] AnimationClip *(clean)*
 - `core/animation/Animator.ts` — [x] Animator *(trigger consumption verified)* · [x] AnimatorState · [x] AnimatorTransition
 - `core/animation/BlendTree.ts` — [x] BlendTree *(weights verified)*
 - `core/cinemachine/CinemachineBrain.ts` — [x] CinemachineBrain *(F54; first-frame Cut verified)*
@@ -244,12 +244,12 @@ first-frame Cut behaviour actually holding, damping at very small and very large
 - `core/cinemachine/CinemachineVirtualCamera.ts` — [x] CinemachineVirtualCamera *(F52, F53)*
 - `core/cinemachine/CinemachineFollowBody.ts` — [x] CinemachineFollowBody *(F55)*
 - `core/cinemachine/CinemachineOrbitalBody.ts` — [x] CinemachineOrbitalBody *(F55)*
-- `core/cinemachine/CinemachineFlyBody.ts` — [ ] CinemachineFlyBody
+- `core/cinemachine/CinemachineFlyBody.ts` — [x] CinemachineFlyBody *(clean)*
 - `core/cinemachine/CinemachineHardLookAtAim.ts` — [x] CinemachineHardLookAtAim *(F52)*
 - `core/cinemachine/CinemachineOrbitalAim.ts` — [x] CinemachineOrbitalAim *(F52)*
-- `core/cinemachine/CinemachinePOVAim.ts` — [ ] CinemachinePOVAim
+- `core/cinemachine/CinemachinePOVAim.ts` — [x] CinemachinePOVAim *(F57)*
 
-**Findings:** F52–F56 — see [`findings.md`](findings.md)
+**Findings:** F52–F57 — see [`findings.md`](findings.md)
 
 ---
 
