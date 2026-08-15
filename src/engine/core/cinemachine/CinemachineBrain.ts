@@ -17,7 +17,6 @@ export class CinemachineBrain extends ScriptableBehaviour {
     private _blendDuration: number = 0;
     private _outgoingState: CameraState = new CameraState();
     private _camera: Camera | null = null;
-    private _frameCount: number = 0;
 
     constructor(gameObject: GameObject) { super(gameObject); this.name = "CinemachineBrain"; }
 
@@ -31,7 +30,6 @@ export class CinemachineBrain extends ScriptableBehaviour {
 
     public override lateUpdate(): void {
         const dt = Time.deltaTime;
-        this._frameCount++;
 
         const bestVCam = this._findActiveVCam();
         if (bestVCam !== this._activeVCam) this._onVCamChanged(bestVCam);
@@ -54,11 +52,6 @@ export class CinemachineBrain extends ScriptableBehaviour {
         this.transform.position = finalState.position;
         this.transform.rotation = finalState.rotation;
         if (this._camera) this._camera.fieldOfView = finalState.fieldOfView;
-
-        if (this._frameCount <= 3 || this._frameCount % 120 === 0) {
-            const p = finalState.position;
-            const e = finalState.rotation.eulerAngles;
-        }
     }
 
     public get activeVirtualCamera() { return this._activeVCam; }
