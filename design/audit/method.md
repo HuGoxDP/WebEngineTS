@@ -302,3 +302,9 @@ because `dt = 1/60` makes `dt * 60` exactly `1`, and an integer exponent is the 
 `Math.pow` accepts a negative base. Every real frame time — 59 fps, 120 fps, a 16 ms step —
 exposed it. Where a formula's behaviour depends on a computed exponent, an index, or a modulus,
 the round number is the value most likely to be accidentally safe.
+
+**Compare a class's `onDisable` against its `onDestroy`.** They are two answers to the same
+question — what must stop being true when this component stops taking part — and where they
+disagree, one of them is usually wrong. `AudioSource` destroyed silently and disabled loudly
+(F58). The UI registries pass this check: every one removes in both. It costs one diff per class
+and needs no test to run.

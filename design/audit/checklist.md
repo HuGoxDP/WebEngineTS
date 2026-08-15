@@ -21,8 +21,8 @@ all six known defects survived 1133 green tests.
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
 | 9 | Animation and Cinemachine | 17 | **17** | **done** |
-| 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **147** | |
+| 10 | The tail | 29 | 1 | in progress |
+| | **Total** | **175** | **148** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -268,7 +268,7 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/serialization/PrefabOverride.ts` — [ ] PrefabDiff
 - `core/reflection/TypeRegistry.ts` — [ ] TypeRegistry
 - `core/audio/AudioManager.ts` — [ ] AudioManager
-- `core/audio/AudioSource.ts` — [ ] AudioSource
+- `core/audio/AudioSource.ts` — [x] AudioSource *(F58)*
 - `core/audio/AudioListener.ts` — [ ] AudioListener
 - `core/audio/AudioClip.ts` — [ ] AudioClip
 - `core/particles/ParticleSystem.ts` — [ ] ParticleSystem · [ ] ParticleBurst
@@ -284,7 +284,7 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/plugins/PluginManager.ts` — [ ] PluginManager
 - `core/plugins/Plugin.ts` — [ ] Plugin
 
-**Findings:** none yet — see [`findings.md`](findings.md)
+**Findings:** F58 — see [`findings.md`](findings.md)
 
 ---
 
