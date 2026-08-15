@@ -56,6 +56,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F42 | 6 | A click reached the element its own pointer-up had closed | fixed `6cc8aea` |
 | F43 | 7 | An open dropdown stayed open after focus moved on | fixed `57dbbe9` |
 | F44 | 7 | A scroll view kept driving content that was destroyed | fixed `3cd0286` |
+| F45 | 7 | `InputField` had no `setTextWithoutNotify` | added `67f5c9b` |
 
 ---
 
@@ -1409,9 +1410,38 @@ without the guard the tick writes to a dead object without complaining, so most 
 would naturally assert still passes. The two that fail are the ones that ask whether the
 reference was let go.
 
+### F45. `InputField` had no `setTextWithoutNotify` — added `67f5c9b`
+
+Found by the method this part's checklist entry had written down in advance: *put
+`WithoutNotify`, `interactable`, `onValueChanged` and the transition hooks side by side across
+the whole family and see who is missing what.* Five controls, one column, one blank.
+
+**The gap.** `Slider`, `Toggle`, `Dropdown` and `Scrollbar` each offer a "without notify"
+setter, and `Slider`'s JSDoc names the other three as its counterparts — so the family is
+documented as a set. `InputField` had none. A scenario reflecting its own state into a field had
+no way to do it without the field echoing back, which is the loop the family exists to prevent.
+
+**Worse here than elsewhere.** A text listener commonly reformats what it receives — trimming,
+upper-casing, re-masking — and writes the result back. With no silent setter that is a write per
+write, forever.
+
+Unity has `SetTextWithoutNotify` for the same reason. Filtering and the character limit still
+apply, so what lands is what typing the same value would have produced, and the caret goes to
+the end exactly as assigning `text` leaves it.
+
+**No negative control, and why.** This is an addition, not a repair: the tests do not compile
+without the method. What they pin instead is that it behaves like its siblings, and that
+assigning `text` still notifies — the half that must not change.
+
 ---
 
 ## Negative results worth recording
+
+**The rest of the control family tabulates clean.** `interactable` is consulted in every
+interaction path of all five controls (four guarded call sites each), and every one raises its
+change event only when the stored value actually moved. `Scrollbar` and `Dropdown` were checked
+against `Slider`'s documented contract rather than against each other, so the reference is
+Unity's rather than this engine's own habits.
 
 **`Selectable` and `Slider` are clean, including the case that produced F44 elsewhere.**
 `Selectable` counts hovers and presses rather than flagging them, because several fingers can do
