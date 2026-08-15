@@ -16,13 +16,13 @@ all six known defects survived 1133 green tests.
 | 2 | Graphics assets | 11 | **11** | **done** |
 | 3 | Rendering and components | 17 | **17** | **done** |
 | 4 | Assets and scenario | 12 | 12 | **done** |
-| 5 | Physics | 16 | 12 | in progress |
+| 5 | Physics | 16 | **16** | **done** |
 | 6 | UI core | 21 | 0 | not started |
 | 7 | UI controls | 18 | 0 | not started |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **74** | |
+| | **Total** | **175** | **78** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -141,13 +141,13 @@ consumes it.
 - `physics/BoxCollider.ts` — [x] BoxCollider *(F27)*
 - `physics/SphereCollider.ts` — [x] SphereCollider *(F27)*
 - `physics/CapsuleCollider.ts` — [x] CapsuleCollider *(F27)*
-- `physics/PhysicMaterial.ts` — [ ] PhysicMaterial
-- `physics/LayerCollisionMatrix.ts` — [ ] LayerCollisionMatrix
-- `physics/Collision.ts` — [ ] Collision · [ ] ContactPoint
+- `physics/PhysicMaterial.ts` — [x] PhysicMaterial *(clean; F32 is its caller)*
+- `physics/LayerCollisionMatrix.ts` — [x] LayerCollisionMatrix *(clean)*
+- `physics/Collision.ts` — [x] Collision · [x] ContactPoint *(clean)*
 - `physics/RaycastHit.ts` — [x] RaycastHit *(non-English JSDoc: F12)*
 - `physics/Joint.ts` — [x] Joint · [x] FixedJoint · [x] HingeJoint *(F30)* · [x] SpringJoint *(F31)*
 
-**Findings:** F26–F31 — see [`findings.md`](findings.md)
+**Findings:** F26–F32 — see [`findings.md`](findings.md)
 
 ---
 

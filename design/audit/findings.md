@@ -43,6 +43,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F29 | 5 | `overlapSphere` tests origins, not shapes | **open** |
 | F30 | 5 | A hinge told cannon only half of itself | fixed `8825050` |
 | F31 | 5 | `SpringJoint` is a rigid rod, not a spring | docs fixed `8825050`; spring **open** |
+| F32 | 5 | A material on a `Rigidbody` was unregistered and unreadable | fixed `24771f2` |
 
 ---
 
@@ -1037,9 +1038,41 @@ joint *more rigid*, the opposite of what the name suggests.
 a constraint, so it does not fit `Joint`'s create-on-enable / remove-on-disable shape and wants
 its own driver. The name stays either way: scenarios already use it.
 
+### F32. A material on a `Rigidbody` was unregistered, and unreadable — fixed `24771f2`
+
+**Wanted.** `rigidbody.material = bouncy` to make the body bouncy, and `rigidbody.material` to
+say what it is.
+
+**What happened.** Neither. The setter assigned `body.material` and stopped, so the world had no
+`ContactMaterial` pairing for it and the solver fell back to the default surface — the exact
+trap `PhysicMaterial` documents and `Collider.sharedMaterial` avoids by calling
+`_registerMaterial`. And with no getter, reading the property gave `undefined`.
+
+**Why it hid.** The same material assigned to a *collider* works, and colliders are how most
+scenes set a surface. The two paths differ by one line that only one of them has.
+
+**Fix.** Register on assignment, keep the value, and document that a collider's own material
+wins where both are set — cannon's rule, and Unity's.
+
+Covered by `tests/RigidbodyMaterial.test.ts`; 4 of its 6 fail without the registration,
+including the one that matters most: changing the material's bounciness *afterwards* only
+reaches the solver if a pairing exists to refresh.
+
 ---
 
 ## Negative results worth recording
+
+**Part 5 — `LayerCollisionMatrix`, `Collision`, `ContactPoint`, `PhysicsWorld` are clean.** The
+matrix was checked at its edges, where bitmask code usually breaks: layer 31 sets the sign bit,
+so `1 << 31` is negative and `maskFor` can return a negative number. cannon's filter test is
+`(group & mask) !== 0`, which is bit-exact on signed ints, and `ALL_LAYERS` (`~0 >>> 0`,
+unsigned) coerces to the same bits under `&`. Symmetric writes, validated layer indices, and a
+change handler that re-filters live bodies — nothing to report.
+
+`PhysicsWorld` was read for the shape that produced F26 and F32 — state held on the engine side
+that the solver never sees — and it is the class that *fixes* it: `_registerMaterial` pairs
+every material with every other, and `_reset` clears each material's recorded pairings so a
+material outliving a world does not point into a solver nothing steps.
 
 Sweeps that found nothing are evidence too, and stop the next pass repeating them.
 
