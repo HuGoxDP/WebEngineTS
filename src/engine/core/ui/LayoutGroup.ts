@@ -1,4 +1,5 @@
 import { Behaviour } from "../Behaviour";
+import { snapshotInto } from "./UIUtils";
 import { RectTransform } from "./RectTransform";
 import { LayoutUtility } from "./LayoutElement";
 import { Serializable, SerializedField } from "../reflection/Decorators";
@@ -51,13 +52,16 @@ export abstract class LayoutGroup extends Behaviour {
 
     private static _instances: LayoutGroup[] = [];
 
+    /** Reused snapshot the per-frame pass walks — see {@link snapshotInto}. */
+    private static _pass: LayoutGroup[] = [];
+
     /**
      * @internal
      * Re-runs every active layout group. Called from Application._loop before
      * the UI input pass.
      */
     public static _updateAll(): void {
-        const groups = LayoutGroup._instances;
+        const groups = snapshotInto(LayoutGroup._instances, LayoutGroup._pass);
         for (let i = 0; i < groups.length; i++) {
             const g = groups[i];
             if (g.isActiveAndEnabled) g._rebuild();

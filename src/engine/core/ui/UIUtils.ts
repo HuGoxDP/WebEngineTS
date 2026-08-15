@@ -148,3 +148,28 @@ export function fontGeneration(): number {
 if (typeof document !== "undefined" && document.fonts?.addEventListener) {
     document.fonts.addEventListener("loadingdone", () => { _fontGeneration++; });
 }
+
+/**
+ * Copies `source` into `buffer` and returns it, for a per-frame driver that
+ * must survive its own list changing underneath it.
+ *
+ * @remarks
+ * Every `_updateAll` here walks an array of components that splice themselves
+ * out in `onDisable`. A component — or a listener it raises — that disables
+ * something during the pass shifts the array, and an index loop then skips
+ * whatever followed. Iterating a copy fixes that while keeping the order
+ * exactly as it was, which reversing the loop would not.
+ *
+ * The buffer is reused rather than allocated: these run once per frame each,
+ * and after the first call this is a length assignment and N index writes.
+ * `UIEvent.invoke` and `PluginManager` take the same precaution.
+ *
+ * @param source - the live list.
+ * @param buffer - a scratch array owned by the caller.
+ * @returns `buffer`, filled with `source`'s current contents.
+ */
+export function snapshotInto<T>(source: readonly T[], buffer: T[]): readonly T[] {
+    buffer.length = source.length;
+    for (let i = 0; i < source.length; i++) buffer[i] = source[i];
+    return buffer;
+}

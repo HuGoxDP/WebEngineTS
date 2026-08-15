@@ -1,4 +1,5 @@
 import { UIBehaviour } from "./UIBehaviour";
+import { snapshotInto } from "./UIUtils";
 import { UIEvent } from "./UIEvent";
 import { EventSystem } from "./EventSystem";
 import { Color } from "../math/Color";
@@ -42,13 +43,16 @@ export abstract class Selectable extends UIBehaviour {
 
     private static _instances: Selectable[] = [];
 
+    /** Reused snapshot the per-frame pass walks — see {@link snapshotInto}. */
+    private static _pass: Selectable[] = [];
+
     /**
      * @internal
      * Advances every control's transition and per-frame work. Called from
      * Application._loop after the input pass has settled the states it reads.
      */
     public static _updateAll(): void {
-        const all = Selectable._instances;
+        const all = snapshotInto(Selectable._instances, Selectable._pass);
         const dt = Time.deltaTime;
         for (let i = 0; i < all.length; i++) {
             const c = all[i];

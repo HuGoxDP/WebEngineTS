@@ -1,4 +1,5 @@
 import { UIBehaviour } from "./UIBehaviour";
+import { snapshotInto } from "./UIUtils";
 import { Vector2 } from "../math/Vector2";
 import { Mathf } from "../math/Mathf";
 import { Time } from "../Time";
@@ -52,13 +53,16 @@ export class ScrollRect extends UIBehaviour {
 
     private static _instances: ScrollRect[] = [];
 
+    /** Reused snapshot the per-frame pass walks — see {@link snapshotInto}. */
+    private static _pass: ScrollRect[] = [];
+
     /**
      * @internal
      * Advances inertia and elastic spring-back for every active scroll view.
      * Called from Application._loop after layout and before the input pass.
      */
     public static _updateAll(): void {
-        const views = ScrollRect._instances;
+        const views = snapshotInto(ScrollRect._instances, ScrollRect._pass);
         for (let i = 0; i < views.length; i++) {
             const v = views[i];
             if (v.isActiveAndEnabled) v._tick();

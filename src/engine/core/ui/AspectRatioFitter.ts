@@ -1,4 +1,5 @@
 import { Behaviour } from "../Behaviour";
+import { snapshotInto } from "./UIUtils";
 import { Rect } from "../math/Rect";
 import { RectTransform, RectTransformAxis } from "./RectTransform";
 import { Serializable, SerializedField } from "../reflection/Decorators";
@@ -60,13 +61,16 @@ export class AspectRatioFitter extends Behaviour {
 
     private static _instances: AspectRatioFitter[] = [];
 
+    /** Reused snapshot the per-frame pass walks — see {@link snapshotInto}. */
+    private static _pass: AspectRatioFitter[] = [];
+
     /**
      * @internal
      * Re-runs every active fitter. Called from Application._loop after the
      * layout groups and content-size fitters have settled.
      */
     public static _updateAll(): void {
-        const fitters = AspectRatioFitter._instances;
+        const fitters = snapshotInto(AspectRatioFitter._instances, AspectRatioFitter._pass);
         for (let i = 0; i < fitters.length; i++) {
             const f = fitters[i];
             if (f.isActiveAndEnabled) f._fit();

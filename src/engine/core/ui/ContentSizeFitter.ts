@@ -1,4 +1,5 @@
 import { Behaviour } from "../Behaviour";
+import { snapshotInto } from "./UIUtils";
 import { Rect } from "../math/Rect";
 import { RectTransform } from "./RectTransform";
 import { LayoutUtility } from "./LayoutElement";
@@ -42,13 +43,16 @@ export class ContentSizeFitter extends Behaviour {
 
     private static _instances: ContentSizeFitter[] = [];
 
+    /** Reused snapshot the per-frame pass walks — see {@link snapshotInto}. */
+    private static _pass: ContentSizeFitter[] = [];
+
     /**
      * @internal
      * Re-runs every active fitter. Called from Application._loop after the
      * layout groups have arranged their children.
      */
     public static _updateAll(): void {
-        const fitters = ContentSizeFitter._instances;
+        const fitters = snapshotInto(ContentSizeFitter._instances, ContentSizeFitter._pass);
         for (let i = 0; i < fitters.length; i++) {
             const f = fitters[i];
             if (f.isActiveAndEnabled) f._fit();
