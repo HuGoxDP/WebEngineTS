@@ -62,6 +62,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F48 | 8 | `Mathf.round` rounded halves the JavaScript way, not Unity's | fixed `8d1b1d0` |
 | F49 | 8 | Only `Vector3`'s shared constants were frozen | fixed `31d7ad5` |
 | F50 | 8 | `Keyframe`'s tangent weights are stored and never applied | documented `3d24607`; weighting **open** |
+| F51 | 8 | Writing through `Ray.direction` bypassed its normalization | documented `954e6ea` |
 
 ---
 
@@ -1566,9 +1567,36 @@ reference: `Mathf.repeat` and `Mathf.pingPong` answer the same question through 
 Compared across times before the curve as well as after — a negative cycle count and a parity
 test being where ping-pong usually breaks — they agree exactly. `tests/AnimationCurveWrap.test.ts`.
 
+### F51. Writing through `Ray.direction` bypassed its normalization — documented `954e6ea`
+
+**The promise.** A `Ray`'s direction is unit length, and every consumer relies on it —
+`Bounds.intersectRay` returns a distance measured in units of that vector, so a direction of
+length 2 reports half the distance it should.
+
+**The hole.** The setter normalizes, and so does `set()`. The getter hands back the ray's own
+vector, so `ray.direction.set(1, 1, 1)` walks past both. The old doc said "Setting this will
+normalize the input vector" and left the reader to work out that writing *through* it is not
+setting it.
+
+**Documented rather than closed, deliberately.** Returning a copy would allocate on every access
+and a raycast reads this per frame — the live vector is the reason the class is shaped this way.
+The doc now names the consequence and the two ways round it.
+
+`tests/RayInvariants.test.ts` pins all four paths — constructed, assigned, `set`, and written
+through — so the documented behaviour is a decision on the record rather than an accident nobody
+had noticed.
+
 ---
 
 ## Negative results worth recording
+
+**Part 8 closes with the arithmetic itself intact.** Across twelve classes the audit found three
+things — a rounding rule that diverged from Unity, constants that asked rather than enforced,
+and two properties documented as doing more than they do. Not one formula was wrong: the
+aliasing discipline holds everywhere, `Mathf.repeat` is right at the boundary where it looked
+wrong, `AnimationCurve`'s wrap modes agree exactly with `Mathf`'s answers to the same question,
+and the Hermite evaluation, the vector algebra and the matrix transforms all check out. For a
+library written by hand against a reference implementation, that is the result worth recording.
 
 **Part 8 — the vector and matrix maths is aliasing-safe, checked rather than assumed.** The
 checklist named aliasing (`Vector3.add(a, b, a)`) as this part's risk. Every operation whose
