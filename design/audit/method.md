@@ -271,3 +271,9 @@ bitmaps of a destroyed texture) are the same defect three times, in three subsys
 asking one question: *what is keyed by this thing's identity, and who tells that keeper when the
 thing dies?* Worth asking of every map, set and registry the remaining parts contain — the
 answer is a defect surprisingly often, and the fix is usually one notification.
+
+**Follow the chain down.** F34 (a cache nobody told about destruction) led to F35 (a list that
+never asked), which led to F36 (the liveness test everything asks being wrong for destroyed
+objects). Each fix was correct and each one exposed the next question rather than closing it.
+When a fix ends "…and it checks X", the next move is to verify that X actually means what the
+fix assumes.

@@ -47,6 +47,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F33 | 6 | A mask change did not repaint what it clips | fixed `1192778` |
 | F34 | 6 | Tinted copies outlived the textures they came from | fixed `8a7a042` |
 | F35 | 6 | A tween kept animating a destroyed element | fixed `0a571e3` |
+| F36 | 1, 6 | `isActiveAndEnabled` was true for destroyed components | fixed `2c32687` |
 
 ---
 
@@ -1143,6 +1144,39 @@ until someone draws it.
 A cancelled tween does not raise `onComplete`; the motion did not finish.
 
 Covered by `tests/TweenLifetime.test.ts`; 4 of its 7 fail without the check.
+
+### F36. `isActiveAndEnabled` was true for destroyed components — fixed `2c32687`
+
+The root of the family. Found by following F35 down one level: the tween needed a liveness test,
+and the obvious one — the same test the rest of the engine uses — turned out not to be one.
+
+**What it is asked.** `isActiveAndEnabled` is the guard everything uses before touching a
+component: `EventSystem` before delivering a click, the update loops, `Physics._step` before
+syncing a body, `Canvas` before drawing a graphic.
+
+**What it answered.** `this._enabled && this.gameObject.activeInHierarchy`. Destruction clears
+neither: `enabled` is never set false (Unity's field is not either) and a destroyed GameObject
+keeps whatever `activeSelf` it had. A destroyed component therefore reported itself **active**,
+and every guard written as "is this still there?" was answering a different question.
+
+**Reachable through the most ordinary interaction there is.** `EventSystem` holds
+`pressedGraphic`, `dragTarget` and `hoverOwner` across frames, and guards each delivery with
+`isActiveAndEnabled`. A close button whose handler destroys its own panel — the standard shape
+of a dialog — therefore had pointer-up, click and end-drag delivered to a destroyed graphic.
+
+**Fix.** The existence test belongs in the getter, not at each call site: every caller means the
+same thing by it. Teardown is deliberately unaffected — `_destroyImmediate` fires `onDisable`,
+then `onDestroy`, and only then marks the object destroyed, so cleanup code that asks still sees
+what it saw before. Both halves of that ordering are pinned by tests, because the temptation to
+"tidy" it later is exactly what would break unregistration.
+
+Covered by `tests/DestroyedIsNotActive.test.ts`; 4 of its 7 fail without the test, and the full
+suite passes unchanged — nothing depended on the old answer.
+
+**Why this one is worth remembering.** Three findings in a row (F34, F35, F36) came from one
+question, and each answer sat one level below the last: a cache with no notification, a list
+with no liveness check, and finally the liveness check itself being wrong. The audit's own
+method note now says to follow that chain rather than stopping at the first fix.
 
 ---
 
