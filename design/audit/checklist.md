@@ -19,10 +19,10 @@ all six known defects survived 1133 green tests.
 | 5 | Physics | 16 | **16** | **done** |
 | 6 | UI core | 21 | **21** | **done** |
 | 7 | UI controls | 18 | **18** | **done** |
-| 8 | Math | 12 | 1 | in progress |
+| 8 | Math | 12 | 5 | in progress |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **119** | |
+| | **Total** | **175** | **123** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -213,18 +213,18 @@ aliasing (`a.add(b, a)`) is safe, static temporaries leaking across nested calls
 constants, `Object.freeze` on typed arrays, zero-length normalize, degenerate bounds.
 
 - `core/math/Vector2.ts` — [ ] Vector2
-- `core/math/Vector3.ts` — [ ] Vector3
+- `core/math/Vector3.ts` — [x] Vector3 *(aliasing checked; F12 open)*
 - `core/math/Vector4.ts` — [ ] Vector4
-- `core/math/Quaternion.ts` — [ ] Quaternion
-- `core/math/Matrix4x4.ts` — [ ] Matrix4x4
+- `core/math/Quaternion.ts` — [x] Quaternion *(aliasing checked; F12 open)*
+- `core/math/Matrix4x4.ts` — [x] Matrix4x4 *(aliasing checked)*
 - `core/math/Color.ts` — [ ] Color
-- `core/math/Bounds.ts` — [ ] Bounds
+- `core/math/Bounds.ts` — [x] Bounds *(clean; JSDoc translated)*
 - `core/math/Rect.ts` — [ ] Rect
 - `core/math/Ray.ts` — [ ] Ray
 - `core/math/Mathf.ts` — [x] Mathf *(rounding; F48)*
 - `core/math/AnimationCurve.ts` — [ ] AnimationCurve · [ ] Keyframe
 
-**Findings:** F48 — see [`findings.md`](findings.md)
+**Findings:** F48, and F12's math half — see [`findings.md`](findings.md)
 
 ---
 

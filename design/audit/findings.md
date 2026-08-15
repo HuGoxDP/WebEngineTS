@@ -23,7 +23,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F9 | 2 | `releaseSourceImage` has no upload guard; the documented one does not exist | docs fixed; guard **open** |
 | F10 | 2, 3, 9 | Sixteen getters handed out shared math constants | fixed `ec73f3a` |
 | F11 | 3 | `Light.shadowStrength` was stored and never applied | fixed `04e1e31` |
-| F12 | 2, 3, 8 | 680 lines of non-English comments, most of it public JSDoc | **open** |
+| F12 | 2, 3, 8 | 674 lines of non-English comments, most of it public JSDoc | **open** — `Bounds` done `6e58f48` |
 | F13 | 3 | Batching twice drew every source mesh twice | fixed `f064a58` |
 | F14 | 3 | `renderScene` allocates a `Color` every frame | **open** |
 | F15 | 4 | Asset identity outlived the destroyed instance | fixed `c709fb5` |
@@ -1516,6 +1516,20 @@ Covered by `tests/MathfRounding.test.ts`; 4 of its 6 fail against `Math.round`.
 ---
 
 ## Negative results worth recording
+
+**Part 8 — the vector and matrix maths is aliasing-safe, checked rather than assumed.** The
+checklist named aliasing (`Vector3.add(a, b, a)`) as this part's risk. Every operation whose
+formula for one component reads another caches its inputs in locals first — `Vector3.cross`,
+`Quaternion.multiply`, `Matrix4x4.multiplyPoint` / `multiplyPoint3x4` / `multiplyVector`. The
+component-wise ones (`reflect`, `project`, `projectOnPlane`, `add`, `lerp`) read only the
+component they write, and compute their scalars — the dot products, the squared magnitudes —
+before the first write. Both patterns are safe with `out` aliased to either input.
+
+**The F12 count was itself worth re-measuring.** The figure of "680 lines" matches what
+`grep '[А-Яа-я]'` reports, and in a C locale that range matches *bytes*: it counts every line
+containing an em-dash. Measured by code point it is **674 lines across 12 files**, the math
+folder holding 296 of them and `Mesh.ts` alone 168. The original number was close enough to be
+right, and arrived at in a way that could easily not have been.
 
 **`Mathf.repeat` is correct at the boundary, checked rather than assumed.** Unity clamps its
 result into `[0, length]` and this does not, which looked like a defect: for a tiny negative `t`,
