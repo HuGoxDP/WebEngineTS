@@ -73,6 +73,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F59 | 10 | An empty `Gradient` threw from inside the particle update | fixed `01f3b01` |
 | F60 | 10 | The two texture counters sat side by side, one of them unexplained | documented `5b0c6cc` |
 | F61 | 10 | `clear` kept the passes it had just disposed | fixed `21c7ea7` |
+| F62 | 10 | Disposing an Application left every input listener attached | fixed `861e4c5` |
 
 ---
 
@@ -1825,9 +1826,39 @@ with and without the fix. It now reproduces `_buildPipeline`'s reuse branch, whi
 behaviour under test — negative control: 2 of 6 fail without the delete, where the sloppy
 version failed 1.
 
+### F62. Disposing an Application left every input listener attached — fixed `861e4c5`
+
+**The reference-holding family, in the DOM.** `Input._dispose` and `Touch._teardown` both exist,
+and both say in their own JSDoc that they are called when the Application shuts down. Nothing
+called either.
+
+`Application.dispose` removed exactly one listener — its own resize handler — and left the
+keyboard, blur, visibilitychange, mouse and pointer-lock listeners `Input` attached, plus the
+four touch listeners `Touch` attached to the canvas.
+
+**The platform is the case that matters.** It creates a viewer per visit and disposes it when
+the student leaves. Every visit added another full set, all writing into the same *static*
+`Input` and `Touch` state on behalf of a canvas that is gone — so a key pressed on one page is
+delivered by as many listeners as there have been visits.
+
+**Fix.** Both teardowns are called from `dispose`.
+
+**The test counts rather than asserts.** It stubs `addEventListener`/`removeEventListener` on
+window, document and canvas and tallies them by type, so the assertion is "nothing was left
+attached" rather than a list of the listeners anyone remembered. That is what will catch the
+next listener added without a matching removal. One case runs five create/dispose cycles — the
+platform's shape.
+
 ---
 
 ## Negative results worth recording
+
+**A method documented as "called on shutdown" is a claim to check, not a fact.** Both teardowns
+in F62 read as though they were wired up; neither was. The same sentence appears on
+`PhysicsWorld._reset`, `Physics._reset`, `Canvas._reset`, `EventSystem._reset`,
+`UITween._reset`, `TintCache._reset` and `Animation._reset` — those are called from tests and
+from `Scenario.unload`, and were checked while here. The two that were not called were the two
+whose callers were in `Application`, the file nobody had needed to touch.
 
 **The serializer covers every `FieldType`, checked by round-tripping rather than by reading the
 switch.** Part 10's checklist named this as a risk. `ValueSerializer` handles each value type in
