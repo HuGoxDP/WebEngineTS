@@ -65,6 +65,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F51 | 8 | Writing through `Ray.direction` bypassed its normalization | documented `954e6ea` |
 | F52 | 9 | Cinemachine printed debug traces in shipped builds | fixed `16aa7ab` |
 | F53 | 9 | A virtual camera kept following a destroyed target | fixed `90deb81` |
+| F54 | 9 | A dead block allocated in the camera's LateUpdate forever | fixed `5fdd6a3` |
 
 ---
 
@@ -1634,6 +1635,32 @@ strategies gained no new case to handle.
 that ask whether the reference was let go. The others pass either way, because reading a
 destroyed Transform does not complain — which is why this family is invisible until somebody
 goes looking for it.
+
+### F54. A dead block allocated in the camera's LateUpdate forever — fixed `5fdd6a3`
+
+**F52 with the log removed and the cost kept.** `CinemachineBrain.lateUpdate` ended with:
+
+```ts
+if (this._frameCount <= 3 || this._frameCount % 120 === 0) {
+    const p = finalState.position;
+    const e = finalState.rotation.eulerAngles;
+}
+```
+
+Two values computed, neither used — what is left after deleting a `console.log` but not what fed
+it.
+
+**Why it is worth a finding rather than a tidy-up.** It runs every 120 frames for the life of
+the scene, and *both* lines allocate: `position` returns a new `Vector3` and `eulerAngles`
+builds one from the quaternion. That is in the camera's `LateUpdate` — the place the engine's
+own conventions single out as one that must not allocate. `_frameCount` existed only to gate it,
+and went with it.
+
+**What the same pass verified.** Cinemachine had no tests at all across eleven classes; it now
+has its first, on the behaviour `CLAUDE.md` records as a decision — *always cut on first
+activation, because blending from a null `CameraState` starts the camera at the origin*. It
+holds. Also covered: priority selection, `Cut` switching instantly, a `Linear` blend being half
+way at half its duration and finishing, and no cameras leaving the transform alone.
 
 ---
 

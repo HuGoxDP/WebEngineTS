@@ -20,9 +20,9 @@ all six known defects survived 1133 green tests.
 | 6 | UI core | 21 | **21** | **done** |
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
-| 9 | Animation and Cinemachine | 17 | 3 | in progress |
+| 9 | Animation and Cinemachine | 17 | 4 | in progress |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **133** | |
+| | **Total** | **175** | **134** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -238,7 +238,7 @@ first-frame Cut behaviour actually holding, damping at very small and very large
 - `core/animation/AnimationClip.ts` — [ ] AnimationClip
 - `core/animation/Animator.ts` — [ ] Animator · [ ] AnimatorState · [ ] AnimatorTransition
 - `core/animation/BlendTree.ts` — [ ] BlendTree
-- `core/cinemachine/CinemachineBrain.ts` — [ ] CinemachineBrain
+- `core/cinemachine/CinemachineBrain.ts` — [x] CinemachineBrain *(F54; first-frame Cut verified)*
 - `core/cinemachine/CinemachineCore.ts` — [ ] CameraState · [ ] CinemachineBody ·
   [ ] CinemachineAim
 - `core/cinemachine/CinemachineVirtualCamera.ts` — [x] CinemachineVirtualCamera *(F52, F53)*
@@ -249,7 +249,7 @@ first-frame Cut behaviour actually holding, damping at very small and very large
 - `core/cinemachine/CinemachineOrbitalAim.ts` — [x] CinemachineOrbitalAim *(F52)*
 - `core/cinemachine/CinemachinePOVAim.ts` — [ ] CinemachinePOVAim
 
-**Findings:** F52, F53 — see [`findings.md`](findings.md)
+**Findings:** F52, F53, F54 — see [`findings.md`](findings.md)
 
 ---
 
