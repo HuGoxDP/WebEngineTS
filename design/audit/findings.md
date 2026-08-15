@@ -66,6 +66,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F52 | 9 | Cinemachine printed debug traces in shipped builds | fixed `16aa7ab` |
 | F53 | 9 | A virtual camera kept following a destroyed target | fixed `90deb81` |
 | F54 | 9 | A dead block allocated in the camera's LateUpdate forever | fixed `5fdd6a3` |
+| F55 | 9 | Damping of zero froze the camera instead of removing the damping | fixed `8d235c3` |
 
 ---
 
@@ -1662,9 +1663,39 @@ activation, because blending from a null `CameraState` starts the camera at the 
 holds. Also covered: priority selection, `Cut` switching instantly, a `Linear` blend being half
 way at half its duration and finishing, and no cameras leaving the transform alone.
 
+### F55. Damping of zero froze the camera instead of removing the damping — fixed `8d235c3`
+
+**The formula is right and its edge is not.** Both damped bodies smooth with
+`1 - Math.exp(-damping * dt)` — framerate-independent, correct for every positive damping, and
+it cannot overshoot because `1 - exp(-x)` approaches 1 from below. At `damping = 0` it evaluates
+to **zero**: the camera never moves at all, sitting where it started while its target walks
+away.
+
+**Reachable by writing the obvious thing.** `damping = 0` is what an author sets for a rigid
+camera bolted to its target — Unity reads it that way — and the result here was a camera that
+does not follow. The doc said "higher = snappier, lower = smoother" and left the end of the
+scale to be discovered.
+
+**Fix.** Non-positive damping snaps. The field now says what it is: a rate, framerate-independent,
+with zero meaning no damping.
+
+**What the tests pin besides the fix.** Four of the six cover behaviour that was already right
+and could have broken in fixing this — a positive damping lags then catches up, higher is
+faster, a tiny step barely moves, and a huge step lands on the target rather than overshooting.
+That last one is the property that makes this formula the right choice, so it is worth having a
+test say so.
+
 ---
 
 ## Negative results worth recording
+
+**Part 9 — the two things the part was opened to check both hold.** `BlendTree` normalizes:
+weights are divided by their total, non-positive ones are skipped, and two children sharing a
+clip name have their weights summed rather than one overwriting the other. `Animator` consumes a
+trigger *before* entering the target state, so a state that transitions straight out again
+cannot see it twice — and the consumption is guarded by parameter *type*, so a plain `Bool`
+tested with the same `If` condition mode is not cleared along with the triggers. Both were named
+in the checklist as risks before either was read.
 
 **Part 8 closes with the arithmetic itself intact.** Across twelve classes the audit found three
 things — a rounding rule that diverged from Unity, constants that asked rather than enforced,
