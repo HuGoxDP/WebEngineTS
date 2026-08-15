@@ -70,7 +70,16 @@ export class ScrollRect extends UIBehaviour {
         ScrollRect._instances.length = 0;
     }
 
-    /** The RectTransform being moved. Nothing scrolls until this is set. */
+    /**
+     * The RectTransform being moved. Nothing scrolls until this is set.
+     *
+     * @remarks
+     * Reading this after the content has been destroyed gives the destroyed
+     * component, exactly as any other field holding one would. Everything
+     * inside this class goes through {@link _liveContent} instead, which drops
+     * it — a list rebuilt in place destroys its content object, and the frame
+     * driver would otherwise go on writing to it.
+     */
     @SerializedField({ type: FieldType.Component })
     public content: RectTransform | null = null;
 
@@ -170,7 +179,7 @@ export class ScrollRect extends UIBehaviour {
      * @returns `out` for chaining.
      */
     public getScrollableSize(out: Vector2): Vector2 {
-        const content = this.content;
+        const content = this._liveContent();
         if (!content) return out.set(0, 0);
 
         const view = this.rectTransform._resolvedLocalRect;
@@ -221,9 +230,26 @@ export class ScrollRect extends UIBehaviour {
 
     // ── private ──────────────────────────────────────────────────────
 
+    /**
+     * The content, or null once it has been destroyed.
+     *
+     * @remarks
+     * Clearing the field rather than only skipping the frame: holding a
+     * destroyed component keeps it alive, and a scenario that rebuilt its list
+     * assigns the new one anyway.
+     */
+    private _liveContent(): RectTransform | null {
+        const content = this.content;
+        if (content && !content.exists()) {
+            this.content = null;
+            return null;
+        }
+        return content;
+    }
+
     /** Per-frame wheel input, inertia and spring-back. */
     private _tick(): void {
-        const content = this.content;
+        const content = this._liveContent();
         if (!content) return;
 
         ScrollRect._pinContentAnchors(content);
@@ -269,7 +295,7 @@ export class ScrollRect extends UIBehaviour {
     }
 
     private _beginDrag(e: PointerEventData): void {
-        const content = this.content;
+        const content = this._liveContent();
         if (!content) return;
 
         this._dragging = true;
@@ -279,7 +305,7 @@ export class ScrollRect extends UIBehaviour {
     }
 
     private _drag(e: PointerEventData): void {
-        const content = this.content;
+        const content = this._liveContent();
         if (!content || !this._dragging) return;
 
         // Measured from where the drag began rather than accumulated per frame,
@@ -322,7 +348,7 @@ export class ScrollRect extends UIBehaviour {
         this._move(this._velocity.x * dt, this._velocity.y * dt);
         if (this.movementType === ScrollMovementType.Unrestricted) return;
 
-        const content = this.content!;
+        const content = this._liveContent()!;
         const pos = content.anchoredPosition;
         const cx = this._clampAxis(pos.x, false);
         const cy = this._clampAxis(pos.y, true);
@@ -340,7 +366,7 @@ export class ScrollRect extends UIBehaviour {
 
     /** Pulls the content back inside its bounds after an overshoot. */
     private _applyElastic(dt: number): void {
-        const content = this.content!;
+        const content = this._liveContent()!;
         const pos = content.anchoredPosition;
 
         const targetX = this._clampAxis(pos.x, false);
@@ -360,7 +386,7 @@ export class ScrollRect extends UIBehaviour {
     }
 
     private _clampNow(): void {
-        const content = this.content!;
+        const content = this._liveContent()!;
         const pos = content.anchoredPosition;
         content.anchoredPosition.set(
             this._clampAxis(pos.x, false),
@@ -369,7 +395,7 @@ export class ScrollRect extends UIBehaviour {
     }
 
     private _move(dx: number, dy: number): void {
-        const content = this.content!;
+        const content = this._liveContent()!;
         content.anchoredPosition.set(
             content.anchoredPosition.x + (this.horizontal ? dx : 0),
             content.anchoredPosition.y + (this.vertical ? dy : 0),
@@ -401,7 +427,7 @@ export class ScrollRect extends UIBehaviour {
     }
 
     private _normalized(vertical: boolean): number {
-        const content = this.content;
+        const content = this._liveContent();
         if (!content) return 0;
 
         const size = this.getScrollableSize(ScrollRect._sizeScratch);
@@ -413,7 +439,7 @@ export class ScrollRect extends UIBehaviour {
     }
 
     private _setNormalized(vertical: boolean, t: number): void {
-        const content = this.content;
+        const content = this._liveContent();
         if (!content) return;
 
         const size = this.getScrollableSize(ScrollRect._sizeScratch);
