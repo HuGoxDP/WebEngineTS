@@ -59,6 +59,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F45 | 7 | `InputField` had no `setTextWithoutNotify` | added `67f5c9b` |
 | F46 | 7 | Explicit navigation moved focus onto controls that were gone | fixed `d00df46` |
 | F47 | 7 | A `<size>` run drew over the line beneath it | fixed `aa36804` |
+| F48 | 8 | `Mathf.round` rounded halves the JavaScript way, not Unity's | fixed `8d1b1d0` |
 
 ---
 
@@ -1481,9 +1482,47 @@ Covered by `tests/RichTextLineHeight.test.ts`; 3 of its 6 fail with the old meas
 other three pin what must not change: a label with no size tags, a blank paragraph, and the
 plain-text path.
 
+## Part 8 — Math
+
+### F48. `Mathf.round` rounded halves the JavaScript way, not Unity's — fixed `8d1b1d0`
+
+**What it did.** Called `Math.round`, which sends halves toward positive infinity: `0.5` → `1`,
+`2.5` → `3`, `-1.5` → `-1`.
+
+**What Unity does.** `Mathf.Round` is .NET's `Math.Round`, which sends halves to the **even**
+neighbour: `0.5` → `0`, `2.5` → `2`, `-1.5` → `-2`.
+
+**Why it matters more than one integer.** Rounding halves consistently in one direction biases a
+sum of many rounded values — half a unit per value. To-even cancels it. That is why .NET, IEEE
+and therefore Unity chose it, and the new tests include the sum rather than only the individual
+cases, because the bias is the reason the behaviour exists.
+
+**Why it counted as a defect rather than a difference.** Every other method on `Mathf` states
+"Equivalent to Unity's …" in its JSDoc, and where the class *does* diverge deliberately it says
+so — `sign` documents returning `0` for zero where Unity returns `1`. `round` claimed nothing
+and diverged, which is the one combination a scenario author cannot see coming.
+
+Negative zero is preserved as well: `-0.4` and `-0.5` both give `-0`, as IEEE and .NET do.
+
+**A pre-existing test changed.** `tests/Mathf.test.ts` asserted `round(2.5) === 3`. It was
+pinning the implementation rather than a decision — the JSDoc made no claim, and nothing in the
+engine calls the method. The assertion now reads `2` and carries a comment naming this finding,
+so a later reader does not take it for a regression. Changing a test to match a fix is exactly
+the move that hides a mistake, so it is called out here and in the commit rather than left to be
+noticed.
+
+Covered by `tests/MathfRounding.test.ts`; 4 of its 6 fail against `Math.round`.
+
 ---
 
 ## Negative results worth recording
+
+**`Mathf.repeat` is correct at the boundary, checked rather than assumed.** Unity clamps its
+result into `[0, length]` and this does not, which looked like a defect: for a tiny negative `t`,
+`t - floor(t / length) * length` rounds up to exactly `length`. Working through it, Unity's own
+clamp permits `length` too — the clamp bounds, it does not exclude — so both implementations can
+return `length` and neither can exceed it. `repeat(-1e-17, 1)` returns `1` on both. No
+divergence, and the method's promise ("never larger than `length`") holds.
 
 **`SelectableTransition` is clean, and clean in the way F10 asked for.** `ColorBlock`'s defaults
 are `Color.white.clone()` and fresh `new Color(...)` instances, not shared constants, and each
