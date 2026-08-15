@@ -198,8 +198,15 @@ export abstract class Selectable extends UIBehaviour {
     public findSelectable(direction: NavigationDirection): Selectable | null {
         if (this.navigation.mode === NavigationMode.None) return null;
         if (this.navigation.mode === NavigationMode.Explicit) {
+            // An explicit link is a reference a scenario set once, and the
+            // control it names can since have been destroyed or switched off.
+            // The automatic search below cannot hit that: it walks the
+            // EventSystem's registry, which those events maintain. This path
+            // has to ask. Unity requires the same pair — `IsActive()` and
+            // `IsInteractable()` — for exactly this reason.
             const linked = this.navigation.get(direction);
-            return linked && linked.isInteractable() ? linked : null;
+            if (!linked || !linked.isActiveAndEnabled) return null;
+            return linked.isInteractable() ? linked : null;
         }
 
         const dir = directionVector(direction, Selectable._dirScratch);
