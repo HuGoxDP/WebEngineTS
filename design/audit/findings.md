@@ -58,6 +58,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F44 | 7 | A scroll view kept driving content that was destroyed | fixed `3cd0286` |
 | F45 | 7 | `InputField` had no `setTextWithoutNotify` | added `67f5c9b` |
 | F46 | 7 | Explicit navigation moved focus onto controls that were gone | fixed `d00df46` |
+| F47 | 7 | A `<size>` run drew over the line beneath it | fixed `aa36804` |
 
 ---
 
@@ -1456,9 +1457,39 @@ Covered by `tests/ExplicitNavigation.test.ts`; 4 of its 6 fail without the check
 other two is the non-interactable case, which passed before and is kept so the pair stays a
 pair.
 
+### F47. A `<size>` run drew over the line beneath it — fixed `aa36804`
+
+**Wanted.** `<size=40>` inside a 16pt label to occupy the room it needs.
+
+**What happened.** It drew at 40px and the line advanced by 16, so it overlapped the line below;
+and `preferredHeight` reported the same too-small figure, which a `ContentSizeFitter` then
+believed and sized the panel to.
+
+**The data was already there.** `RichLine.maxSize` is documented as "largest token size on the
+line; what its height is measured by", and only the baseline alignment *within* a line used it.
+Both the draw and the measure advanced by the label's own font size.
+
+**Why it survived.** The two halves agreed with each other. This is the harder version of F27's
+shape: not one representation updated and the other not, but both consistently wrong against
+what the feature promises. Checking them against each other would have found nothing — only
+checking each against the markup does.
+
+**Fix.** Both halves sum each line's own height, through one helper so they cannot drift apart.
+A line with no runs — a blank paragraph — falls back to the label's size rather than collapsing.
+
+Covered by `tests/RichTextLineHeight.test.ts`; 3 of its 6 fail with the old measurement, and the
+other three pin what must not change: a label with no size tags, a blank paragraph, and the
+plain-text path.
+
 ---
 
 ## Negative results worth recording
+
+**`SelectableTransition` is clean, and clean in the way F10 asked for.** `ColorBlock`'s defaults
+are `Color.white.clone()` and fresh `new Color(...)` instances, not shared constants, and each
+`Selectable` owns its own block. `Selectable._targetColor` hands back a reference into that
+block, but both call sites copy rather than mutate, and the method is private — so the shape
+that produced F10 is present and contained.
 
 **`Navigation` and `RichText` are clean.** `Navigation` states the Y-down convention on the
 enum itself and maps `Up` to `(0, -1)`, which is the direction that would be wrong if anyone had

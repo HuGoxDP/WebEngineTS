@@ -18,11 +18,11 @@ all six known defects survived 1133 green tests.
 | 4 | Assets and scenario | 12 | 12 | **done** |
 | 5 | Physics | 16 | **16** | **done** |
 | 6 | UI core | 21 | **21** | **done** |
-| 7 | UI controls | 18 | 14 | in progress |
+| 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **114** | |
+| | **Total** | **175** | **118** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -185,7 +185,7 @@ The `Slider` gap was found by tabulating the family. Do that first: put `Without
 see who is missing what.
 
 - `core/ui/Selectable.ts` — [x] Selectable *(navigation; F46)*
-- `core/ui/SelectableTransition.ts` — [ ] ColorBlock · [ ] SpriteState
+- `core/ui/SelectableTransition.ts` — [x] ColorBlock · [x] SpriteState *(clean)*
 - `core/ui/Navigation.ts` — [x] Navigation *(clean)*
 - `core/ui/Button.ts` — [x] Button *(clean)*
 - `core/ui/Slider.ts` — [x] Slider *(clean)*
@@ -196,12 +196,12 @@ see who is missing what.
 - `core/ui/InputField.ts` — [x] InputField *(family gap; F45)*
 - `core/ui/ScrollRect.ts` — [x] ScrollRect *(content lifetime; F44)*
 - `core/ui/VirtualJoystick.ts` — [x] VirtualJoystick *(clean)*
-- `core/ui/UIImage.ts` — [ ] UIImage
-- `core/ui/UIText.ts` — [ ] UIText
+- `core/ui/UIImage.ts` — [x] UIImage *(clean; hash checked in part 6)*
+- `core/ui/UIText.ts` — [x] UIText *(rich line height; F47)*
 - `core/ui/RichText.ts` — [x] RichText *(clean)*
 - `core/ui/UITween.ts` — [x] UITween · [x] UITweenHandle *(F35)*
 
-**Findings:** F43–F46 — see [`findings.md`](findings.md)
+**Findings:** F43–F47 — see [`findings.md`](findings.md)
 
 ---
 
