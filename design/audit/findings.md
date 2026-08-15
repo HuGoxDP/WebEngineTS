@@ -63,6 +63,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F49 | 8 | Only `Vector3`'s shared constants were frozen | fixed `31d7ad5` |
 | F50 | 8 | `Keyframe`'s tangent weights are stored and never applied | documented `3d24607`; weighting **open** |
 | F51 | 8 | Writing through `Ray.direction` bypassed its normalization | documented `954e6ea` |
+| F52 | 9 | Cinemachine printed debug traces in shipped builds | fixed `16aa7ab` |
 
 ---
 
@@ -1585,6 +1586,32 @@ The doc now names the consequence and the two ways round it.
 `tests/RayInvariants.test.ts` pins all four paths — constructed, assigned, `set`, and written
 through — so the documented behaviour is a decision on the record rather than an accident nobody
 had noticed.
+
+## Part 9 — Animation and Cinemachine
+
+### F52. Cinemachine printed debug traces in shipped builds — fixed `16aa7ab`
+
+**What was there.** Seven `console.log` calls across three classes, with two private frame
+counters whose only purpose was to gate them:
+
+- `CinemachineVirtualCamera` logged its first computed state, and its discovered body and aim.
+- `CinemachineHardLookAtAim` logged camera position, target and euler angles for three frames,
+  and "lookAtTarget is NULL" when it had none.
+- `CinemachineOrbitalAim` did the same for five frames, and announced whether component
+  discovery had found a body.
+
+**Why it counts.** This runs in the platform students use, on every scenario with a virtual
+camera. None of it is actionable by a consumer — `[OrbitalAim] body discovery: FOUND (4
+components)` is a note the author left for themselves. The engine has `console.warn` for things
+a developer can act on and uses it properly elsewhere; this was instrumentation that never got
+taken out.
+
+**Fix.** Removed, counters included. Two of the sites stated a real fact *only* in their log
+text — that a null target means "keep the current rotation" — so that is now a comment beside
+the early return, where someone reading the code would look for it.
+
+No behaviour change: the counters gated nothing but output. 5 insertions against 49 deletions,
+suite unchanged.
 
 ---
 
