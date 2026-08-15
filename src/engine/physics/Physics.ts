@@ -357,10 +357,23 @@ export class Physics {
     }
 
     /**
-     * Returns all colliders within a sphere.
+     * Returns every collider whose **origin** lies within the sphere.
+     *
      * @param position Center of the sphere in world space.
      * @param radius Radius of the sphere.
-     * @returns Array of colliders overlapping the sphere.
+     * @returns Colliders whose transform position is inside the sphere.
+     *
+     * @remarks
+     * **Not Unity's `Physics.OverlapSphere`, which tests the shapes.** This
+     * compares the sphere against each collider's transform position, so a
+     * large box whose origin sits outside is missed even when half of it is
+     * inside, and a collider whose origin is inside is returned however far its
+     * shape extends away.
+     *
+     * The difference matters most where the API is most tempting — a blast
+     * radius, a pickup range, a trigger volume built by hand. A real shape query
+     * belongs on cannon's broadphase, which already maintains an AABB per body;
+     * until that exists, this is what the method does.
      */
     public static overlapSphere(position: Vector3, radius: number): Collider[] {
         const results: Collider[] = [];
