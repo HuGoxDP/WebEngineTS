@@ -9,6 +9,7 @@ import { Collider } from "./Collider";
 import { PhysicsWorld } from "./PhysicsWorld";
 import { Collision, ContactPoint } from "./Collision";
 import { ScriptableBehaviour } from "../core/ScriptableBehaviour";
+import { Transform } from "../core/Transform";
 
 /** Two colliders touching this step, and every contact point between them. */
 interface ColliderPair {
@@ -27,6 +28,9 @@ interface ColliderPair {
  */
 export class Physics {
     private static _raycaster = new THREE.Raycaster();
+    /** Scratch for turning a local face normal into a world one, per raycast. */
+    private static _normalMatrix = new THREE.Matrix3();
+    private static _worldNormal = new THREE.Vector3();
     private static _colliders: Collider[] = [];
 
     // Collision tracking for Enter/Stay/Exit events
@@ -276,9 +280,15 @@ export class Physics {
 
     /**
      * Casts a ray and returns true if it hits any collider.
+     *
      * @param ray Ray origin and direction.
      * @param hitInfo Optional object to receive hit details.
      * @param maxDistance Maximum ray distance (default: Infinity).
+     *
+     * @remarks
+     * Equivalent to Unity's `Physics.Raycast(ray, out hit, maxDistance)`.
+     * Colliders on objects that are inactive **anywhere up the hierarchy** are
+     * skipped, as Unity does, and `hitInfo.normal` is in world space.
      */
     public static raycast(ray: Ray, hitInfo?: RaycastHit, maxDistance: number = Infinity): boolean {
         // Use Three.js raycaster for visual-layer raycasting
@@ -288,10 +298,19 @@ export class Physics {
         );
         this._raycaster.far = maxDistance;
 
+        // A ray answers about the world as it is *now*, not as it was drawn.
+        // Transform writes can be deferred, and Three composes world matrices
+        // only in `updateMatrixWorld`, which the render pass calls — so a
+        // collider moved earlier in this same Update would otherwise be hit at
+        // last frame's position.
+        Transform._syncAllDirty();
+
         const shapes: THREE.Object3D[] = [];
         for (const col of this._colliders) {
-            if (col.enabled && col.gameObject.activeSelf) {
-                shapes.push(col._getPhysicsShape());
+            if (col.enabled && col.gameObject.activeInHierarchy) {
+                const shape = col._getPhysicsShape();
+                shape.updateWorldMatrix(true, false);
+                shapes.push(shape);
             }
         }
 
@@ -305,13 +324,30 @@ export class Physics {
                 hitInfo.point.set(hit.point.x, hit.point.y, hit.point.z);
 
                 if (hit.face) {
-                    hitInfo.normal.set(hit.face.normal.x, hit.face.normal.y, hit.face.normal.z);
+                    // `face.normal` is in the object's local space; Unity's
+                    // RaycastHit.normal is in world space. A rotated collider
+                    // reported a normal pointing somewhere else entirely.
+                    Physics._worldNormal
+                        .copy(hit.face.normal)
+                        .applyNormalMatrix(
+                            Physics._normalMatrix.getNormalMatrix(hit.object.matrixWorld),
+                        )
+                        .normalize();
+                    hitInfo.normal.set(
+                        Physics._worldNormal.x, Physics._worldNormal.y, Physics._worldNormal.z,
+                    );
+                } else {
+                    // Nothing to report beats the previous call's normal.
+                    hitInfo.normal.set(0, 0, 0);
                 }
 
                 if (hit.object.userData?.collider) {
                     const col = hit.object.userData.collider as Collider;
                     hitInfo.collider = col;
                     hitInfo.transform = col.transform;
+                } else {
+                    hitInfo.collider = null;
+                    hitInfo.transform = null;
                 }
             }
             return true;
