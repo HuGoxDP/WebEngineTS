@@ -68,6 +68,11 @@ export class PostProcessing {
         for (const e of PostProcessing._effects) {
             const pass = PostProcessing._passes.get(e);
             if (pass) e._dispose(pass);
+            // Dropped from the map too, as `removeEffect` already does for one.
+            // `_buildPipeline` reuses whatever it finds here, so a disposed pass
+            // left behind is handed straight back to the effect that owned it if
+            // it is ever added again — a pipeline built on freed GPU resources.
+            PostProcessing._passes.delete(e);
         }
         PostProcessing._effects = [];
         PostProcessing._dirty = true;
