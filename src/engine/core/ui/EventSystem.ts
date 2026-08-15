@@ -595,6 +595,13 @@ export class EventSystem {
 
         if (!pressedGraphic || pressedGraphic !== hit) return;
 
+        // Up ran user code, and the ordinary thing for it to do is close what
+        // was pressed: a dialog dismissing itself, a button disabling itself
+        // against a double submit. Clicking what that just took away would
+        // deliver to a destroyed component, and to a control that has already
+        // said it is no longer interactive.
+        if (!pressedGraphic.isActiveAndEnabled) return;
+
         EventSystem._raiseUp(pressedGraphic, PointerEventKind.Click, data);
     }
 
