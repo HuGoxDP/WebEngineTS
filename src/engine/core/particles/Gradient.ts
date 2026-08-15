@@ -94,8 +94,13 @@ export class Gradient {
 
         // ── Color channel ──
         const ck = this._colorKeys;
+        // An empty gradient stays the white it starts as. `setKeys` accepts an
+        // empty array — a scenario building keys from data can produce one —
+        // and every branch below indexes key 0.
         let r = 1, g = 1, b = 1;
-        if (ck.length === 1) {
+        if (ck.length === 0) {
+            // keep white
+        } else if (ck.length === 1) {
             r = ck[0].color.r; g = ck[0].color.g; b = ck[0].color.b;
         } else if (t <= ck[0].time) {
             r = ck[0].color.r; g = ck[0].color.g; b = ck[0].color.b;
@@ -123,7 +128,9 @@ export class Gradient {
         // ── Alpha channel ──
         const ak = this._alphaKeys;
         let alpha = 1;
-        if (ak.length === 1) {
+        if (ak.length === 0) {
+            // keep opaque
+        } else if (ak.length === 1) {
             alpha = ak[0].alpha;
         } else if (t <= ak[0].time) {
             alpha = ak[0].alpha;
