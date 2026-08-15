@@ -41,6 +41,8 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F27 | 5 | `Collider.center` moved the ray proxy, not the shape | fixed `54c54e4` |
 | F28 | 5 | Raycast normals were local-space; hits used stale matrices | fixed `09341b7` |
 | F29 | 5 | `overlapSphere` tests origins, not shapes | **open** |
+| F30 | 5 | A hinge told cannon only half of itself | fixed `8825050` |
+| F31 | 5 | `SpringJoint` is a rigid rod, not a spring | docs fixed `8825050`; spring **open** |
 
 ---
 
@@ -991,6 +993,49 @@ its own commit and its own tests.
 
 Until then the JSDoc says what it does — "colliders whose origin lies within the sphere" — so
 nobody plans a trigger volume around a promise the method does not keep.
+
+### F30. A hinge told cannon only half of itself — fixed `8825050`
+
+**Wanted.** Unity's `HingeJoint`: two bodies turning about one shared axis, each keeping the
+position it had.
+
+**What happened.** They snapped together and twisted. `_createConstraint` passed `pivotA` and
+`axisA` — body A's description of the hinge — and nothing for body B. cannon defaults `pivotB`
+to B's **origin** and `axisB` to B's local **X**, so the solver was asked to hold two different
+points together and to align two different axes. It did exactly that.
+
+**Why it hid.** Both halves are correct on their own, and the joint *does* something: a hinge
+against the world (the `connectedBody = null` case, where B is a static body at the origin with
+no rotation) is very nearly right, because B's origin and A's world anchor coincide when the
+object sits at the origin. Test it in the simplest scene and it looks fine.
+
+**Fix.** Derive B's half from A's, through world space — `pointToWorldFrame` then
+`pointToLocalFrame`, and the same for the axis. Unity does this for you and calls it
+`autoConfigureConnectedAnchor`.
+
+`_rebuild` now also syncs both bodies from their transforms before measuring. The geometry is
+relative to where the bodies *are*, and a body only reaches its transform's position when its
+own `onEnable` runs — so the result depended on which component happened to be enabled first.
+
+Covered by `tests/HingeJointGeometry.test.ts`; all 5 fail without B's half, including the
+physical one — two bodies hinged a metre apart stay a metre apart.
+
+### F31. `SpringJoint` is a rigid rod, not a spring — docs fixed `8825050`, spring **open**
+
+**What it says.** "Keeps two bodies a fixed distance apart, springily… the bodies are pulled
+back towards it when pushed away." `stiffness` is documented as "how hard the spring pulls
+back".
+
+**What it is.** A cannon `DistanceConstraint`: a fixed-length link the solver satisfies each
+step. No oscillation, no damping. The fourth constructor argument the class passes `stiffness`
+to is cannon's `maxForce` — the force limit before the link gives — so raising it makes the
+joint *more rigid*, the opposite of what the name suggests.
+
+**Done.** The class and both properties now describe the constraint they are.
+
+**Open.** A real spring is cannon's `Spring`, which applies a force each step rather than being
+a constraint, so it does not fit `Joint`'s create-on-enable / remove-on-disable shape and wants
+its own driver. The name stays either way: scenarios already use it.
 
 ---
 
