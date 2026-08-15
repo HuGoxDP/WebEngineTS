@@ -94,7 +94,11 @@ export class Rigidbody extends Behaviour {
 
     /**
      * Whether this body is affected by gravity.
-     * When false, an anti-gravity force is applied each step to counteract world gravity.
+     *
+     * @remarks
+     * cannon-es has no per-body gravity switch, so `false` is implemented by
+     * applying an equal and opposite force before every step — see
+     * {@link _applyGravityCompensation}, which `Physics._step` drives.
      */
     @SerializedField()
     public get useGravity(): boolean { return this._useGravity; }
@@ -247,17 +251,33 @@ export class Rigidbody extends Behaviour {
 
         const rot = this.transform.rotation;
         this._body.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+    }
 
-        // Counteract world gravity for bodies with useGravity=false
-        if (!this._useGravity && this._body.type === CANNON.Body.DYNAMIC) {
-            const g = PhysicsWorld.instance.world.gravity;
-            Rigidbody._tmpVec.set(
-                -g.x * this._body.mass,
-                -g.y * this._body.mass,
-                -g.z * this._body.mass,
-            );
-            this._body.applyForce(Rigidbody._tmpVec);
-        }
+    /**
+     * @internal
+     * Cancels world gravity for this body, for the step about to run.
+     *
+     * @remarks
+     * cannon applies gravity inside `world.step` and clears every force at the
+     * end of it, so the counter-force has to be re-applied before each step —
+     * which is why it lives here, driven by `Physics._step`, and not in
+     * {@link _syncTransformToBody}. It used to sit in that method, which the
+     * step calls for **kinematic** bodies only, and which then required the body
+     * to be **dynamic**: two conditions that cannot both hold, so `useGravity`
+     * did nothing at all once the first frame had passed.
+     *
+     * No-op unless the body is dynamic and has `useGravity` off.
+     */
+    public _applyGravityCompensation(): void {
+        if (this._useGravity || this._body.type !== CANNON.Body.DYNAMIC) return;
+
+        const g = PhysicsWorld.instance.world.gravity;
+        Rigidbody._tmpVec.set(
+            -g.x * this._body.mass,
+            -g.y * this._body.mass,
+            -g.z * this._body.mass,
+        );
+        this._body.applyForce(Rigidbody._tmpVec);
     }
 
     /**

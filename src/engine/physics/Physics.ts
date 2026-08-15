@@ -101,7 +101,8 @@ export class Physics {
     /**
      * @internal
      * Runs one physics simulation step:
-     * 1. Sync kinematic transforms → cannon bodies
+     * 1. Sync kinematic transforms → cannon bodies, and cancel gravity for the
+     *    dynamic bodies that asked for it
      * 2. Step the cannon-es world
      * 3. Sync cannon bodies → engine transforms (dynamic only)
      * 4. Dispatch collision callbacks
@@ -110,11 +111,15 @@ export class Physics {
         const pw = PhysicsWorld.instance;
         const rigidbodies = pw._rigidbodies;
 
-        // 1. Sync kinematic bodies from transform
+        // 1. Prepare each body for the step. Gravity compensation belongs here
+        //    rather than with the transform sync: cannon clears forces at the
+        //    end of every step, so `useGravity = false` has to be re-asserted
+        //    before each one.
         for (const rb of rigidbodies) {
-            if (rb.isKinematic && rb.isActiveAndEnabled) {
-                rb._syncTransformToBody();
-            }
+            if (!rb.isActiveAndEnabled) continue;
+
+            if (rb.isKinematic) rb._syncTransformToBody();
+            else rb._applyGravityCompensation();
         }
 
         // 2. Step physics world
