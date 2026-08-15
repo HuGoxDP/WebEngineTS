@@ -45,6 +45,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F31 | 5 | `SpringJoint` is a rigid rod, not a spring | docs fixed `8825050`; spring **open** |
 | F32 | 5 | A material on a `Rigidbody` was unregistered and unreadable | fixed `24771f2` |
 | F33 | 6 | A mask change did not repaint what it clips | fixed `1192778` |
+| F34 | 6 | Tinted copies outlived the textures they came from | fixed `8a7a042` |
 
 ---
 
@@ -1087,6 +1088,34 @@ of the same shape, one of them remembered. That is the pattern to check for in t
 part: state that lives above an element and changes how it draws.
 
 Covered by `tests/MaskRepaint.test.ts`; 5 of its 6 fail without the fold.
+
+### F34. Tinted copies outlived the textures they came from — fixed `8a7a042`
+
+The same family as **F15** (a guid pointing at a destroyed asset) and **F24** (a scene emptied
+but still registered): a cache outliving what it describes.
+
+**What happened.** `TintCache` holds one full-resolution buffer per (texture, version, tint),
+keyed by the texture's **instance id**. Instance ids are never reused, so the moment a texture
+was destroyed — a scenario unloading, or `Resources` evicting it under the VRAM budget — its
+tinted copies became unreachable. They stayed anyway: counted in `TintCache.bytes`, reported by
+`MemoryProfiler` as UI memory, and released only when the 32 MB budget happened to push them
+out. Nothing in the engine called `clear()`; the only route to it was the public
+`UIImage.clearTintCache()`, which is a host's call to make, not a substitute for lifetime.
+
+**Why it matters beyond the bytes.** The VRAM budget added earlier in this series makes eviction
+routine. An evicted texture is supposed to free memory *now*; freeing its GPU copy while its
+CPU-side tinted copies stay is half a job, and the profiler then reports UI memory belonging to
+a scenario that has ended — which is exactly the number the paper's Section 5 quotes.
+
+**Fix.** `Texture` announces its own destruction through a static hook and `UIImage` installs
+the subscriber at module load. The direction is the point: the UI knows about graphics, graphics
+knows nothing about the UI. It is the pattern the codebase already uses for `Collider` →
+`Rigidbody._onEnabled` and `Physics` → `LayerCollisionMatrix._setChangeHandler`.
+
+Dropping per texture rather than clearing everything keeps an unrelated scenario's tints alive
+and covers eviction as well as unload.
+
+Covered by `tests/TintCacheLifetime.test.ts`; 4 of its 5 fail with the notification removed.
 
 ---
 

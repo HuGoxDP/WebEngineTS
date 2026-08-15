@@ -264,3 +264,10 @@ defects at once and the normal test *passed* — with a stale world matrix the t
 never rotated, so the local-space normal happened to equal the world one. Two defects in one
 code path can cancel, and a control that removes both can therefore report that neither exists.
 Restoring one half and re-running showed the second failure immediately.
+
+**"A cache outliving what it describes" is now the audit's most productive single shape.** F15
+(a guid pointing at a destroyed asset), F24 (a scene emptied but left registered), F34 (tinted
+bitmaps of a destroyed texture) are the same defect three times, in three subsystems, found by
+asking one question: *what is keyed by this thing's identity, and who tells that keeper when the
+thing dies?* Worth asking of every map, set and registry the remaining parts contain — the
+answer is a defect surprisingly often, and the fix is usually one notification.
