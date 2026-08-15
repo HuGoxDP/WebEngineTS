@@ -60,6 +60,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F46 | 7 | Explicit navigation moved focus onto controls that were gone | fixed `d00df46` |
 | F47 | 7 | A `<size>` run drew over the line beneath it | fixed `aa36804` |
 | F48 | 8 | `Mathf.round` rounded halves the JavaScript way, not Unity's | fixed `8d1b1d0` |
+| F49 | 8 | Only `Vector3`'s shared constants were frozen | fixed `31d7ad5` |
 
 ---
 
@@ -1512,6 +1513,33 @@ the move that hides a mistake, so it is called out here and in the commit rather
 noticed.
 
 Covered by `tests/MathfRounding.test.ts`; 4 of its 6 fail against `Math.round`.
+
+### F49. Only `Vector3`'s shared constants were frozen — fixed `31d7ad5`
+
+**The enforcement half of F10.** That finding fixed sixteen *getters* that handed out shared
+constants by returning copies. This is the other side: the constants that are still shared on
+purpose, and whether "do not mutate" is a rule or a wish.
+
+**What was there.** Every one carries the same sentence — "Shared instance — do not mutate!".
+`Vector3`'s are `Object.freeze`d, so under ES module strict mode the contract throws.
+`Vector2`'s, `Vector4`'s, `Color`'s and `Rect`'s were not, so the same sentence was advice.
+
+**Why `Color` makes it serious.** `Color.white.a = 0.5` repaints every future use of white,
+across the whole engine, permanently and silently — and `Color.white` is the constant a scenario
+reaches for most. The engine itself knows the trap: `ColorBlock`'s defaults are
+`Color.white.clone()` precisely to avoid it.
+
+**Safe to add**, and the full suite passing unchanged is the evidence: nothing inside the engine
+was relying on writing to one.
+
+**The negative control is the finding demonstrating itself.** Unfreezing `Color` fails three
+tests, and the third is *"a clone is still perfectly writable"* — which fails because the
+earlier test's `Color.white.a = 0.5` succeeded and was still in effect when it ran. One test
+corrupting the next through a shared constant is exactly what this does to a scenario.
+
+**`Matrix4x4.identity` and `zero` stay unfrozen**, as their own JSDoc explains: `Object.freeze`
+throws on a `Float32Array` that has elements, so the guarantee cannot be had there. That one
+really is a contract, and it is documented as one.
 
 ---
 
