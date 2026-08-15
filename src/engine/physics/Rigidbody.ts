@@ -54,6 +54,7 @@ export class Rigidbody extends Behaviour {
     private _isKinematic: boolean = false;
     private _useGravity: boolean = true;
     private _constraints: RigidbodyConstraints = RigidbodyConstraints.None;
+    private _material: PhysicMaterial | null = null;
 
     private static _tmpVec = new CANNON.Vec3();
 
@@ -134,9 +135,25 @@ export class Rigidbody extends Behaviour {
         this._applyConstraints();
     }
 
-    /** The physics material for this rigidbody's collisions. */
+    /**
+     * The physics material for this body's collisions.
+     *
+     * @remarks
+     * The fallback for shapes with no material of their own — a collider's
+     * {@link Collider.sharedMaterial} wins where both are set, which is cannon's
+     * rule and Unity's.
+     *
+     * Assigning registers the material with the world. Without a registered
+     * pairing the solver has no friction or restitution to read for it and uses
+     * the world default instead, so the material would be set and inert — the
+     * same trap `Collider.sharedMaterial` documents.
+     */
+    public get material(): PhysicMaterial | null { return this._material; }
+
     public set material(value: PhysicMaterial | null) {
+        this._material = value;
         this._body.material = value ? value._cannonMaterial : null;
+        if (value) PhysicsWorld.instance._registerMaterial(value);
     }
 
     // ==================== METHODS ====================
