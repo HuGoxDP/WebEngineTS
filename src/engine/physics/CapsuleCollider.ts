@@ -41,6 +41,9 @@ export class CapsuleCollider extends Collider {
         this._center.copy(value);
         this._shape.position.set(value.x, value.y, value.z);
         this._updateShapeTransform();
+        // The Three.js proxy above is what raycasts hit; this is what the
+        // simulation collides with. Both, or they disagree.
+        this._syncShapeOffset();
     }
 
     /** Radius of the capsule's hemisphere caps. */
@@ -62,6 +65,11 @@ export class CapsuleCollider extends Collider {
         this._height = Math.max(value, this._radius * 2);
         this._rebuildThreeMesh();
         this._updateShapeTransform();
+    }
+
+    /** @internal The offset cannon adds the shape at — see {@link Collider._shapeCenter}. */
+    protected override _shapeCenter(): Vector3 {
+        return new Vector3(this._center.x, this._center.y, this._center.z);
     }
 
     /** @internal */

@@ -89,6 +89,24 @@ export abstract class Collider extends Behaviour {
     /** @internal Updates the cannon-es shape when center/size changes. */
     protected abstract _updateShapeTransform(): void;
 
+    /**
+     * @internal
+     * This collider's local offset from the GameObject's origin.
+     *
+     * @remarks
+     * Subclasses with a `center` override this; the base is the origin. It
+     * exists so the offset reaches **cannon**: a shape is added to a body with
+     * a per-shape offset, and without one a `center` moved only the Three.js
+     * proxy that raycasts hit — the ray and the simulation then disagreed about
+     * where the collider was.
+     *
+     * Returns a fresh vector: handing out the field would let a caller move the
+     * collider by writing to something that only looks like a copy.
+     */
+    protected _shapeCenter(): Vector3 {
+        return new Vector3(0, 0, 0);
+    }
+
     // ==================== LIFECYCLE ====================
 
     protected override onEnable(): void {
@@ -144,9 +162,12 @@ export abstract class Collider extends Behaviour {
             }
         }
 
+        const center = this._shapeCenter();
+        const offset = new CANNON.Vec3(center.x, center.y, center.z);
+
         const rb = this.gameObject.getComponent(Rigidbody);
         if (rb) {
-            rb._body.addShape(this._cannonShape);
+            rb._body.addShape(this._cannonShape, offset);
             this._applyLayerFilter();
         } else {
             // Create an implicit static body
@@ -161,10 +182,33 @@ export abstract class Collider extends Behaviour {
             this._implicitBody.position.set(pos.x, pos.y, pos.z);
             this._implicitBody.quaternion.set(rot.x, rot.y, rot.z, rot.w);
 
-            this._implicitBody.addShape(this._cannonShape);
+            this._implicitBody.addShape(this._cannonShape, offset);
             this._applyLayerFilter();
             PhysicsWorld.instance.world.addBody(this._implicitBody);
         }
+    }
+
+    /**
+     * @internal
+     * Re-applies {@link _shapeCenter} to the body already holding this shape.
+     *
+     * @remarks
+     * A subclass calls this when its `center` changes. The offset is stored on
+     * the *body*, alongside the shape, so it cannot be updated through the shape
+     * — and the derived quantities that depend on it (bounding radius, inertia)
+     * have to be recomputed, exactly as `addShape` does.
+     */
+    protected _syncShapeOffset(): void {
+        const body = this._getBody();
+        if (!body || !this._cannonShape) return;
+
+        const index = body.shapes.indexOf(this._cannonShape);
+        if (index < 0) return;
+
+        const center = this._shapeCenter();
+        body.shapeOffsets[index].set(center.x, center.y, center.z);
+        body.updateBoundingRadius();
+        body.updateMassProperties();
     }
 
     /**
