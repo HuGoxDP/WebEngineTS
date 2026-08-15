@@ -365,14 +365,32 @@ export abstract class LinearLayoutGroup extends LayoutGroup {
         }
     }
 
-    /** Hands leftover space to the children that asked for a share of it. */
+    /**
+     * Shares out whatever space is left over, or takes back whatever is
+     * missing.
+     *
+     * @remarks
+     * Too little space is the case that used to be ignored: children kept their
+     * preferred sizes and overflowed the group. `LayoutElement.minWidth` /
+     * `minHeight` document a size an element "may be shrunk to", and nothing
+     * ever shrunk one, so the fields could not be honoured.
+     *
+     * Shrinking is proportional to how much each child *can* give up —
+     * `preferred - min` — which is Unity's rule, and it is opt-in by
+     * construction: an element with no explicit minimum reports its preferred
+     * size as its minimum, gives up nothing, and behaves exactly as before.
+     */
     protected _distributeSpare(
         children: readonly RectTransform[],
         sizes: number[],
         spare: number,
         vertical: boolean,
     ): void {
-        if (spare <= 0) return;
+        if (spare < 0) {
+            LinearLayoutGroup._shrinkToFit(children, sizes, -spare, vertical);
+            return;
+        }
+        if (spare === 0) return;
 
         const forceExpand = vertical ? this.childForceExpandHeight : this.childForceExpandWidth;
 
@@ -397,6 +415,39 @@ export abstract class LinearLayoutGroup extends LayoutGroup {
                 ? LayoutUtility.flexibleHeight(children[i])
                 : LayoutUtility.flexibleWidth(children[i]);
             if (flex > 0) sizes[i] += spare * (flex / totalFlex);
+        }
+    }
+
+    /**
+     * Takes `deficit` back from the children, proportionally to what each has
+     * above its minimum.
+     *
+     * @remarks
+     * A child never goes below its minimum, so a group asked to fit more than
+     * its minimums allow still overflows — by the smallest amount it can, which
+     * is the honest outcome and what Unity does.
+     */
+    private static _shrinkToFit(
+        children: readonly RectTransform[],
+        sizes: number[],
+        deficit: number,
+        vertical: boolean,
+    ): void {
+        let shrinkable = 0;
+        for (let i = 0; i < children.length; i++) {
+            const min = vertical
+                ? LayoutUtility.minHeight(children[i])
+                : LayoutUtility.minWidth(children[i]);
+            shrinkable += Math.max(0, sizes[i] - min);
+        }
+        if (shrinkable <= 0) return;
+
+        const factor = Math.min(1, deficit / shrinkable);
+        for (let i = 0; i < children.length; i++) {
+            const min = vertical
+                ? LayoutUtility.minHeight(children[i])
+                : LayoutUtility.minWidth(children[i]);
+            sizes[i] -= Math.max(0, sizes[i] - min) * factor;
         }
     }
 
