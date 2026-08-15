@@ -80,9 +80,33 @@ export class PluginManager {
         }
     }
 
+    /**
+     * Snapshot the dispatch loops iterate.
+     *
+     * @remarks
+     * A plugin may unregister itself — or another — from inside its own update,
+     * which is how a one-shot plugin ends. Splicing `_ordered` while a `for…of`
+     * walks it makes the loop skip whatever followed the plugin that left. The
+     * buffer is reused rather than allocated, since this runs three times a
+     * frame; `UIEvent.invoke` takes the same precaution for the same reason.
+     */
+    private static _dispatching: Plugin[] = [];
+
+    /** Copies the plugin list into the reusable dispatch buffer. */
+    private static _snapshot(): readonly Plugin[] {
+        const buffer = PluginManager._dispatching;
+        buffer.length = PluginManager._ordered.length;
+        for (let i = 0; i < PluginManager._ordered.length; i++) {
+            buffer[i] = PluginManager._ordered[i];
+        }
+        return buffer;
+    }
+
     /** @internal Dispatches `onUpdate` to all plugins. */
     public static _onUpdate(dt: number): void {
-        for (const p of PluginManager._ordered) {
+        const plugins = PluginManager._snapshot();
+        for (let i = 0; i < plugins.length; i++) {
+            const p = plugins[i];
             try { p._update(dt); }
             catch (err) { console.error(`[PluginManager] ${p.name}.onUpdate:`, err); }
         }
@@ -90,7 +114,9 @@ export class PluginManager {
 
     /** @internal Dispatches `onFixedUpdate` to all plugins. */
     public static _onFixedUpdate(dt: number): void {
-        for (const p of PluginManager._ordered) {
+        const plugins = PluginManager._snapshot();
+        for (let i = 0; i < plugins.length; i++) {
+            const p = plugins[i];
             try { p._fixedUpdate(dt); }
             catch (err) { console.error(`[PluginManager] ${p.name}.onFixedUpdate:`, err); }
         }
@@ -98,7 +124,9 @@ export class PluginManager {
 
     /** @internal Dispatches `onLateUpdate` to all plugins. */
     public static _onLateUpdate(dt: number): void {
-        for (const p of PluginManager._ordered) {
+        const plugins = PluginManager._snapshot();
+        for (let i = 0; i < plugins.length; i++) {
+            const p = plugins[i];
             try { p._lateUpdate(dt); }
             catch (err) { console.error(`[PluginManager] ${p.name}.onLateUpdate:`, err); }
         }
