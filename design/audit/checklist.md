@@ -16,13 +16,13 @@ all six known defects survived 1133 green tests.
 | 2 | Graphics assets | 11 | **11** | **done** |
 | 3 | Rendering and components | 17 | **17** | **done** |
 | 4 | Assets and scenario | 12 | 12 | **done** |
-| 5 | Physics | 16 | 0 | not started |
+| 5 | Physics | 16 | 2 | in progress |
 | 6 | UI core | 21 | 0 | not started |
 | 7 | UI controls | 18 | 0 | not started |
 | 8 | Math | 12 | 0 | not started |
 | 9 | Animation and Cinemachine | 17 | 0 | not started |
 | 10 | The tail | 29 | 0 | not started |
-| | **Total** | **175** | **62** | |
+| | **Total** | **175** | **64** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -135,8 +135,8 @@ never reads* — is plausible anywhere the two models meet. Trace every property
 consumes it.
 
 - `physics/Physics.ts` — [ ] Physics
-- `physics/PhysicsWorld.ts` — [ ] PhysicsWorld
-- `physics/Rigidbody.ts` — [ ] Rigidbody
+- `physics/PhysicsWorld.ts` — [x] PhysicsWorld *(clean)*
+- `physics/Rigidbody.ts` — [x] Rigidbody *(gravity; F26)*
 - `physics/Collider.ts` — [ ] Collider
 - `physics/BoxCollider.ts` — [ ] BoxCollider
 - `physics/SphereCollider.ts` — [ ] SphereCollider
@@ -147,7 +147,7 @@ consumes it.
 - `physics/RaycastHit.ts` — [ ] RaycastHit
 - `physics/Joint.ts` — [ ] Joint · [ ] FixedJoint · [ ] HingeJoint · [ ] SpringJoint
 
-**Findings:** none yet — see [`findings.md`](findings.md)
+**Findings:** F26 — see [`findings.md`](findings.md)
 
 ---
 

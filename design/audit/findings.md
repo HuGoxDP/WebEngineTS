@@ -37,6 +37,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F23 | 4 | A failed `run()` left a scene, a source and blob URLs behind | fixed `9bdad0e` |
 | F24 | 4 | `unload()` emptied the scene but left it registered and active | fixed `9bdad0e` |
 | F25 | 1, 4 | `Instantiate` on a GameObject returned an empty object | refuses now `030ae4b`; cloning **open** |
+| F26 | 5 | `useGravity = false` did nothing after the first frame | fixed `27e4134` |
 
 ---
 
@@ -860,6 +861,53 @@ GameObject case; less reachable, and the honest fix is the same serialization wo
 `tests/InstantiateGameObject.test.ts` covers the refusal; 4 of its 5 tests fail with the
 override removed. The commit also corrected `loadModel`'s example, which positioned the shared
 instance as though it were a fresh copy — the trap this defect made unavoidable.
+
+## Part 5 — Physics
+
+### F26. `useGravity = false` did nothing after the first frame — fixed `27e4134`
+
+**Wanted.** Unity's `Rigidbody.useGravity = false`: the body stops being pulled down and keeps
+whatever velocity it has.
+
+**What happened.** It fell exactly as if gravity were on.
+
+**Why.** cannon-es has no per-body gravity switch, so the engine cancels gravity with an equal
+and opposite force. That force was applied inside `_syncTransformToBody`:
+
+```ts
+public _syncTransformToBody(): void {
+    // ... position and rotation ...
+    if (!this._useGravity && this._body.type === CANNON.Body.DYNAMIC) {
+        // apply -g * mass
+    }
+}
+```
+
+`Physics._step` calls that method for **kinematic** bodies only:
+
+```ts
+if (rb.isKinematic && rb.isActiveAndEnabled) rb._syncTransformToBody();
+```
+
+A kinematic body's cannon type is `KINEMATIC`, so the inner condition can never hold when the
+outer one does. The counter-force was therefore applied only from `onAwake`/`onEnable`, and
+cannon clears every force at the end of each step — so it survived at most one step.
+
+Exactly the shape this part was opened for: *the engine writes a field cannon never reads*,
+here by putting the write somewhere the read cannot reach.
+
+**Affected.** Any floating, hovering or orbiting body — the obvious use of the flag. The
+Solar-System scenario avoids it only because it moves its planets by transform rather than by
+physics.
+
+**Fix.** The compensation is its own method, `_applyGravityCompensation`, called for every
+active dynamic body at the top of `Physics._step`, beside the kinematic transform sync it used
+to hide inside. Keeping it out of `_syncTransformToBody` is half the fix: that method is about
+transforms, and burying a force in it is what let the mismatch go unnoticed.
+
+Covered by `tests/RigidbodyGravity.test.ts` — 5 of its 6 tests fail without the per-step call.
+They include the Unity semantics that make this more than "y stays still": turning gravity off
+mid-fall keeps the velocity already gained and stops only the acceleration.
 
 ---
 
