@@ -1803,6 +1803,19 @@ a paper should not require the reader to work that out.
 
 ## Negative results worth recording
 
+**The serializer covers every `FieldType`, checked by round-tripping rather than by reading the
+switch.** Part 10's checklist named this as a risk. `ValueSerializer` handles each value type in
+both directions, and the two that could plausibly have been one-way are not: a `Sprite` is
+written as its texture reference plus framing and rebuilt from both, and a `Mesh` is written as
+an `AssetRef` when it came from a file or as a `PrimitiveMesh` recipe when it came from a
+factory — and `Mesh.fromPrimitive` reads that recipe back. `tests/ValueRoundTrip.test.ts` now
+puts thirteen values through `JSON.stringify`/`parse` and asserts each returns as its own class,
+so the coverage is a fact rather than an inspection.
+
+The reference types (`GameObject`, `Component`, `Asset`) resolve in a **second pass** once every
+object exists, so they deliberately do not round-trip through `ValueSerializer` alone. That is
+recorded in the test file itself, so a later reader does not take it for a hole.
+
 **Part 10 — `ParticleSystem` and `AudioListener` pass the disable/destroy comparison that found
 F58.** `ParticleSystem` hides its points and unregisters on disable, then on destroy unregisters,
 detaches the Three.js child and disposes the geometry and material: disable stops it being seen,
