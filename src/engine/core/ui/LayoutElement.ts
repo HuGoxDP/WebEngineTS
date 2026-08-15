@@ -159,6 +159,17 @@ export class LayoutUtility {
      */
     private static _reported(rt: RectTransform): ILayoutSize | null {
         for (const comp of rt.gameObject.getComponents(BEHAVIOUR_TYPE)) {
+            // A LayoutElement has both numbers too, and unset they are -1. Left
+            // in, it answered here for whatever it was added before — so a
+            // label with a LayoutElement setting only `minHeight` lost the
+            // width its own text reported, depending on which was added first.
+            if (comp instanceof LayoutElement) continue;
+
+            // A disabled component is not describing anything: the size it
+            // reports is stale, and switching a control off is how a scenario
+            // takes it out of the conversation.
+            if (!comp.isActiveAndEnabled) continue;
+
             const candidate = comp as unknown as Partial<ILayoutSize>;
             if (typeof candidate.preferredWidth === "number"
                 && typeof candidate.preferredHeight === "number") {
