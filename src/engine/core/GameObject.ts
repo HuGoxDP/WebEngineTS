@@ -650,6 +650,12 @@ export class GameObject extends EngineObject {
      * in `design/unity-parity-plan.md` (Stage 1) is for. `Component._clone`
      * already refers to this method as the one that duplicates components; when
      * it does, this error goes away.
+     *
+     * There *is* a working route in the meantime, and the error names it:
+     * `Prefab.fromGameObject(go).instantiate()` round-trips the hierarchy
+     * through the serializer. It copies every component carrying
+     * `@Serializable` — most of them today, though not `Transform` itself, which
+     * is why it is a route rather than the answer.
      */
     protected override _clone(): EngineObject {
         // TODO: implement real prefab cloning once components can serialize
@@ -657,8 +663,11 @@ export class GameObject extends EngineObject {
         throw new Error(
             `EngineObject.Instantiate("${this.name}"): cloning a GameObject is not ` +
             `implemented. It would return an empty object with no components or ` +
-            `children, which is worse than an error. Build the object explicitly, ` +
-            `or load it again through Resources. See design/unity-parity-plan.md.`
+            `children, which is worse than an error. ` +
+            `Use Prefab.fromGameObject(go).instantiate(), which round-trips the ` +
+            `hierarchy through the serializer — it copies every component carrying ` +
+            `@Serializable, which is most of them but not yet all. ` +
+            `See design/unity-parity-plan.md.`
         );
     }
 
