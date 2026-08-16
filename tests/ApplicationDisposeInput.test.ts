@@ -3,6 +3,7 @@ import { GraphicsAPI, GraphicsPowerPreference } from "../src/engine/core/renderi
 import type {
     RenderBackend, RenderBackendOptions, RenderBackendStats,
 } from "../src/engine/core/rendering/RenderBackend";
+import { AudioManager } from "../src/engine/core/audio/AudioManager";
 
 /**
  * `Input._dispose` and `Touch._teardown` both document themselves as being
@@ -120,6 +121,30 @@ describe("Disposing an Application", () => {
         expect(dom.counts.get("window:keydown")).toBe(0);
         expect(dom.counts.get("window:blur")).toBe(0);
         expect(dom.counts.get("document:visibilitychange")).toBe(0);
+    });
+
+    test("closes the AudioContext, which the browser rations", async () => {
+        // Chrome allows a handful of AudioContexts per page, so a viewer that
+        // opens and closes without closing them eventually cannot make one.
+        let closed = 0;
+        const context = {
+            close: () => { closed++; return Promise.resolve(); },
+            createGain: () => ({ connect: () => {}, gain: { value: 1 } }),
+            destination: {},
+            state: "running",
+        };
+        const internals = AudioManager as unknown as { _context: unknown; _masterGain: unknown };
+        internals._context = context;
+        internals._masterGain = { gain: { value: 1 } };
+
+        const Application = await loadApplication();
+        Application.backendFactory = options => new FakeBackend(options);
+        const app = new Application(dom.canvas);
+
+        app.dispose();
+
+        expect(closed).toBe(1);
+        expect(internals._context).toBeNull();
     });
 
     test("opening and closing repeatedly does not accumulate", async () => {

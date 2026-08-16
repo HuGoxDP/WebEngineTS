@@ -18,6 +18,7 @@ import { Animation } from "./animation/Animation.ts";
 import { Animator } from "./animation/Animator.ts";
 import { AudioListener } from "./audio/AudioListener.ts";
 import { AudioSource } from "./audio/AudioSource.ts";
+import { AudioManager } from "./audio/AudioManager.ts";
 import { Canvas } from "./ui/Canvas.ts";
 import { EventSystem } from "./ui/EventSystem.ts";
 import { LayoutGroup } from "./ui/LayoutGroup.ts";
@@ -472,6 +473,13 @@ export class Application {
         window.removeEventListener("resize", this._resizeHandler);
         Input._dispose();
         Touch._teardown();
+
+        // The AudioContext is a browser resource with a hard per-page limit —
+        // Chrome allows a handful — so a host that opens and closes viewers
+        // eventually cannot create another. `AudioManager._reset` closes it and
+        // documents itself as being called on engine reset; like the two above,
+        // nothing was calling it.
+        AudioManager._reset();
 
         // Release the graphics context
         this._backend.dispose();
