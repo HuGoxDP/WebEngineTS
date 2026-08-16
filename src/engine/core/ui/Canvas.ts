@@ -8,7 +8,7 @@ import { Vector2 } from "../math/Vector2";
 import { Vector3 } from "../math/Vector3";
 import { Camera } from "../components/Camera";
 import { profilerHooks } from "../diagnostics/ProfilerHooks";
-import { HASH_SEED, hashBool, hashNumber } from "./UIUtils";
+import { HASH_SEED, hashBool, hashNumber, snapshotInto } from "./UIUtils";
 import { Serializable, SerializedField } from "../reflection/Decorators";
 import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
@@ -128,6 +128,9 @@ export class Canvas extends Behaviour {
     private static _live: Canvas[] = [];
     private static _orderDirty: boolean = false;
 
+    /** Reused snapshot the render pass walks — see {@link snapshotInto}. */
+    private static _pass: Canvas[] = [];
+
     /**
      * @internal
      * Redraws all active canvases that need it.
@@ -135,8 +138,9 @@ export class Canvas extends Behaviour {
      */
     public static _renderAll(): void {
         if (Canvas._orderDirty) Canvas._sortInstances();
-        for (let i = 0; i < Canvas._instances.length; i++) {
-            const c = Canvas._instances[i];
+        const canvases = snapshotInto(Canvas._instances, Canvas._pass);
+        for (let i = 0; i < canvases.length; i++) {
+            const c = canvases[i];
             if (c.isActiveAndEnabled) c._renderFrame();
         }
     }

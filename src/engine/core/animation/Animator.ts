@@ -246,6 +246,9 @@ export class Animator extends Behaviour {
 
     private static _instances: Animator[] = [];
 
+    /** Reused snapshot the per-frame pass walks. */
+    private static _pass: Animator[] = [];
+
     /**
      * @internal
      * Evaluates every active animator. Called from Application._loop before
@@ -253,7 +256,16 @@ export class Animator extends Behaviour {
      * one that plays this frame.
      */
     public static _updateAll(): void {
-        const all = Animator._instances;
+        // Walked through a reused copy: an animator disabled during the pass —
+        // by its own transition, or by anything a state change reaches —
+        // splices `_instances`, and an index loop would then skip whatever
+        // followed it. The UI drivers take the same precaution through
+        // `snapshotInto`; this is the same three lines, kept local rather than
+        // importing a UI utility into animation.
+        const all = Animator._pass;
+        all.length = Animator._instances.length;
+        for (let i = 0; i < Animator._instances.length; i++) all[i] = Animator._instances[i];
+
         for (let i = 0; i < all.length; i++) {
             if (all[i].isActiveAndEnabled) all[i].evaluate();
         }

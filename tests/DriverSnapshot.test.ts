@@ -5,6 +5,7 @@ import { Button } from "../src/engine/core/ui/Button";
 import { RectTransform } from "../src/engine/core/ui/RectTransform";
 import { GameObject } from "../src/engine/core/GameObject";
 import { Time } from "../src/engine/core/Time";
+import { Animator } from "../src/engine/core/animation/Animator";
 import { Vector2 } from "../src/engine/core/math/Vector2";
 
 /**
@@ -91,6 +92,29 @@ describe("A UI driver whose list changes mid-pass", () => {
 
         expect(() => Selectable._updateAll()).not.toThrow();
         expect(b.isActiveAndEnabled).toBe(true);
+    });
+
+    test("the animator pass survives one disabling itself", () => {
+        const a = new GameObject("A");
+        const b = new GameObject("B");
+        made.push(a, b);
+        const first = a.addComponent(Animator);
+        const second = b.addComponent(Animator);
+
+        // Disabling during the pass splices the array being walked. The
+        // animator needs no states for that: what is under test is the loop.
+        (first as unknown as { evaluate(): void }).evaluate = () => { first.enabled = false; };
+
+        // Counted, not merely "still enabled": without the snapshot the second
+        // animator is skipped while staying perfectly enabled, so asserting its
+        // state proves nothing.
+        let secondEvaluated = 0;
+        (second as unknown as { evaluate(): void }).evaluate = () => { secondEvaluated++; };
+
+        Time._update(1 / 60);
+        Animator._updateAll();
+
+        expect(secondEvaluated).toBe(1);
     });
 
     test("an ordinary pass is unchanged", () => {
