@@ -1905,6 +1905,14 @@ after the first disables itself.
 
 ## Negative results worth recording
 
+**The Set-based per-frame drivers need no snapshot, and were checked rather than assumed.**
+`LODGroup`, `ParticleSystem`, `Animation` and `AudioSource` iterate `Set`s. Deleting an
+unvisited element from a Set during iteration is well defined in JavaScript — that element is
+simply not visited — so none of them can skip a neighbour the way an index loop over a spliced
+array does. The array-based ones (five UI drivers, `Canvas`, `Animator`) all needed the fix; the
+Set-based ones are correct by construction, which is worth knowing before anyone "makes them
+consistent".
+
 **`PluginManager` is otherwise the best-behaved registry in the engine**, and worth naming as
 the pattern the others should follow: `register`/`unregister` keep the map and the ordered list
 in step, `_reset` unregisters each plugin properly rather than emptying the containers, and every

@@ -321,3 +321,13 @@ comment explaining why. Following that comment to its twins found five more (F64
 generalises: when a class takes a named precaution — a snapshot, a defensive copy, an epoch
 counter — the other places doing the same *kind* of work are worth checking immediately, and the
 comment is what tells you what to look for.
+
+**`npx vitest run | grep …` hides the exit code, and it hid one again.** This was recorded once
+already, near the start of the audit, after a commit went out on a red run. It happened a second
+time while finishing F64: the verification chain ended in `grep -E "Test Files|Tests "`, grep
+found its match and returned 0, and `&&` carried on to `git commit` over a run that said
+`1 failed | 1451 passed`. The committed state turned out to be green — three later runs and the
+exit code confirm it, and the failure did not reproduce — but that was luck, not method.
+
+The rule that actually works: redirect to a file, check `$?` on its own line, *then* grep the
+file. A pipeline's status is the last command's, and the last command is never the test runner.

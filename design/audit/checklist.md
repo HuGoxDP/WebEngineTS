@@ -236,7 +236,7 @@ first-frame Cut behaviour actually holding, damping at very small and very large
 
 - `core/animation/Animation.ts` — [x] Animation *(clean; exemplary teardown)*
 - `core/animation/AnimationClip.ts` — [x] AnimationClip *(clean)*
-- `core/animation/Animator.ts` — [x] Animator *(trigger consumption verified)* · [x] AnimatorState · [x] AnimatorTransition
+- `core/animation/Animator.ts` — [x] Animator *(triggers verified; F64)* · [x] AnimatorState · [x] AnimatorTransition
 - `core/animation/BlendTree.ts` — [x] BlendTree *(weights verified)*
 - `core/cinemachine/CinemachineBrain.ts` — [x] CinemachineBrain *(F54; first-frame Cut verified)*
 - `core/cinemachine/CinemachineCore.ts` — [x] CameraState *(F56)* · [x] CinemachineBody ·
