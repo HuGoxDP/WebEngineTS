@@ -79,6 +79,11 @@ export class TypeRegistry {
     /** @internal Clears the registry (used by tests). */
     public static _clear(): void {
         TypeRegistry._byName.clear();
+        // Both maps, or the registry is only half cleared: `getMeta` and
+        // `getTypeName` read the other one, and would go on answering for
+        // classes the registry no longer knows. A WeakMap has no `clear`, so
+        // the way to empty it is to replace it.
+        TypeRegistry._byCtor = new WeakMap();
     }
 
     private constructor() {}
