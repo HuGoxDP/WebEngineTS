@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { PostEffect } from "./PostEffect";
+import { Color } from "../math/Color";
 
 const _VIGNETTE_SHADER = {
     uniforms: {
@@ -47,13 +48,22 @@ export class VignetteEffect extends PostEffect {
     /** Softness of the edge transition (0 = hard, 1 = very soft). */
     public smoothness: number = 0.5;
 
-    /** Color to blend toward at the corners. */
-    public color: THREE.Color = new THREE.Color(0, 0, 0);
+    /**
+     * Color to blend toward at the corners.
+     *
+     * @remarks
+     * An engine {@link Color}, like every other colour in the public API — the
+     * alpha channel is ignored, since a vignette blends rather than composites.
+     * Mutate it in place (`vignette.color.set(...)`) or assign a new one; either
+     * reaches the shader on the next frame.
+     */
+    public color: Color = new Color(0, 0, 0, 1);
 
-    constructor(opts: { intensity?: number; smoothness?: number } = {}) {
+    constructor(opts: { intensity?: number; smoothness?: number; color?: Color } = {}) {
         super();
         if (opts.intensity !== undefined)  this.intensity  = opts.intensity;
         if (opts.smoothness !== undefined) this.smoothness = opts.smoothness;
+        if (opts.color !== undefined)      this.color      = opts.color.clone();
     }
 
     public override _createPass(): ShaderPass {
@@ -63,7 +73,7 @@ export class VignetteEffect extends PostEffect {
     public override _updatePass(pass: ShaderPass): void {
         pass.uniforms.uIntensity.value  = this.intensity;
         pass.uniforms.uSmoothness.value = this.smoothness;
-        pass.uniforms.uColor.value.copy(this.color);
+        this.color._copyToThree(pass.uniforms.uColor.value);
     }
 
     public override _dispose(pass: ShaderPass): void {
