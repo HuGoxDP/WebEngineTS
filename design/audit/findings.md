@@ -77,6 +77,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F63 | 10 | A plugin leaving mid-frame made the dispatch skip the next one | fixed `0028b9f` |
 | F64 | 6, 10 | Every UI per-frame driver could skip an element mid-pass | fixed `072073c` |
 | F65 | 10 | `TypeRegistry._clear` emptied one of its two maps | fixed `5c38e1f` |
+| F66 | 10 | Disposing an Application left the AudioContext open | fixed `463d7be` |
 
 ---
 
@@ -1920,6 +1921,28 @@ the same state, disagreeing. There `removeEffect` pruned its map and `clear` did
 Covered by `tests/TypeRegistryClear.test.ts`; 3 of its 6 fail without the replacement, including
 the one that matters for the editor: a name reused for another class after a clear.
 
+### F66. Disposing an Application left the AudioContext open — fixed `463d7be`
+
+**F62's sibling**, found by finishing the sweep F62 started rather than trusting what that entry
+claimed.
+
+**What happened.** `AudioManager._reset` closes the `AudioContext` and says it is called on
+engine reset. Nothing called it. An `AudioContext` is a rationed browser resource — Chrome
+allows a handful per page — so a host that opens and closes viewers eventually cannot create
+one, and audio stops working with no error a scenario can see.
+
+**Fix.** Closed from `Application.dispose`, beside the input teardowns.
+
+**The correction that came with it.** F62's write-up asserted the other "called on shutdown"
+resets were wired "from tests and from `Scenario.unload`". Checking rather than repeating:
+`Scenario.unload` calls no `_reset` at all. Of the eight, only `PhysicsWorld._reset` and
+`Profiler._reset` have engine call sites. Harmless for the ones holding plain JS state — `dispose`
+unloads the scenario first, and components unregister as they are destroyed — and not harmless
+for the one holding a browser resource.
+
+Writing the claim into the record is what made it checkable. It would have been easier to miss
+if F62 had said nothing.
+
 ---
 
 ## Negative results worth recording
@@ -1942,9 +1965,14 @@ example of it inside the same engine.
 **A method documented as "called on shutdown" is a claim to check, not a fact.** Both teardowns
 in F62 read as though they were wired up; neither was. The same sentence appears on
 `PhysicsWorld._reset`, `Physics._reset`, `Canvas._reset`, `EventSystem._reset`,
-`UITween._reset`, `TintCache._reset` and `Animation._reset` — those are called from tests and
-from `Scenario.unload`, and were checked while here. The two that were not called were the two
-whose callers were in `Application`, the file nobody had needed to touch.
+`UITween._reset`, `TintCache._reset`, `Animation._reset` and `AudioManager._reset`.
+
+**Corrected while writing F66**, because the first version of this paragraph said those were
+called "from tests and from `Scenario.unload`" — and `Scenario.unload` calls no `_reset` at all.
+The true position: only `PhysicsWorld._reset` and `Profiler._reset` have engine call sites; the
+rest are test-only. Harmless for the ones holding plain JS state, since `dispose` unloads the
+scenario first and components unregister as they are destroyed. Not harmless for `AudioManager`
+— see F66.
 
 **The serializer covers every `FieldType`, checked by round-tripping rather than by reading the
 switch.** Part 10's checklist named this as a risk. `ValueSerializer` handles each value type in

@@ -21,8 +21,8 @@ all six known defects survived 1133 green tests.
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
 | 9 | Animation and Cinemachine | 17 | **17** | **done** |
-| 10 | The tail | 29 | 18 | in progress |
-| | **Total** | **175** | **165** | |
+| 10 | The tail | 29 | 19 | in progress |
+| | **Total** | **175** | **166** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -267,7 +267,7 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/serialization/Prefab.ts` — [ ] Prefab
 - `core/serialization/PrefabOverride.ts` — [ ] PrefabDiff
 - `core/reflection/TypeRegistry.ts` — [x] TypeRegistry *(F65)*
-- `core/audio/AudioManager.ts` — [ ] AudioManager
+- `core/audio/AudioManager.ts` — [x] AudioManager *(F66)*
 - `core/audio/AudioSource.ts` — [x] AudioSource *(F58)*
 - `core/audio/AudioListener.ts` — [x] AudioListener *(clean)*
 - `core/audio/AudioClip.ts` — [ ] AudioClip
@@ -284,7 +284,7 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/plugins/PluginManager.ts` — [x] PluginManager *(F63)*
 - `core/plugins/Plugin.ts` — [x] Plugin *(clean)*
 
-**Findings:** F58–F65 — see [`findings.md`](findings.md)
+**Findings:** F58–F66 — see [`findings.md`](findings.md)
 
 ---
 
