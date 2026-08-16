@@ -76,6 +76,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F62 | 10 | Disposing an Application left every input listener attached | fixed `861e4c5` |
 | F63 | 10 | A plugin leaving mid-frame made the dispatch skip the next one | fixed `0028b9f` |
 | F64 | 6, 10 | Every UI per-frame driver could skip an element mid-pass | fixed `072073c` |
+| F65 | 10 | `TypeRegistry._clear` emptied one of its two maps | fixed `5c38e1f` |
 
 ---
 
@@ -1900,6 +1901,24 @@ the engine taking the same precaution.
 
 Negative control: reverting `ScrollRect` alone fails the test that a second view still ticks
 after the first disables itself.
+
+### F65. `TypeRegistry._clear` emptied one of its two maps — fixed `5c38e1f`
+
+**What happened.** The registry keeps `_byName` — a class by its stable name — and `_byCtor` —
+the metadata, and the reverse lookup. `_clear` emptied the first and left the second. After
+clearing, `getMeta` and `getTypeName` went on answering for classes the registry no longer knew,
+and a name re-registered to a *different* class left the old constructor still claiming it.
+
+**Why it was half done is visible in the fix.** A `WeakMap` has no `clear`. Emptying one means
+replacing it — one line — and the absence of the obvious method is exactly what turns into "I
+will do the other one in a moment".
+
+**Same shape as F61, found by the same check** — two methods that answer the same question about
+the same state, disagreeing. There `removeEffect` pruned its map and `clear` did not; here
+`_clear` prunes one map and not the other. That check has now produced F58, F61 and F65.
+
+Covered by `tests/TypeRegistryClear.test.ts`; 3 of its 6 fail without the replacement, including
+the one that matters for the editor: a name reused for another class after a clear.
 
 ---
 
