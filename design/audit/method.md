@@ -331,3 +331,9 @@ exit code confirm it, and the failure did not reproduce — but that was luck, n
 
 The rule that actually works: redirect to a file, check `$?` on its own line, *then* grep the
 file. A pipeline's status is the last command's, and the last command is never the test runner.
+
+**Re-measure the claims the plans are built on.** F67 was not found in code: the parity plan's
+headline finding — quoted in `CLAUDE.md` as the prerequisite for the editor — described a grep
+result that had stopped being true. Documents have no tests, so nothing fails when the engine
+moves under them. Any plan that opens with "a grep shows…" is worth re-running before its next
+stage is scheduled, and the re-run costs one command.

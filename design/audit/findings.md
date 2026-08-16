@@ -78,6 +78,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F64 | 6, 10 | Every UI per-frame driver could skip an element mid-pass | fixed `072073c` |
 | F65 | 10 | `TypeRegistry._clear` emptied one of its two maps | fixed `5c38e1f` |
 | F66 | 10 | Disposing an Application left the AudioContext open | fixed `463d7be` |
+| F67 | 10 | The parity plan's headline finding no longer described the engine | corrected `c679a31`, `318ea1f` |
 
 ---
 
@@ -1942,6 +1943,35 @@ for the one holding a browser resource.
 
 Writing the claim into the record is what made it checkable. It would have been easier to miss
 if F62 had said nothing.
+
+### F67. The parity plan's headline finding no longer described the engine — corrected `c679a31`, `318ea1f`
+
+Not a defect in the code. A defect in the document the roadmap is planned from, which is worse
+in one specific way: nobody runs it, so nothing fails when it goes stale.
+
+**The claim.** `design/unity-parity-plan.md` opens with *"the serialization system exists and
+nothing uses it"* — a grep for `@Serializable` "returns nothing but the serializer's own files",
+so "a saved scene loses every built-in component". `CLAUDE.md` quotes it as the key measured
+finding and the prerequisite for the editor.
+
+**Measured again.** `@Serializable` appears **46 times across 41 files**: `RectTransform`, the
+renderers, `Camera`, every light, `Rigidbody`, every collider and joint, `LODGroup`, and the
+entire UI control set. Still undecorated: **`Transform`** — the one the original sentence names
+first, and the one every GameObject has — plus `Animation`, `Animator`, `ParticleSystem`, the
+audio components, `InstancedMeshRenderer` and all of Cinemachine.
+
+**So the conclusion survives and the evidence does not.** A saved scene does still lose
+components, and `Transform` alone makes that fatal. But Stage 1 is a list of eight, not "thirty
+built-in components", and anyone planning from the original paragraph would redo work already
+done.
+
+**Recorded as a dated correction beneath the original**, not a rewrite: the difference between
+the two paragraphs is the record of what the engine gained since the plan was written.
+
+**One thing it turned up for F25.** `Prefab.fromGameObject(go).instantiate()` already
+round-trips a hierarchy through the serializer — a working deep copy for whatever is decorated.
+`EngineObject.Instantiate`'s refusal now names it instead of suggesting two things that do not
+duplicate anything. A refusal that names the working route is an answer.
 
 ---
 
