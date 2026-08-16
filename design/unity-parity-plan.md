@@ -67,6 +67,29 @@ only if they have `@Serializable` metadata."* They do not. So today a saved scen
 built-in component and keeps only decorated user scripts. In Unity, serialization is not
 opt-in — it is the substrate the Inspector, prefabs, undo and the build pipeline all stand on.
 
+> **Superseded — measured again on 2026-08-16 during the class-by-class audit.** The paragraph
+> above described the state when this plan was written; it no longer holds, and planning Stage 1
+> from it would mean redoing work already done. `@Serializable` now appears **46 times across 41
+> files**. Decorated today: `RectTransform`, `MeshFilter`, `MeshRenderer`, `SpriteRenderer`,
+> `LineRenderer`, `Camera`, all four light types, `Rigidbody`, all three colliders, the three
+> joints, `LODGroup`/`LOD`, `Canvas`, `CanvasScaler`, `CanvasGroup`, `RectMask2D`, and the whole
+> UI control set — `UIImage`, `UIText`, `Button`, `Toggle`, `Slider`, `Scrollbar`, `Dropdown`,
+> `InputField`, `ScrollRect`, `VirtualJoystick`, the layout groups and fitters.
+>
+> Still undecorated, and therefore still lost on save: **`Transform`** (the one the sentence
+> above names first, and the one every GameObject has), `Animation`, `Animator`,
+> `ParticleSystem`, `AudioSource`, `AudioListener`, `InstancedMeshRenderer`, and all of
+> Cinemachine.
+>
+> So the finding's *conclusion* is intact — a saved scene still loses components, and `Transform`
+> alone is enough to make that fatal — while its *evidence* is out of date. Stage 1 is smaller
+> than this plan assumes: the remaining list above, not thirty components.
+>
+> Also worth knowing before Stage 1 is planned: `Prefab.fromGameObject(go).instantiate()` already
+> round-trips a hierarchy through the serializer, so the engine does have a working deep copy for
+> whatever is decorated — see audit finding F25, where `EngineObject.Instantiate` refuses because
+> it has no such route.
+
 **Finding 2 — assets are addressed by path, not identity.**
 `ScenarioAssets` caches by *normalized path string*. Unity addresses every asset by a **GUID**
 that survives renaming and moving; the path is only a lookup convenience. Without stable
