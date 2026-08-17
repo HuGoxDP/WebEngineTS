@@ -3,6 +3,7 @@
 import type * as THREE from "three";
 import { SceneManager } from "./SceneManager.ts";
 import { Time } from "./Time.ts";
+import { EngineObject } from "./EngineObject.ts";
 import { EngineSettings } from "./EngineSettings.ts";
 import { Camera } from "./components/Camera.ts";
 import { Input } from "./Input.ts";
@@ -481,6 +482,10 @@ export class Application {
         // nothing was calling it.
         AudioManager._reset();
 
+        // A timed Destroy counts down from the loop; with the loop gone its
+        // entries would sit here and fire into whichever Application runs next.
+        EngineObject._clearPendingDestroys();
+
         // Release the graphics context
         this._backend.dispose();
 
@@ -679,6 +684,12 @@ export class Application {
                 scenario!._onLateUpdate();
             }
             PluginManager._onLateUpdate(frameDelta);
+
+            // 7a-. Timed destroys, counted in game time. Here rather than later
+            // so an object asked to die never gets audio-synced, laid out or
+            // LOD-selected on the frame it dies — Unity destroys at this point
+            // in the frame for the same reason.
+            EngineObject._updatePendingDestroys(Time.deltaTime);
 
             // 7a. Audio spatial sync (after LateUpdate — uses final world positions)
             AudioListener._updateAll();

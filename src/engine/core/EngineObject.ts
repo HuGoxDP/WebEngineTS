@@ -60,6 +60,20 @@ export class EngineObject {
     /** Objects marked as DontDestroyOnLoad */
     private static readonly _persistentObjects: Set<number> = new Set();
 
+    /**
+     * Objects awaiting a timed {@link Destroy}, with the game-time seconds each
+     * has left. Driven from `Application._loop`, so the countdown obeys
+     * `Time.timeScale` and stops with the loop.
+     */
+    private static readonly _pendingDestroys: { obj: EngineObject; remaining: number }[] = [];
+
+    /**
+     * Reused buffer of the entries due this frame. Collected before anything is
+     * destroyed, because `onDestroy` runs user code that may schedule or cancel
+     * further destructions — the same snapshot-before-dispatch the UI drivers use.
+     */
+    private static readonly _dueDestroys: { obj: EngineObject; remaining: number }[] = [];
+
     /** Cleanup interval for garbage collected objects */
     private static _cleanupScheduled: boolean = false;
 
@@ -281,11 +295,19 @@ export class EngineObject {
      * Removes a GameObject, component, or asset.
      *
      * @param obj The object to destroy
-     * @param delay Optional delay in seconds (default: 0)
+     * @param delay Optional delay in seconds of **game time** (default: 0)
      *
      * @remarks
-     * The object is destroyed after the current Update loop,
-     * or after the specified delay.
+     * With no delay the object is destroyed after the current Update loop.
+     *
+     * A delay counts **game time**, as Unity's does: it is decremented by
+     * `Time.deltaTime` once a frame, so `Time.timeScale = 0` postpones the
+     * destruction instead of letting it happen behind a pause menu, half speed
+     * takes twice as long, and nothing fires at all while the loop is stopped.
+     * It was a `setTimeout` and did none of that.
+     *
+     * The delay is therefore resolved at frame granularity — an object asked to
+     * die in 0.001s dies on the next frame, not 1 ms later.
      *
      * @example
      * EngineObject.Destroy(gameObject);
@@ -295,12 +317,8 @@ export class EngineObject {
     public static Destroy(obj: EngineObject | null | undefined, delay: number = 0): void {
         if (!obj || !obj.exists()) return;
 
-        if (delay > 0) {
-            setTimeout(() => {
-                if (obj.exists()) {
-                    obj._destroyImmediate();
-                }
-            }, delay * 1000);
+        if (Number.isFinite(delay) && delay > 0) {
+            EngineObject._pendingDestroys.push({ obj, remaining: delay });
         } else {
             // Queue for end of frame (simulated with microtask)
             queueMicrotask(() => {
@@ -309,6 +327,54 @@ export class EngineObject {
                 }
             });
         }
+    }
+
+    /**
+     * @internal
+     * Advances every pending timed {@link Destroy} by one frame of game time and
+     * destroys whatever has run out. Called once per frame by `Application`,
+     * after LateUpdate and before the drivers that read final state, so an
+     * object never gets laid out or audio-synced on the frame it dies.
+     *
+     * @param deltaTime - scaled game seconds since the previous frame
+     *                    (`Time.deltaTime`, so a paused game does not count down).
+     */
+    public static _updatePendingDestroys(deltaTime: number): void {
+        const pending = EngineObject._pendingDestroys;
+        if (pending.length === 0) return;
+
+        const due = EngineObject._dueDestroys;
+        due.length = 0;
+
+        // Backwards, so removing an entry cannot skip the one after it.
+        for (let i = pending.length - 1; i >= 0; i--) {
+            const entry = pending[i];
+            if (!entry.obj.exists()) {
+                pending.splice(i, 1);
+                continue;
+            }
+            entry.remaining -= deltaTime;
+            if (entry.remaining <= 0) {
+                due.push(entry);
+                pending.splice(i, 1);
+            }
+        }
+
+        for (let i = 0; i < due.length; i++) {
+            const obj = due[i].obj;
+            if (obj.exists()) obj._destroyImmediate();
+        }
+        due.length = 0;
+    }
+
+    /**
+     * @internal
+     * Drops every pending timed destroy. Called by `Application.dispose()` so a
+     * countdown started in one Application cannot fire into the next one.
+     */
+    public static _clearPendingDestroys(): void {
+        EngineObject._pendingDestroys.length = 0;
+        EngineObject._dueDestroys.length = 0;
     }
 
     /**
