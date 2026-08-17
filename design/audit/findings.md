@@ -13,7 +13,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | # | Part | Finding | State |
 |---|---|---|---|
 | F1 | 1 | `Transform.parent` did not preserve world position | fixed `7ab9fa2` |
-| F2 | 1 | `Destroy(obj, delay)` counts wall-clock, not game time | **open** |
+| F2 | 1 | `Destroy(obj, delay)` counts wall-clock, not game time | fixed `ca3fdbe` |
 | F3 | 1 | `FindObjectsOfType` promises "active" and does not filter | doc fixed; semantics **open** |
 | F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | **open** |
 | F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `e6e0b45` |
@@ -114,7 +114,7 @@ leaves untouched.
 **Fix.** `setParent(newParent, true)`, and a JSDoc that says what it does. Covered by
 `tests/TransformHierarchy.test.ts`; 4 of its 10 tests fail against the old argument.
 
-### F2. `Destroy(obj, delay)` counts wall-clock time, not game time — **open**
+### F2. `Destroy(obj, delay)` counts wall-clock time, not game time — fixed `ca3fdbe`
 
 **Wanted.** `EngineObject.Destroy(go, 2)` to destroy the object after two seconds *of game
 time*, so pausing the game postpones it — Unity's behaviour, and the reason `Time.timeScale`
@@ -139,10 +139,28 @@ visible to a reader.
 current scenarios uses a delayed `Destroy`, so nothing is broken today; it is a trap waiting for
 the first pause menu.
 
-**Fix sketch.** Keep a list of `{ obj, remaining }` on `EngineObject`, decrement by
-`Time.deltaTime` from `Application._loop`, and destroy at zero. That also makes the destruction
-cancellable and stops it firing when nothing is running — neither of which `setTimeout` allows.
-Cost: one more per-frame driver, and a decision about whether the list survives a scene change.
+**Fixed (2026-08-17).** The sketch, as written: a list of `{ obj, remaining }` decremented by
+`Time.deltaTime` from `Application._loop`. `timeScale = 0` postpones, half speed takes twice as
+long, a stopped loop counts nothing, and the delay resolves at frame granularity — which the
+JSDoc now states rather than leaving the clock unnamed.
+
+**Where in the frame.** After LateUpdate and before the audio, UI-layout and LOD drivers, so an
+object never gets synced, laid out or LOD-selected on the frame it dies. Unity destroys at that
+point for the same reason.
+
+**Two things the list gets that a `setTimeout` could not.** The sweep collects what is due before
+destroying anything, so an `onDestroy` that schedules another destruction cannot shift the list
+underneath it — the snapshot-before-dispatch of F63/F64, reached independently here. And
+`Application.dispose()` clears the pending entries, which otherwise sat waiting to fire into
+whichever Application ran next — the F62/F66 shape, caught this time while the state was being
+introduced rather than years later.
+
+**The scene-change question, answered by not needing an answer.** Entries hold the object, and an
+object destroyed by a scene load stops existing; the sweep prunes anything that does. No separate
+scene hook, and no list of stale references — which is the reference-holding family (F15, F34,
+F35, F44, F53, F62) avoided by construction.
+
+**Negative control.** Restoring the `setTimeout` fails 7 of the 13 new tests.
 
 ### F3. `FindObjectsOfType` promises "active" and returns everything — doc fixed, semantics **open**
 

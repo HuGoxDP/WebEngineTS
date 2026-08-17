@@ -21,8 +21,8 @@ codebase actually produces, listed in [`method.md`](method.md).
 
 ## Progress
 
-**175 of 175 classes walked — the walk is complete.** 74 findings: **63 closed**, 7 partly closed
-with the remainder named in their entry, and 4 still open. Every open one is listed below.
+**175 of 175 classes walked — the walk is complete.** 74 findings: **64 closed**, 7 partly closed
+with the remainder named in their entry, and 3 still open. Every open one is listed below.
 The walk is finished; the open list is now the work. Live counts are in [`checklist.md`](checklist.md#progress); the
 summary below is updated when a part changes state.
 
@@ -43,7 +43,6 @@ summary below is updated when a part changes state.
 
 | # | What | Why it is still open |
 |---|---|---|
-| F2 | `Destroy(obj, delay)` counts wall-clock, not game time | Needs a game-time scheduler; `Time.timeScale = 0` must hold the delay |
 | F3 | `FindObjectsOfType` does not filter by active | Doc corrected; changing the semantics would move behaviour under existing scenarios |
 | F4 | `Awake` fires on `addComponent` to an inactive object | Unity defers it to activation; the deferral needs a pending queue |
 | F5 | Coroutines pause instead of stopping on deactivation | Half fixed — the remaining half is Unity's stop-on-disable |
