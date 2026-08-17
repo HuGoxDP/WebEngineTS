@@ -19,7 +19,7 @@
   "scripts": {
     "build": "rollup -c rollup.config.mjs",
     "dev": "rollup -c rollup.config.mjs --watch",
-    "typecheck": "tsc --noEmit -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.build.json && tsc --noEmit -p tsconfig.test.json",
     "clean": "rm -rf dist",
     "test": "vitest run",
     "benchmark:build": "rollup -c benchmarks/rollup.config.mjs",

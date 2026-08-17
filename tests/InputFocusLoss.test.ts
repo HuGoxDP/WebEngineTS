@@ -27,12 +27,12 @@ afterEach(() => {
 
 describe("Input — focus loss releases what is held", () => {
     test("a key held across focus loss is no longer down", () => {
-        press(KeyCode.W);
-        expect(Input.getKey(KeyCode.W)).toBe(true);
+        press(KeyCode.KeyW);
+        expect(Input.getKey(KeyCode.KeyW)).toBe(true);
 
         Input._clearHeldState();
 
-        expect(Input.getKey(KeyCode.W)).toBe(false);
+        expect(Input.getKey(KeyCode.KeyW)).toBe(false);
     });
 
     test("a mouse button released off-canvas is no longer down", () => {
@@ -66,11 +66,11 @@ describe("Input — focus loss releases what is held", () => {
     });
 
     test("input works again after focus returns", () => {
-        press(KeyCode.A);
+        press(KeyCode.KeyA);
         Input._clearHeldState();
 
-        press(KeyCode.A);
+        press(KeyCode.KeyA);
 
-        expect(Input.getKey(KeyCode.A)).toBe(true);
+        expect(Input.getKey(KeyCode.KeyA)).toBe(true);
     });
 });

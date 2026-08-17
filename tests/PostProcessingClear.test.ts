@@ -19,7 +19,7 @@ class CountingEffect extends PostEffect {
         return { name: `pass-${this.created}`, dispose: () => {} };
     }
 
-    public _dispose(): void {
+    public override _dispose(): void {
         this.disposed++;
     }
 }

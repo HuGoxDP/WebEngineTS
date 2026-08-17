@@ -165,7 +165,7 @@ describe("RenderBackend — the seam", () => {
 
         expect(backend.frames.length).toBe(0);
         expect(backend.clears).toBe(1);
-        expect(backend.clearColors.at(-1)!.b).toBeCloseTo(0.13);
+        expect(backend.clearColors[backend.clearColors.length - 1].b).toBeCloseTo(0.13);
     });
 
     test("shader warmup goes through the backend", async () => {

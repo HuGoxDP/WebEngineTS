@@ -1,0 +1,21 @@
+{
+  /* Type-checks the test suite.
+   *
+   * tsconfig.json excludes `**\/*.test.ts` and tsconfig.build.json narrows to
+   * src/engine, so until this file existed nothing type-checked tests/ at all:
+   * Vitest transpiles through esbuild, which strips types without reading them.
+   * Eighty-odd files and ~1500 assertions compiled unchecked, and the first run
+   * of this config found 25 errors — among them tests writing to properties the
+   * engine does not have, and an engine class no TypeScript caller could use.
+   *
+   * src/ is included so tests are checked against the real sources rather than
+   * dist/, which may be stale.
+   */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

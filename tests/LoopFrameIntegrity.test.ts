@@ -78,10 +78,10 @@ async function loadApplication() {
 let throwIn: "fixedUpdate" | "update" | "none" = "none";
 
 class Saboteur extends ScriptableBehaviour {
-    public fixedUpdate(): void {
+    public override fixedUpdate(): void {
         if (throwIn === "fixedUpdate") throw new Error("scenario code went wrong");
     }
-    public update(): void {
+    public override update(): void {
         if (throwIn === "update") throw new Error("scenario code went wrong");
     }
 }

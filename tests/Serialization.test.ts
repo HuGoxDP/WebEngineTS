@@ -60,6 +60,7 @@ import { MeshFilter } from "../src/engine/core/rendering/MeshFilter";
 import { MeshRenderer } from "../src/engine/core/rendering/MeshRenderer";
 import { StandardMaterial } from "../src/engine/core/graphics/StandardMaterial";
 import { Texture } from "../src/engine/core/graphics/Texture";
+import type { Texture2D } from "../src/engine/core/graphics/Texture2D";
 import { Mesh } from "../src/engine/core/graphics/Mesh";
 import { Vector2 } from "../src/engine/core/math/Vector2";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
@@ -907,7 +908,6 @@ describe("ExecutionOrder", () => {
     let log: string[];
 
     class Recorder extends ScriptableBehaviour {
-        public tag: string = "?";
         public override update(): void { log.push(this.tag); }
     }
 
@@ -960,7 +960,6 @@ describe("ExecutionOrder", () => {
 
     test("ordering applies to fixedUpdate and lateUpdate too", () => {
         class LateRecorder extends ScriptableBehaviour {
-            public tag: string = "?";
             public override lateUpdate(): void { log.push(this.tag); }
         }
         @ExecutionOrder(-50)
@@ -1995,7 +1994,11 @@ describe("Built-in components — MeshRenderer and inline materials", () => {
         // Object.create used to work and no longer does — a Texture now sets up
         // its referent registry there, and an instance that skipped it is not a
         // Texture, just something shaped like one.
-        const texture = new Texture();
+        //
+        // `albedoTexture` is declared Texture2D, so the stand-in is cast. That
+        // is the honest form of what this test does: it exercises the *asset
+        // reference* path, which only ever asks whether the value is a Texture.
+        const texture = new Texture() as Texture2D;
         AssetDatabase.setManifest([{ guid: "tex-albedo", path: "textures/albedo.png" }]);
         AssetDatabase._bind("textures/albedo.png", texture);
 

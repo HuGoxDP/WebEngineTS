@@ -27,7 +27,7 @@ const { GameObject } = await import("../src/engine/core/GameObject");
  * Audit part 7, F47.
  */
 
-const made: GameObject[] = [];
+const made: InstanceType<typeof GameObject>[] = [];
 
 function label(text: string, rich = true) {
     const go = new GameObject("Label");

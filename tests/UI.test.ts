@@ -947,7 +947,7 @@ describe("Canvas WorldSpace", () => {
     test("a CanvasScaler does not fight the projection", () => {
         const { canvas } = setup(5);
         const scaler = canvas.gameObject.addComponent(CanvasScaler);
-        scaler.scaleMode = CanvasScaleMode.ConstantPixelSize;
+        scaler.uiScaleMode = CanvasScaleMode.ConstantPixelSize;
         scaler.scaleFactor = 3;
 
         canvas._prepare();
