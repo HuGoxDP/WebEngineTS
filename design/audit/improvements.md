@@ -116,3 +116,18 @@ over two frames.
 
 **Cost.** Small to establish, small to fix if real (depth is a parent walk, cached per instance
 and re-sorted when the set changes).
+
+## Reparenting does not propagate active state
+
+Found while fixing F4, and not part of it. `GameObject.setActive` notifies its components and
+recurses into children; `Transform.setParent` does neither. Move a subtree from an inactive
+parent to an active one and no `onEnable` fires — the components' `isActiveAndEnabled` changes
+and nothing tells them.
+
+The engine gets away with it because `_onEnabledChanged` is idempotent and the next
+`setActive` call resynchronises everything, so the state is *recoverable*; it is the callbacks
+that are missed. Unity fires them on reparenting.
+
+Not folded into F4 because it is a different defect with a different blast radius — every
+`.parent =` assignment in every scenario, rather than the zero uses F4 turned out to have.
+Worth its own pass with its own check.

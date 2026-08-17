@@ -15,7 +15,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F1 | 1 | `Transform.parent` did not preserve world position | fixed `7ab9fa2` |
 | F2 | 1 | `Destroy(obj, delay)` counts wall-clock, not game time | fixed `ca3fdbe` |
 | F3 | 1 | `FindObjectsOfType` promises "active" and does not filter | doc fixed; semantics **open** |
-| F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | **open** |
+| F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | fixed `dadff02` |
 | F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `e6e0b45` |
 | F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `5c585b0` |
 | F7 | 1 | `DontDestroyOnLoad` on a child recorded a survival that never happened | fixed `ac95d83` |
@@ -189,7 +189,7 @@ to reason about `GameObject`/`Component` without importing them — a duck-typed
 the filtering to a `Scene`-level API. Worth doing with `Scene.findObjectsOfType`
 (`Scene.ts:270`, which also claims Unity equivalence) rather than piecemeal.
 
-### F4. `Awake` fires on `addComponent` even when the GameObject is inactive — **open**
+### F4. `Awake` fires on `addComponent` even when the GameObject is inactive — fixed `dadff02`
 
 **Wanted.** Unity's rule: "If a GameObject is inactive during start up, Awake is not called
 until it is made active." Adding a component to an inactive object should defer `Awake` to
@@ -222,10 +222,37 @@ object until activation, and every built-in component would need to tolerate the
 change across the whole component library, not a one-line fix, and it wants its own pass with
 its own blast-radius check.
 
-**Fix sketch.** Split the two paths: keep `_internalInitialize` eager (built-ins need their
-backing objects to exist), and defer only `ScriptableBehaviour._systemAwake` until the first
-activation, guarded by an `_awakeCalled` flag so it runs exactly once. That gets Unity's
-semantics where user code can observe them, and leaves the engine's own components alone.
+**Fixed (2026-08-17).** The sketch, as written — and the split is what made it a contained change
+rather than the whole-component-library pass this entry had feared. Built-in Behaviours still
+initialise on `addComponent`; only user scripts wait.
+
+**Ordering.** `GameObject` wakes every deferred script on an object before notifying any of them,
+which is Unity's order and not an incidental one: a script's `onEnable` may look at a sibling,
+and finding it un-woken would be worse than the deferral itself. Underneath that,
+`ScriptableBehaviour._onEnabledChanged` wakes anything still asleep — every route that can turn a
+script on ends there, so no route can fire `onEnable` on a script that has never woken.
+`_systemAwake` is idempotent, so the two never collide. Belt and braces, and each has its own
+reason: the first is the ordering, the second is the guarantee.
+
+**The pairing it would otherwise have broken.** With `awake` deferred, a script destroyed without
+ever being activated would have received `onDestroy` without `awake` — cleanup running against
+state that was never set up. Unity's rule is the matching one: *"OnDestroy will only be called on
+game objects that have previously been active."* `EngineObject` grows an `_invokeOnDestroy` seam
+and `ScriptableBehaviour` skips the callback when it never woke. Engine-side teardown is
+unaffected; coroutines still stop.
+
+**Blast radius, checked first.** Across the ten ScenarioCreator scenarios: 247 `addComponent`
+calls, none of them on an object inactive at the time. The single textual match of
+`setActive(false)` near an `addComponent` was a built-in `LineRenderer` on a different object.
+
+**One thing this did not fix, and did not make worse.** Reparenting does not propagate active
+state at all — moving a subtree from an inactive parent to an active one fires no `onEnable`
+today, and now wakes nothing either. A deferred `awake` is stranded there exactly as `onEnable`
+already was, so the behaviour is consistent rather than newly broken. Recorded as its own
+question rather than folded in here.
+
+**Negative controls, one at a time.** Restoring the eager awake fails 9 of the 15 new tests;
+restoring the unconditional `onDestroy` fails exactly 1.
 Verify against `GameObject.setActive` and `_onParentActiveStateChanged`, which are the two
 places activation is discovered.
 
