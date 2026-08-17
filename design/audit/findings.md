@@ -82,6 +82,8 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F68 | 10 | The vignette's colour was a THREE.Color on a public property | fixed `f1bbe5c` |
 | F69 | 10 | The test suite was never type-checked | fixed `6fbed65` |
 | F70 | 10 | ScriptableObject's protected constructor made the class unusable | fixed `5ebce33` |
+| F71 | 10 | A cone emitter ignored the radius it documented | fixed `8f6fac0` |
+| F72 | 10 | Box shell emission picked faces without regard to their area | fixed `8f6fac0` |
 
 ---
 
@@ -2071,6 +2073,58 @@ now compiled.
 **Where it would have surfaced.** In a consumer. Scenario sources *are* type-checked, so the
 first author to follow the documentation would have hit it; the engine's own tests were the one
 place it could hide.
+
+### F71. A cone emitter ignored the radius it documented — fixed `8f6fac0`
+
+**What was wanted.** `ParticleShape.radius`, whose JSDoc read *"used by Sphere and Cone"*.
+
+**What happened.** The Cone branch of `_sample` opened with `outPos.set(0, 0, 0)` and never read
+`radius` again. Every cone emitted from a single point, whatever the field said — a torch, a
+rocket exhaust and a smoke vent all came out of the same infinitesimal spot.
+
+**The evidence is in the file.** The last line of the branch is
+
+```ts
+// Slight offset on the disk at radius=0 for cone base
+```
+
+— a comment with no statement under it. Someone knew the disk belonged there and left a note
+instead of code. `CLAUDE.md`'s Completeness rule exists for exactly this: an unimplemented piece
+carries a `// TODO` naming what is missing and why, not a half-sentence that reads like a
+description of working code.
+
+**Nothing caught it** because the existing cone test asserts only the *direction* — "Cone
+direction is within half-angle of +Y" — and the direction was always right. The position was
+never looked at.
+
+**The fix.** Spawn on a base disk of `radius` at `y = 0`, uniform by area (`sqrt`, so the centre
+is not crowded), matching Unity's cone. Direction sampling is untouched.
+
+**This changes how existing cones look**, and that is worth stating plainly: the default radius
+is `1`, so a cone that was a point source becomes a disk one. `radius = 0` restores the old
+behaviour exactly, and the field's documentation now says so.
+
+---
+
+### F72. Box shell emission picked faces without regard to their area — fixed `8f6fac0`
+
+**What was wanted.** `emitFromShell` on a Box: particles spread evenly over the box's surface.
+
+**What happened.** `Math.floor(Math.random() * 6)` — one face in six, uniformly. Faces are not
+equal. A 10×1×1 box carries 4 units of area on its two end caps against 80 on its sides, so **a
+third of the particles landed on 5% of the surface**, clustered into two bright squares.
+
+**The degenerate case is worse.** Extents with a zero — a flat box, which is a reasonable way to
+ask for a rectangular sheet of particles — has its entire surface on two faces. Uniform picking
+sent two thirds of the particles to faces with no area at all, where `a * ex.y` and `b * ex.z`
+collapse and they pile up along the rim.
+
+**The fix.** Weight the face by its area (`ex.y * ex.z`, `ex.x * ex.z`, `ex.x * ex.y`), then pick
+a side. A cube is left exactly as it was, which is why nobody noticed: the shape everyone tests
+with is the one where the bug is invisible.
+
+**Negative controls, one defect at a time.** Reverting the cone fails the three cone-position
+tests and nothing else; reverting the box fails the two distribution tests and nothing else.
 
 ---
 

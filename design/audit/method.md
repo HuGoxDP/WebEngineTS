@@ -354,3 +354,14 @@ the documented example rather than a paraphrase of it.
 have (`KeyCode.W`, `CanvasScaler.scaleMode`) and passed anyway — one because an undefined key
 round-trips like any other, one because the mode it meant to select was already the default.
 Neither was wrong today. Both would have gone quiet, not red, the moment a default moved.
+
+**A comment with no statement under it is a defect report.** F71's cone branch ended with
+`// Slight offset on the disk at radius=0 for cone base` and nothing after it. The author knew
+what belonged there. When a comment describes an action, check that the action is in the code —
+a stranded note reads exactly like a description of working code, which is why it survives
+review.
+
+**Test the shape where the bug is visible.** F72 was invisible on a cube, which is the shape
+every test used: all six faces really are a sixth of a cube's surface. The existing cone test
+asserted direction only, and the direction was always right. When a sampler has a parameter,
+vary the parameter — the defaults are where defects hide, not where they show.
