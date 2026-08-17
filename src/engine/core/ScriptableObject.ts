@@ -92,7 +92,21 @@ export abstract class ScriptableObject extends EngineObject {
         return instance;
     }
 
-    protected constructor(name?: string) {
+    /**
+     * Creates one. `ScriptableObject` is abstract, so this is only ever reached
+     * through a subclass.
+     *
+     * @remarks
+     * Public deliberately. It was `protected`, and `abstract` already forbids
+     * `new ScriptableObject()`, so the only thing the narrower visibility
+     * achieved was to make every subclass fail to compile: a protected
+     * constructor is not assignable to `new () => T`, which is what
+     * {@link create} asks for and what a class decorator returns. Both lines of
+     * this class's own usage example were type errors.
+     *
+     * @param name - display name. Defaults to the class name.
+     */
+    constructor(name?: string) {
         super(name);
     }
 
