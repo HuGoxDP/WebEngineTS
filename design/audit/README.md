@@ -21,8 +21,9 @@ codebase actually produces, listed in [`method.md`](method.md).
 
 ## Progress
 
-**175 of 175 classes walked — the walk is complete.** 74 findings: **62 closed**, 7 partly closed
-with the remainder named in their entry, and 5 still open. Every open one is listed below. Live counts are in [`checklist.md`](checklist.md#progress); the
+**175 of 175 classes walked — the walk is complete.** 74 findings: **63 closed**, 7 partly closed
+with the remainder named in their entry, and 4 still open. Every open one is listed below.
+The walk is finished; the open list is now the work. Live counts are in [`checklist.md`](checklist.md#progress); the
 summary below is updated when a part changes state.
 
 | Part | Area | Classes | State |
@@ -48,7 +49,6 @@ summary below is updated when a part changes state.
 | F5 | Coroutines pause instead of stopping on deactivation | Half fixed — the remaining half is Unity's stop-on-disable |
 | F9 | `releaseSourceImage` has no upload guard | Documented; the guard needs a real GPU-upload signal, not a frame count |
 | F12 | 674 lines of non-English comments in public JSDoc | Mechanical but large; `Bounds` done, the rest is a sweep of its own |
-| F14 | `renderScene` allocates a `Color` every frame | Hot path; wants a cached instance and a check that nothing retains it |
 | F22 | One failing script stops the whole frame | Needs per-callback isolation with a policy for repeat offenders |
 | F25 | Cloning a GameObject | Refuses loudly and names `Prefab.fromGameObject().instantiate()`; a real clone waits on Stage 1 |
 | F29 | `overlapSphere` tests origins, not shapes | Needs real shape queries, which is a physics feature rather than a fix |

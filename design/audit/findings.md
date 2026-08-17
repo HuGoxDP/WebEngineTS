@@ -25,7 +25,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F11 | 3 | `Light.shadowStrength` was stored and never applied | fixed `04e1e31` |
 | F12 | 2, 3, 8 | 674 lines of non-English comments, most of it public JSDoc | **open** — `Bounds` done `6e58f48` |
 | F13 | 3 | Batching twice drew every source mesh twice | fixed `f064a58` |
-| F14 | 3 | `renderScene` allocates a `Color` every frame | **open** |
+| F14 | 3 | `renderScene` allocates a `Color` every frame | fixed `71c1152` |
 | F15 | 4 | Asset identity outlived the destroyed instance | fixed `c709fb5` |
 | F16 | 4 | A load landing after its source was released cached itself anyway | fixed `daecc97` |
 | F17 | 4 | A failed `LoadHandle` nobody awaited raised an unhandled rejection | fixed `9903a90` |
@@ -555,7 +555,7 @@ below the two-member minimum, so nothing is created and nothing is disabled.
 Covered in `tests/StaticBatching.test.ts`, including that an already-hidden renderer stays out
 of the batch. All three fail with the guard removed.
 
-### F14. `renderScene` allocates a `Color` every frame — **open**
+### F14. `renderScene` allocates a `Color` every frame — fixed `71c1152`
 
 **Observed.** `WebGLRenderBackend.renderScene` ends with, on every frame that does not use a
 skybox:
@@ -574,11 +574,18 @@ the rule exists to prevent, and the file two lines above it already keeps a modu
 `_clearColor` "so setting the clear colour allocates nothing per frame" — the intent was there
 and the caller undoes it.
 
-**Fix sketch.** Either an out-parameter on the getter (`camera.getBackgroundColor(out)`, matching
-the engine's zero-allocation math convention) or an `@internal` accessor returning the stored
-instance for the backend to read components off. The first is more useful to scenario code as
-well; the second is smaller. Not done here because it changes `Camera`'s public surface, which
-deserves its own decision rather than a drive-by.
+**Fixed (2026-08-17).** The out-parameter form, `Camera.getBackgroundColor(out?)`. The deciding
+argument was precedent: `Gradient.evaluate(t, out)` already does exactly this for a `Color`, so
+the shape is the engine's own idiom rather than a new one invented for the render path. The
+property stays — cloning is right for scenario code and wrong for anything reading once a frame,
+and both readings should be available under names that say which is which.
+
+**What the tests cover, and what they do not.** Seven tests on the new method, including that a
+read copies out of the frozen `Color.black` default rather than handing it over — otherwise a
+caller's own buffer would come back frozen. The backend's line is *not* covered:
+`WebGLRenderBackend` constructs a real `THREE.WebGLRenderer` and cannot be built under Vitest, so
+that one-line change is verified by reading. Worth stating rather than implying the whole fix is
+under test.
 
 **Also fixed while reading:** `RenderBackendStats` now documents that a backend may return the
 same object each frame, refreshed in place. The fields are `readonly`, which stops a caller
