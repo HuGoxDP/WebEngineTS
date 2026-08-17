@@ -9,12 +9,18 @@ import {
 import type {
     RenderBackend, RenderBackendOptions, RenderBackendStats,
 } from "./RenderBackend";
-import type { Color } from "../math/Color";
+import { Color } from "../math/Color";
 import type { Scene } from "../Scene";
 import type { Camera } from "../components/Camera";
 
 /** Reused so setting the clear colour allocates nothing per frame. */
 const _clearColor = new THREE.Color();
+
+/**
+ * Reused for the same reason, one step earlier: `Camera.backgroundColor` is a
+ * value type and hands back a copy, so reading it per frame allocated one.
+ */
+const _cameraBackground = new Color();
 
 /**
  * The WebGL 2 backend, over Three.js' `WebGLRenderer`.
@@ -114,7 +120,7 @@ export class WebGLRenderBackend implements RenderBackend {
         // here, per frame, rather than when either one is assigned.
         const useSkybox = camera.clearFlags === CameraClearFlags.Skybox;
         RenderSettings._syncToThree(threeScene, useSkybox);
-        if (!useSkybox) this.setClearColor(camera.backgroundColor);
+        if (!useSkybox) this.setClearColor(camera.getBackgroundColor(_cameraBackground));
 
         if (PostProcessing.enabled) {
             PostProcessing._render(this._renderer, threeScene, threeCamera);

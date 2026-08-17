@@ -365,6 +365,24 @@ export class Camera extends Behaviour {
     }
 
     /**
+     * The background color, written into `out` when one is given.
+     *
+     * @remarks
+     * The allocation-free form of {@link backgroundColor}. That property is a
+     * value type and so returns a fresh copy on every read, which is right for
+     * scenario code and wrong for anything reading it once a frame — the render
+     * path does. Pass a reused `Color` and nothing is allocated.
+     *
+     * The same shape as `Gradient.evaluate(t, out)`.
+     *
+     * @param out - destination. A new `Color` is allocated when omitted.
+     * @returns `out`, or a new `Color`.
+     */
+    public getBackgroundColor(out?: Color): Color {
+        return out ? out.copy(this._backgroundColor) : this._backgroundColor.clone();
+    }
+
+    /**
      * How the camera clears the background before rendering.
      *
      * @remarks Equivalent to Unity's `Camera.clearFlags`.
