@@ -51,8 +51,11 @@ const HISTORY_SIZE = 240;
  *    wall-clock frame intervals. {@link getFrameStats} summarises that history
  *    with the same statistics `Benchmark` reports for a measured run
  *    (mean/median/p95/p99/min/max/stdDev), so live and benchmark numbers are
- *    directly comparable. `MemoryProfiler` and `Benchmark` both read from here
- *    rather than measuring separately.
+ *    directly comparable. `MemoryProfiler` reads its stats from here.
+ *    `Benchmark` samples its own frame intervals — it has to, since a measured
+ *    run is a fixed window rather than a rolling one — but computes them with
+ *    {@link computeStats} and takes the CPU and phase numbers from here, so the
+ *    two never disagree about what a percentile means.
  *
  * 2. **Markers (opt-in).** Wrap any region in {@link beginSample}/{@link endSample}
  *    (or {@link sample}) to attribute time to your own labels. Disabled by
@@ -108,9 +111,6 @@ export class Profiler {
     private static _historyCount: number = 0;
     private static _historyIndex: number = 0;
     private static _prevFrameTime: number = 0;
-
-    /** Scratch buffer for {@link getFrameStats} — avoids allocating per query. */
-    private static _statsScratch = new Float64Array(HISTORY_SIZE);
 
     // ==================== MARKERS ====================
 
@@ -222,9 +222,10 @@ export class Profiler {
     public static getFrameStats(): FrameTimeStats | null {
         const n = Profiler._historyCount;
         if (n === 0) return null;
-        const scratch = Profiler._statsScratch;
-        for (let i = 0; i < n; i++) scratch[i] = Profiler._history[i];
-        return Profiler.computeStats(scratch.subarray(0, n));
+        // A view, not a copy: computeStats sorts a copy of its own and never
+        // writes through what it was given. Ring order is not chronological,
+        // which none of these statistics care about.
+        return Profiler.computeStats(Profiler._history.subarray(0, n));
     }
 
     /**
