@@ -20,8 +20,8 @@ import type { GameObject } from "./GameObject.ts";
  * Equivalent to Unity's `UnityEngine.MonoBehaviour`.
  *
  * **Lifecycle order** (per Unity specification):
- * 1. `Awake()` — called once immediately when the component is created,
- *    even if the GameObject is inactive.
+ * 1. `Awake()` — called once when the component is created, or, if the
+ *    GameObject is inactive, when it is first activated.
  * 2. `OnEnable()` — called when the component becomes active
  *    (inherited from {@link Behaviour}).
  * 3. `Start()` — called once before the first `Update`, only if enabled.
@@ -63,6 +63,14 @@ export class ScriptableBehaviour extends Behaviour {
      * @internal
      */
     private _started: boolean = false;
+
+    /**
+     * Whether {@link awake} has been called. A script added to an inactive
+     * GameObject waits here until the object is activated — Unity's rule — and
+     * the flag makes the deferred call idempotent.
+     * @internal
+     */
+    private _awakeCalled: boolean = false;
 
     /**
      * Coroutine runner for this behaviour instance.
@@ -145,6 +153,15 @@ export class ScriptableBehaviour extends Behaviour {
      * **NEVER use in user-facing code.**
      */
     public override _onEnabledChanged(): void {
+        // Awake before the first onEnable, whatever did the enabling.
+        // `GameObject` wakes a whole object's deferred scripts before notifying
+        // any of them, which is the ordering Unity gives; this is the guarantee
+        // underneath it. Every route that can turn a script on ends here —
+        // setActive, a parent's propagation, `enabled = true` — so none of them
+        // can fire onEnable on a script that has never woken. `_systemAwake` is
+        // idempotent, so the two never collide.
+        if (!this._awakeCalled && this.isActiveAndEnabled) this._systemAwake();
+
         super._onEnabledChanged();
 
         if (!this.gameObject.activeInHierarchy) {
@@ -158,8 +175,10 @@ export class ScriptableBehaviour extends Behaviour {
      * Called once when the script instance is being loaded.
      *
      * Use `awake` to initialize variables or references before
-     * any other methods are called. `awake` is called even if the
-     * script/GameObject is disabled.
+     * any other methods are called. A script whose `enabled` is `false` still
+     * wakes; a script on an **inactive GameObject** does not, and waits until
+     * the object is activated — Unity's rule, so `awake` always runs shortly
+     * before the first `onEnable` rather than during a build-hidden phase.
      *
      * @remarks
      * Equivalent to Unity's `MonoBehaviour.Awake()`.
@@ -266,7 +285,38 @@ export class ScriptableBehaviour extends Behaviour {
      * Invokes the user-facing {@link awake} callback.
      */
     public _systemAwake(): void {
+        if (this._awakeCalled) return;
+        this._awakeCalled = true;
         this.awake();
+    }
+
+    /**
+     * @internal
+     * Whether {@link awake} has run. `false` on a script added to an inactive
+     * GameObject that has not been activated since.
+     */
+    public get _hasAwoken(): boolean {
+        return this._awakeCalled;
+    }
+
+    /**
+     * @internal
+     * Skips {@link onDestroy} on a script that never woke.
+     *
+     * @remarks
+     * Unity's rule: *"OnDestroy will only be called on game objects that have
+     * previously been active."* A script added to an inactive object and
+     * destroyed without ever being activated never ran `awake`, so it never set
+     * anything up and its cleanup has nothing to undo — calling it would hand
+     * user code an object in a state it has never seen. Engine-side teardown
+     * still happens; only the user callback is skipped.
+     */
+    protected override _invokeOnDestroy(): void {
+        if (!this._awakeCalled) {
+            this._coroutineRunner?.stopAllCoroutines();
+            return;
+        }
+        super._invokeOnDestroy();
     }
 
     /**

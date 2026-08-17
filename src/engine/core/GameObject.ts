@@ -172,7 +172,11 @@ export class GameObject extends EngineObject {
         // In Unity, SetActive(false) hides the entire object and children
         this.transform._internalObject3D.visible = value;
 
-        // 2. Notify components (triggers OnEnable/OnDisable transitions)
+        // 2. Awake anything that was waiting for this, then notify components
+        // (triggers OnEnable/OnDisable transitions). Awake first and for the
+        // whole object, as Unity does: a script's onEnable may look at a
+        // sibling, and finding it half-built would be worse than the deferral.
+        this._runDeferredAwakes();
         for (const component of this._components) {
             if (component instanceof Behaviour) {
                 component._onEnabledChanged();
@@ -196,7 +200,8 @@ export class GameObject extends EngineObject {
      * fires OnEnable/OnDisable on all descendant Behaviours.
      */
     public _onParentActiveStateChanged(): void {
-        // Notify this GO's components
+        // Notify this GO's components, after waking whatever was deferred.
+        this._runDeferredAwakes();
         for (const component of this._components) {
             if (component instanceof Behaviour) {
                 component._onEnabledChanged();
@@ -207,6 +212,21 @@ export class GameObject extends EngineObject {
         for (let i = 0; i < this.transform.childCount; i++) {
             const child = this.transform.getChild(i);
             child.gameObject._onParentActiveStateChanged();
+        }
+    }
+
+    /**
+     * Runs `awake` on any script that was added while this object was inactive.
+     *
+     * @remarks
+     * No-op unless the object is now active in the hierarchy, so deactivating
+     * does not wake anything, and `_systemAwake` is idempotent, so a script
+     * that has already woken is not woken again by a second activation.
+     */
+    private _runDeferredAwakes(): void {
+        if (!this.activeInHierarchy) return;
+        for (const component of this._components) {
+            if (component instanceof ScriptableBehaviour) component._systemAwake();
         }
     }
 
@@ -235,8 +255,15 @@ export class GameObject extends EngineObject {
         // Lifecycle: Awake
         // - ScriptableBehaviour (user scripts) → _systemAwake() → public awake()
         // - Built-in Behaviours (Camera, Light, etc.) → _internalInitialize() → protected onAwake()
+        // A user script added to an inactive object waits: Unity's rule is "if
+        // a GameObject is inactive during start up, Awake is not called until
+        // it is made active", so `awake` runs shortly before the first
+        // `onEnable` rather than during an assemble-hidden-then-reveal build.
+        // Built-in Behaviours initialise regardless — that is where Camera,
+        // Light and the renderers create their backing Three.js objects, and
+        // every one of them assumes it exists from the moment it is added.
         if (component instanceof ScriptableBehaviour) {
-            component._systemAwake();
+            if (this.activeInHierarchy) component._systemAwake();
         } else if (component instanceof Behaviour) {
             component._internalInitialize();
         }

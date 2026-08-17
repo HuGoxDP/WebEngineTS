@@ -271,7 +271,7 @@ export class EngineObject {
         if (this._isDestroyed) return;
 
         // Call cleanup hook
-        this.onDestroy();
+        this._invokeOnDestroy();
 
         // Mark as destroyed
         this._isDestroyed = true;
@@ -279,6 +279,17 @@ export class EngineObject {
         // Remove from registry
         EngineObject._registry.delete(this._instanceID);
         EngineObject._persistentObjects.delete(this._instanceID);
+    }
+
+    /**
+     * @internal
+     * Invokes {@link onDestroy}. A seam, not a formality: `ScriptableBehaviour`
+     * overrides it to skip the callback on a script whose `awake` never ran,
+     * which Unity also does — cleanup that pairs with initialisation must not
+     * run when the initialisation did not. Every other object destroys plainly.
+     */
+    protected _invokeOnDestroy(): void {
+        this.onDestroy();
     }
 
     /**
