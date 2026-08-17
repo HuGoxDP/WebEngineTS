@@ -21,8 +21,8 @@ all six known defects survived 1133 green tests.
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
 | 9 | Animation and Cinemachine | 17 | **17** | **done** |
-| 10 | The tail | 29 | 27 | in progress |
-| | **Total** | **175** | **174** | |
+| 10 | The tail | 29 | 29 | **done** |
+| | **Total** | **175** | **175** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -260,8 +260,8 @@ host compares against `renderer.info`, and that mismatch is what made the 2.9× 
 ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal.
 
 - `core/diagnostics/MemoryProfiler.ts` — [x] MemoryProfiler *(counter semantics; F60)*
-- `core/diagnostics/Profiler.ts` — [ ] Profiler
-- `core/diagnostics/Benchmark.ts` — [ ] Benchmark
+- `core/diagnostics/Profiler.ts` — [x] Profiler *(F73, F74)*
+- `core/diagnostics/Benchmark.ts` — [x] Benchmark *(F73)*
 - `core/serialization/SceneSerializer.ts` — [x] SceneSerializer *(F67)*
 - `core/serialization/ValueSerializer.ts` — [x] ValueSerializer *(round-trips verified)*
 - `core/serialization/Prefab.ts` — [x] Prefab *(F67)*
@@ -284,7 +284,7 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/plugins/PluginManager.ts` — [x] PluginManager *(F63)*
 - `core/plugins/Plugin.ts` — [x] Plugin *(clean)*
 
-**Findings:** F58–F72 — see [`findings.md`](findings.md)
+**Findings:** F58–F74 — see [`findings.md`](findings.md)
 
 ---
 

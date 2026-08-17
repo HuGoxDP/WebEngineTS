@@ -21,7 +21,8 @@ codebase actually produces, listed in [`method.md`](method.md).
 
 ## Progress
 
-**174 of 175 classes walked — parts 1 to 9 complete, part 10 nearly done.** Live counts are in [`checklist.md`](checklist.md#progress); the
+**175 of 175 classes walked — the walk is complete.** 74 findings: **62 closed**, 7 partly closed
+with the remainder named in their entry, and 5 still open. Every open one is listed below. Live counts are in [`checklist.md`](checklist.md#progress); the
 summary below is updated when a part changes state.
 
 | Part | Area | Classes | State |
@@ -35,7 +36,24 @@ summary below is updated when a part changes state.
 | 7 | UI controls | 18 | **done** — 5 findings, 5 addressed |
 | 8 | Math | 12 | **done** — 4 findings, 2 fixed, 2 documented |
 | 9 | Animation and Cinemachine | 17 | **done** — 6 findings, all fixed |
-| 10 | The tail | 29 | in progress — 27 walked, 15 findings |
+| 10 | The tail | 29 | **done** — 17 findings, 15 fixed |
+
+### Still open
+
+| # | What | Why it is still open |
+|---|---|---|
+| F2 | `Destroy(obj, delay)` counts wall-clock, not game time | Needs a game-time scheduler; `Time.timeScale = 0` must hold the delay |
+| F3 | `FindObjectsOfType` does not filter by active | Doc corrected; changing the semantics would move behaviour under existing scenarios |
+| F4 | `Awake` fires on `addComponent` to an inactive object | Unity defers it to activation; the deferral needs a pending queue |
+| F5 | Coroutines pause instead of stopping on deactivation | Half fixed — the remaining half is Unity's stop-on-disable |
+| F9 | `releaseSourceImage` has no upload guard | Documented; the guard needs a real GPU-upload signal, not a frame count |
+| F12 | 674 lines of non-English comments in public JSDoc | Mechanical but large; `Bounds` done, the rest is a sweep of its own |
+| F14 | `renderScene` allocates a `Color` every frame | Hot path; wants a cached instance and a check that nothing retains it |
+| F22 | One failing script stops the whole frame | Needs per-callback isolation with a policy for repeat offenders |
+| F25 | Cloning a GameObject | Refuses loudly and names `Prefab.fromGameObject().instantiate()`; a real clone waits on Stage 1 |
+| F29 | `overlapSphere` tests origins, not shapes | Needs real shape queries, which is a physics feature rather than a fix |
+| F31 | `SpringJoint` is a rigid rod | Documented as such; a real spring is a solver change |
+| F50 | Weighted tangents are stored and never applied | Documented; applying them changes the shape of authored curves |
 
 ## The loop
 

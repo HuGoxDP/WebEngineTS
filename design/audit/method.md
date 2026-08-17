@@ -365,3 +365,14 @@ review.
 every test used: all six faces really are a sixth of a cube's surface. The existing cone test
 asserted direction only, and the direction was always right. When a sampler has a parameter,
 vary the parameter — the defaults are where defects hide, not where they show.
+
+**A failing new test accuses the code. Check the test first.** The CSV column-parity test failed
+on its first run — 32 cells against 31 headers — and the exporter was right: the fixture's label
+contained a comma, the exporter quoted it correctly, and the test was splitting on commas
+naively. A false finding was one minute of confidence away. A new test has never been run before;
+the code under it has run thousands of times. Weight the suspicion accordingly.
+
+**Check the ruler, not only what it measures.** `Profiler` and `Benchmark` compute every number
+the thesis reports and were the last classes in the walk to be tested at all — 1485 tests covered
+the engine being measured and none covered the instrument. Any project with a measurement story
+has this asymmetry, because the instrument feels like infrastructure rather than behaviour.

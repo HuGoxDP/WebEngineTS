@@ -84,6 +84,8 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F70 | 10 | ScriptableObject's protected constructor made the class unusable | fixed `5ebce33` |
 | F71 | 10 | A cone emitter ignored the radius it documented | fixed `8f6fac0` |
 | F72 | 10 | Box shell emission picked faces without regard to their area | fixed `8f6fac0` |
+| F73 | 10 | The instruments producing the paper's numbers had no tests | covered `b8c62ce` |
+| F74 | 10 | Two of Profiler's own claims about itself were false | fixed `b8c62ce` |
 
 ---
 
@@ -2125,6 +2127,57 @@ with is the one where the bug is invisible.
 
 **Negative controls, one defect at a time.** Reverting the cone fails the three cone-position
 tests and nothing else; reverting the box fails the two distribution tests and nothing else.
+
+### F73. The instruments producing the paper's numbers had no tests — covered `b8c62ce`
+
+Not a defect in the code. A defect in what was being checked, and the last two classes of the
+walk were where it was worst.
+
+**What was wanted.** Confidence in the figures the thesis reports.
+
+**What was there.** `Profiler` computes every frame-time statistic in Section 5 — mean, median,
+p95, p99, min, max, standard deviation — and `Benchmark` runs the measurement and writes the CSV
+those figures are read from. Between them, **no test file existed**. 1485 tests covered the
+engine being measured and nothing covered the ruler.
+
+**What the tests assert.** Statistics against values worked out by hand: 1..100, whose mean
+(50.5), nearest-rank percentiles (50 / 95 / 99) and population standard deviation
+(`sqrt((n²-1)/12)`) are all known in closed form. The numeric-sort trap a plain
+`Array.prototype.sort` would fall into. The tail case that justifies reporting percentiles at
+all — 99 frames at 16 ms and one at 500, where the median must not move and the max must. The
+ring buffer's 240-frame cap discarding the oldest. The marker stack, including a measured body
+that throws. The run loop's frame accounting: one priming frame, then the warmup, then exactly
+the requested number of samples. `coldStart` keeping the first frame's stall rather than warming
+it away. And the CSV's column count matching its own header.
+
+**Everything passed.** That is the result worth recording: the maths behind the reported numbers
+is correct. It is now fixed in place — a change to the percentile rule cannot pass quietly, and a
+column drifting out of step with its header cannot mislabel every figure after it while the file
+still looks perfectly well-formed.
+
+**One near-miss, recorded because it is instructive.** The column-parity test failed on its first
+run: 32 cells against 31 headers. The code was right — the fixture's label was
+`"Solar System, baseline"`, correctly quoted by the exporter, and *the test* was splitting on
+commas naively. A minute more and it would have been written up as a defect in the CSV writer.
+
+---
+
+### F74. Two of `Profiler`'s own claims about itself were false — fixed `b8c62ce`
+
+Small, and worth the entry because both are the shape F71 had: a comment describing what the code
+was meant to do.
+
+**The scratch buffer.** `_statsScratch` was documented *"avoids allocating per query"*, and
+`computeStats` allocates a fresh `Float64Array` on every call regardless — so the buffer bought a
+second copy, not the absence of one. Removed; `getFrameStats` passes a view of the history
+instead. One copy where there were two, one fewer static field, and a comment that is no longer
+lying about a zero-allocation guarantee in a class whose job is not perturbing what it measures.
+
+**The docstring.** *"`MemoryProfiler` and `Benchmark` both read from here rather than measuring
+separately."* `MemoryProfiler` does. `Benchmark` does not, and cannot: a measured run is a fixed
+window rather than a rolling one, so it samples its own intervals through its own `rAF`. What it
+*does* share is `computeStats` and the CPU/phase numbers, which is the part that matters — the
+two can never disagree about what a percentile means. The docstring now says that instead.
 
 ---
 
