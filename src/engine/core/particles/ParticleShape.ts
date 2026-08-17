@@ -13,7 +13,14 @@ export class ParticleShape {
     /** The type of emitter shape. */
     public type: ParticleShapeType = ParticleShapeType.Sphere;
 
-    /** Radius (used by Sphere and Cone). */
+    /**
+     * Radius. For Sphere, the sphere's own; for Cone, its base disk.
+     *
+     * @remarks
+     * A cone emits from a disk of this radius at `y = 0`, as Unity's does. Set
+     * it to `0` for the point-source spray a cone had before, whatever this
+     * field said.
+     */
     public radius: number = 1;
 
     /** Cone half-angle in degrees (used by Cone). */
@@ -48,8 +55,9 @@ export class ParticleShape {
             }
 
             case ParticleShapeType.Cone: {
-                // Spawn at origin, direction within cone half-angle around +Y.
-                outPos.set(0, 0, 0);
+                // Direction within the cone half-angle around +Y, spawn on the
+                // base disk of `radius`. Uniform by area, so `sqrt` rather than
+                // a bare random — otherwise the centre of the disk is crowded.
                 const angleRad = (this.angle * Math.PI) / 180;
                 const theta = Math.random() * angleRad;
                 const phi = Math.random() * Math.PI * 2;
@@ -59,24 +67,35 @@ export class ParticleShape {
                     Math.cos(theta),
                     sinT * Math.sin(phi),
                 );
-                // Slight offset on the disk at radius=0 for cone base
+
+                const baseR = this.radius * Math.sqrt(Math.random());
+                const psi = Math.random() * Math.PI * 2;
+                outPos.set(baseR * Math.cos(psi), 0, baseR * Math.sin(psi));
                 break;
             }
 
             case ParticleShapeType.Box: {
                 const ex = this.boxExtents;
                 if (this.emitFromShell) {
-                    // Pick a random face, then a random point on it.
-                    const face = Math.floor(Math.random() * 6);
+                    // Pick a face weighted by its area, then a random point on
+                    // it. Picking one of six uniformly spreads particles evenly
+                    // over faces of wildly different size — a 10x1x1 box would
+                    // put a third of them on the two small caps — and a flat box
+                    // would send two thirds to faces with no area at all.
                     const a = (Math.random() * 2 - 1);
                     const b = (Math.random() * 2 - 1);
-                    switch (face) {
-                        case 0: outPos.set(+ex.x, a * ex.y, b * ex.z); break;
-                        case 1: outPos.set(-ex.x, a * ex.y, b * ex.z); break;
-                        case 2: outPos.set(a * ex.x, +ex.y, b * ex.z); break;
-                        case 3: outPos.set(a * ex.x, -ex.y, b * ex.z); break;
-                        case 4: outPos.set(a * ex.x, b * ex.y, +ex.z); break;
-                        default: outPos.set(a * ex.x, b * ex.y, -ex.z); break;
+                    const side = Math.random() < 0.5 ? 1 : -1;
+                    const wx = ex.y * ex.z;
+                    const wy = ex.x * ex.z;
+                    const wz = ex.x * ex.y;
+                    let pick = Math.random() * (wx + wy + wz);
+
+                    if (pick < wx) {
+                        outPos.set(side * ex.x, a * ex.y, b * ex.z);
+                    } else if ((pick -= wx) < wy) {
+                        outPos.set(a * ex.x, side * ex.y, b * ex.z);
+                    } else {
+                        outPos.set(a * ex.x, b * ex.y, side * ex.z);
                     }
                 } else {
                     outPos.set(
