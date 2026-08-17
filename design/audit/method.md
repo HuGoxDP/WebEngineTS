@@ -337,3 +337,20 @@ headline finding — quoted in `CLAUDE.md` as the prerequisite for the editor �
 result that had stopped being true. Documents have no tests, so nothing fails when the engine
 moves under them. Any plan that opens with "a grep shows…" is worth re-running before its next
 stage is scheduled, and the re-run costs one command.
+
+**Ask what the checker actually covers.** F69: `npm run typecheck` had been green all audit, and
+it was green over `src/engine` alone — `tsconfig.json` excludes `**/*.test.ts`, and Vitest's
+esbuild strips types without reading them. Every test written during this audit had compiled
+unchecked. A green check is a claim about a file set; read the config's `include`/`exclude`
+before trusting the green.
+
+**A class can be clean at runtime and broken for every caller.** F70 sat in a class an earlier
+part had walked and marked clean, on real evidence: `create` called, a round-trip verified. The
+defect was a `protected` modifier — erased before any of that ran, and fatal to every TypeScript
+caller. Runtime tests cannot see the type system. Where a class's usage is *documented*, compile
+the documented example rather than a paraphrase of it.
+
+**A passing test can be asserting nothing.** Two tests wrote to properties the engine does not
+have (`KeyCode.W`, `CanvasScaler.scaleMode`) and passed anyway — one because an undefined key
+round-trips like any other, one because the mode it meant to select was already the default.
+Neither was wrong today. Both would have gone quiet, not red, the moment a default moved.

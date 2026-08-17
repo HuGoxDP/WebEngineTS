@@ -21,8 +21,8 @@ all six known defects survived 1133 green tests.
 | 7 | UI controls | 18 | **18** | **done** |
 | 8 | Math | 12 | **12** | **done** |
 | 9 | Animation and Cinemachine | 17 | **17** | **done** |
-| 10 | The tail | 29 | 21 | in progress |
-| | **Total** | **175** | **168** | |
+| 10 | The tail | 29 | 25 | in progress |
+| | **Total** | **175** | **172** | |
 
 **How to mark.** Tick the class, update the part's `Done` count and `Status`
 (`not started` → `in progress` → `done`). Defects go in [`findings.md`](findings.md), ideas that
@@ -48,7 +48,7 @@ accessor symmetry (`transform.position.x = 1`), registry cleanup on destroy.
 - `core/Time.ts` — [x] Time *(clocks, fixed phase; F6)*
 - `core/Input.ts` — [x] Input *(per-frame edges, focus loss; F8)*
 - `core/RenderSettings.ts` — [x] RenderSettings *(symmetric accessors, dirty flags — clean)*
-- `core/ScriptableObject.ts` — [x] ScriptableObject *(create, JSON round-trip — clean)*
+- `core/ScriptableObject.ts` — [x] ScriptableObject *(F70 — the earlier "clean" was runtime-only)*
 - `core/ScriptableBehaviour.ts` — [x] ScriptableBehaviour *(coroutine ownership; F5)*
 - `core/pool/ObjectPool.ts` — [x] ObjectPool *(double-release guarded, Unity parity — clean)*
 - `core/Coroutine.ts` — [x] Coroutine · [x] CoroutineRunner · [x] WaitForSeconds ·
@@ -265,26 +265,26 @@ ambiguous. Also serializer round-trips for every `FieldType`, and audio disposal
 - `core/serialization/SceneSerializer.ts` — [x] SceneSerializer *(F67)*
 - `core/serialization/ValueSerializer.ts` — [x] ValueSerializer *(round-trips verified)*
 - `core/serialization/Prefab.ts` — [x] Prefab *(F67)*
-- `core/serialization/PrefabOverride.ts` — [ ] PrefabDiff
+- `core/serialization/PrefabOverride.ts` — [x] PrefabDiff *(diff/apply round-trip; structural changes excluded by design — clean)*
 - `core/reflection/TypeRegistry.ts` — [x] TypeRegistry *(F65)*
 - `core/audio/AudioManager.ts` — [x] AudioManager *(F66)*
 - `core/audio/AudioSource.ts` — [x] AudioSource *(F58)*
 - `core/audio/AudioListener.ts` — [x] AudioListener *(clean)*
-- `core/audio/AudioClip.ts` — [ ] AudioClip
+- `core/audio/AudioClip.ts` — [x] AudioClip *(readonly wrapper over AudioBuffer — clean)*
 - `core/particles/ParticleSystem.ts` — [x] ParticleSystem *(teardown verified)* · [ ] ParticleBurst
 - `core/particles/ParticleShape.ts` — [ ] ParticleShape
 - `core/particles/Gradient.ts` — [x] Gradient *(F59)* · [x] GradientColorKey · [x] GradientAlphaKey
 - `core/postprocessing/PostProcessing.ts` — [x] PostProcessing *(F61)*
 - `core/postprocessing/PostEffect.ts` — [x] PostEffect *(clean)*
-- `core/postprocessing/BloomEffect.ts` — [ ] BloomEffect
-- `core/postprocessing/VignetteEffect.ts` — [ ] VignetteEffect
+- `core/postprocessing/BloomEffect.ts` — [x] BloomEffect *(THREE types confined to @internal pass hooks — clean)*
+- `core/postprocessing/VignetteEffect.ts` — [x] VignetteEffect *(F68)*
 - `core/input/Touch.ts` — [x] Touch *(F62)* · [x] TouchInfo
 - `core/input/Gamepad.ts` — [x] Gamepad *(polled, no listeners)* · [x] GamepadState
 - `core/input/DeviceSensors.ts` — [x] DeviceSensors *(listeners balanced)*
 - `core/plugins/PluginManager.ts` — [x] PluginManager *(F63)*
 - `core/plugins/Plugin.ts` — [x] Plugin *(clean)*
 
-**Findings:** F58–F67 — see [`findings.md`](findings.md)
+**Findings:** F58–F70 — see [`findings.md`](findings.md)
 
 ---
 

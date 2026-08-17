@@ -79,6 +79,9 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F65 | 10 | `TypeRegistry._clear` emptied one of its two maps | fixed `5c38e1f` |
 | F66 | 10 | Disposing an Application left the AudioContext open | fixed `463d7be` |
 | F67 | 10 | The parity plan's headline finding no longer described the engine | corrected `c679a31`, `318ea1f` |
+| F68 | 10 | The vignette's colour was a THREE.Color on a public property | fixed `f1bbe5c` |
+| F69 | 10 | The test suite was never type-checked | fixed `6fbed65` |
+| F70 | 10 | ScriptableObject's protected constructor made the class unusable | fixed `5ebce33` |
 
 ---
 
@@ -1972,6 +1975,102 @@ the two paragraphs is the record of what the engine gained since the plan was wr
 round-trips a hierarchy through the serializer — a working deep copy for whatever is decorated.
 `EngineObject.Instantiate`'s refusal now names it instead of suggesting two things that do not
 duplicate anything. A refusal that names the working route is an answer.
+
+### F68. The vignette's colour was a `THREE.Color` on a public property — fixed `f1bbe5c`
+
+**What was wanted.** `VignetteEffect.color`, set from a scenario, blends the frame's corners
+toward a colour.
+
+**What happened.** The field was declared `THREE.Color`. Public, documented, on a class exported
+from the barrel — the rule `CLAUDE.md` calls MOST IMPORTANT, broken in the one place a reader
+would look for how to follow it. `PostEffect`'s own class docstring, two files away, promises the
+opposite: *"subclasses expose engine-friendly parameters (number, Color)"*. It means the engine's
+`Color`.
+
+**Why it matters, beyond the rule.** A scenario author imports only from `"WebEngineTS"`, so the
+only `Color` they can construct is the engine's, and assigning it to a `THREE.Color` field does
+not compile. The constructor took `intensity` and `smoothness` and **not** colour, so the field
+was the only route to it — and the field was the one that rejected everything they had. The knob
+was documented and unreachable.
+
+**The fix.** `color: Color`, the constructor takes and copies one, and `_updatePass` converts via
+`Color._copyToThree`. `THREE.Color` survives only inside the module-level shader definition,
+which is internal and permitted.
+
+**Negative control.** Reverting the field: 7 of the 8 new tests fail.
+
+**What it says about the rule.** Nothing checks it. The emitted `dist/WebEngineTS.d.ts` is the
+public API by definition, and `THREE.Color` was sitting in it on line 9925 with a doc comment
+above it. See F69 — the same absence of checking, one layer down.
+
+---
+
+### F69. The test suite was never type-checked — fixed `6fbed65`
+
+**What was wanted.** `npm run typecheck` says the repository compiles.
+
+**What happened.** It says `src/engine` compiles. `tsconfig.json` excludes `**/*.test.ts`,
+`tsconfig.build.json` narrows to `src/engine`, and Vitest transpiles through esbuild, which
+strips types without reading them. Eighty-odd files and roughly 1500 assertions had compiled
+unchecked since the suite began — including every test written during this audit.
+
+**Measured.** One config, one run, **25 errors**. Two kinds mattered:
+
+- **Tests writing to properties that do not exist.** `KeyCode.W` — the enum names it `KeyW`, so
+  `press(KeyCode.W)` pressed `undefined`. `CanvasScaler.scaleMode` — it is `uiScaleMode`, so the
+  mode the test meant to select was never selected.
+- **Eight errors from one engine defect** no runtime test could see: F70 below.
+
+**The honest reading of the first kind.** Both tests still pass. `undefined` round-trips through
+`Input`'s held-state map like any other key, and the scale mode the test wanted is already the
+default, so it asserted the right thing by luck. Neither is a bug today. But a test that passes
+because its assignment lands nowhere stops testing the moment a default moves, and it goes quiet
+rather than red when it does. *That* is the defect — not a wrong answer, a missing question.
+
+**The rest were ordinary**: missing `override` modifiers, `Array.prototype.at` (ES2022; the
+engine's `lib` is ES2021 and its own sources never use it), a `GameObject` from a dynamic import
+used as a type, two `tag` fields shadowing an accessor on `ScriptableBehaviour`, and a base
+`Texture` standing in for a `Texture2D` field — that one keeps the stand-in, since `Texture2D`'s
+constructor needs a DOM, and now says so with a cast instead of by accident.
+
+**The fix.** `tsconfig.test.json` covering `src` + `tests`; `npm run typecheck` runs both configs.
+
+---
+
+### F70. `ScriptableObject`'s protected constructor made the class unusable — fixed `5ebce33`
+
+Found by F69, within a minute of turning the check on.
+
+**What was wanted.** The class docstring's own example:
+
+```ts
+@Serializable({ typeName: "ExperimentSettings" })
+class ExperimentSettings extends ScriptableObject { ... }
+const settings = ScriptableObject.create(ExperimentSettings, "Earth");
+```
+
+**What happened.** Both lines were type errors. A protected constructor is not assignable to
+`new () => T`, which is what `create` asks for; and a class decorator must return a constructor
+assignable back to the class it decorated, so **`@Serializable` could not be applied to any
+`ScriptableObject` subclass at all** — on the class whose entire purpose is to be serialized.
+`new MySettings()`, which the same docstring promises works, was rejected too.
+
+**Why nobody noticed.** Everything works at runtime; `protected` is erased. The audit had already
+walked this class in an earlier part and marked it *clean* on exactly that evidence — `create`
+called, a JSON round-trip verified, all in JavaScript. The defect existed only in the type
+system, and nothing type-checked the file exercising it.
+
+**What the modifier bought.** Nothing. `protected` and `abstract` are both erased, so neither
+stops `new ScriptableObject()` in JavaScript; `abstract` stops it in TypeScript, which is the
+only place either exists, and it was already doing so. What guards at runtime is unchanged: an
+undecorated class refuses to serialize.
+
+**The fix.** The constructor is public. The new test file is the docstring's example, run — and
+now compiled.
+
+**Where it would have surfaced.** In a consumer. Scenario sources *are* type-checked, so the
+first author to follow the documentation would have hit it; the engine's own tests were the one
+place it could hide.
 
 ---
 
