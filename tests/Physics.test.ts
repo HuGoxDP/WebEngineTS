@@ -411,14 +411,22 @@ describe("Joints", () => {
         joint.distance = -5;
         expect(joint.distance).toBe(0);
 
-        expect(constraintCount()).toBe(1);
+        // A spring is a force, not a constraint, so it adds nothing to the
+        // world's constraint list — `isActive` is what says it is attached.
+        expect(joint.isActive).toBe(true);
+        expect(constraintCount()).toBe(0);
     });
 
     test("several joints coexist", () => {
-        makeBody("A").addComponent(FixedJoint);
-        makeBody("B").addComponent(HingeJoint);
-        makeBody("C").addComponent(SpringJoint);
+        const a = makeBody("A").addComponent(FixedJoint);
+        const b = makeBody("B").addComponent(HingeJoint);
+        const c = makeBody("C").addComponent(SpringJoint);
 
-        expect(constraintCount()).toBe(3);
+        // Two constraints and a spring: all three joints are attached, but only
+        // the two that the solver has to satisfy are in its list.
+        expect(a.isActive).toBe(true);
+        expect(b.isActive).toBe(true);
+        expect(c.isActive).toBe(true);
+        expect(constraintCount()).toBe(2);
     });
 });

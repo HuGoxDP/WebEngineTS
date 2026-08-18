@@ -6,6 +6,7 @@ import { Ray } from "../core/math/Ray";
 import { Vector3 } from "../core/math/Vector3";
 import { RaycastHit } from "./RaycastHit";
 import { Collider } from "./Collider";
+import { SpringJoint } from "./Joint";
 import { PhysicsWorld } from "./PhysicsWorld";
 import { Collision, ContactPoint } from "./Collision";
 import { ScriptableBehaviour } from "../core/ScriptableBehaviour";
@@ -125,6 +126,11 @@ export class Physics {
             if (rb.isKinematic) rb._syncTransformToBody();
             else rb._applyGravityCompensation();
         }
+
+        // 1a. Springs are forces, not constraints, so they are applied rather
+        //     than solved — and applied here, because cannon clears forces at
+        //     the end of every step.
+        SpringJoint._applyAll();
 
         // 2. Step physics world
         pw.step(dt);
