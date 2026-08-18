@@ -7,31 +7,31 @@ import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /**
- * Режим вирівнювання лінії.
+ * How a line orients itself.
  */
 export enum LineAlignment {
-    /** Лінія повернута до камери (billboard) */
+    /** The line faces the camera — a billboard. */
     View = 0,
-    /** Лінія в локальному просторі Transform */
+    /** The line stays in its Transform's local space. */
     TransformZ = 1
 }
 
 /**
- * Режим текстурування лінії.
+ * How a texture is mapped along a line.
  */
 export enum LineTextureMode {
-    /** Текстура розтягується по всій лінії */
+    /** Stretched once over the whole line. */
     Stretch = 0,
-    /** Текстура повторюється по довжині */
+    /** Repeated along the line's length. */
     Tile = 1,
-    /** Текстура розподіляється по довжині на кожен сегмент */
+    /** Distributed across the line, one span per segment. */
     DistributePerSegment = 2,
-    /** Текстура повторюється з відступами */
+    /** Repeated per segment, with spacing. */
     RepeatPerSegment = 3
 }
 
 /**
- * Ключовий кадр для Gradient (колір + час).
+ * A gradient key — a colour at a position along the line.
  */
 export interface GradientColorKey {
     color: Color;
@@ -39,7 +39,7 @@ export interface GradientColorKey {
 }
 
 /**
- * Ключовий кадр для AnimationCurve (значення + час).
+ * A curve key — a value at a position along the line.
  */
 export interface CurveKey {
     value: number;
@@ -47,26 +47,26 @@ export interface CurveKey {
 }
 
 /**
- * Компонент LineRenderer - малювання ліній у 3D просторі.
- * Повна імітація Unity LineRenderer.
+ * Draws a line through a set of points in 3D.
+ * Mirrors Unity's `LineRenderer`.
  * 
- * Дозволяє малювати лінії з:
- * - Градієнтом кольору
- * - Зміною ширини
- * - Різними режимами вирівнювання
+ * Supports:
+ * - a colour gradient,
+ * - a width that varies along the line,
+ * - several alignment modes.
  * 
  * @example
  * ```typescript
  * const lineObj = new GameObject("Line");
  * const line = lineObj.addComponent(LineRenderer);
  * 
- * // Встановлюємо точки
+ * // Set the points
  * line.positionCount = 3;
  * line.setPosition(0, new Vector3(0, 0, 0));
  * line.setPosition(1, new Vector3(5, 2, 0));
  * line.setPosition(2, new Vector3(10, 0, 0));
  * 
- * // Налаштовуємо вигляд
+ * // Configure the look
  * line.startWidth = 0.5;
  * line.endWidth = 0.1;
  * line.startColor = Color.red;
@@ -76,54 +76,54 @@ export interface CurveKey {
 @Serializable({ typeName: "LineRenderer", category: "Rendering" })
 export class LineRenderer extends Renderer {
     /**
-     * @internal - НЕ використовувати напряму!
-     * THREE.js лінія
+     * @internal Not for use outside the engine.
+     * The backing Three.js line.
      */
     private _threeLine: THREE.Line | null = null;
     
-    /** Масив точок лінії */
+    /** The points the line passes through. */
     private _positions: Vector3[] = [];
     
-    /** Ширина на початку лінії */
+    /** Width at the start of the line. */
     private _startWidth: number = 1.0;
     
-    /** Ширина в кінці лінії */
+    /** Width at the end of the line. */
     private _endWidth: number = 1.0;
     
-    /** Колір на початку лінії */
+    /** Colour at the start of the line. */
     private _startColor: Color = Color.white;
     
-    /** Колір в кінці лінії */
+    /** Colour at the end of the line. */
     private _endColor: Color = Color.white;
     
-    /** Gradient кольорів (для складних градієнтів) */
+    /** Colour gradient, for anything more than a two-colour blend. */
     private _colorGradient: GradientColorKey[] = [];
     
-    /** Крива ширини (для складних змін ширини) */
+    /** Width curve, for anything more than a start-to-end taper. */
     private _widthCurve: CurveKey[] = [];
     
-    /** Множник ширини */
+    /** Multiplier applied to every width value. */
     private _widthMultiplier: number = 1.0;
     
-    /** Чи використовувати світові координати */
+    /** Whether the points are in world space. */
     private _useWorldSpace: boolean = true;
     
-    /** Чи замикати лінію */
+    /** Whether the line closes back on itself. */
     private _loop: boolean = false;
     
-    /** Кількість кутових сегментів */
+    /** Vertices used to round each corner. */
     private _numCornerVertices: number = 0;
     
-    /** Кількість сегментів на кінцях */
+    /** Vertices used to cap each end. */
     private _numCapVertices: number = 0;
     
-    /** Режим вирівнювання */
+    /** Alignment mode. */
     private _alignment: LineAlignment = LineAlignment.View;
     
-    /** Режим текстурування */
+    /** Texture mode. */
     private _textureMode: LineTextureMode = LineTextureMode.Stretch;
     
-    /** Прапор оновлення */
+    /** Set when the geometry needs rebuilding. */
     private _needsUpdate: boolean = true;
 
     constructor(gameObject: GameObject) {
@@ -134,7 +134,7 @@ export class LineRenderer extends Renderer {
     // === Lifecycle ===
 
     protected override onAwake(): void {
-        // Створюємо THREE.js лінію
+        // Build the backing Three.js line.
         const geometry = new THREE.BufferGeometry();
         
         const material = new THREE.LineBasicMaterial({ 
@@ -145,7 +145,7 @@ export class LineRenderer extends Renderer {
         this._threeLine = new THREE.Line(geometry, material);
        // this._threeObject = this._threeLine;
         
-        // Додаємо до сцени через Transform
+        // Attach it to the scene through the Transform.
         if (this.gameObject?.transform._internalObject3D) {
             this.gameObject.transform._internalObject3D.add(this._threeLine);
         }
@@ -183,10 +183,10 @@ export class LineRenderer extends Renderer {
         super.onDestroy();
     }
 
-    // === Властивості - Кількість точок ===
+    // === Properties — point count ===
 
     /**
-     * Кількість точок у лінії.
+     * How many points the line has.
      */
     public get positionCount(): number {
         return this._positions.length;
@@ -196,22 +196,22 @@ export class LineRenderer extends Renderer {
         const oldCount = this._positions.length;
         
         if (value > oldCount) {
-            // Додаємо нові точки (з нульовими координатами)
+            // Grow: new points start at the origin.
             for (let i = oldCount; i < value; i++) {
                 this._positions.push(Vector3.zero);
             }
         } else if (value < oldCount) {
-            // Видаляємо зайві точки
+            // Shrink: drop the extra points.
             this._positions.length = value;
         }
         
         this._needsUpdate = true;
     }
 
-    // === Властивості - Ширина ===
+    // === Properties — width ===
 
     /**
-     * Ширина лінії на початку.
+     * The line's width at its start.
      */
     @SerializedField()
     public get startWidth(): number {
@@ -224,7 +224,7 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Ширина лінії в кінці.
+     * The line's width at its end.
      */
     @SerializedField()
     public get endWidth(): number {
@@ -237,7 +237,7 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Множник ширини (застосовується до всіх значень ширини).
+     * Multiplier applied to every width value.
      */
     @SerializedField()
     public get widthMultiplier(): number {
@@ -249,10 +249,10 @@ export class LineRenderer extends Renderer {
         this._needsUpdate = true;
     }
 
-    // === Властивості - Колір ===
+    // === Properties — colour ===
 
     /**
-     * Колір на початку лінії.
+     * The line's colour at its start.
      */
     @SerializedField({ type: FieldType.Color })
     public get startColor(): Color {
@@ -265,7 +265,7 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Колір в кінці лінії.
+     * The line's colour at its end.
      */
     @SerializedField({ type: FieldType.Color })
     public get endColor(): Color {
@@ -277,12 +277,12 @@ export class LineRenderer extends Renderer {
         this._needsUpdate = true;
     }
 
-    // === Властивості - Налаштування ===
+    // === Properties — settings ===
 
     /**
-     * Чи використовувати світові координати для точок.
-     * Якщо true - точки в світовому просторі.
-     * Якщо false - точки відносно Transform.
+     * Whether the points are in world space.
+     * `true` — the points are world-space positions.
+     * `false` — the points are relative to the Transform.
      */
     @SerializedField()
     public get useWorldSpace(): boolean {
@@ -295,7 +295,7 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Чи замикати лінію (з'єднати останню точку з першою).
+     * Whether to join the last point back to the first.
      */
     @SerializedField()
     public get loop(): boolean {
@@ -308,7 +308,7 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Режим вирівнювання лінії.
+     * How a line orients itself.
      */
     @SerializedField({ type: FieldType.Enum })
     public get alignment(): LineAlignment {
@@ -321,7 +321,7 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Режим текстурування.
+     * How a texture is mapped along the line.
      */
     @SerializedField({ type: FieldType.Enum })
     public get textureMode(): LineTextureMode {
@@ -334,7 +334,7 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Кількість вершин для згладжування кутів.
+     * Vertices used to round each corner.
      */
     @SerializedField()
     public get numCornerVertices(): number {
@@ -347,7 +347,7 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Кількість вершин для закінчень лінії.
+     * Vertices used to cap each end.
      */
     @SerializedField()
     public get numCapVertices(): number {
@@ -359,12 +359,12 @@ export class LineRenderer extends Renderer {
         this._needsUpdate = true;
     }
 
-    // === Методи - Позиції ===
+    // === Methods — positions ===
 
     /**
-     * Отримати позицію точки за індексом.
-     * @param index Індекс точки
-     * @returns Позиція точки
+     * Reads one point.
+     * @param index — which point.
+     * @returns the point's position.
      */
     public getPosition(index: number): Vector3 {
         if (index < 0 || index >= this._positions.length) {
@@ -375,9 +375,9 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Встановити позицію точки за індексом.
-     * @param index Індекс точки
-     * @param position Нова позиція
+     * Writes one point.
+     * @param index — which point.
+     * @param position — the new position.
      */
     public setPosition(index: number, position: Vector3): void {
         if (index < 0 || index >= this._positions.length) {
@@ -387,7 +387,7 @@ export class LineRenderer extends Renderer {
         this._positions[index] = position.clone();
         this._needsUpdate = true;
         
-        // Оновлюємо лінію одразу
+        // Rebuild straight away.
         this.updateLine();
     }
 
@@ -410,61 +410,61 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Отримати всі позиції точок.
-     * @returns Масив позицій
+     * Reads every point.
+     * @returns the positions, in order.
      */
     public getPositions(): Vector3[] {
         return this._positions.map(p => p.clone());
     }
 
     /**
-     * Встановити всі позиції точок.
-     * @param positions Масив позицій
+     * Replaces every point.
+     * @param positions — the new positions, in order.
      */
     public setPositions(positions: Vector3[]): void {
         this._positions = positions.map(p => p.clone());
         this._needsUpdate = true;
         
-        // Оновлюємо лінію одразу
+        // Rebuild straight away.
         this.updateLine();
     }
 
-    // === Методи - Gradient та Curve ===
+    // === Methods — gradient and curve ===
 
     /**
-     * Встановити градієнт кольорів.
-     * @param keys Масив ключових кадрів (color + time)
+     * Sets the colour gradient.
+     * @param keys — colour keys, each with a position.
      */
     public setColorGradient(keys: GradientColorKey[]): void {
         this._colorGradient = keys.map(k => ({
             color: k.color.clone(),
             time: Math.max(0, Math.min(1, k.time))
         }));
-        // Сортуємо за часом
+        // Keys must be in order along the line.
         this._colorGradient.sort((a, b) => a.time - b.time);
         this._needsUpdate = true;
     }
 
     /**
-     * Встановити криву ширини.
-     * @param keys Масив ключових кадрів (value + time)
+     * Sets the width curve.
+     * @param keys — width keys, each with a position.
      */
     public setWidthCurve(keys: CurveKey[]): void {
         this._widthCurve = keys.map(k => ({
             value: k.value,
             time: Math.max(0, Math.min(1, k.time))
         }));
-        // Сортуємо за часом
+        // Keys must be in order along the line.
         this._widthCurve.sort((a, b) => a.time - b.time);
         this._needsUpdate = true;
     }
 
-    // === Методи - Спрощене API ===
+    // === Methods — shorthand ===
 
     /**
-     * Швидко створити лінію з двох точок.
-     * @param start Початкова точка
-     * @param end Кінцева точка
+     * Sets the line to a single segment.
+     * @param start — the first point.
+     * @param end — the second point.
      */
     public setLine(start: Vector3, end: Vector3): void {
         this._positions = [start.clone(), end.clone()];
@@ -472,17 +472,17 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Очистити всі точки.
+     * Removes every point.
      */
     public clear(): void {
         this._positions = [];
         this._needsUpdate = true;
     }
 
-    // === Внутрішні методи ===
+    // === Internals ===
 
     /**
-     * Оновити THREE.js геометрію лінії.
+     * Rebuilds the backing Three.js geometry.
      */
     private updateLine(): void {
         if (!this._threeLine) {
@@ -496,7 +496,7 @@ export class LineRenderer extends Renderer {
 
         this._threeLine.visible = this.enabled;
 
-        // Створюємо масив вершин
+        // Build the vertex array.
         const vertices: number[] = [];
 
         for (let i = 0; i < this._positions.length; i++) {
@@ -504,18 +504,18 @@ export class LineRenderer extends Renderer {
             vertices.push(pos.x, pos.y, pos.z);
         }
         
-        // Для loop - додаємо першу точку в кінець
+        // A closed line repeats its first point at the end.
         if (this._loop && this._positions.length > 0) {
             const firstPos = this._positions[0];
             vertices.push(firstPos.x, firstPos.y, firstPos.z);
         }
 
-        // Оновлюємо геометрію
+        // Hand the vertices to the geometry.
         const geometry = this._threeLine.geometry as THREE.BufferGeometry;
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
         geometry.computeBoundingSphere();
 
-        // Встановлюємо колір матеріалу
+        // Apply the material colour.
         const material = this._threeLine.material as THREE.LineBasicMaterial;
         material.color.setRGB(this._startColor.r, this._startColor.g, this._startColor.b);
         material.needsUpdate = true;
@@ -524,22 +524,22 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Отримати колір в точці t (0-1).
-     * @internal Зарезервовано для градієнтів
+     * The colour at position `t` along the line, 0–1.
+     * @internal Reserved for gradient support.
      */
-    // @ts-ignore - буде використано коли додамо градієнти
+    // @ts-ignore — unused until gradients are wired up.
     private getColorAtT(t: number): Color {
-        // Якщо є градієнт - використовуємо його
+        // Prefer the gradient when one is set.
         if (this._colorGradient.length >= 2) {
             return this.sampleGradient(t);
         }
         
-        // Інакше - лінійна інтерполяція між startColor та endColor
+        // Otherwise blend from startColor to endColor.
         return this._startColor.clone().lerp(this._endColor, t);
     }
 
     /**
-     * Вибірка кольору з градієнта.
+     * Samples the gradient.
      */
     private sampleGradient(t: number): Color {
         const keys = this._colorGradient;
@@ -549,7 +549,7 @@ export class LineRenderer extends Renderer {
         if (t <= keys[0].time) return keys[0].color.clone();
         if (t >= keys[keys.length - 1].time) return keys[keys.length - 1].color.clone();
 
-        // Знаходимо два ключі між якими знаходиться t
+        // Find the two keys `t` falls between.
         for (let i = 0; i < keys.length - 1; i++) {
             if (t >= keys[i].time && t <= keys[i + 1].time) {
                 const localT = (t - keys[i].time) / (keys[i + 1].time - keys[i].time);
@@ -561,7 +561,7 @@ export class LineRenderer extends Renderer {
     }
 
     /**
-     * Оновлення (викликається кожен кадр якщо потрібно).
+     * Per-frame update, when the line is dirty.
      */
     public _systemLateUpdate(): void {
         if (this._needsUpdate) {
@@ -569,7 +569,7 @@ export class LineRenderer extends Renderer {
         }
     }
 
-    // === Реалізація абстрактних методів Renderer ===
+    // === Renderer's abstract members ===
 
   /*  protected override updateMaterial(): void {
         if (!this._threeLine) return;
@@ -577,8 +577,9 @@ export class LineRenderer extends Renderer {
        // const mat = this._materialInstance || this._sharedMaterial;
         
         if (mat) {
-            // Для лінії використовуємо LineBasicMaterial
-            // TODO: конвертувати Material в LineBasicMaterial
+            // A line draws with a LineBasicMaterial.
+            // TODO: convert the engine Material into a LineBasicMaterial —
+            // colour, texture and blending are dropped until that exists.
         }
     }*/
 

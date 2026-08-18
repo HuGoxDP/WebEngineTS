@@ -1,36 +1,36 @@
 /**
- * Всі перелічення (Enums) для системи рендерингу.
- * Створено для використання в різних компонентах та класах.
+ * Every enum the rendering system uses.
+ * Collected here because they are shared across components and classes.
  */
 
 // ==================== MESH ====================
 
 /**
- * Топологія меша (тип примітивів).
+ * Mesh topology — what kind of primitive the indices describe.
  */
 export enum MeshTopology {
-    Triangles = 0,    // Стандартні трикутники (3 вершини на примітив)
-    Quads = 1,        // Чотирикутники (4 вершини на примітив)
-    Lines = 2,        // Лінії (2 вершини на примітив)
-    LineStrip = 3,    // Зв'язані лінії
-    Points = 4        // Точки (1 вершина на примітив)
+    Triangles = 0,    // Triangles — 3 vertices per primitive.
+    Quads = 1,        // Quads — 4 vertices per primitive.
+    Lines = 2,        // Lines — 2 vertices per primitive.
+    LineStrip = 3,    // A connected run of lines.
+    Points = 4        // Points — 1 vertex per primitive.
 }
 
 /**
- * Формат індексів меша.
+ * Mesh index format.
  */
 export enum IndexFormat {
-    UInt16 = 0,  // 16-bit індекси (до 65,535 вершин)
-    UInt32 = 1   // 32-bit індекси (до 4,294,967,295 вершин)
+    UInt16 = 0,  // 16-bit indices — up to 65,535 vertices.
+    UInt32 = 1   // 32-bit indices — up to 4,294,967,295 vertices.
 }
 
 // ==================== TEXTURE ====================
 
 /**
- * Формат текстури (кольоровий формат).
+ * Texture colour format.
  */
 export enum TextureFormat {
-    RGBA32 = 0,      // 32-bit RGBA (8 біт на канал)
+    RGBA32 = 0,      // 32-bit RGBA — 8 bits per channel.
     RGB24 = 1,       // 24-bit RGB
     Alpha8 = 2,      // 8-bit alpha
     ARGB32 = 3,      // 32-bit ARGB
@@ -42,7 +42,7 @@ export enum TextureFormat {
 }
 
 /**
- * Формат render texture.
+ * Render-texture format.
  */
 export enum RenderTextureFormat {
     ARGB32 = 0,
@@ -57,36 +57,36 @@ export enum RenderTextureFormat {
 }
 
 /**
- * Грань кубічної текстури.
+ * A face of a cubemap.
  */
 export enum CubemapFace {
-    PositiveX = 0,  // Права грань
-    NegativeX = 1,  // Ліва грань
-    PositiveY = 2,  // Верхня грань
-    NegativeY = 3,  // Нижня грань
-    PositiveZ = 4,  // Передня грань
-    NegativeZ = 5   // Задня грань
+    PositiveX = 0,  // Right.
+    NegativeX = 1,  // Left.
+    PositiveY = 2,  // Top.
+    NegativeY = 3,  // Bottom.
+    PositiveZ = 4,  // Front.
+    NegativeZ = 5   // Back.
 }
 
 // ==================== MATERIAL ====================
 
 /**
- * Черга рендерингу (визначає порядок відображення).
+ * Render queue — the order things are drawn in.
  */
 export enum RenderQueue {
-    Background = 1000,      // Фон (skybox)
-    Geometry = 2000,        // Звичайна геометрія (opaque)
-    AlphaTest = 2450,       // Геометрія з alpha cutoff
-    Transparent = 3000,     // Прозорі об'єкти
-    Overlay = 4000          // UI та overlay елементи
+    Background = 1000,      // Background, such as a skybox.
+    Geometry = 2000,        // Ordinary opaque geometry.
+    AlphaTest = 2450,       // Geometry with an alpha cutoff.
+    Transparent = 3000,     // Transparent objects.
+    Overlay = 4000          // UI and overlays.
 }
 
 /**
- * Режим рендерингу матеріалу.
+ * How a material is rendered.
  */
 export enum MaterialRenderMode {
-    Opaque = 0,         // Непрозорий
-    Cutout = 1,         // Alpha cutoff (дискардить пікселі < threshold)
+    Opaque = 0,         // Fully opaque.
+    Cutout = 1,         // Alpha cutoff — pixels below the threshold are discarded.
     Fade = 2,           // Fade transparency (alpha blending, z-write off)
     Transparent = 3     // Transparent (alpha blending, z-write on)
 }
@@ -94,100 +94,100 @@ export enum MaterialRenderMode {
 // ==================== RENDERER ====================
 
 /**
- * Режим відкидання тіней.
+ * Whether and how a renderer casts shadows.
  */
 export enum ShadowCastingMode {
-    Off = 0,           // Не кидає тіні
-    On = 1,            // Кидає тіні
-    TwoSided = 2,      // Двосторонні тіні (обидві сторони полігонів)
-    ShadowsOnly = 3    // Тільки тіні (сам об'єкт невидимий, але тінь є)
+    Off = 0,           // Casts no shadow.
+    On = 1,            // Casts a shadow.
+    TwoSided = 2,      // Casts from both sides of each polygon.
+    ShadowsOnly = 3    // Casts a shadow but is not drawn itself.
 }
 
 /**
- * Використання light probes.
+ * How a renderer samples light probes.
  */
 export enum LightProbeUsage {
-    Off = 0,                // Не використовувати light probes
-    BlendProbes = 1,        // Змішувати найближчі probes
-    UseProxyVolume = 2,     // Використовувати proxy volume
-    CustomProvided = 3      // Користувацькі probes
+    Off = 0,                // No light probes.
+    BlendProbes = 1,        // Blend the nearest probes.
+    UseProxyVolume = 2,     // Use a proxy volume.
+    CustomProvided = 3      // Probe data supplied by the caller.
 }
 
 /**
- * Використання reflection probes.
+ * How a renderer samples reflection probes.
  */
 export enum ReflectionProbeUsage {
-    Off = 0,           // Не використовувати reflection probes
-    BlendProbes = 1,   // Змішувати найближчі probes
-    Simple = 2         // Використовувати найближчий probe
+    Off = 0,           // No reflection probes.
+    BlendProbes = 1,   // Blend the nearest probes.
+    Simple = 2         // Use the nearest probe only.
 }
 
 // ==================== CAMERA ====================
 
 /**
- * Прапорці очищення камери.
+ * What a camera clears before it draws.
  */
 export enum CameraClearFlags {
-    Skybox = 0,       // Відображати skybox
-    SolidColor = 1,   // Заливати суцільним кольором
-    Depth = 2,        // Очищати тільки depth buffer
-    Nothing = 3       // Нічого не очищати (для overlay камер)
+    Skybox = 0,       // Draw the skybox.
+    SolidColor = 1,   // Fill with a solid colour.
+    Depth = 2,        // Clear the depth buffer only.
+    Nothing = 3       // Clear nothing — for overlay cameras.
 }
 
 /**
- * Тип камери.
+ * Camera projection type.
  */
 export enum CameraType {
-    Perspective = 0,   // Перспективна проекція
-    Orthographic = 1   // Ортографічна проекція
+    Perspective = 0,   // Perspective projection.
+    Orthographic = 1   // Orthographic projection.
 }
 
 // ==================== LIGHT ====================
 
 /**
- * Тип джерела світла.
+ * Light type.
  */
 export enum LightType {
-    Directional = 0,  // Напрямлене світло (сонце)
-    Point = 1,        // Точкове світло (лампа)
-    Spot = 2,         // Прожектор
-    Area = 3          // Площинне світло (складно в WebGL)
+    Directional = 0,  // Directional, like the sun.
+    Point = 1,        // Point, like a bulb.
+    Spot = 2,         // Spotlight.
+    Area = 3          // Area light — expensive, and awkward in WebGL.
 }
 
 /**
- * Тип тіней від світла.
+ * The kind of shadow a light casts.
  */
 export enum LightShadows {
-    None = 0,     // Без тіней
-    Hard = 1,     // Жорсткі тіні
-    Soft = 2      // М'які тіні (PCF)
+    None = 0,     // No shadows.
+    Hard = 1,     // Hard-edged shadows.
+    Soft = 2      // Soft shadows, via PCF.
 }
 
 /**
- * Режим рендерингу світла.
+ * How a light is evaluated.
  */
 export enum LightRenderMode {
-    Auto = 0,          // Автоматичний вибір
-    ForcePixel = 1,    // Форсувати per-pixel освітлення
-    ForceVertex = 2    // Форсувати per-vertex освітлення
+    Auto = 0,          // Let the renderer choose.
+    ForcePixel = 1,    // Force per-pixel lighting.
+    ForceVertex = 2    // Force per-vertex lighting.
 }
 
 // ==================== SPRITE ====================
 
 /**
- * Режим малювання спрайта.
+ * How a sprite is drawn.
  */
 export enum SpriteDrawMode {
-    Simple = 0,    // Простий спрайт
-    Sliced = 1,    // 9-slice спрайт
-    Tiled = 2      // Тайловий спрайт
+    Simple = 0,    // Drawn as-is.
+    Sliced = 1,    // 9-slice.
+    Tiled = 2      // Tiled.
 }
 
 /**
- * Тип маскування спрайта.
+ * How a sprite interacts with a mask.
  */
 export enum SpriteMaskInteraction {
-    None = 0,              // Без взаємодії з маскою
-    VisibleInsideMask = 1, // Видимий всередині маски
-    VisibleOutsideMask = 2 // Видимий поза маскою
+    None = 0,              // Ignores masks.
+    VisibleInsideMask = 1, // Visible inside the mask.
+    VisibleOutsideMask = 2 // Visible outside the mask.
 }

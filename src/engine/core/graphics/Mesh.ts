@@ -21,55 +21,55 @@ export interface MeshCombineInstance {
 
 /**
  * Mesh.ts
- * Клас для зберігання та управління геометричними даними 3D мешу.
+ * Stores and manages a 3D mesh's geometry.
  *
- * Меш містить:
- * - Вершини (vertices) - позиції точок у 3D просторі
- * - Нормалі (normals) - напрямки поверхонь для освітлення
- * - Тангенти (tangents) - для normal mapping
- * - UV координати (uv, uv2, uv3, uv4) - для текстур
- * - Кольори вершин (colors)
- * - Індекси трикутників (triangles)
- * - Обмежувальну коробку (bounds)
+ * A mesh holds:
+ * - vertices — point positions in 3D,
+ * - normals — surface directions, used for lighting,
+ * - tangents — for normal mapping,
+ * - UV coordinates (uv, uv2, uv3, uv4) — for texturing,
+ * - vertex colours,
+ * - triangle indices,
+ * - a bounding box.
  *
- * Аналог Unity Mesh.
+ * Equivalent to Unity's `Mesh`.
  */
 
 /**
- * Топологія меша - як інтерпретувати індекси
+ * Mesh topology — how the indices are to be read.
  */
 export enum MeshTopology {
-    /** Стандартні трикутники (кожні 3 індекси = 1 трикутник) */
+    /** Triangles — every 3 indices form one. */
     Triangles = 0,
-    /** Чотирикутники (кожні 4 індекси = 1 quad) */
+    /** Quads — every 4 indices form one. */
     Quads = 1,
-    /** Лінії (кожні 2 індекси = 1 лінія) */
+    /** Lines — every 2 indices form one. */
     Lines = 2,
-    /** Зв'язані лінії (послідовність вершин) */
+    /** A connected run of lines through the vertices. */
     LineStrip = 3,
-    /** Точки (кожен індекс = 1 точка) */
+    /** Points — one per index. */
     Points = 4
 }
 
 /**
- * Формат індексів меша
+ * Mesh index format.
  */
 export enum IndexFormat {
-    /** 16-біт індекси (до 65,536 вершин) */
+    /** 16-bit indices — up to 65,536 vertices. */
     UInt16 = 0,
-    /** 32-біт індекси (до 4,294,967,296 вершин) */
+    /** 32-bit indices — up to 4,294,967,296 vertices. */
     UInt32 = 1
 }
 
 /**
- * Інформація про SubMesh (частину меша з окремим матеріалом)
+ * A submesh — the part of a mesh drawn with one material.
  */
 export class SubMesh {
-    /** Початковий індекс у масиві triangles */
+    /** Where this submesh starts in the triangle array. */
     public indexStart: number = 0;
-    /** Кількість індексів */
+    /** How many indices it spans. */
     public indexCount: number = 0;
-    /** Топологія цього submesh */
+    /** This submesh's topology. */
     public topology: MeshTopology = MeshTopology.Triangles;
 
     constructor(indexStart: number = 0, indexCount: number = 0, topology: MeshTopology = MeshTopology.Triangles) {
@@ -80,7 +80,7 @@ export class SubMesh {
 }
 
 /**
- * Меш - контейнер для геометричних даних 3D моделі
+ * A mesh: the geometry of a 3D model.
  */
 /** The recipe behind a mesh built by one of {@link Mesh}'s `create*` factories. */
 export interface MeshPrimitive {
@@ -91,9 +91,9 @@ export interface MeshPrimitive {
 }
 
 export class Mesh extends EngineObject {
-    // ==================== ВЕРШИННІ ДАНІ ====================
+    // ==================== VERTEX DATA ====================
 
-    /** Масив позицій вершин */
+    /** Vertex positions. */
     /**
      * How this mesh was built, when it came from one of the `create*` factories.
      *
@@ -119,47 +119,47 @@ export class Mesh extends EngineObject {
     }
 
     private _vertices: Vector3[] = [];
-    /** Масив нормалей (один вектор на вершину) */
+    /** Normals — one per vertex. */
     private _normals: Vector3[] = [];
-    /** Масив тангентів для normal mapping (xyz = напрямок, w = handedness) */
+    /** Tangents for normal mapping: xyz is the direction, w the handedness. */
     private _tangents: Vector4[] = [];
-    /** Основні UV координати (для основної текстури) */
+    /** Primary UVs, for the main texture. */
     private _uv: Vector2[] = [];
-    /** Додаткові UV координати (для lightmap) */
+    /** Secondary UVs, usually a lightmap. */
     private _uv2: Vector2[] = [];
-    /** Додаткові UV координати 3 */
+    /** Third UV set. */
     private _uv3: Vector2[] = [];
-    /** Додаткові UV координати 4 */
+    /** Fourth UV set. */
     private _uv4: Vector2[] = [];
-    /** Кольори вершин */
+    /** Vertex colours. */
     private _colors: Color[] = [];
 
-    // ==================== ІНДЕКСИ ====================
+    // ==================== INDICES ====================
 
-    /** Масив індексів трикутників (кожні 3 індекси = 1 трикутник) */
+    /** Triangle indices — every 3 form one triangle. */
     private _triangles: number[] = [];
-    /** Формат індексів */
+    /** Index format. */
     private _indexFormat: IndexFormat = IndexFormat.UInt16;
 
     // ==================== BOUNDS ====================
 
-    /** Обмежувальна коробка меша */
+    /** The mesh's bounding box. */
     private _bounds: Bounds = new Bounds();
 
     // ==================== SUBMESHES ====================
 
-    /** Масив submesh для мультиматеріалів */
+    /** Submeshes, one per material. */
     private _subMeshes: SubMesh[] = [];
 
     // ==================== INTERNAL ====================
 
     /**
-     * Внутрішня геометрія Three.js
-     * НЕ використовувати напряму - лише для двигуна!
-     * Автоматично синхронізується при доступі.
+     * The backing Three.js geometry.
+     * Engine-internal; not for use from scenario code.
+     * Synchronised on access.
      */
     public get _internalGeometry(): THREE.BufferGeometry {
-        // Автоматичний sync при доступі до геометрії
+        // Sync on access, so a reader never sees stale geometry.
         if (this._needsUpdate) {
             this._syncToThree();
         }
@@ -191,10 +191,10 @@ export class Mesh extends EngineObject {
         return bytes;
     }
 
-    /** Внутрішнє сховище для THREE.BufferGeometry */
+    /** The backing THREE.BufferGeometry. */
     private _threeGeometry!: THREE.BufferGeometry;
 
-    /** Флаг чи потрібно оновити геометрію */
+    /** Set when the geometry needs rebuilding. */
     private _needsUpdate: boolean = false;
 
     constructor(name: string = "Mesh") {
@@ -202,128 +202,128 @@ export class Mesh extends EngineObject {
         this._threeGeometry = new THREE.BufferGeometry();
     }
 
-    // ==================== ВЛАСТИВОСТІ ====================
+    // ==================== PROPERTIES ====================
 
-    /** Отримати масив вершин */
+    /** The vertex positions. */
     get vertices(): Vector3[] {
         return this._vertices;
     }
 
-    /** Встановити масив вершин */
+    /** Replaces the vertex positions. */
     set vertices(value: Vector3[]) {
         this._vertices = value;
         this._needsUpdate = true;
     }
 
-    /** Отримати масив нормалей */
+    /** The normals. */
     get normals(): Vector3[] {
         return this._normals;
     }
 
-    /** Встановити масив нормалей */
+    /** Replaces the normals. */
     set normals(value: Vector3[]) {
         this._normals = value;
         this._needsUpdate = true;
     }
 
-    /** Отримати масив тангентів */
+    /** The tangents. */
     get tangents(): Vector4[] {
         return this._tangents;
     }
 
-    /** Встановити масив тангентів */
+    /** Replaces the tangents. */
     set tangents(value: Vector4[]) {
         this._tangents = value;
         this._needsUpdate = true;
     }
 
-    /** Отримати масив UV координат */
+    /** The primary UVs. */
     get uv(): Vector2[] {
         return this._uv;
     }
 
-    /** Встановити масив UV координат */
+    /** Replaces the primary UVs. */
     set uv(value: Vector2[]) {
         this._uv = value;
         this._needsUpdate = true;
     }
 
-    /** Отримати масив UV2 координат */
+    /** The second UV set. */
     get uv2(): Vector2[] {
         return this._uv2;
     }
 
-    /** Встановити масив UV2 координат */
+    /** Replaces the second UV set. */
     set uv2(value: Vector2[]) {
         this._uv2 = value;
         this._needsUpdate = true;
     }
 
-    /** Отримати масив UV3 координат */
+    /** The third UV set. */
     get uv3(): Vector2[] {
         return this._uv3;
     }
 
-    /** Встановити масив UV3 координат */
+    /** Replaces the third UV set. */
     set uv3(value: Vector2[]) {
         this._uv3 = value;
         this._needsUpdate = true;
     }
 
-    /** Отримати масив UV4 координат */
+    /** The fourth UV set. */
     get uv4(): Vector2[] {
         return this._uv4;
     }
 
-    /** Встановити масив UV4 координат */
+    /** Replaces the fourth UV set. */
     set uv4(value: Vector2[]) {
         this._uv4 = value;
         this._needsUpdate = true;
     }
 
-    /** Отримати масив кольорів вершин */
+    /** The vertex colours. */
     get colors(): Color[] {
         return this._colors;
     }
 
-    /** Встановити масив кольорів вершин */
+    /** Replaces the vertex colours. */
     set colors(value: Color[]) {
         this._colors = value;
         this._needsUpdate = true;
     }
 
-    /** Отримати масив індексів трикутників */
+    /** The triangle indices. */
     get triangles(): number[] {
         return this._triangles;
     }
 
-    /** Встановити масив індексів трикутників */
+    /** Replaces the triangle indices. */
     set triangles(value: number[]) {
         this._triangles = value;
         this._needsUpdate = true;
     }
 
-    /** Отримати обмежувальну коробку */
+    /** The bounding box. */
     get bounds(): Bounds {
         return this._bounds;
     }
 
-    /** Встановити обмежувальну коробку */
+    /** Replaces the bounding box. */
     set bounds(value: Bounds) {
         this._bounds = value;
     }
 
-    /** Отримати кількість вершин */
+    /** How many vertices the mesh has. */
     get vertexCount(): number {
         return this._vertices.length;
     }
 
-    /** Отримати кількість трикутників */
+    /** How many triangles the mesh has. */
     get triangleCount(): number {
         return Math.floor(this._triangles.length / 3);
     }
 
-    /** Отримати/встановити формат індексів */
+    /** The index format. */
     get indexFormat(): IndexFormat {
         return this._indexFormat;
     }
@@ -333,30 +333,30 @@ export class Mesh extends EngineObject {
         this._needsUpdate = true;
     }
 
-    /** Отримати кількість submesh */
+    /** How many submeshes the mesh has. */
     get subMeshCount(): number {
         return this._subMeshes.length;
     }
 
     set subMeshCount(value: number) {
-        // Змінити розмір масиву submesh
+        // Resize the submesh array.
         if (value > this._subMeshes.length) {
-            // Додати нові submesh
+            // Grow.
             while (this._subMeshes.length < value) {
                 this._subMeshes.push(new SubMesh());
             }
         } else if (value < this._subMeshes.length) {
-            // Видалити зайві submesh
+            // Shrink.
             this._subMeshes.length = value;
         }
     }
 
-    // ==================== SUBMESH МЕТОДИ ====================
+    // ==================== SUBMESH METHODS ====================
 
     /**
-     * Отримати submesh за індексом
-     * @param index Індекс submesh
-     * @returns Submesh або undefined
+     * Reads one submesh.
+     * @param index — which submesh.
+     * @returns the submesh, or `undefined` if there is none.
      */
     public getSubMesh(index: number): SubMesh | undefined {
         if (index < 0 || index >= this._subMeshes.length) {
@@ -367,9 +367,9 @@ export class Mesh extends EngineObject {
     }
 
     /**
-     * Встановити submesh за індексом
-     * @param index Індекс submesh
-     * @param submesh Новий submesh
+     * Writes one submesh.
+     * @param index — which submesh.
+     * @param submesh — the replacement.
      */
     public setSubMesh(index: number, submesh: SubMesh): void {
         if (index < 0) {
@@ -377,7 +377,7 @@ export class Mesh extends EngineObject {
             return;
         }
 
-        // Розширити масив якщо потрібно
+        // Grow the array if the index is past the end.
         while (this._subMeshes.length <= index) {
             this._subMeshes.push(new SubMesh());
         }
@@ -386,10 +386,10 @@ export class Mesh extends EngineObject {
         this._needsUpdate = true;
     }
 
-    // ==================== МЕТОДИ ОБЧИСЛЕННЯ ====================
+    // ==================== COMPUTED DATA ====================
 
     /**
-     * Перерахувати нормалі автоматично на основі геометрії
+     * Recomputes the normals from the geometry.
      */
     public recalculateNormals(): void {
         if (this._vertices.length === 0 || this._triangles.length === 0) {
@@ -397,13 +397,13 @@ export class Mesh extends EngineObject {
             return;
         }
 
-        // Ініціалізувати масив нормалей нулями
+        // Start every normal at zero.
         this._normals = new Array(this._vertices.length);
         for (let i = 0; i < this._vertices.length; i++) {
             this._normals[i] = new Vector3(0, 0, 0);
         }
 
-        // Пройтися по всіх трикутниках
+        // Accumulate each face's normal into its three vertices.
         for (let i = 0; i < this._triangles.length; i += 3) {
             const i0 = this._triangles[i];
             const i1 = this._triangles[i + 1];
@@ -413,18 +413,18 @@ export class Mesh extends EngineObject {
             const v1 = this._vertices[i1];
             const v2 = this._vertices[i2];
 
-            // Обчислити нормаль грані (cross product)
+            // The face normal, from the cross product of two edges.
             const edge1 = Vector3.subtract(v1, v0);
             const edge2 = Vector3.subtract(v2, v0);
             const normal = Vector3.cross(edge1, edge2);
 
-            // Додати нормаль до всіх вершин трикутника
+            // Add it to each of the triangle's vertices.
             this._normals[i0] = Vector3.add(this._normals[i0], normal);
             this._normals[i1] = Vector3.add(this._normals[i1], normal);
             this._normals[i2] = Vector3.add(this._normals[i2], normal);
         }
 
-        // Нормалізувати всі нормалі
+        // Normalize what the accumulation produced.
         for (let i = 0; i < this._normals.length; i++) {
             this._normals[i].normalize();
         }
@@ -433,8 +433,8 @@ export class Mesh extends EngineObject {
     }
 
     /**
-     * Перерахувати тангенти для normal mapping
-     * Алгоритм: Lengyel's Method
+     * Recomputes the tangents used for normal mapping.
+     * Uses Lengyel's method.
      */
     public recalculateTangents(): void {
         if (this._vertices.length === 0 || this._triangles.length === 0 || this._uv.length === 0) {
@@ -447,7 +447,7 @@ export class Mesh extends EngineObject {
             this.recalculateNormals();
         }
 
-        // Тимчасові масиви для обчислень
+        // Scratch space for the accumulation.
         const tan1 = new Array(this._vertices.length);
         const tan2 = new Array(this._vertices.length);
         for (let i = 0; i < this._vertices.length; i++) {
@@ -455,7 +455,7 @@ export class Mesh extends EngineObject {
             tan2[i] = new Vector3(0, 0, 0);
         }
 
-        // Обчислити тангенти та бітангенти
+        // Accumulate per-triangle tangents and bitangents.
         for (let i = 0; i < this._triangles.length; i += 3) {
             const i1 = this._triangles[i];
             const i2 = this._triangles[i + 1];
@@ -502,17 +502,17 @@ export class Mesh extends EngineObject {
             tan2[i3] = Vector3.add(tan2[i3], tdir);
         }
 
-        // Ортогоналізувати та обчислити handedness
+        // Orthogonalize, then work out the handedness.
         this._tangents = new Array(this._vertices.length);
         for (let i = 0; i < this._vertices.length; i++) {
             const n = this._normals[i];
             const t = tan1[i];
 
-            // Gram-Schmidt ортогоналізація
+            // Gram-Schmidt.
             const tangent = Vector3.subtract(t, Vector3.scale(n, Vector3.dot(n, t)));
             tangent.normalize();
 
-            // Обчислити handedness (w компонент)
+            // Handedness goes in the w component.
             const cross = Vector3.cross(n, t);
             const w = (Vector3.dot(cross, tan2[i]) < 0.0) ? -1.0 : 1.0;
 
@@ -523,7 +523,7 @@ export class Mesh extends EngineObject {
     }
 
     /**
-     * Перерахувати обмежувальну коробку на основі вершин
+     * Recomputes the bounding box from the vertices.
      */
     public recalculateBounds(): void {
         if (this._vertices.length === 0) {
@@ -531,7 +531,7 @@ export class Mesh extends EngineObject {
             return;
         }
 
-        // Знайти мінімум та максимум
+        // Find the extremes.
         let minX = Infinity, minY = Infinity, minZ = Infinity;
         let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
@@ -553,7 +553,7 @@ export class Mesh extends EngineObject {
     // ==================== CLEAR ====================
 
     /**
-     * Очистити всі дані меша
+     * Clears every piece of mesh data.
      */
     public clear(): void {
         this._vertices = [];
@@ -573,17 +573,17 @@ export class Mesh extends EngineObject {
     // ==================== INTERNAL SYNC ====================
 
     /**
-     * Синхронізувати дані з внутрішньою геометрією Three.js
-     * Викликається автоматично перед рендерингом
+     * Pushes this mesh's data into the backing Three.js geometry.
+     * Called automatically before rendering.
      */
     public _syncToThree(): void {
         if (!this._needsUpdate) return;
 
-        // Очистити стару геометрію
+        // Drop the previous geometry.
         this._threeGeometry.dispose();
         this._threeGeometry = new THREE.BufferGeometry();
 
-        // Вершини
+        // Positions.
         if (this._vertices.length > 0) {
             const positions = new Float32Array(this._vertices.length * 3);
             for (let i = 0; i < this._vertices.length; i++) {
@@ -594,7 +594,7 @@ export class Mesh extends EngineObject {
             this._threeGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         }
 
-        // Нормалі
+        // Normals.
         if (this._normals.length > 0) {
             const normals = new Float32Array(this._normals.length * 3);
             for (let i = 0; i < this._normals.length; i++) {
@@ -605,7 +605,7 @@ export class Mesh extends EngineObject {
             this._threeGeometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
         }
 
-        // Тангенти
+        // Tangents.
         if (this._tangents.length > 0) {
             const tangents = new Float32Array(this._tangents.length * 4);
             for (let i = 0; i < this._tangents.length; i++) {
@@ -637,7 +637,7 @@ export class Mesh extends EngineObject {
             this._threeGeometry.setAttribute('uv2', new THREE.BufferAttribute(uv2s, 2));
         }
 
-        // Кольори
+        // Colours.
         if (this._colors.length > 0) {
             const colors = new Float32Array(this._colors.length * 4);
             for (let i = 0; i < this._colors.length; i++) {
@@ -649,7 +649,7 @@ export class Mesh extends EngineObject {
             this._threeGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 4));
         }
 
-        // Індекси
+        // Indices.
         if (this._triangles.length > 0) {
             const indices = this._indexFormat === IndexFormat.UInt32
                 ? new Uint32Array(this._triangles)
@@ -657,19 +657,19 @@ export class Mesh extends EngineObject {
             this._threeGeometry.setIndex(new THREE.BufferAttribute(indices, 1));
         }
 
-        // Обчислити bounds якщо не встановлено вручну
+        // Compute bounds unless the caller set them explicitly.
         this._threeGeometry.computeBoundingBox();
         this._threeGeometry.computeBoundingSphere();
 
         this._needsUpdate = false;
     }
 
-    // ==================== СТАТИЧНІ ФАБРИКИ (ПРИМІТИВИ) ====================
+    // ==================== PRIMITIVE FACTORIES ====================
 
     /**
-     * Створити куб
-     * @param size Розмір куба (довжина ребра)
-     * @returns Новий меш куба
+     * Creates a cube.
+     * @param size — edge length.
+     * @returns the cube mesh.
      */
     /**
      * Rebuilds a mesh from the recipe {@link primitive} reports.
@@ -694,7 +694,7 @@ export class Mesh extends EngineObject {
         const mesh = new Mesh("Cube");
         const s = size / 2;
 
-        // Вершини куба (24 вершини - по 4 на грань для правильних нормалей)
+        // 24 vertices — 4 per face, so each face gets its own normals.
         mesh._vertices = [
             // Front face
             new Vector3(-s, -s, s), new Vector3(s, -s, s), new Vector3(s, s, s), new Vector3(-s, s, s),
@@ -710,7 +710,7 @@ export class Mesh extends EngineObject {
             new Vector3(-s, -s, -s), new Vector3(-s, -s, s), new Vector3(-s, s, s), new Vector3(-s, s, -s),
         ];
 
-        // Нормалі
+        // Normals.
         mesh._normals = [
             // Front
             new Vector3(0, 0, 1), new Vector3(0, 0, 1), new Vector3(0, 0, 1), new Vector3(0, 0, 1),
@@ -726,7 +726,7 @@ export class Mesh extends EngineObject {
             new Vector3(-1, 0, 0), new Vector3(-1, 0, 0), new Vector3(-1, 0, 0), new Vector3(-1, 0, 0),
         ];
 
-        // UV координати
+        // UVs.
         mesh._uv = [];
         for (let i = 0; i < 6; i++) {
             mesh._uv.push(
@@ -734,7 +734,7 @@ export class Mesh extends EngineObject {
             );
         }
 
-        // Індекси (6 граней * 2 трикутники * 3 вершини)
+        // Indices: 6 faces x 2 triangles x 3 vertices.
         mesh._triangles = [];
         for (let i = 0; i < 6; i++) {
             const offset = i * 4;
@@ -751,10 +751,10 @@ export class Mesh extends EngineObject {
     }
 
     /**
-     * Створити сферу
-     * @param radius Радіус сфери
-     * @param segments Кількість сегментів (детальність)
-     * @returns Новий меш сфери
+     * Creates a sphere.
+     * @param radius — the sphere's radius.
+     * @param segments — subdivision count; higher is smoother.
+     * @returns the sphere mesh.
      */
     public static createSphere(radius: number = 0.5, segments: number = 32): Mesh {
         const mesh = new Mesh("Sphere");
@@ -767,7 +767,7 @@ export class Mesh extends EngineObject {
         const uvs: Vector2[] = [];
         const indices: number[] = [];
 
-        // Генерація вершин
+        // Vertices.
         for (let iy = 0; iy <= heightSegments; iy++) {
             const v = iy / heightSegments;
             const phi = v * Math.PI;
@@ -786,7 +786,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Генерація індексів
+        // Indices.
         for (let iy = 0; iy < heightSegments; iy++) {
             for (let ix = 0; ix < widthSegments; ix++) {
                 const a = iy * (widthSegments + 1) + ix;
@@ -811,12 +811,12 @@ export class Mesh extends EngineObject {
     }
 
     /**
-     * Створити площину
-     * @param width Ширина площини
-     * @param height Висота площини
-     * @param widthSegments Кількість сегментів по ширині (за замовчуванням 1)
-     * @param heightSegments Кількість сегментів по висоті (за замовчуванням 1)
-     * @returns Новий меш площини
+     * Creates a plane.
+     * @param width — the plane's width.
+     * @param height — the plane's height.
+     * @param widthSegments — subdivisions across the width. Defaults to 1.
+     * @param heightSegments — subdivisions across the height. Defaults to 1.
+     * @returns the plane mesh.
      */
     public static createPlane(width: number = 1, height: number = 1, widthSegments: number = 1, heightSegments: number = 1): Mesh {
         const mesh = new Mesh("Plane");
@@ -838,7 +838,7 @@ export class Mesh extends EngineObject {
         const uvs: Vector2[] = [];
         const indices: number[] = [];
 
-        // Генерація вершин
+        // Vertices.
         for (let iy = 0; iy < gridY; iy++) {
             const y = iy * segmentHeight - halfHeight;
             for (let ix = 0; ix < gridX; ix++) {
@@ -850,7 +850,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Генерація індексів
+        // Indices.
         for (let iy = 0; iy < heightSegs; iy++) {
             for (let ix = 0; ix < widthSegs; ix++) {
                 const a = ix + gridX * iy;
@@ -875,11 +875,11 @@ export class Mesh extends EngineObject {
     }
 
     /**
-     * Створити циліндр
-     * @param radius Радіус циліндра
-     * @param height Висота циліндра
-     * @param segments Кількість сегментів (детальність)
-     * @returns Новий меш циліндра
+     * Creates a cylinder.
+     * @param radius — the cylinder's radius.
+     * @param height — the cylinder's height.
+     * @param segments — subdivision count; higher is smoother.
+     * @returns the cylinder mesh.
      */
     public static createCylinder(radius: number = 0.5, height: number = 1, segments: number = 32): Mesh {
         const mesh = new Mesh("Cylinder");
@@ -893,7 +893,7 @@ export class Mesh extends EngineObject {
         const uvs: Vector2[] = [];
         const indices: number[] = [];
 
-        // Бічна поверхня
+        // The side wall.
         for (let y = 0; y <= heightSegments; y++) {
             const v = y / heightSegments;
             const posY = v * height - halfHeight;
@@ -915,7 +915,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Індекси бічної поверхні
+        // The side wall's indices.
         for (let y = 0; y < heightSegments; y++) {
             for (let x = 0; x < radialSegments; x++) {
                 const a = y * (radialSegments + 1) + x;
@@ -928,7 +928,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Верхня кришка
+        // Top cap.
         const topCenterIndex = vertices.length;
         vertices.push(new Vector3(0, halfHeight, 0));
         normals.push(new Vector3(0, 1, 0));
@@ -952,7 +952,7 @@ export class Mesh extends EngineObject {
             indices.push(a, b, c);
         }
 
-        // Нижня кришка
+        // Bottom cap.
         const bottomCenterIndex = vertices.length;
         vertices.push(new Vector3(0, -halfHeight, 0));
         normals.push(new Vector3(0, -1, 0));
@@ -988,11 +988,11 @@ export class Mesh extends EngineObject {
     }
 
     /**
-     * Створити капсулу
-     * @param radius Радіус капсули
-     * @param height Висота капсули (включаючи півсфери)
-     * @param segments Кількість сегментів (детальність)
-     * @returns Новий меш капсули
+     * Creates a capsule.
+     * @param radius — the capsule's radius.
+     * @param height — total height, hemispherical caps included.
+     * @param segments — subdivision count; higher is smoother.
+     * @returns the capsule mesh.
      */
     public static createCapsule(radius: number = 0.5, height: number = 2, segments: number = 32): Mesh {
         const mesh = new Mesh("Capsule");
@@ -1008,7 +1008,7 @@ export class Mesh extends EngineObject {
         const uvs: Vector2[] = [];
         const indices: number[] = [];
 
-        // Верхня півсфера
+        // Top hemisphere.
         for (let lat = 0; lat <= heightSegments; lat++) {
             const theta = (lat * Math.PI) / (heightSegments * 2);
             const sinTheta = Math.sin(theta);
@@ -1032,7 +1032,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Циліндрична частина
+        // The cylindrical middle.
         const cylinderSegs = 2;
         for (let i = 0; i <= cylinderSegs; i++) {
             const y = (i / cylinderSegs) * cylinderHeight - halfCylinderHeight;
@@ -1048,7 +1048,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Нижня півсфера
+        // Bottom hemisphere.
         for (let lat = 1; lat <= heightSegments; lat++) {
             const theta = Math.PI / 2 + (lat * Math.PI) / (heightSegments * 2);
             const sinTheta = Math.sin(theta);
@@ -1072,7 +1072,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Генерація індексів
+        // Indices.
         const totalRings = heightSegments + cylinderSegs + 1 + heightSegments;
         for (let ring = 0; ring < totalRings; ring++) {
             for (let seg = 0; seg < radialSegments; seg++) {
@@ -1193,10 +1193,10 @@ export class Mesh extends EngineObject {
     }
 
     /**
-     * Створити quad (прямокутник, 2 трикутники)
-     * @param width Ширина quad
-     * @param height Висота quad
-     * @returns Новий меш quad
+     * Creates a quad — a rectangle of two triangles.
+     * @param width — the quad's width.
+     * @param height — the quad's height.
+     * @returns the quad mesh.
      */
     public static createQuad(width: number = 1, height: number = 1): Mesh {
         const mesh = new Mesh("Quad");
@@ -1237,12 +1237,12 @@ export class Mesh extends EngineObject {
     // ==================== CLONING ====================
 
     /**
-     * Створює копію меша з усіма даними.
+     * Returns a deep copy of the mesh.
      */
     public clone(): Mesh {
         const cloned = new Mesh(this.name + " (Clone)");
 
-        // Копіюємо вершинні дані
+        // Vertex data.
         cloned._vertices = this._vertices.map(v => v.clone());
         cloned._normals = this._normals.map(n => n.clone());
         cloned._tangents = this._tangents.map(t => t.clone());
@@ -1252,7 +1252,7 @@ export class Mesh extends EngineObject {
         cloned._uv4 = this._uv4.map(uv => uv.clone());
         cloned._colors = this._colors.map(c => c.clone());
 
-        // Копіюємо індекси
+        // Indices.
         cloned._triangles = [...this._triangles];
 
         // A clone of a cube is still a cube: the recipe travels with the
@@ -1262,13 +1262,13 @@ export class Mesh extends EngineObject {
             : { kind: this._primitive.kind, args: [...this._primitive.args] };
         cloned._indexFormat = this._indexFormat;
 
-        // Копіюємо submeshes
+        // Submeshes.
         cloned._subMeshes = this._subMeshes.map(sm => new SubMesh(sm.indexStart, sm.indexCount, sm.topology));
 
-        // Копіюємо bounds
+        // Bounds.
         cloned._bounds = this._bounds.clone();
 
-        // Позначаємо як потребує оновлення
+        // The copy has no geometry yet.
         cloned._needsUpdate = true;
 
         return cloned;
@@ -1277,7 +1277,7 @@ export class Mesh extends EngineObject {
     // ==================== CLEANUP ====================
 
     /**
-     * Знищити меш та звільнити ресурси
+     * Destroys the mesh and releases its GPU resources.
      */
     public override destroy(): void {
         this.clear();
@@ -1288,15 +1288,15 @@ export class Mesh extends EngineObject {
     // ==================== STATIC CONVERTERS ====================
 
     /**
-     * Створює Mesh з THREE.BufferGeometry.
-     * Використовується для імпорту моделей через GLTF/OBJ loaders.
+     * Builds a Mesh from a THREE.BufferGeometry.
+     * Used when importing models through the GLTF and OBJ loaders.
      * @param geometry Three.js BufferGeometry
-     * @param name Ім'я меша
+     * @param name — the mesh's name.
      */
     public static fromThreeGeometry(geometry: THREE.BufferGeometry, name: string = "Imported Mesh"): Mesh {
         const mesh = new Mesh(name);
 
-        // Копіюємо позиції вершин
+        // Positions.
         const positionAttr = geometry.getAttribute('position');
         if (positionAttr) {
             mesh._vertices = [];
@@ -1309,7 +1309,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Копіюємо нормалі
+        // Normals.
         const normalAttr = geometry.getAttribute('normal');
         if (normalAttr) {
             mesh._normals = [];
@@ -1322,7 +1322,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Копіюємо UV координати
+        // UVs.
         const uvAttr = geometry.getAttribute('uv');
         if (uvAttr) {
             mesh._uv = [];
@@ -1334,7 +1334,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Копіюємо індекси
+        // Indices.
         const index = geometry.index;
         if (index) {
             mesh._triangles = [];
@@ -1342,14 +1342,14 @@ export class Mesh extends EngineObject {
                 mesh._triangles.push(index.getX(i));
             }
         } else {
-            // Якщо індексів немає, створюємо послідовні
+            // No index buffer: the vertices are already in draw order.
             mesh._triangles = [];
             for (let i = 0; i < mesh._vertices.length; i++) {
                 mesh._triangles.push(i);
             }
         }
 
-        // Копіюємо кольори вершин (якщо є)
+        // Vertex colours, when present.
         const colorAttr = geometry.getAttribute('color');
         if (colorAttr) {
             mesh._colors = [];
@@ -1363,7 +1363,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Копіюємо тангенти (якщо є)
+        // Tangents, when present.
         const tangentAttr = geometry.getAttribute('tangent');
         if (tangentAttr) {
             mesh._tangents = [];
@@ -1377,7 +1377,7 @@ export class Mesh extends EngineObject {
             }
         }
 
-        // Перераховуємо bounds
+        // Bounds.
         mesh.recalculateBounds();
         mesh._needsUpdate = true;
 

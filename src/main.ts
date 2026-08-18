@@ -1,6 +1,6 @@
 
 
-// Ініціалізація - Application створюється лише при запуску сценарію
+// The Application is created only when a scenario starts.
 import {Application, Scenario, ScenarioLoadState} from "WebEngineTS";
 
 let app: Application | null = null;
@@ -17,7 +17,7 @@ const ui = {
     progressText: document.getElementById("progress-text") as HTMLSpanElement | null,
 };
 
-// Функція перемикання екранів
+// Switches between the menu and the game view.
 function toggleScreen(showGame: boolean): void {
     if (showGame) {
         ui.menu.style.display = 'none';
@@ -26,12 +26,12 @@ function toggleScreen(showGame: boolean): void {
         ui.app.style.display = 'none';
         ui.menu.style.display = 'block';
 
-        // Зупиняємо двигун якщо він працює
+        // Stop the engine if it is running.
         if (app) {
             app.stop();
         }
 
-        // Вивантажуємо сценарій з пам'яті
+        // Unload the scenario.
         if (currentScenario) {
             currentScenario.unload();
             currentScenario = null;
@@ -39,7 +39,7 @@ function toggleScreen(showGame: boolean): void {
     }
 }
 
-// Оновлення прогресу завантаження
+// Updates the loading progress bar.
 function updateProgress(progress: number, text: string): void {
     if (ui.progressBar) {
         ui.progressBar.style.width = `${progress * 100}%`;
@@ -49,66 +49,66 @@ function updateProgress(progress: number, text: string): void {
     }
 }
 
-// Завантаження сценарію з файлу
+// Loads a scenario from a picked file.
 async function loadScenarioFromFile(file: File): Promise<void> {
     try {
-        updateProgress(0, "Завантаження сценарію...");
+        updateProgress(0, "Loading scenario...");
 
-        // Створюємо новий сценарій
+        // Create the scenario.
         currentScenario = new Scenario();
 
-        // Встановлюємо колбек прогресу
+        // Hook up progress reporting.
         currentScenario.onProgress((progress) => {
             updateProgress(progress.progress, progress.currentOperation);
 
             if (progress.state === ScenarioLoadState.Error) {
-                console.error("[Main] Помилка завантаження:", progress.error);
-                alert(`Помилка завантаження сценарію: ${progress.error}`);
+                console.error("[Main] Load failed:", progress.error);
+                alert(`Failed to load the scenario: ${progress.error}`);
             }
         });
 
-        // Завантажуємо з File
+        // Load from the File object.
         const data = await file.arrayBuffer();
         await currentScenario.loadFromData(data);
 
-        console.log("[Main] Сценарій завантажено:", currentScenario.manifest?.name);
+        console.log("[Main] Scenario loaded:", currentScenario.manifest?.name);
 
-        // Запускаємо движок та сценарій
+        // Start the engine and the scenario.
         startApp();
         await currentScenario.run();
 
     } catch (error) {
-        console.error("[Main] Помилка:", error);
-        alert(`Помилка: ${error}`);
+        console.error("[Main] Error:", error);
+        alert(`Error: ${error}`);
     }
 }
 
-// Завантаження сценарію з URL (експортовано для використання ззовні)
+// Loads a scenario from a URL. Exported so a host page can call it.
 export async function loadScenarioFromUrl(url: string): Promise<void> {
     try {
-        updateProgress(0, "Завантаження сценарію з URL...");
+        updateProgress(0, "Loading scenario from URL...");
 
-        // Завантажуємо сценарій
+        // Load the scenario.
         currentScenario = await Scenario.load(url);
 
-        console.log("[Main] Сценарій завантажено:", currentScenario.manifest?.name);
+        console.log("[Main] Scenario loaded:", currentScenario.manifest?.name);
 
-        // Запускаємо движок та сценарій
+        // Start the engine and the scenario.
         startApp();
         await currentScenario.run();
 
     } catch (error) {
-        console.error("[Main] Помилка:", error);
-        alert(`Помилка: ${error}`);
+        console.error("[Main] Error:", error);
+        alert(`Error: ${error}`);
     }
 }
 
-// Кнопка "Назад"
+// The Back button.
 ui.backBtn?.addEventListener("click", () => {
     toggleScreen(false);
 });
 
-// Обробник вибору файлу
+// File-picker handler.
 ui.fileInput?.addEventListener("change", (event) => {
     const target = event.target as HTMLInputElement;
     const file = target.files?.[0];
@@ -117,29 +117,29 @@ ui.fileInput?.addEventListener("change", (event) => {
     }
 });
 
-// Кнопка завантаження сценарію
+// The Load Scenario button.
 ui.loadBtn?.addEventListener("click", () => {
     ui.fileInput?.click();
 });
 
-// Створення та запуск додатку
+// Creates the Application and starts it.
 function startApp(): void {
     if (!app) {
         const canvas = document.getElementById("webgl-canvas") as HTMLCanvasElement;
         app = new Application(canvas);
     }
 
-    // Приховати меню та показати гру
+    // Hide the menu and show the game view.
     toggleScreen(true);
 
     app.run();
 }
 
-// Дочекайтеся завантаження вікна
+// Wait for the window to finish loading.
 window.addEventListener("load", () => {
-    console.log("[Engine] Unity-like 3D Engine ініціалізовано");
-    console.log("[Engine] Завантажте ZIP-архів сценарію для початку");
+    console.log("[Engine] Unity-like 3D engine initialised");
+    console.log("[Engine] Load a scenario ZIP to begin");
 
-    // Для тестування можна завантажити сценарій з URL:
+    // For testing, a scenario can be loaded straight from a URL:
     // loadScenarioFromUrl("/scenarios/demo.zip");
 });
