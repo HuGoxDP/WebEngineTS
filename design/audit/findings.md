@@ -42,7 +42,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F28 | 5 | Raycast normals were local-space; hits used stale matrices | fixed `09341b7` |
 | F29 | 5 | `overlapSphere` tests origins, not shapes | fixed `006a793` |
 | F30 | 5 | A hinge told cannon only half of itself | fixed `8825050` |
-| F31 | 5 | `SpringJoint` is a rigid rod, not a spring | docs fixed `8825050`; spring **open** |
+| F31 | 5 | `SpringJoint` is a rigid rod, not a spring | fixed `8825050`, `babd213` |
 | F32 | 5 | A material on a `Rigidbody` was unregistered and unreadable | fixed `24771f2` |
 | F33 | 6 | A mask change did not repaint what it clips | fixed `1192778` |
 | F34 | 6 | Tinted copies outlived the textures they came from | fixed `8a7a042` |
@@ -1209,7 +1209,7 @@ own `onEnable` runs — so the result depended on which component happened to be
 Covered by `tests/HingeJointGeometry.test.ts`; all 5 fail without B's half, including the
 physical one — two bodies hinged a metre apart stay a metre apart.
 
-### F31. `SpringJoint` is a rigid rod, not a spring — docs fixed `8825050`, spring **open**
+### F31. `SpringJoint` is a rigid rod, not a spring — fixed `8825050`, `babd213`
 
 **What it says.** "Keeps two bodies a fixed distance apart, springily… the bodies are pulled
 back towards it when pushed away." `stiffness` is documented as "how hard the spring pulls
@@ -1222,9 +1222,28 @@ joint *more rigid*, the opposite of what the name suggests.
 
 **Done.** The class and both properties now describe the constraint they are.
 
-**Open.** A real spring is cannon's `Spring`, which applies a force each step rather than being
-a constraint, so it does not fit `Joint`'s create-on-enable / remove-on-disable shape and wants
-its own driver. The name stays either way: scenarios already use it.
+**Fixed (2026-08-17).** It is now cannon's `Spring`: a force applied before each step in
+proportion to the displacement from {@link distance}, with a new `damping` deciding how fast the
+oscillation dies away. `stiffness` is a spring constant, so higher means springier rather than
+more rigid — the property that used to be inverted.
+
+**The parked reason was half right**, which by now is the pattern (F29, F5). A `Spring` really is
+applied rather than solved, and it really does need a driver — one line in `Physics._step`,
+before the world steps, because cannon clears forces at the end of each one. But it did *not*
+need its own lifecycle: `Joint` gains `_attachForces` / `_detachForces`, called from the same
+`_rebuild` and `_teardown` as everything else, and `isActive` moves from "has a constraint" to
+"is attached". A joint that is a force is still a joint.
+
+**Two existing tests counted world constraints** and expected a `SpringJoint` among them. They
+assert `isActive` now, with a note that the solver never hears about a spring — the same shape as
+the four `LoopFrameIntegrity` tests F22 broke. The change made them fail rather than making them
+lie.
+
+**Negative control, reported honestly.** Restoring the `DistanceConstraint` fails 3 of the 11 new
+tests: the undamped oscillation, the stretch under load, and the constraint count. The other
+eight hold for a rod as well — a rod also pulls a stretched pair back and settles near its
+length. They pin behaviour; they do not prove the change, and the three that do are the ones
+worth reading.
 
 ### F32. A material on a `Rigidbody` was unregistered, and unreadable — fixed `24771f2`
 

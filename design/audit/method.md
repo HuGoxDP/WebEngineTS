@@ -407,3 +407,10 @@ in a file the finding had already read. A "why this is hard" written at discover
 least examined sentence in a finding — it is written to justify moving on, not to be checked, and
 nothing re-reads it before the work is scheduled. When picking up an old finding, re-derive its
 difficulty before believing it.
+
+**Say which of your tests actually discriminate.** F31's eleven tests all pass on the new spring;
+only three fail on the old rod. The other eight are worth having — they pin behaviour — but
+reporting "eleven tests" as evidence for the change would overstate it by eight. Run the negative
+control, count what fails, and quote *that* number. If it is small, the tests that survive the
+revert are describing something both versions do, which is a useful thing to notice before
+claiming otherwise.
