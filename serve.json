@@ -2,7 +2,5 @@
   "cleanUrls": false,
   "trailingSlash": false,
   "directoryListing": false,
-  "rewrites": [
-    { "source": "/benchmarks", "destination": "/benchmarks/index.html" }
-  ]
+  "rewrites": []
 }

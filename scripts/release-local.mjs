@@ -12,6 +12,9 @@
 //   testv/virtual-lab/frontend file:WebEngineTS-0.1.0.tgz   (Angular auto-copies
 //                                the standalone bundle to /assets via angular.json)
 //   WebEngineTSEditor/app      file:../../WebEngineTS       (uses dist/ directly)
+//   WebEngineTS-Benchmarks     engine/WebEngineTS.standalone.js  (plain bundle copy,
+//                              no npm dependency — it loads the bundle through an
+//                              import map, exactly as the platform does)
 //
 // Cache-busting: `package.json`'s version stays fixed (0.1.0) for the repo/thesis
 // — only bump it deliberately for a real release. To still guarantee every local
@@ -31,7 +34,7 @@
 // ============================================================================
 
 import { execSync } from "node:child_process";
-import { existsSync, copyFileSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { existsSync, copyFileSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
@@ -50,6 +53,49 @@ const consumers = [
     { name: "ScenarioCreator", dir: join(PARENT, "ScenarioCreator"), copyTgz: true, spec: `./${TGZ}` },
     { name: "virtual-lab frontend", dir: join(PARENT, "testv", "virtual-lab", "frontend"), copyTgz: true, spec: `./${TGZ}` },
     { name: "WebEngineTSEditor app", dir: join(PARENT, "WebEngineTSEditor", "app"), copyTgz: false, spec: "../../WebEngineTS" },
+];
+
+/**
+ * The Basis/KTX2 transcoder every host has to serve itself.
+ *
+ * It is NOT bundled into the engine — `KTX2Loader` fetches it at runtime from
+ * whatever `Texture2D.ktx2TranscoderPath` points at. It is also versioned
+ * together with `three`: a transcoder older than the loader fails at runtime in
+ * ways that look like a corrupt texture. Copying it from the engine's own
+ * `node_modules/three` on every release is what keeps the two in lockstep, and
+ * stops hosts hand-vendoring a copy that quietly goes stale.
+ *
+ * `dest` is the directory the host *serves* it from; the path a host then sets
+ * as `ktx2TranscoderPath` is its own URL for that directory.
+ * @type {{name:string, dest:string}[]}
+ */
+const transcoderTargets = [
+    {
+        name: "virtual-lab frontend",
+        dest: join(PARENT, "testv", "virtual-lab", "frontend", "src", "assets", "basis"),
+    },
+    {
+        name: "WebEngineTS-Benchmarks",
+        dest: join(PARENT, "WebEngineTS-Benchmarks", "public", "basis"),
+    },
+];
+
+/**
+ * Consumers that take a plain copy of the standalone bundle instead of a
+ * package. The benchmark suite is one: it resolves "WebEngineTS" through an
+ * import map, so it needs the built files and nothing else. Left out of the
+ * sync it would silently keep benchmarking whatever engine it was last given.
+ * @type {{name:string, dir:string, dest:string, files:string[]}[]}
+ */
+const bundleConsumers = [
+    {
+        name: "WebEngineTS-Benchmarks",
+        dir: join(PARENT, "WebEngineTS-Benchmarks"),
+        dest: join(PARENT, "WebEngineTS-Benchmarks", "engine"),
+        // The declaration file rides along so the harness can be typechecked
+        // and rebuilt there without reaching back into this repo.
+        files: ["WebEngineTS.standalone.js", "WebEngineTS.d.ts"],
+    },
 ];
 
 const run = (cmd, cwd, env) =>
@@ -113,6 +159,41 @@ for (const c of consumers) {
         run(`npm install ${c.spec} --prefer-offline --no-audit --no-fund`, c.dir);
         console.log("  reinstalled WebEngineTS ✓");
     }
+}
+
+for (const c of bundleConsumers) {
+    console.log(`\n▶ ${c.name}`);
+    if (!existsSync(c.dir)) {
+        console.warn(`  ⚠ skipped — not found at ${c.dir}`);
+        continue;
+    }
+
+    if (!existsSync(c.dest)) mkdirSync(c.dest, { recursive: true });
+
+    for (const file of c.files) {
+        copyFileSync(join(ENGINE, "dist", file), join(c.dest, file));
+        console.log(`  copied ${file} ✓`);
+    }
+}
+
+const transcoderSrc = join(ENGINE, "node_modules", "three", "examples", "jsm", "libs", "basis");
+if (existsSync(transcoderSrc)) {
+    for (const t of transcoderTargets) {
+        // Only refresh a directory the host already has: creating one where the
+        // host does not serve static files would be a copy nobody can fetch.
+        if (!existsSync(t.dest)) {
+            console.log(`\n▶ ${t.name} transcoder — skipped (no ${t.dest})`);
+            continue;
+        }
+
+        console.log(`\n▶ ${t.name} transcoder`);
+        for (const file of ["basis_transcoder.js", "basis_transcoder.wasm"]) {
+            copyFileSync(join(transcoderSrc, file), join(t.dest, file));
+            console.log(`  copied ${file} ✓`);
+        }
+    }
+} else {
+    console.warn(`\n⚠ Basis transcoder not found at ${transcoderSrc} — KTX2 hosts not refreshed.`);
 }
 
 console.log("\n✓ Done. Rebuild/serve each consumer to pick up the new engine.");

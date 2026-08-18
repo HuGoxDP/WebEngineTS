@@ -106,10 +106,14 @@ export class Texture2D extends Texture {
      * `node_modules/three/examples/jsm/libs/basis/` to your
      * public/static directory and set this path accordingly.
      *
+     * This is the **URL** the transcoder is served from, which is not always
+     * the folder it was copied into — a wrong value 404s only once a KTX2
+     * texture is actually loaded, long after the mistake.
+     *
      * @example
      * ```ts
-     * // Serve the WASM from /public/basis/ in your dev server
-     * Texture2D.ktx2TranscoderPath = "/basis/";
+     * // Angular publishes src/assets at /assets
+     * Texture2D.ktx2TranscoderPath = "/assets/basis/";
      * ```
      */
     public static ktx2TranscoderPath: string = "/basis/";

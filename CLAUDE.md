@@ -9,31 +9,47 @@ Master's thesis project ("Unity for Web"). Scenario authors import only from `"W
 
 ## Ecosystem / Related Projects
 
-This repo is **only the engine** — a consumable npm library. It must NOT contain scenario
-*content*, catalog/platform UI, or the scenario editor. Sibling projects (under
-`C:\Users\Work\WebstormProjects\`) consume the engine; the engine never imports from or
-depends on any of them.
+**This repo holds the engine, its documentation, and (temporarily) the thesis article —
+nothing else.** No scenario content, no benchmark harness, no platform UI, no editor. Each of
+those has its own repository. Sibling projects (under `C:\Users\Work\WebstormProjects\`)
+consume the engine; the engine never imports from or depends on any of them.
+
+| Repo | Owns |
+|---|---|
+| **WebEngineTS** (here) | The engine, its docs, temporarily the article. |
+| **ScenarioCreator** | Scenario *content* and the CLI that packages it. |
+| **WebEngineTSEditor** | The graphical editor — the future way to author scenarios. |
+| **testv/virtual-lab** | The platform students use: catalog, database, Docker. |
+| **WebEngineTS-Benchmarks** | Running benchmarks and performance testing. |
 
 - **ScenarioCreator** — build pipeline compiling scenario source in `Scenarios/` into
   distributable `.zip` archives (`ReleaseScenarios/`). Consumes the engine as a packed
-  tarball (`WebEngineTS-0.1.0.tgz`, a `file:` dependency). Scenario **content** lives here,
-  never in the engine repo. **Planned to be retired** once WebEngineTSEditor/app's authoring
-  + export pipeline replaces it — scenarios will then be created directly in the editor
-  instead of hand-written + built by this CLI pipeline. Until then it's kept in sync the
-  same way as the other consumers (see below).
+  tarball (`WebEngineTS-0.1.0.tgz`, a `file:` dependency). Mostly **production** scenarios,
+  but it also produces the ones used for testing — those must be kept clearly separated from
+  the ones students see. **Planned to be retired** once WebEngineTSEditor's authoring +
+  export pipeline replaces it.
+- **WebEngineTSEditor** — the graphical scenario editor, and the intended replacement for
+  ScenarioCreator. `app/` is the Angular editor app (consumes the engine via
+  `file:../../WebEngineTS`); `design/` is the JSX/CSS mockup guiding its redesign.
 - **testv/virtual-lab** — the educational platform (own git repo): Angular `frontend`
   ("university-mock") + `backend` + `db` + `nginx` + docker-compose. The frontend is the
   scenario catalog + viewer; it downloads scenario ZIPs and runs them via
   `Application.loadScenarioFromBuffer`, resolving `"WebEngineTS"` through an import map to
   `WebEngineTS.standalone.js`. Consumes the engine tarball.
-- **WebEngineTSEditor** — the graphical scenario editor. `app/` is the Angular editor app
-  (extracted from this repo; consumes the engine via `file:../../WebEngineTS`); `design/` is
-  the JSX/CSS design mockup guiding its redesign. Consumes the engine like any other host.
+- **WebEngineTS-Benchmarks** — the reproducible benchmark suite: the `run.ts` harness, the
+  deterministic paper scenes, `aggregate.mjs`, the RUNBOOK and the recorded results. Moved
+  out of this repo on 2026-08-04. It runs over the standalone bundle in `engine/`, refreshed
+  the same way the other consumers are.
 
 Data flow: **engine → tarball / standalone bundle → consumers**. The scenario *runtime*
-(`src/engine/core/scenario/`) stays in the engine; scenario *content* and the *authoring UI*
-do not. The Angular editor formerly under `editor/` has been moved to `WebEngineTSEditor/app/`
-— this repo no longer contains any editor code.
+(`src/engine/core/scenario/`) stays in the engine; scenario *content*, the *authoring UI* and
+the *benchmark harness* do not.
+
+**Diagnostics are the exception worth understanding.** `MemoryProfiler`, `Profiler` and
+`Benchmark` live in `src/engine/core/diagnostics/` and are exported engine API — they are
+what a host *calls*. What left this repo is the harness that drives them. A consumer that
+surfaces them (an overlay, a measurement run) must keep that behind an explicit opt-in, so it
+costs nothing when it is not asked for.
 
 ### Keeping consumers in sync
 
@@ -72,11 +88,11 @@ npm run build          # Rollup → dist/ (ESM, CJS, standalone, .d.ts)
 npm run dev            # Rollup watch mode
 npm run typecheck      # tsc --noEmit (strict mode)
 npm run clean          # rm -rf dist
-npm run benchmark:build # bundle benchmarks/run.ts → benchmarks/run.js (needs dist/ built first)
 ```
 
-- Reproducible benchmark suite lives in `benchmarks/` (deterministic paper scenes + `Benchmark`
-  harness, run from `benchmarks/index.html` over the standalone bundle). See `benchmarks/README.md`.
+- Benchmarks are **not built here**. The harness lives in the `WebEngineTS-Benchmarks` repo
+  and runs over the standalone bundle; refresh it with `npm run release:local` like any other
+  consumer.
 
 - Entry point: `src/engine/index.ts`
 - Build config: `rollup.config.mjs` + `tsconfig.build.json`
@@ -95,14 +111,40 @@ npm run benchmark:build # bundle benchmarks/run.ts → benchmarks/run.js (needs 
 - Cinemachine: `src/engine/core/cinemachine/` — CinemachineBrain, VirtualCamera, Body/Aim strategies
 - Scenario: `src/engine/core/scenario/` — ZIP-based content pipeline (Scenario, ScenarioAssets, ScenarioBehaviour)
 - Assets: `src/engine/core/assets/` — Resources API, LoadHandle
-- Diagnostics: `src/engine/core/diagnostics/` — MemoryProfiler
-- UI: `src/engine/core/ui/` — Canvas (2D overlay), CanvasScaler, RectTransform, UIImage,
-  UIText, Button, VirtualJoystick, EventSystem. Drawn through the 2D context, not Three.js:
-  the overlay is a separate `<canvas>` sized at the device pixel ratio and transformed once
-  per repaint, so components draw in canvas units. `Canvas.repaintMode` defaults to
-  `OnDemand` — the canvas hashes each graphic's rect plus its `_visualHash()` and skips the
-  repaint when nothing changed. A `UIBehaviour` subclass that does not override
-  `_visualHash()` returns `NaN` and is treated as always-changed, so opting out is safe.
+- Diagnostics: `src/engine/core/diagnostics/` — MemoryProfiler (live overlay), Profiler (per-frame
+  phase timings), Benchmark (percentiles + memory snapshot, JSON/CSV). Engine API; the harness
+  that drives them lives in WebEngineTS-Benchmarks.
+- UI: `src/engine/core/ui/` — grouped by role, since the folder is now the largest here:
+  - *Root & surface* — `Canvas` (2D overlay), `CanvasScaler`, `CanvasGroup` (subtree alpha /
+    interactable / blocksRaycasts), `RectMask2D` (clips drawing **and** hit-testing).
+  - *Layout* — `RectTransform` (anchors, pivot, rotation, scale, offsets, insets),
+    `LayoutElement` + `LayoutUtility` (size protocol), `LayoutGroup` /
+    `LinearLayoutGroup` / `HorizontalLayoutGroup` / `VerticalLayoutGroup`,
+    `GridLayoutGroup`, `ContentSizeFitter`.
+  - *Graphics* — `UIImage` (solid, sprite, atlas sub-rect, 9-slice, tiled, linear + radial
+    fill), `UIText` (wrap, outline, overflow, preferred sizes), `UIUtils` (shared draw
+    helpers + the FNV hash used for change detection). `Sprite`/`SpriteBorder` live in
+    `graphics/`, not here, because they are an asset type.
+  - *Input plumbing* — `EventSystem` (multi-pointer routing, focus, keyboard navigation),
+    `UIEvent` (multicast callbacks), `PointerEventData`, `UIBehaviour` (base: pointer
+    events, group/mask resolution, draw + hit-test contract).
+  - *Controls* — `Selectable` (base: interactable, state, transitions, focus) with
+    `SelectableTransition` (ColorTint / SpriteSwap) and `Navigation`; concrete controls
+    `Button`, `Slider`, `Toggle` + `ToggleGroup`, `Scrollbar`, `Dropdown`, plus
+    `ScrollRect` and `VirtualJoystick`.
+
+  Drawn through the 2D context, not Three.js: the overlay is a separate `<canvas>` sized at
+  the device pixel ratio and transformed once per repaint, so components draw in canvas
+  units. Layout resolves to a **local rect plus a 2D affine matrix**, so rotation and scale
+  work through draw, hit-test and culling alike. `Canvas.repaintMode` defaults to
+  `OnDemand` — the canvas hashes each graphic's transform, local rect and `_visualHash()`
+  and skips the repaint when nothing changed. A `UIBehaviour` subclass that does not
+  override `_visualHash()` returns `NaN` and is treated as always-changed, so opting out is
+  safe.
+
+  Per-frame drivers run from `Application._loop` in this order, each before the pass that
+  reads it: `LayoutGroup` → `ContentSizeFitter` → `ScrollRect` → `EventSystem` →
+  `Selectable` (transitions) → `Canvas._renderAll`.
 
 ## Architecture — Critical Rules
 
@@ -202,10 +244,12 @@ Each step runs components first, then the active scenario.
 - **Batch loading**: `Resources.tryLoad()` wraps individual loads instead of `Promise.all` (which fails entire batch on single missing asset)
 - **Scenario script pre-linking**: All `.js` files in a scenario ZIP are topologically sorted by dependency, relative import specifiers are rewritten to Blob URLs, bare specifiers (e.g. `"WebEngineTS"`) are left for the host import map. Entry point brand-checked via `__scenarioBehaviour` marker (not `instanceof`, which breaks across bundle copies)
 - **Circular deps**: Use `import type` for engine asset types in interfaces
-- **Single profiling system**: performance/memory measurement lives ONLY in the engine
-  (`MemoryProfiler` + `Benchmark`, driven by `benchmarks/run.ts`). Scenario *content* must
-  never embed its own benchmark harness or optimization toggles — the harness drives the
-  optimizations via URL params and measures from the outside.
+- **Single profiling system**: the measurement *primitives* (`MemoryProfiler`, `Profiler`,
+  `Benchmark`) are engine API; the *harness* that drives them lives in WebEngineTS-Benchmarks.
+  Nothing else may grow its own. Scenario content must never embed a benchmark harness or
+  optimization toggles — the harness drives the optimizations via URL params and measures from
+  the outside. A consumer that exposes diagnostics (the platform's overlay, say) must gate
+  them behind an explicit URL opt-in so they cost nothing by default.
 - **Local linking vs. packed tarballs**: consumers install the engine via packed `.tgz`
   (`file:` dep) rather than `npm link` / npm workspaces symlinking. `three` is a
   peerDependency and the engine's rendering code relies on `instanceof THREE.Mesh`-style
@@ -222,6 +266,12 @@ Each step runs components first, then the active scenario.
 Prioritized plan for continued engine work. Driven by peer-review feedback on the
 thesis paper (submission 76) and the paper's own "future work" section. Rationale is
 kept here so future sessions understand *why* each item exists.
+
+**Unity architecture parity** — research + staged plan for closing the gap with Unity's asset
+pipeline, serialization and editor architecture: [`design/unity-parity-plan.md`](design/unity-parity-plan.md).
+Key measured finding: the serialization system exists but **no built-in component uses it**, so
+a saved scene currently loses every built-in component. Stage 1 (make the engine serialize
+itself) is the prerequisite for the editor and for everything else in that plan.
 
 **Canvas UI toolkit** has its own plan — inventory of gaps, defects, per-task complexity and
 priority, and the Y-down coordinate contract: [`design/canvas-ui-roadmap.md`](design/canvas-ui-roadmap.md).
@@ -253,14 +303,12 @@ The first item there (**P0-A**, batch/matrix mode for the harness) is the only t
    (`diagnostics/Benchmark.ts`) does warmup + frame-time percentiles
    (mean/median/p95/p99/max/stdDev) + memory snapshot (heap, GPU counts, estimated
    texture VRAM, draw calls, triangles) via rAF, with JSON/CSV export. The three paper
-   scenes (procedural grid, high-poly model, Solar System) are deterministic in-repo code
-   under `benchmarks/` (seeded, asset-free), bundled via `npm run benchmark:build` and run
-   from `benchmarks/index.html` over the standalone bundle. Closes R3's reproducibility gap.
-   The procedural Scenes 1–3 are asset-free (quick/deterministic); for faithful, texture/VRAM-
-   meaningful runs `?scenario=<zip-url>` loads the real ScenarioCreator ZIPs
-   (`Benchscene2/3`, models + textures + skybox) via `Application.loadScenarioFromUrl` — the
-   ZIPs stay in ScenarioCreator (git-ignored under `benchmarks/scenarios/`), keeping the engine
-   repo content-free. Scene 1 exposes the dirty-flag optimization via `?dirty=0/1`.
+   scenes (procedural grid, high-poly model, Solar System) are deterministic, seeded and
+   asset-free. **They and the whole harness now live in WebEngineTS-Benchmarks** (moved
+   2026-08-04); only the `Benchmark` class itself is still here. Closes R3's reproducibility
+   gap. For faithful, texture/VRAM-meaningful runs the harness loads the real ScenarioCreator
+   ZIPs (`Benchscene2/3`) via `Application.loadScenarioFromUrl`. Scene 1 exposes the
+   dirty-flag optimization via `?dirty=0/1`.
 3. **Integrated-graphics readiness**. *Harness enabled (2026-07-18):* `Application.powerPreference`
    (`GraphicsPowerPreference` enum) selects the WebGL GPU hint (discrete vs. integrated) at
    context creation; the benchmark exposes it via `?gpu=high-performance|low-power|default`,

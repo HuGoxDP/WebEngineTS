@@ -64,17 +64,28 @@ library build.
 ## KTX2 / Basis textures (runtime asset)
 
 The engine supports GPU-compressed KTX2/Basis Universal textures. Decoding needs the Basis
-WASM transcoder at runtime. Those files live in `public/basis/`
-(`basis_transcoder.js`, `basis_transcoder.wasm`). When embedding the engine, copy that folder
-to your app's static directory and point the loader at it before loading KTX2 textures:
+WASM transcoder at runtime — and the **host serves it**, not the engine bundle. It is not
+vendored here: it ships with Three.js at `node_modules/three/examples/jsm/libs/basis/`
+(`basis_transcoder.js`, `basis_transcoder.wasm`).
+
+Copy those two files into your app's static directory and point the loader at the URL they
+are served from, before loading any KTX2 texture:
 
 ```ts
 import { Texture2D } from "WebEngineTS";
 
-Texture2D.ktx2TranscoderPath = "/basis/"; // must end with a slash
+Texture2D.ktx2TranscoderPath = "/assets/basis/"; // must end with a slash
 ```
 
-The originals ship with Three.js at `node_modules/three/examples/jsm/libs/basis/`.
+**The path is a URL, not a folder path**, and getting it wrong fails late and quietly: the
+404 only happens once a scenario actually loads a compressed texture. Check it against where
+your build publishes static files — Angular's `src/assets`, for instance, is served at
+`/assets/`, not at the root.
+
+Keep the transcoder in step with `three`: the loader and the transcoder are versioned
+together, and an older transcoder fails at runtime in ways that look like a corrupt texture.
+`npm run release:local` copies the current one into each consumer that serves it, so this
+stays true without anyone remembering it.
 
 ## Using the library
 
@@ -140,7 +151,6 @@ src/engine/
     assets/             Resources API, LoadHandle
     diagnostics/        MemoryProfiler, Benchmark
 tests/                  Vitest unit tests
-public/basis/           Basis Universal WASM transcoder (KTX2 runtime dependency)
 ```
 
 See [`CLAUDE.md`](./CLAUDE.md) for architecture rules, conventions, and the development roadmap.
