@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { Texture } from "./Texture.ts";
 import { estimateThreeTextureVramBytes } from "./_TextureMemory.ts";
+import { TextureRelease } from "./TextureRelease.ts";
 import { Color } from "../math/Color.ts";
 
 /**
@@ -510,6 +511,16 @@ export class Texture2D extends Texture {
      * ```
      */
     public releaseSourceImage(): void {
+        TextureRelease.schedule(this);
+    }
+
+    /** @internal The texture whose upload state gates the release. */
+    public _threeTextureForUpload(): THREE.Texture | null {
+        return this._internalThreeTexture;
+    }
+
+    /** @internal Frees the pixels. Called by {@link TextureRelease} when safe. */
+    public _releaseSourceImageNow(): void {
         const threeTex = this._internalThreeTexture;
         const image = threeTex.image;
 

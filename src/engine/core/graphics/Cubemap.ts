@@ -5,6 +5,7 @@ import { EngineObject } from "../EngineObject.ts";
 import { FilterMode } from "./Texture.ts";
 import { Texture2D } from "./Texture2D.ts";
 import { estimateThreeTextureVramBytes } from "./_TextureMemory.ts";
+import { TextureRelease } from "./TextureRelease.ts";
 
 /**
  * A cube texture composed of six square images (one per face).
@@ -237,6 +238,16 @@ export class Cubemap extends EngineObject {
      * ```
      */
     public releaseSourceImage(): void {
+        TextureRelease.schedule(this);
+    }
+
+    /** @internal The texture whose upload state gates the release. */
+    public _threeTextureForUpload(): THREE.Texture | null {
+        return this._threeTexture;
+    }
+
+    /** @internal Frees the pixels. Called by {@link TextureRelease} when safe. */
+    public _releaseSourceImageNow(): void {
         const tex = this._threeTexture;
 
         if ((tex as THREE.CubeTexture).isCubeTexture) {

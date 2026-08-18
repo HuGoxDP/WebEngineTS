@@ -4,6 +4,7 @@ import type * as THREE from "three";
 import { SceneManager } from "./SceneManager.ts";
 import { Time } from "./Time.ts";
 import { EngineObject } from "./EngineObject.ts";
+import { TextureRelease } from "./graphics/TextureRelease.ts";
 import { EngineSettings } from "./EngineSettings.ts";
 import { Camera } from "./components/Camera.ts";
 import { Input } from "./Input.ts";
@@ -456,6 +457,31 @@ export class Application {
      *
      * Call this when the Angular component hosting the canvas is destroyed.
      */
+    /**
+     * Reads whether Three.js has uploaded a texture, or `null` when it cannot
+     * be read.
+     *
+     * @remarks
+     * Duck-typed on the backend rather than declared on `RenderBackend`: only
+     * the WebGL backend has a `WebGLRenderer` to ask, and a backend that cannot
+     * answer should make {@link TextureRelease} fall back rather than force
+     * every backend to pretend it can. `properties.get(texture).__webglTexture`
+     * exists exactly once the upload has happened, which is the signal the
+     * frame countdown in `CLAUDE.md` was approximating.
+     */
+    private _uploadProbe(): ((texture: THREE.Texture) => boolean) | null {
+        const backend = this._backend as unknown as {
+            _internalThreeRenderer?: {
+                properties?: { get(o: object): Record<string, unknown> };
+            };
+        };
+        const properties = backend._internalThreeRenderer?.properties;
+        if (!properties) return null;
+
+        return (texture: THREE.Texture) =>
+            properties.get(texture).__webglTexture !== undefined;
+    }
+
     public dispose(): void {
         // Unload scenario first
         this.unloadScenario();
@@ -485,6 +511,9 @@ export class Application {
         // A timed Destroy counts down from the loop; with the loop gone its
         // entries would sit here and fire into whichever Application runs next.
         EngineObject._clearPendingDestroys();
+
+        // Queued texture releases belong to the loop that would have run them.
+        TextureRelease._clear();
 
         // Release the graphics context
         this._backend.dispose();
@@ -747,6 +776,10 @@ export class Application {
             if (scenarioRunning) {
                 scenario!._onFrameRendered();
             }
+
+            // 8b. Free the CPU pixels of any texture the GPU has now taken.
+            //     After the render, because that is when Three.js uploads.
+            TextureRelease._tick(this._uploadProbe());
 
             renderMs = performance.now() - tRenderStart;
 
