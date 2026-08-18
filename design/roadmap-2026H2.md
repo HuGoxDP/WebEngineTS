@@ -10,6 +10,17 @@ Covers priorities, sequencing, resources and the metric that closes each item.
 > [`handoff-boundary.md`](handoff-boundary.md). Items below still stand; they are queued behind
 > that, not cancelled.
 
+> **Engine frozen for measurement, 2026-08-18.** The class-by-class audit is finished — 175
+> classes, 74 findings, all closed (`design/audit/`) — and several of its fixes change the very
+> quantities P0-B measures: the per-frame `Color` allocation is gone from `renderScene` (F14), a
+> `try`/`catch` now wraps every component callback (F22), and texture pixels are freed on a
+> different frame (F9). **Nothing should be measured until `npm run release:local` has run**, or
+> the numbers will describe a build no consumer has. No engine change should land between that
+> sync and the end of P0-B; anything that does invalidates the runs before it.
+>
+> The audit is also paper material in its own right: it is the answer to "how was correctness
+> validated", and every finding carries a negative control.
+
 ---
 
 ## 0. Where things stand
@@ -27,7 +38,8 @@ Covers priorities, sequencing, resources and the metric that closes each item.
 | P2.9 OffscreenCanvas | Not started |
 | Profiler v1 (phase timings + markers + overlay) | **Done** (f1b6876 → a0806e3) |
 | UI/Canvas round 1 (HiDPI, scaler, on-demand repaint, hit-testing) | **Done** (4a84e99) |
-| **Paper Section 5 evaluation data** | **Blocking, not started** |
+| **Paper Section 5 evaluation data** | **Blocking, not started** — and now gated on a consumer sync first, see the note above |
+| Class-by-class audit | **Done** (2026-08-18) — 175 classes, 74 findings, all closed |
 
 The engine side of the reviewer asks is largely built. What is *not* done is running the
 measurements it exists to produce — that is the critical path.
@@ -38,8 +50,9 @@ measurements it exists to produce — that is the critical path.
   from 2 of 3 reviewers; the raw data behind the paper's Scene 3 table is lost and the
   surviving files describe a different, heavier scene. Everything below is ordered against
   "does this get Section 5 defensible".
-- [INFERRED] **No resubmission date is recorded.** The plan is sized for ~8 focused weeks and
-  gated so it can be cut to ~3 (see §7). If a date exists, sequence from the gates backwards.
+- **Resubmission deadline: 24 August 2026** (stated 2026-08-18 — six days). The eight-week
+  shape below is history; what applies is §7's minimum path, compressed further. Sequenced
+  backwards from the date in §7.1.
 - [INFERRED] **Solo developer** with assistant support; no parallel contributors.
 - [INFERRED] **Integrated-GPU and phone hardware may not be on hand.** P0-C is written to
   degrade gracefully if it is not.
@@ -126,11 +139,16 @@ layout groups (horizontal/vertical/grid), `RectMask2D` + a scroll view, and an i
 Priority driver is the platform and editor, not the paper — schedule after P1-A/B unless a
 consumer blocks on it.
 
-**P1-D. Core test coverage** — *~2–3 days*
+**P1-D. Core test coverage** — *mostly overtaken by the audit; ~0.5 day left*
 
-298 tests, and none for `Vector3`, `Matrix4x4`, `Transform`, `Camera`, `Material`, `Texture2D`
-or the scenario loader — i.e. the code every other subsystem sits on. Backfill the math and
-transform layers first, then the scenario load path (the most consumer-visible failure mode).
+Written when there were 298 tests and none for the code every other subsystem sits on. There are
+now 1643, and the audit covered `Matrix4x4`, `Transform`, `Camera`, `Material` and the scenario
+loader as it walked them.
+
+Re-measured 2026-08-18, what is still thin: **`Vector3` and `Texture2D` have no test file of
+their own.** Both are exercised heavily in passing — every physics, transform and UI test leans
+on `Vector3` — so this is about pinning their contracts, not about whether they work. Lower
+priority than it looks, and no longer a multi-day item.
 
 **P1-E. Profiler v2** — *~3–4 days*
 
@@ -178,12 +196,17 @@ Notes for whoever finishes it:
 
 ### Continuous hygiene
 
-- `npm run release:local` after every engine change that should reach a consumer — **the UI
-  round-1 change (4a84e99) has not been pushed yet.**
-- Four open code TODOs; `LineRenderer.ts:549` is a non-English comment, against the repo's own
-  "all comments in English" rule. `Shader.ts` was the same and was translated 2026-08-10 while
-  the shader authoring path was added to it.
-- Keep `typecheck` + `test` + `build` green per commit (currently green, 298 tests).
+- `npm run release:local` after every engine change that should reach a consumer. **Still
+  outstanding, and now by a long way**: the UI round-1 change (4a84e99), the whole audit series,
+  and the streaming stack are all unpushed. This is the first action of P0-B, not a tidy-up.
+- **Open code TODOs: 6** (re-counted 2026-08-18) — `Application` (configurable constant),
+  `Light` (indirect lighting), `LineRenderer` (engine `Material` → `LineBasicMaterial`),
+  `ScenarioAssets` ×2 (external `.gltf` references, `doubleSided`), `Transform` (custom
+  `worldUp`). Each names what is missing and why, per the Completeness rule.
+- **Non-English comments: 0** (F12, `21e8752` + `77c3cb6`). The `LineRenderer.ts:549` line this
+  section used to name is gone along with the other 663.
+- Keep `typecheck` + `test` + `build` green per commit — currently green, **1643 tests across
+  101 files**, and `typecheck` now covers `tests/` as well as `src/` (F69).
 
 ## 3. Timeline
 
@@ -292,3 +315,28 @@ extra days of clicking and loses the reproducibility-automation story, but the d
 
 Do not cut: 10 reps on Scene 3, the drop-first rule, and the scene fingerprint per row. Those
 are exactly what made the previous evaluation unusable.
+
+### 7.1 The actual schedule — six days, 18 → 24 August 2026
+
+Sequenced backwards from the date. W1–W3 as written does not fit; this is what does.
+
+| Day | Do | Done when |
+|---|---|---|
+| **18 Aug (today)** | `npm run release:local`, then freeze the engine. Confirm the benchmark bundle in `WebEngineTS-Benchmarks/engine/` is the new one via `BuildInfo.builtAt`. | A benchmark page loads and reports today's build |
+| **19 Aug** | P0-A, cut down: `?matrix=` + drop-first aggregation + **scene fingerprint per row**. Nothing else — no progress UI, no abort, no Markdown emitter. | One command produces a full Scene 3 CSV unattended |
+| **20 Aug** | P0-B: Scenes 1–3 + KTX2 A/B on the discrete GPU, 10 reps. Commit the CSVs. | Every planned table cell traceable to a committed CSV |
+| **21 Aug** | Rebuild table 3.1 → 3.7 from the CSVs. Rewrite Section 5 around what the data actually shows. | Section 5 has no number without a CSV behind it |
+| **22 Aug** | P0-C if hardware exists, else `?gpu=low-power` **labelled as a power hint, not an integrated GPU**. Then the text-only fixes: abstract tense, deployment scale, the three-engine comparison. | Every reviewer point has a written response |
+| **23 Aug** | Read-through, figures, bibliography, buffer. | — |
+| **24 Aug** | Submit. | — |
+
+**If day 19 slips, drop P0-A entirely and run the matrix by hand on day 20–21.** It costs the
+automation story and two days of clicking, and it produces the same data. The reproducibility
+ask is met by the committed CSVs plus the RUNBOOK, not by the runner being elegant.
+
+**What is cut, explicitly:** the user study (cannot be run in six days and reviewers know it —
+answer it in Limitations), streaming measurements, UI round 2, Profiler v2, cross-device unless
+the hardware is already on the desk. None of them is what scored fair/poor.
+
+**What must not be cut**, unchanged from above: 10 reps on Scene 3, drop-first, and the scene
+fingerprint in every row. Those three are why the last evaluation could not be defended.
