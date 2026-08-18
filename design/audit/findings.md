@@ -14,7 +14,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 |---|---|---|---|
 | F1 | 1 | `Transform.parent` did not preserve world position | fixed `7ab9fa2` |
 | F2 | 1 | `Destroy(obj, delay)` counts wall-clock, not game time | fixed `ca3fdbe` |
-| F3 | 1 | `FindObjectsOfType` promises "active" and does not filter | doc fixed; semantics **open** |
+| F3 | 1 | `FindObjectsOfType` promises "active" and does not filter | fixed `7786d55` |
 | F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | fixed `dadff02` |
 | F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `e6e0b45` |
 | F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `5c585b0` |
@@ -162,7 +162,7 @@ F35, F44, F53, F62) avoided by construction.
 
 **Negative control.** Restoring the `setTimeout` fails 7 of the 13 new tests.
 
-### F3. `FindObjectsOfType` promises "active" and returns everything — doc fixed, semantics **open**
+### F3. `FindObjectsOfType` promises "active" and returns everything — fixed `7786d55`
 
 **Wanted.** What the JSDoc says: "Returns all **active** loaded objects of the specified type",
 matching Unity, where `FindObjectsOfType` excludes objects on inactive GameObjects.
@@ -182,12 +182,29 @@ either way.
 **Done so far.** The doc now describes what the code does and names the difference from Unity,
 so nobody plans around a promise that is not kept.
 
-**Still open, and a decision rather than a bug fix.** Making it match Unity means excluding a
-`GameObject` that is not `activeInHierarchy` and any `Component` on one. That is a behavioural
-change for consumers who currently rely on finding inactive objects, and it needs `EngineObject`
-to reason about `GameObject`/`Component` without importing them — a duck-typed check, or moving
-the filtering to a `Scene`-level API. Worth doing with `Scene.findObjectsOfType`
-(`Scene.ts:270`, which also claims Unity equivalence) rather than piecemeal.
+**Fixed (2026-08-17).** The decision: match Unity's signature *and* its default. All four
+methods — the static pair on `EngineObject`, the scene-level pair on `Scene` — now take
+`includeInactive`, defaulting to `false`. Both pairs claimed Unity equivalence and only one could
+be right, so they moved together rather than piecemeal, as this entry asked.
+
+**The distinction that matters.** The filter is the *object's* activity, not the component's. A
+disabled `Behaviour` on an active GameObject is still returned; Unity filters the same way, and
+getting this backwards would have been a subtler bug than the one being fixed.
+
+**Assets are always found.** A mesh, texture or material has no activity to test, and this is how
+`MemoryProfiler` enumerates them. Hence the duck-typed check rather than a blanket filter:
+`EngineObject` is the base of both `GameObject` and `Component` and can import neither without a
+cycle, so it asks whether the object answers `activeInHierarchy`, whether it forwards to
+something that does, or whether it is an asset. The finding named that as the open design
+question; the answer turned out to be four lines.
+
+**Blast radius, checked first.** Zero callers across the ten ScenarioCreator scenarios. The only
+engine callers are `MemoryProfiler`'s `Mesh`/`Texture`/`Cubemap` scans, which the asset rule
+leaves untouched — so the behavioural change nobody could rely on breaking, nobody was relying
+on.
+
+**Negative controls, one at a time.** Removing the `EngineObject` filter fails 5 of the 13 new
+tests; removing `Scene`'s fails exactly the 2 that name it.
 
 ### F4. `Awake` fires on `addComponent` even when the GameObject is inactive — fixed `dadff02`
 
