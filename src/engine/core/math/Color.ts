@@ -4,11 +4,11 @@ import { EngineSettings } from '../EngineSettings';
 
 /**
  * Color.ts
- * Представлення кольору у форматі RGBA.
- * Значення компонентів знаходяться в діапазоні від 0.0 до 1.0.
+ * An RGBA colour.
+ * Components run from 0.0 to 1.0.
  *
  * @remarks
- * API максимально наближений до Unity Color.
+ * The API follows Unity's `Color` as closely as the language allows.
  */
 export class Color {
     public r: number;
@@ -30,11 +30,11 @@ export class Color {
     private static readonly _clear = Object.freeze(new Color(0, 0, 0, 0));
 
     /**
-     * Створює новий колір.
-     * @param r Червоний (0.0 - 1.0). За замовчуванням 1.
-     * @param g Зелений (0.0 - 1.0). За замовчуванням 1.
-     * @param b Синій (0.0 - 1.0). За замовчуванням 1.
-     * @param a Альфа/Прозорість (0.0 - 1.0). За замовчуванням 1.
+     * Creates a colour.
+     * @param r — red, 0–1. Defaults to 1.
+     * @param g — green, 0–1. Defaults to 1.
+     * @param b — blue, 0–1. Defaults to 1.
+     * @param a — alpha, 0–1. Defaults to 1 (opaque).
      */
     constructor(r: number = 1, g: number = 1, b: number = 1, a: number = 1) {
         this.r = r;
@@ -72,11 +72,11 @@ export class Color {
     // ==================== STATIC METHODS ====================
 
     /**
-     * Лінійна інтерполяція між двома кольорами.
-     * @param a Початковий колір
-     * @param b Кінцевий колір
-     * @param t Коефіцієнт (0-1), обмежується
-     * @param out Опціональний результат
+     * Linearly interpolates between two colours.
+     * @param a — the colour at `t = 0`.
+     * @param b — the colour at `t = 1`.
+     * @param t — interpolation factor, clamped to [0, 1].
+     * @param out — optional destination. A new colour is allocated when omitted.
      */
     static Lerp(a: Color, b: Color, t: number, out?: Color): Color {
         const result = out ?? new Color();
@@ -89,7 +89,7 @@ export class Color {
     }
 
     /**
-     * Лінійна інтерполяція без обмеження t.
+     * Linearly interpolates without clamping `t`.
      */
     static LerpUnclamped(a: Color, b: Color, t: number, out?: Color): Color {
         const result = out ?? new Color();
@@ -101,7 +101,7 @@ export class Color {
     }
 
     /**
-     * Додає два кольори.
+     * Adds two colours.
      */
     static Add(a: Color, b: Color, out?: Color): Color {
         const result = out ?? new Color();
@@ -113,7 +113,7 @@ export class Color {
     }
 
     /**
-     * Множить два кольори покомпонентно.
+     * Multiplies two colours component by component.
      */
     static Multiply(a: Color, b: Color, out?: Color): Color {
         const result = out ?? new Color();
@@ -125,7 +125,7 @@ export class Color {
     }
 
     /**
-     * Множить колір на скаляр.
+     * Multiplies a colour by a scalar.
      */
     static Scale(color: Color, scalar: number, out?: Color): Color {
         const result = out ?? new Color();
@@ -137,11 +137,11 @@ export class Color {
     }
 
     /**
-     * Створює колір з HSV (Hue, Saturation, Value).
+     * Builds a colour from HSV.
      * @param h Hue (0-1)
      * @param s Saturation (0-1)
      * @param v Value/Brightness (0-1)
-     * @param out Опціональний результат
+     * @param out — optional destination. A new colour is allocated when omitted.
      */
     static HSVToRGB(h: number, s: number, v: number, out?: Color): Color {
         const result = out ?? new Color();
@@ -176,8 +176,8 @@ export class Color {
     }
 
     /**
-     * Конвертує RGB колір в HSV.
-     * @returns {h, s, v} об'єкт з компонентами HSV (0-1)
+     * Converts an RGB colour to HSV.
+     * @returns `{ h, s, v }`, each 0–1.
      */
     static RGBToHSV(color: Color): { h: number; s: number; v: number } {
         const r = color.r, g = color.g, b = color.b;
@@ -205,9 +205,9 @@ export class Color {
     }
 
     /**
-     * Створює колір з hex числа.
-     * @param hex Наприклад 0xFF0000 для червоного
-     * @param out Опціональний результат
+     * Builds a colour from a hex number.
+     * @param hex — for example `0xFF0000` for red.
+     * @param out — optional destination. A new colour is allocated when omitted.
      */
     static FromHex(hex: number, out?: Color): Color {
         const result = out ?? new Color();
@@ -219,9 +219,9 @@ export class Color {
     }
 
     /**
-     * Створює колір з hex рядка.
-     * @param hexString Наприклад "#FF0000" або "FF0000"
-     * @param out Опціональний результат
+     * Builds a colour from a hex string.
+     * @param hexString — for example `"#FF0000"` or `"FF0000"`.
+     * @param out — optional destination. A new colour is allocated when omitted.
      */
     static FromHexString(hexString: string, out?: Color): Color {
         const result = out ?? new Color();
@@ -244,7 +244,7 @@ export class Color {
     // ==================== INSTANCE METHODS ====================
 
     /**
-     * Встановлює компоненти кольору.
+     * Sets all components.
      */
     set(r: number, g: number, b: number, a: number = 1): this {
         this.r = r;
@@ -255,7 +255,7 @@ export class Color {
     }
 
     /**
-     * Копіює значення з іншого кольору.
+     * Copies the components of another colour into this one.
      */
     copy(other: Color): this {
         this.r = other.r;
@@ -266,15 +266,15 @@ export class Color {
     }
 
     /**
-     * Створює новий екземпляр з такими ж значеннями.
+     * Returns a new colour with the same components.
      */
     clone(): Color {
         return new Color(this.r, this.g, this.b, this.a);
     }
 
     /**
-     * Додає інший колір до поточного (адитивне змішування).
-     * Змінює поточний об'єкт.
+     * Adds another colour to this one — additive blending.
+     * Mutates this colour.
      */
     add(other: Color): this {
         this.r += other.r;
@@ -285,8 +285,8 @@ export class Color {
     }
 
     /**
-     * Множить колір на число (зміна яскравості).
-     * Змінює поточний об'єкт.
+     * Multiplies this colour by a scalar, changing its brightness.
+     * Mutates this colour.
      */
     multiplyScalar(scalar: number): this {
         this.r *= scalar;
@@ -297,7 +297,7 @@ export class Color {
     }
 
     /**
-     * Множить цей колір на інший покомпонентно (фільтрація).
+     * Multiplies this colour by another component by component — filtering.
      */
     multiply(other: Color): this {
         this.r *= other.r;
@@ -308,9 +308,9 @@ export class Color {
     }
 
     /**
-     * Лінійна інтерполяція між поточним кольором та цільовим.
-     * @param target Кінцевий колір.
-     * @param t Коефіцієнт (0-1).
+     * Interpolates this colour towards a target, in place.
+     * @param target — the colour at `t = 1`.
+     * @param t — interpolation factor, clamped to [0, 1].
      */
     lerp(target: Color, t: number): this {
         t = Math.max(0, Math.min(1, t));
@@ -322,7 +322,7 @@ export class Color {
     }
 
     /**
-     * Обмежує всі компоненти в діапазоні [0, 1].
+     * Clamps every component to [0, 1].
      */
     clamp01(): this {
         this.r = Math.max(0, Math.min(1, this.r));
@@ -333,23 +333,23 @@ export class Color {
     }
 
     /**
-     * Повертає значення сірого (luminance).
-     * Використовує стандартні коефіцієнти для sRGB.
+     * The colour's luminance.
+     * Uses the standard sRGB coefficients.
      */
     get grayscale(): number {
         return 0.299 * this.r + 0.587 * this.g + 0.114 * this.b;
     }
 
     /**
-     * Повертає максимальну компоненту кольору (без альфа).
+     * The largest of the three colour components, alpha excluded.
      */
     get maxColorComponent(): number {
         return Math.max(this.r, this.g, this.b);
     }
 
     /**
-     * Повертає колір в лінійному колірному просторі (з gamma).
-     * Використовується для коректних розрахунків освітлення.
+     * Converts this colour from gamma space to linear space.
+     * Lighting maths is only correct in linear space.
      */
     get linear(): Color {
         const toLinear = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -362,7 +362,7 @@ export class Color {
     }
 
     /**
-     * Повертає колір в gamma колірному просторі (з linear).
+     * Converts this colour from linear space to gamma space.
      */
     get gamma(): Color {
         const toGamma = (c: number) => c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
@@ -375,7 +375,7 @@ export class Color {
     }
 
     /**
-     * Перевіряє рівність з іншим кольором.
+     * Whether another colour is equal to this one.
      */
     equals(other: Color, epsilon: number = EngineSettings.Math.EPSILON): boolean {
         return (
@@ -387,8 +387,8 @@ export class Color {
     }
 
     /**
-     * Повертає Hex число (наприклад 0xFF0000).
-     * Альфа-канал ігнорується.
+     * The colour as a hex number, for example `0xFF0000`.
+     * Alpha is ignored.
      */
     getHex(): number {
         const r = Math.floor(Math.max(0, Math.min(1, this.r)) * 255);
@@ -398,15 +398,15 @@ export class Color {
     }
 
     /**
-     * Повертає hex рядок (наприклад "#FF0000").
+     * The colour as a hex string, for example `"#FF0000"`.
      */
     getHexString(): string {
         return '#' + this.getHex().toString(16).padStart(6, '0').toUpperCase();
     }
 
     /**
-     * Встановлює колір з Hex числа.
-     * @param hex Наприклад 0xFF0000.
+     * Sets this colour from a hex number.
+     * @param hex — for example `0xFF0000`.
      */
     setHex(hex: number): this {
         this.r = ((hex >> 16) & 255) / 255;
@@ -417,7 +417,7 @@ export class Color {
     }
 
     /**
-     * Встановлює колір з HSV.
+     * Sets this colour from HSV.
      */
     setHSV(h: number, s: number, v: number): this {
         Color.HSVToRGB(h, s, v, this);
@@ -425,22 +425,22 @@ export class Color {
     }
 
     /**
-     * Повертає HSV представлення кольору.
+     * The colour as HSV.
      */
     toHSV(): { h: number; s: number; v: number } {
         return Color.RGBToHSV(this);
     }
 
     /**
-     * Повертає масив [r, g, b, a].
-     * Зручно для передачі в шейдери.
+     * The components as `[r, g, b, a]`.
+     * Convenient for passing to a shader.
      */
     toArray(): [number, number, number, number] {
         return [this.r, this.g, this.b, this.a];
     }
 
     /**
-     * Встановлює з масиву.
+     * Sets the components from an array.
      */
     fromArray(array: number[], offset: number = 0): this {
         this.r = array[offset];

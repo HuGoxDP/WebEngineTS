@@ -5,12 +5,12 @@ import { Vector3 } from './Vector3';
 
 /**
  * Quaternion.ts
- * Клас для представлення обертання в 3D просторі.
- * Використовує формат (x, y, z, w) де w — скалярна частина.
- * Усуває проблему Gimbal Lock, притаманну Euler Angles.
+ * A rotation in 3D space.
+ * Stored as (x, y, z, w), with `w` as the scalar part.
+ * Free of the gimbal lock that Euler angles suffer from.
  *
  * @remarks
- * API максимально наближений до Unity Quaternion.
+ * The API follows Unity's `Quaternion` as closely as the language allows.
  */
 export class Quaternion {
     public x: number;
@@ -25,7 +25,7 @@ export class Quaternion {
     private static readonly RAD2DEG = 180 / Math.PI;
 
     /**
-     * За замовчуванням створює Identity Quaternion (без обертання).
+     * Defaults to the identity quaternion — no rotation.
      */
     constructor(x: number = 0, y: number = 0, z: number = 0, w: number = 1) {
         this.x = x;
@@ -46,8 +46,8 @@ export class Quaternion {
     // ==================== STATIC METHODS ====================
 
     /**
-     * Створює кватерніон з кутів Ейлера (в градусах).
-     * Порядок обертання: Y -> X -> Z (Unity convention).
+     * Builds a quaternion from Euler angles, in degrees.
+     * Rotation order: Y → X → Z, as Unity does it.
      */
     static euler(x: number, y: number, z: number, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -62,7 +62,7 @@ export class Quaternion {
     }
 
     /**
-     * Створює кватерніон з обертання навколо осі на заданий кут (градуси).
+     * Builds a quaternion from a rotation of `angle` degrees about an axis.
      */
     static angleAxis(angle: number, axis: Vector3, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -85,7 +85,7 @@ export class Quaternion {
     }
 
     /**
-     * Створює кватерніон, що обертає від напрямку fromDirection до toDirection.
+     * Builds the rotation that takes `fromDirection` to `toDirection`.
      */
     static fromToRotation(fromDirection: Vector3, toDirection: Vector3, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -161,7 +161,7 @@ export class Quaternion {
     }
 
     /**
-     * Створює кватерніон, що дивиться у напрямку forward з вказаним напрямком "вгору".
+     * Builds the rotation that looks along `forward` with the given up direction.
      */
     static lookRotation(forward: Vector3, up: Vector3 = Vector3.up, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -237,7 +237,7 @@ export class Quaternion {
     }
 
     /**
-     * Повертає інверсію кватерніона (обертання у зворотному напрямку).
+     * Returns the inverse rotation.
      */
     static inverse(q: Quaternion, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -257,14 +257,14 @@ export class Quaternion {
     }
 
     /**
-     * Скалярний добуток кватерніонів.
+     * Dot product of two quaternions.
      */
     static dot(a: Quaternion, b: Quaternion): number {
         return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
     }
 
     /**
-     * Кут між двома кватерніонами в градусах.
+     * Angle between two rotations, in degrees.
      */
     static angle(a: Quaternion, b: Quaternion): number {
         const dot = Math.abs(Quaternion.dot(a, b));
@@ -273,7 +273,7 @@ export class Quaternion {
     }
 
     /**
-     * Множення кватерніонів (комбінування обертань).
+     * Multiplies two quaternions, combining their rotations.
      */
     static multiply(a: Quaternion, b: Quaternion, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -290,10 +290,11 @@ export class Quaternion {
     }
 
     /**
-     * Лінійна інтерполяція кватерніонів (швидша за Slerp, але менш точна).
+     * Linearly interpolates two rotations — faster than {@link slerp}, and less
+     * faithful: the angular velocity is not constant.
      * @param a
      * @param b
-     * @param t Параметр інтерполяції (0 = a, 1 = b). Обмежується до [0,1].
+     * @param t — interpolation factor (0 = `a`, 1 = `b`), clamped to [0, 1].
      * @param out
      */
     static lerp(a: Quaternion, b: Quaternion, t: number, out?: Quaternion): Quaternion {
@@ -314,7 +315,7 @@ export class Quaternion {
     }
 
     /**
-     * Лінійна інтерполяція без обмеження t.
+     * Linearly interpolates without clamping `t`.
      */
     static lerpUnclamped(a: Quaternion, b: Quaternion, t: number, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -332,8 +333,8 @@ export class Quaternion {
     }
 
     /**
-     * Сферична інтерполяція кватерніонів (Slerp).
-     * Плавне обертання від 'a' до 'b' на величину 't' (0..1).
+     * Spherically interpolates two rotations.
+     * Rotates from `a` to `b` at a constant angular velocity.
      */
     static slerp(a: Quaternion, b: Quaternion, t: number, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -382,7 +383,7 @@ export class Quaternion {
     }
 
     /**
-     * Сферична інтерполяція без обмеження t.
+     * Spherically interpolates without clamping `t`.
      */
     static slerpUnclamped(a: Quaternion, b: Quaternion, t: number, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -426,7 +427,7 @@ export class Quaternion {
     }
 
     /**
-     * Поступово обертає від from до to, не перевищуючи maxDegreesDelta.
+     * Rotates `from` towards `to` by at most `maxDegreesDelta` degrees.
      */
     static rotateTowards(from: Quaternion, to: Quaternion, maxDegreesDelta: number, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -441,7 +442,7 @@ export class Quaternion {
     }
 
     /**
-     * Нормалізує кватерніон.
+     * Returns a normalized copy.
      */
     static normalized(q: Quaternion, out?: Quaternion): Quaternion {
         const result = out ?? new Quaternion();
@@ -451,7 +452,7 @@ export class Quaternion {
     // ==================== INSTANCE METHODS ====================
 
     /**
-     * Встановлює значення компонентів.
+     * Sets all components.
      */
     set(x: number, y: number, z: number, w: number): this {
         this.x = x;
@@ -462,7 +463,7 @@ export class Quaternion {
     }
 
     /**
-     * Копіює значення з іншого кватерніона.
+     * Copies the components of another quaternion into this one.
      */
     copy(q: Quaternion): this {
         this.x = q.x;
@@ -473,15 +474,15 @@ export class Quaternion {
     }
 
     /**
-     * Створює копію цього кватерніона.
+     * Returns a new quaternion with the same components.
      */
     clone(): Quaternion {
         return new Quaternion(this.x, this.y, this.z, this.w);
     }
 
     /**
-     * Конвертує кути Ейлера (градуси) у Кватерніон і записує в this.
-     * Порядок обертання: Y -> X -> Z (Unity convention).
+     * Sets this quaternion from Euler angles, in degrees.
+     * Rotation order: Y → X → Z, as Unity does it.
      */
     setFromEuler(x: number, y: number, z: number): this {
         const c1 = Math.cos(x * Quaternion.DEG2RAD_HALF);
@@ -502,14 +503,14 @@ export class Quaternion {
     }
 
     /**
-     * Встановлює кватерніон з обертання навколо осі.
+     * Sets this quaternion from a rotation about an axis.
      */
     setFromAxisAngle(axis: Vector3, angle: number): this {
         return Quaternion.angleAxis(angle, axis, this) as this;
     }
 
     /**
-     * Множення кватерніонів (Комбінування обертань).
+     * Multiplies this quaternion by another, combining the rotations.
      * this = this * q
      */
     multiply(q: Quaternion): this {
@@ -524,7 +525,7 @@ export class Quaternion {
     }
 
     /**
-     * Внутрішній метод для безпечного множення.
+     * Multiplies into `out`, safe when `out` aliases either operand.
      */
     multiplyQuaternions(a: Quaternion, b: Quaternion): this {
         const ax = a.x, ay = a.y, az = a.z, aw = a.w;
@@ -539,7 +540,7 @@ export class Quaternion {
     }
 
     /**
-     * Нормалізація кватерніона.
+     * Normalizes this quaternion, in place.
      */
     normalize(): this {
         const mag = Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w);
@@ -559,15 +560,16 @@ export class Quaternion {
     }
 
     /**
-     * Повертає нормалізовану копію (не мутує поточний).
+     * Returns a normalized copy, leaving this quaternion unchanged.
      */
     get normalized(): Quaternion {
         return this.clone().normalize();
     }
 
     /**
-     * Інвертує обертання (мутує поточний).
-     * Для не-нормалізованих кватерніонів використовується повна інверсія.
+     * Inverts this rotation, in place.
+     * A quaternion that is not unit length takes the full inverse rather than
+     * the conjugate shortcut.
      */
     invert(): this {
         const sqrMag = this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w;
@@ -585,7 +587,7 @@ export class Quaternion {
     }
 
     /**
-     * Conjugate (швидша інверсія для unit quaternions).
+     * Conjugate — the cheap inverse, correct for unit quaternions.
      */
     conjugate(): this {
         this.x = -this.x;
@@ -595,21 +597,21 @@ export class Quaternion {
     }
 
     /**
-     * Скалярний добуток з іншим кватерніоном.
+     * Dot product with another quaternion.
      */
     dot(q: Quaternion): number {
         return this.x * q.x + this.y * q.y + this.z * q.z + this.w * q.w;
     }
 
     /**
-     * Кут до іншого кватерніона в градусах.
+     * Angle to another rotation, in degrees.
      */
     angleTo(q: Quaternion): number {
         return Quaternion.angle(this, q);
     }
 
     /**
-     * Повертає кути Ейлера (в градусах).
+     * The rotation as Euler angles, in degrees.
      */
     toEuler(out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -665,7 +667,7 @@ export class Quaternion {
     }
 
     /**
-     * Перевіряє рівність кватерніонів з урахуванням похибки.
+     * Whether another quaternion is equal to this one, within `epsilon`.
      */
     equals(q: Quaternion, epsilon: number = EngineSettings.Math.EPSILON): boolean {
         return (
@@ -677,7 +679,7 @@ export class Quaternion {
     }
 
     /**
-     * Повертає рядкове представлення.
+     * A readable string form, for logging.
      */
     toString(): string {
         return `Quaternion(${this.x.toFixed(3)}, ${this.y.toFixed(3)}, ${this.z.toFixed(3)}, ${this.w.toFixed(3)})`;

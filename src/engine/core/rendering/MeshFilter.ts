@@ -5,17 +5,17 @@ import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
- * Компонент для зберігання геометрії меша.
- * Повна імітація Unity MeshFilter.
+ * Holds the mesh a GameObject renders.
+ * Mirrors Unity's `MeshFilter`.
  * 
- * MeshFilter зберігає посилання на Mesh, який рендериться компонентом MeshRenderer.
+ * MeshFilter carries the geometry; `MeshRenderer` draws it.
  */
 @Serializable({ typeName: "MeshFilter", category: "Rendering" })
 export class MeshFilter extends Component {
-    /** Shared меш (не копіюється, тільки посилання) */
+    /** The shared mesh — a reference, never copied. */
     private _sharedMesh: Mesh | null = null;
 
-    /** Instance меша (копія для редагування) */
+    /** This filter's own copy, made on the first write through {@link mesh}. */
     private _meshInstance: Mesh | null = null;
 
     constructor(gameObject: GameObject) {
@@ -23,12 +23,12 @@ export class MeshFilter extends Component {
         this.name = "MeshFilter";
     }
 
-    // === Властивості ===
+    // === Properties ===
 
     /**
-     * Shared меш (спільний ресурс).
-     * Не модифікуйте цей меш напряму - він спільний для всіх об'єктів!
-     * Для редагування використовуйте mesh (створить копію).
+     * The shared mesh.
+     * Do not modify it in place: every object using it sees the change.
+     * Use {@link mesh} to edit, which clones first.
      */
     @SerializedField({ type: FieldType.Mesh })
     public get sharedMesh(): Mesh | null {
@@ -38,30 +38,30 @@ export class MeshFilter extends Component {
     public set sharedMesh(value: Mesh | null) {
         this._sharedMesh = value;
         
-        // Скидаємо instance, щоб при наступному доступі до mesh створилася нова копія
+        // Drop the instance, so the next read of `mesh` clones the new shared one.
         if (this._meshInstance) {
             this._meshInstance = null;
         }
     }
 
     /**
-     * Меш для редагування (instance).
-     * При першому доступі створюється копія sharedMesh.
-     * Зміни цього меша не вплинуть на інші об'єкти.
+     * A mesh this filter owns and may edit.
+     * The first read clones {@link sharedMesh}.
+     * Changes to it affect no other object.
      */
     public get mesh(): Mesh | null {
-        // Якщо є instance - повертаємо його
+        // An instance already exists.
         if (this._meshInstance) {
             return this._meshInstance;
         }
 
-        // Якщо немає instance, але є shared - створюємо копію
+        // No instance yet, but a shared mesh to clone from.
         if (this._sharedMesh) {
             this._meshInstance = this._sharedMesh.clone() as Mesh;
             return this._meshInstance;
         }
 
-        // Нічого немає
+        // Nothing to return.
         return null;
     }
 
@@ -72,24 +72,24 @@ export class MeshFilter extends Component {
             return;
         }
 
-        // При присвоєнні mesh створюємо копію
+        // Assigning through `mesh` stores an owned copy.
         this._meshInstance = value.clone() as Mesh;
-        this._sharedMesh = null; // Більше не використовуємо shared
+        this._sharedMesh = null; // The shared mesh is no longer in play.
     }
 
-    // === Методи ===
+    // === Methods ===
 
     /**
-     * Перевіряє, чи MeshFilter має меш.
+     * Whether this filter has a mesh at all.
      */
     public hasMesh(): boolean {
         return this._sharedMesh !== null || this._meshInstance !== null;
     }
 
-    // === Життєвий цикл ===
+    // === Lifecycle ===
 
     protected override onDestroy(): void {
-        // Знищуємо тільки instance (shared не чіпаємо - він може використовуватися іншими)
+        // Only the instance is ours to dispose; the shared mesh may have other users.
         if (this._meshInstance) {
             this._meshInstance.destroy();
             this._meshInstance = null;

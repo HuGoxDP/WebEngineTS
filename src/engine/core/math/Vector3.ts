@@ -4,11 +4,12 @@ import { EngineSettings } from '../EngineSettings';
 
 /**
  * Vector3.ts
- * Математичний клас для роботи з 3D векторами.
- * Реалізує Zero-Allocation pattern через параметр 'out'.
+ * A 3D vector.
+ * Follows the zero-allocation pattern: every static operation takes an
+ * optional `out` parameter and writes its result there instead of allocating.
  *
  * @remarks
- * API максимально наближений до Unity Vector3.
+ * The API follows Unity's `Vector3` as closely as the language allows.
  */
 export class Vector3 {
     public x: number;
@@ -59,8 +60,8 @@ export class Vector3 {
     // ==================== STATIC METHODS ====================
 
     /**
-     * Додає два вектори.
-     * @param out (Опціонально) Вектор, у який буде записано результат. Якщо не задано, створюється новий.
+     * Adds two vectors.
+     * @param out — optional destination. A new vector is allocated when omitted.
      */
     static add(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -71,8 +72,8 @@ export class Vector3 {
     }
 
     /**
-     * Віднімає вектори (a - b).
-     * @param out (Опціонально) Вектор для запису результату.
+     * Subtracts `b` from `a`.
+     * @param out — optional destination. A new vector is allocated when omitted.
      */
     static subtract(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -83,7 +84,7 @@ export class Vector3 {
     }
 
     /**
-     * Покомпонентне множення векторів (Scale).
+     * Multiplies two vectors component by component.
      */
     static multiply(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -94,7 +95,7 @@ export class Vector3 {
     }
 
     /**
-     * Множення вектора на число.
+     * Multiplies a vector by a scalar.
      */
     static multiplyScalar(v: Vector3, scalar: number, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -105,14 +106,14 @@ export class Vector3 {
     }
 
     /**
-     * Аліас для multiplyScalar (для сумісності з Unity).
+     * Alias for {@link multiplyScalar}, named as Unity names it.
      */
     static scale(v: Vector3, scalar: number, out?: Vector3): Vector3 {
         return Vector3.multiplyScalar(v, scalar, out);
     }
 
     /**
-     * Ділення вектора на число.
+     * Divides a vector by a scalar.
      */
     static divideScalar(v: Vector3, scalar: number, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -129,8 +130,8 @@ export class Vector3 {
     }
 
     /**
-     * Лінійна інтерполяція між двома векторами.
-     * @param t Параметр інтерполяції (0 = a, 1 = b). Обмежується до [0,1].
+     * Linearly interpolates between two vectors.
+     * @param t — interpolation factor (0 = `a`, 1 = `b`), clamped to [0, 1].
      */
     static lerp(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -142,7 +143,7 @@ export class Vector3 {
     }
 
     /**
-     * Лінійна інтерполяція без обмеження параметра t.
+     * Linearly interpolates between two vectors without clamping `t`.
      */
     static lerpUnclamped(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -153,8 +154,8 @@ export class Vector3 {
     }
 
     /**
-     * Сферична інтерполяція між двома векторами.
-     * @param t Параметр інтерполяції (0 = a, 1 = b). Обмежується до [0,1].
+     * Spherically interpolates between two vectors.
+     * @param t — interpolation factor (0 = `a`, 1 = `b`), clamped to [0, 1].
      */
     static slerp(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -199,7 +200,7 @@ export class Vector3 {
     }
 
     /**
-     * Сферична інтерполяція без обмеження t.
+     * Spherically interpolates between two vectors without clamping `t`.
      */
     static slerpUnclamped(a: Vector3, b: Vector3, t: number, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -239,14 +240,14 @@ export class Vector3 {
     }
 
     /**
-     * Скалярний добуток (Dot Product).
+     * Dot product.
      */
     static dot(a: Vector3, b: Vector3): number {
         return a.x * b.x + a.y * b.y + a.z * b.z;
     }
 
     /**
-     * Векторний добуток (Cross Product).
+     * Cross product.
      */
     static cross(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -260,7 +261,7 @@ export class Vector3 {
     }
 
     /**
-     * Відстань між векторами.
+     * Distance between two points.
      */
     static distance(a: Vector3, b: Vector3): number {
         const dx = a.x - b.x;
@@ -270,7 +271,7 @@ export class Vector3 {
     }
 
     /**
-     * Квадрат відстані (швидше, без кореня).
+     * Squared distance — cheaper than {@link distance}, with no square root.
      */
     static distanceSquared(a: Vector3, b: Vector3): number {
         const dx = a.x - b.x;
@@ -280,7 +281,7 @@ export class Vector3 {
     }
 
     /**
-     * Повертає нормалізовану копію вектора.
+     * Returns a normalized copy of the vector.
      */
     static normalized(v: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -297,7 +298,7 @@ export class Vector3 {
     }
 
     /**
-     * Повертає вектор з мінімальними компонентами.
+     * Returns the component-wise minimum of two vectors.
      */
     static min(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -308,7 +309,7 @@ export class Vector3 {
     }
 
     /**
-     * Повертає вектор з максимальними компонентами.
+     * Returns the component-wise maximum of two vectors.
      */
     static max(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -319,7 +320,7 @@ export class Vector3 {
     }
 
     /**
-     * Обмежує кожну компоненту вектора між відповідними компонентами min та max.
+     * Clamps each component between the matching components of `min` and `max`.
      */
     static clamp(v: Vector3, min: Vector3, max: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -330,7 +331,7 @@ export class Vector3 {
     }
 
     /**
-     * Обмежує довжину вектора максимальним значенням.
+     * Clamps the vector's length to `maxLength`, leaving its direction alone.
      */
     static clampMagnitude(v: Vector3, maxLength: number, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -350,7 +351,7 @@ export class Vector3 {
     }
 
     /**
-     * Відображає вектор відносно площини, заданої нормаллю.
+     * Reflects a vector off the plane defined by a normal.
      */
     static reflect(direction: Vector3, normal: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -362,7 +363,7 @@ export class Vector3 {
     }
 
     /**
-     * Проєктує вектор a на вектор b.
+     * Projects `a` onto `b`.
      */
     static project(a: Vector3, b: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -380,7 +381,7 @@ export class Vector3 {
     }
 
     /**
-     * Проєктує вектор на площину, задану нормаллю.
+     * Projects a vector onto the plane defined by a normal.
      */
     static projectOnPlane(vector: Vector3, planeNormal: Vector3, out?: Vector3): Vector3 {
         const result = out ?? new Vector3();
@@ -398,7 +399,7 @@ export class Vector3 {
     }
 
     /**
-     * Кут між векторами в градусах.
+     * Unsigned angle between two vectors, in degrees.
      */
     static angle(from: Vector3, to: Vector3): number {
         const denominator = Math.sqrt(
@@ -413,7 +414,7 @@ export class Vector3 {
     }
 
     /**
-     * Знаковий кут між векторами в градусах відносно осі.
+     * Signed angle between two vectors about an axis, in degrees.
      * Uses internal temp to avoid allocation.
      */
     static signedAngle(from: Vector3, to: Vector3, axis: Vector3): number {
@@ -427,7 +428,7 @@ export class Vector3 {
     }
 
     /**
-     * Рухає точку current до target, не перевищуючи maxDistanceDelta.
+     * Moves `current` towards `target` by at most `maxDistanceDelta`.
      * Unity-like MoveTowards.
      */
     static moveTowards(current: Vector3, target: Vector3, maxDistanceDelta: number, out?: Vector3): Vector3 {
@@ -457,15 +458,15 @@ export class Vector3 {
     }
 
     /**
-     * Плавно переміщує вектор до цілі з згладжуванням.
+     * Gradually moves a vector towards a target, damping the approach.
      * Unity-like SmoothDamp (simplified version).
-     * @param current Поточна позиція
-     * @param target Цільова позиція
-     * @param currentVelocity Поточна швидкість (буде модифікована)
-     * @param smoothTime Приблизний час досягнення цілі
-     * @param maxSpeed Максимальна швидкість (Infinity за замовчуванням)
-     * @param deltaTime Час кадру
-     * @param out Вектор для результату
+     * @param current — the current position.
+     * @param target — the position to move towards.
+     * @param currentVelocity — current velocity; modified in place by this call.
+     * @param smoothTime — roughly how long the move should take, in seconds.
+     * @param maxSpeed — speed ceiling. Defaults to `Infinity`.
+     * @param deltaTime — time since the last call, in seconds.
+     * @param out — optional destination. A new vector is allocated when omitted.
      */
     static smoothDamp(
         current: Vector3,
@@ -538,8 +539,8 @@ export class Vector3 {
     // ==================== INSTANCE METHODS ====================
 
     /**
-     * Встановлює значення компонентів.
-     * @returns this для ланцюгових викликів
+     * Sets all components.
+     * @returns `this`, for chaining.
      */
     set(x: number = 0, y: number = 0, z: number = 0): this {
         this.x = x;
@@ -549,7 +550,7 @@ export class Vector3 {
     }
 
     /**
-     * Встановлює тільки X компонент.
+     * Sets the X component only.
      */
     setX(x: number): this {
         this.x = x;
@@ -557,7 +558,7 @@ export class Vector3 {
     }
 
     /**
-     * Встановлює тільки Y компонент.
+     * Sets the Y component only.
      */
     setY(y: number): this {
         this.y = y;
@@ -565,7 +566,7 @@ export class Vector3 {
     }
 
     /**
-     * Встановлює тільки Z компонент.
+     * Sets the Z component only.
      */
     setZ(z: number): this {
         this.z = z;
@@ -573,7 +574,7 @@ export class Vector3 {
     }
 
     /**
-     * Копіює значення з іншого вектора.
+     * Copies the components of another vector into this one.
      */
     copy(v: Vector3): this {
         this.x = v.x;
@@ -583,14 +584,14 @@ export class Vector3 {
     }
 
     /**
-     * Створює копію вектора.
+     * Returns a new vector with the same components.
      */
     clone(): Vector3 {
         return new Vector3(this.x, this.y, this.z);
     }
 
     /**
-     * Додає вектор (мутує поточний).
+     * Adds a vector to this one, in place.
      */
     add(v: Vector3): this {
         this.x += v.x;
@@ -600,7 +601,7 @@ export class Vector3 {
     }
 
     /**
-     * Віднімає вектор (мутує поточний).
+     * Subtracts a vector from this one, in place.
      */
     subtract(v: Vector3): this {
         this.x -= v.x;
@@ -610,7 +611,7 @@ export class Vector3 {
     }
 
     /**
-     * Покомпонентне множення (мутує поточний).
+     * Multiplies this vector by another component by component, in place.
      */
     multiply(v: Vector3): this {
         this.x *= v.x;
@@ -620,7 +621,7 @@ export class Vector3 {
     }
 
     /**
-     * Множення на скаляр (мутує поточний).
+     * Multiplies this vector by a scalar, in place.
      */
     multiplyScalar(scalar: number): this {
         this.x *= scalar;
@@ -630,7 +631,7 @@ export class Vector3 {
     }
 
     /**
-     * Ділення на скаляр (мутує поточний).
+     * Divides this vector by a scalar, in place.
      */
     divideScalar(scalar: number): this {
         if (scalar !== 0) {
@@ -646,7 +647,7 @@ export class Vector3 {
     }
 
     /**
-     * Перевіряє рівність з іншим вектором (з точністю epsilon).
+     * Whether another vector is equal to this one, within `epsilon`.
      */
     equals(v: Vector3, epsilon: number = EngineSettings.Math.EPSILON): boolean {
         return (
@@ -657,21 +658,21 @@ export class Vector3 {
     }
 
     /**
-     * Повертає довжину вектора (magnitude).
+     * The vector's length.
      */
     magnitude(): number {
         return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
     }
 
     /**
-     * Повертає квадрат довжини (швидше за magnitude).
+     * The vector's squared length — cheaper than {@link magnitude}.
      */
     sqrMagnitude(): number {
         return this.x * this.x + this.y * this.y + this.z * this.z;
     }
 
     /**
-     * Нормалізує вектор (робить довжину = 1, мутує поточний).
+     * Scales this vector to unit length, in place.
      */
     normalize(): this {
         const mag = this.magnitude();
@@ -682,7 +683,7 @@ export class Vector3 {
     }
 
     /**
-     * Повертає нормалізовану копію вектора (не мутує поточний).
+     * Returns a unit-length copy, leaving this vector unchanged.
      */
     get normalized(): Vector3 {
         const mag = this.magnitude();
@@ -693,14 +694,14 @@ export class Vector3 {
     }
 
     /**
-     * Скалярний добуток з іншим вектором.
+     * Dot product with another vector.
      */
     dot(v: Vector3): number {
         return this.x * v.x + this.y * v.y + this.z * v.z;
     }
 
     /**
-     * Векторний добуток (мутує поточний).
+     * Replaces this vector with its cross product with another, in place.
      */
     cross(v: Vector3): this {
         const ax = this.x, ay = this.y, az = this.z;
@@ -713,21 +714,21 @@ export class Vector3 {
     }
 
     /**
-     * Відстань до іншого вектора.
+     * Distance to another point.
      */
     distanceTo(v: Vector3): number {
         return Vector3.distance(this, v);
     }
 
     /**
-     * Квадрат відстані до іншого вектора.
+     * Squared distance to another point — cheaper than {@link distanceTo}.
      */
     distanceToSquared(v: Vector3): number {
         return Vector3.distanceSquared(this, v);
     }
 
     /**
-     * Перетворює вектор у рядок для виводу.
+     * A readable string form, for logging.
      */
     toString(): string {
         return `(${this.x.toFixed(2)}, ${this.y.toFixed(2)}, ${this.z.toFixed(2)})`;

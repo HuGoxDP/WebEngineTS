@@ -4,9 +4,10 @@ import { EngineSettings } from '../EngineSettings';
 
 /**
  * Vector2.ts
- * Математичний клас для роботи з 2D векторами.
- * Використовується для 2D фізики, UI елементів та UV координат текстур.
- * Реалізує Zero-Allocation pattern через параметр 'out'.
+ * A 2D vector.
+ * Used for 2D physics, UI positions and texture UV coordinates.
+ * Follows the zero-allocation pattern: every static operation takes an
+ * optional `out` parameter and writes its result there instead of allocating.
  */
 export class Vector2 {
     public x: number;
@@ -51,7 +52,7 @@ export class Vector2 {
 
 
     /**
-     * Додає два вектори.
+     * Adds two vectors.
      */
     static add(a: Vector2, b: Vector2, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -61,7 +62,7 @@ export class Vector2 {
     }
 
     /**
-     * Віднімає вектори (a - b).
+     * Subtracts `b` from `a`.
      */
     static subtract(a: Vector2, b: Vector2, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -71,7 +72,7 @@ export class Vector2 {
     }
 
     /**
-     * Покомпонентне множення векторів (Scale).
+     * Multiplies two vectors component by component.
      */
     static multiply(a: Vector2, b: Vector2, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -81,7 +82,7 @@ export class Vector2 {
     }
 
     /**
-     * Множення вектора на число.
+     * Multiplies a vector by a scalar.
      */
     static multiplyScalar(v: Vector2, scalar: number, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -91,14 +92,14 @@ export class Vector2 {
     }
 
     /**
-     * Аліас для multiplyScalar (для сумісності з Unity).
+     * Alias for {@link multiplyScalar}, named as Unity names it.
      */
     static scale(v: Vector2, scalar: number, out?: Vector2): Vector2 {
         return Vector2.multiplyScalar(v, scalar, out);
     }
 
     /**
-     * Ділення вектора на число.
+     * Divides a vector by a scalar.
      */
     static divideScalar(v: Vector2, scalar: number, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -114,10 +115,10 @@ export class Vector2 {
     }
 
     /**
-     * Лінійна інтерполяція між двома векторами.
+     * Linearly interpolates between two vectors.
      * @param a
      * @param b
-     * @param t Параметр інтерполяції (0 = a, 1 = b). Обмежується до [0,1].
+     * @param t — interpolation factor (0 = `a`, 1 = `b`), clamped to [0, 1].
      * @param out
      */
     static lerp(a: Vector2, b: Vector2, t: number, out?: Vector2): Vector2 {
@@ -129,7 +130,7 @@ export class Vector2 {
     }
 
     /**
-     * Лінійна інтерполяція без обмеження параметра t.
+     * Linearly interpolates between two vectors without clamping `t`.
      */
     static lerpUnclamped(a: Vector2, b: Vector2, t: number, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -139,14 +140,14 @@ export class Vector2 {
     }
 
     /**
-     * Скалярний добуток (Dot Product).
+     * Dot product.
      */
     static dot(a: Vector2, b: Vector2): number {
         return a.x * b.x + a.y * b.y;
     }
 
     /**
-     * Відстань між векторами.
+     * Distance between two points.
      */
     static distance(a: Vector2, b: Vector2): number {
         const dx = a.x - b.x;
@@ -155,7 +156,7 @@ export class Vector2 {
     }
 
     /**
-     * Квадрат відстані (швидше, без кореня).
+     * Squared distance — cheaper than {@link distance}, with no square root.
      */
     static distanceSquared(a: Vector2, b: Vector2): number {
         const dx = a.x - b.x;
@@ -164,7 +165,7 @@ export class Vector2 {
     }
 
     /**
-     * Повертає нормалізовану копію вектора.
+     * Returns a normalized copy of the vector.
      */
     static normalized(v: Vector2, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -180,7 +181,7 @@ export class Vector2 {
     }
 
     /**
-     * Повертає вектор з мінімальними компонентами.
+     * Returns the component-wise minimum of two vectors.
      */
     static min(a: Vector2, b: Vector2, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -190,7 +191,7 @@ export class Vector2 {
     }
 
     /**
-     * Повертає вектор з максимальними компонентами.
+     * Returns the component-wise maximum of two vectors.
      */
     static max(a: Vector2, b: Vector2, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -200,7 +201,7 @@ export class Vector2 {
     }
 
     /**
-     * Обмежує кожну компоненту вектора.
+     * Clamps each component between the matching components of `min` and `max`.
      */
     static clamp(v: Vector2, min: Vector2, max: Vector2, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -210,7 +211,7 @@ export class Vector2 {
     }
 
     /**
-     * Обмежує довжину вектора максимальним значенням.
+     * Clamps the vector's length to `maxLength`, leaving its direction alone.
      */
     static clampMagnitude(v: Vector2, maxLength: number, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -229,7 +230,7 @@ export class Vector2 {
 
 
     /**
-     * Відображає вектор відносно нормалі.
+     * Reflects a vector off the line defined by a normal.
      */
     static reflect(direction: Vector2, normal: Vector2, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -240,7 +241,7 @@ export class Vector2 {
     }
 
     /**
-     * Повертає перпендикулярний вектор (повернутий на 90° проти годинникової стрілки).
+     * Returns the vector rotated 90° counter-clockwise.
      */
     static perpendicular(v: Vector2, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -250,7 +251,7 @@ export class Vector2 {
     }
 
     /**
-     * Кут між векторами в градусах (0-180).
+     * Unsigned angle between two vectors, in degrees (0–180).
      */
     static angle(from: Vector2, to: Vector2): number {
         const denominator = Math.sqrt(
@@ -265,7 +266,7 @@ export class Vector2 {
     }
 
     /**
-     * Знаковий кут між векторами в градусах (-180 до 180).
+     * Signed angle between two vectors, in degrees (−180 to 180).
      */
     static signedAngle(from: Vector2, to: Vector2): number {
         const unsignedAngle = Vector2.angle(from, to);
@@ -276,7 +277,7 @@ export class Vector2 {
     }
 
     /**
-     * Рухає точку current до target, не перевищуючи maxDistanceDelta.
+     * Moves `current` towards `target` by at most `maxDistanceDelta`.
      */
     static moveTowards(current: Vector2, target: Vector2, maxDistanceDelta: number, out?: Vector2): Vector2 {
         const result = out ?? new Vector2();
@@ -300,7 +301,7 @@ export class Vector2 {
     }
 
     /**
-     * Плавно переміщує вектор до цілі з згладжуванням.
+     * Gradually moves a vector towards a target, damping the approach.
      */
     static smoothDamp(
         current: Vector2,
@@ -360,7 +361,7 @@ export class Vector2 {
     // ==================== INSTANCE METHODS ====================
 
     /**
-     * Встановлює значення x та y.
+     * Sets both components.
      */
     set(x: number, y: number): this {
         this.x = x;
@@ -369,7 +370,7 @@ export class Vector2 {
     }
 
     /**
-     * Встановлює тільки X компонент.
+     * Sets the X component only.
      */
     setX(x: number): this {
         this.x = x;
@@ -377,7 +378,7 @@ export class Vector2 {
     }
 
     /**
-     * Встановлює тільки Y компонент.
+     * Sets the Y component only.
      */
     setY(y: number): this {
         this.y = y;
@@ -385,7 +386,7 @@ export class Vector2 {
     }
 
     /**
-     * Копіює значення з іншого вектора.
+     * Copies the components of another vector into this one.
      */
     copy(v: Vector2): this {
         this.x = v.x;
@@ -394,14 +395,14 @@ export class Vector2 {
     }
 
     /**
-     * Створює копію цього вектора.
+     * Returns a new vector with the same components.
      */
     clone(): Vector2 {
         return new Vector2(this.x, this.y);
     }
 
     /**
-     * Додає інший вектор до цього.
+     * Adds a vector to this one, in place.
      */
     add(v: Vector2): this {
         this.x += v.x;
@@ -410,7 +411,7 @@ export class Vector2 {
     }
 
     /**
-     * Віднімає інший вектор від цього.
+     * Subtracts a vector from this one, in place.
      */
     subtract(v: Vector2): this {
         this.x -= v.x;
@@ -419,7 +420,7 @@ export class Vector2 {
     }
 
     /**
-     * Множить цей вектор на інший покомпонентно (Scale).
+     * Multiplies this vector by another component by component, in place.
      */
     multiply(v: Vector2): this {
         this.x *= v.x;
@@ -428,7 +429,7 @@ export class Vector2 {
     }
 
     /**
-     * Ділить цей вектор на інший покомпонентно.
+     * Divides this vector by another component by component, in place.
      */
     divide(v: Vector2): this {
         this.x /= v.x;
@@ -437,7 +438,7 @@ export class Vector2 {
     }
 
     /**
-     * Множить вектор на скаляр (число).
+     * Multiplies this vector by a scalar, in place.
      */
     multiplyScalar(scalar: number): this {
         this.x *= scalar;
@@ -446,7 +447,7 @@ export class Vector2 {
     }
 
     /**
-     * Ділить вектор на скаляр.
+     * Divides this vector by a scalar, in place.
      */
     divideScalar(scalar: number): this {
         if (scalar !== 0) {
@@ -461,21 +462,21 @@ export class Vector2 {
     }
 
     /**
-     * Повертає довжину вектора (Magnitude).
+     * The vector's length.
      */
     magnitude(): number {
         return Math.sqrt(this.x * this.x + this.y * this.y);
     }
 
     /**
-     * Повертає квадрат довжини вектора.
+     * The vector's squared length — cheaper than {@link magnitude}.
      */
     sqrMagnitude(): number {
         return this.x * this.x + this.y * this.y;
     }
 
     /**
-     * Нормалізує вектор (робить його довжину рівною 1).
+     * Scales this vector to unit length, in place.
      */
     normalize(): this {
         const mag = this.magnitude();
@@ -486,7 +487,7 @@ export class Vector2 {
     }
 
     /**
-     * Повертає нормалізовану копію вектора (не мутує поточний).
+     * Returns a unit-length copy, leaving this vector unchanged.
      */
     get normalized(): Vector2 {
         const mag = this.magnitude();
@@ -497,28 +498,28 @@ export class Vector2 {
     }
 
     /**
-     * Повертає відстань до іншого вектора.
+     * Distance to another point.
      */
     distanceTo(v: Vector2): number {
         return Vector2.distance(this, v);
     }
 
     /**
-     * Повертає квадрат відстані до іншого вектора.
+     * Squared distance to another point — cheaper than {@link distanceTo}.
      */
     distanceToSquared(v: Vector2): number {
         return Vector2.distanceSquared(this, v);
     }
 
     /**
-     * Скалярний добуток векторів (Dot Product).
+     * Dot product with another vector.
      */
     dot(v: Vector2): number {
         return this.x * v.x + this.y * v.y;
     }
 
     /**
-     * Лінійна інтерполяція між цим вектором та іншим (мутує поточний).
+     * Interpolates this vector towards another, in place.
      */
     lerp(v: Vector2, t: number): this {
         t = Math.max(0, Math.min(1, t));
@@ -528,7 +529,7 @@ export class Vector2 {
     }
 
     /**
-     * Перевіряє рівність векторів з урахуванням похибки (Epsilon).
+     * Whether another vector is equal to this one, within `epsilon`.
      */
     equals(v: Vector2, epsilon: number = EngineSettings.Math.EPSILON): boolean {
         return (
@@ -538,7 +539,7 @@ export class Vector2 {
     }
 
     /**
-     * Інвертує вектор (множить на -1).
+     * Negates every component, in place.
      */
     negate(): this {
         this.x = -this.x;
@@ -547,21 +548,21 @@ export class Vector2 {
     }
 
     /**
-     * Повертає рядкове представлення вектора.
+     * A readable string form, for logging.
      */
     toString(): string {
         return `(${this.x.toFixed(2)}, ${this.y.toFixed(2)})`;
     }
 
     /**
-     * Конвертує в масив [x, y].
+     * Returns the components as `[x, y]`.
      */
     toArray(): [number, number] {
         return [this.x, this.y];
     }
 
     /**
-     * Встановлює значення з масиву.
+     * Sets the components from an array.
      */
     fromArray(array: number[], offset: number = 0): this {
         this.x = array[offset];

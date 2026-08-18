@@ -4,9 +4,10 @@ import { EngineSettings } from '../EngineSettings';
 
 /**
  * Vector4.ts
- * Математичний клас для роботи з 4D векторами.
- * Використовується для: RGBA кольорів, однорідних координат, шейдерних параметрів.
- * Реалізує Zero-Allocation pattern через параметр 'out'.
+ * A 4D vector.
+ * Used for RGBA colours, homogeneous coordinates and shader parameters.
+ * Follows the zero-allocation pattern: every static operation takes an
+ * optional `out` parameter and writes its result there instead of allocating.
  */
 export class Vector4 {
     public x: number;
@@ -42,7 +43,7 @@ export class Vector4 {
     // ==================== STATIC METHODS ====================
 
     /**
-     * Додає два вектори.
+     * Adds two vectors.
      */
     static add(a: Vector4, b: Vector4, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -54,7 +55,7 @@ export class Vector4 {
     }
 
     /**
-     * Віднімає вектори (a - b).
+     * Subtracts `b` from `a`.
      */
     static subtract(a: Vector4, b: Vector4, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -66,7 +67,7 @@ export class Vector4 {
     }
 
     /**
-     * Покомпонентне множення векторів (Scale).
+     * Multiplies two vectors component by component.
      */
     static multiply(a: Vector4, b: Vector4, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -78,7 +79,7 @@ export class Vector4 {
     }
 
     /**
-     * Множення вектора на число.
+     * Multiplies a vector by a scalar.
      */
     static multiplyScalar(v: Vector4, scalar: number, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -90,14 +91,14 @@ export class Vector4 {
     }
 
     /**
-     * Аліас для multiplyScalar.
+     * Alias for {@link multiplyScalar}.
      */
     static scale(v: Vector4, scalar: number, out?: Vector4): Vector4 {
         return Vector4.multiplyScalar(v, scalar, out);
     }
 
     /**
-     * Ділення вектора на число.
+     * Divides a vector by a scalar.
      */
     static divideScalar(v: Vector4, scalar: number, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -115,7 +116,7 @@ export class Vector4 {
     }
 
     /**
-     * Лінійна інтерполяція між двома векторами.
+     * Linearly interpolates between two vectors.
      */
     static lerp(a: Vector4, b: Vector4, t: number, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -128,7 +129,7 @@ export class Vector4 {
     }
 
     /**
-     * Лінійна інтерполяція без обмеження t.
+     * Linearly interpolates without clamping `t`.
      */
     static lerpUnclamped(a: Vector4, b: Vector4, t: number, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -140,14 +141,14 @@ export class Vector4 {
     }
 
     /**
-     * Скалярний добуток (Dot Product).
+     * Dot product.
      */
     static dot(a: Vector4, b: Vector4): number {
         return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
     }
 
     /**
-     * Відстань між векторами.
+     * Distance between two points.
      */
     static distance(a: Vector4, b: Vector4): number {
         const dx = a.x - b.x;
@@ -158,7 +159,7 @@ export class Vector4 {
     }
 
     /**
-     * Квадрат відстані (швидше, без кореня).
+     * Squared distance — cheaper than {@link distance}, with no square root.
      */
     static distanceSquared(a: Vector4, b: Vector4): number {
         const dx = a.x - b.x;
@@ -169,7 +170,7 @@ export class Vector4 {
     }
 
     /**
-     * Повертає нормалізовану копію вектора.
+     * Returns a normalized copy of the vector.
      */
     static normalized(v: Vector4, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -187,7 +188,7 @@ export class Vector4 {
     }
 
     /**
-     * Повертає вектор з максимальними компонентами.
+     * Returns the component-wise maximum of two vectors.
      */
     static max(a: Vector4, b: Vector4, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -199,7 +200,7 @@ export class Vector4 {
     }
 
     /**
-     * Повертає вектор з мінімальними компонентами.
+     * Returns the component-wise minimum of two vectors.
      */
     static min(a: Vector4, b: Vector4, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -211,7 +212,7 @@ export class Vector4 {
     }
 
     /**
-     * Обмежує кожну компоненту вектора.
+     * Clamps each component between the matching components of `min` and `max`.
      */
     static clamp(v: Vector4, min: Vector4, max: Vector4, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -223,7 +224,7 @@ export class Vector4 {
     }
 
     /**
-     * Обмежує довжину вектора максимальним значенням.
+     * Clamps the vector's length to `maxLength`, leaving its direction alone.
      */
     static clampMagnitude(v: Vector4, maxLength: number, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -245,7 +246,7 @@ export class Vector4 {
     }
 
     /**
-     * Проектує вектор на інший вектор.
+     * Projects one vector onto another.
      */
     static project(vector: Vector4, onNormal: Vector4, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -258,7 +259,7 @@ export class Vector4 {
     }
 
     /**
-     * Рухає точку current до target, не перевищуючи maxDistanceDelta.
+     * Moves `current` towards `target` by at most `maxDistanceDelta`.
      */
     static moveTowards(current: Vector4, target: Vector4, maxDistanceDelta: number, out?: Vector4): Vector4 {
         const result = out ?? new Vector4();
@@ -290,7 +291,7 @@ export class Vector4 {
     // ==================== INSTANCE METHODS ====================
 
     /**
-     * Встановлює значення компонентів вектора.
+     * Sets all components.
      */
     set(x: number = 0, y: number = 0, z: number = 0, w: number = 0): this {
         this.x = x;
@@ -321,7 +322,7 @@ export class Vector4 {
     }
 
     /**
-     * Копіює значення з іншого вектора.
+     * Copies the components of another vector into this one.
      */
     copy(v: Vector4): this {
         this.x = v.x;
@@ -332,14 +333,14 @@ export class Vector4 {
     }
 
     /**
-     * Створює копію цього вектора.
+     * Returns a new vector with the same components.
      */
     clone(): Vector4 {
         return new Vector4(this.x, this.y, this.z, this.w);
     }
 
     /**
-     * Додає інший вектор до цього.
+     * Adds a vector to this one, in place.
      */
     add(v: Vector4): this {
         this.x += v.x;
@@ -350,7 +351,7 @@ export class Vector4 {
     }
 
     /**
-     * Віднімає інший вектор від цього.
+     * Subtracts a vector from this one, in place.
      */
     subtract(v: Vector4): this {
         this.x -= v.x;
@@ -361,7 +362,7 @@ export class Vector4 {
     }
 
     /**
-     * Множить цей вектор на інший покомпонентно (Scale).
+     * Multiplies this vector by another component by component, in place.
      */
     multiply(v: Vector4): this {
         this.x *= v.x;
@@ -372,7 +373,7 @@ export class Vector4 {
     }
 
     /**
-     * Ділить цей вектор на інший покомпонентно.
+     * Divides this vector by another component by component, in place.
      */
     divide(v: Vector4): this {
         this.x /= v.x;
@@ -383,7 +384,7 @@ export class Vector4 {
     }
 
     /**
-     * Множить вектор на скаляр (число).
+     * Multiplies this vector by a scalar, in place.
      */
     multiplyScalar(scalar: number): this {
         this.x *= scalar;
@@ -394,7 +395,7 @@ export class Vector4 {
     }
 
     /**
-     * Ділить вектор на скаляр.
+     * Divides this vector by a scalar, in place.
      */
     divideScalar(scalar: number): this {
         if (scalar !== 0) {
@@ -411,7 +412,7 @@ export class Vector4 {
     }
 
     /**
-     * Перевіряє рівність векторів з урахуванням похибки (Epsilon).
+     * Whether another vector is equal to this one, within `epsilon`.
      */
     equals(v: Vector4, epsilon: number = EngineSettings.Math.EPSILON): boolean {
         return (
@@ -423,21 +424,21 @@ export class Vector4 {
     }
 
     /**
-     * Повертає довжину вектора (Magnitude).
+     * The vector's length.
      */
     magnitude(): number {
         return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w);
     }
 
     /**
-     * Повертає квадрат довжини вектора.
+     * The vector's squared length — cheaper than {@link magnitude}.
      */
     sqrMagnitude(): number {
         return this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w;
     }
 
     /**
-     * Нормалізує вектор (робить його довжину рівною 1).
+     * Scales this vector to unit length, in place.
      */
     normalize(): this {
         const mag = this.magnitude();
@@ -448,7 +449,7 @@ export class Vector4 {
     }
 
     /**
-     * Повертає нормалізовану копію вектора (не мутує поточний).
+     * Returns a unit-length copy, leaving this vector unchanged.
      */
     get normalized(): Vector4 {
         const mag = this.magnitude();
@@ -459,28 +460,28 @@ export class Vector4 {
     }
 
     /**
-     * Скалярний добуток векторів (Dot Product).
+     * Dot product with another vector.
      */
     dot(v: Vector4): number {
         return this.x * v.x + this.y * v.y + this.z * v.z + this.w * v.w;
     }
 
     /**
-     * Повертає відстань до іншого вектора.
+     * Distance to another point.
      */
     distanceTo(v: Vector4): number {
         return Vector4.distance(this, v);
     }
 
     /**
-     * Повертає квадрат відстані до іншого вектора.
+     * Squared distance to another point — cheaper than {@link distanceTo}.
      */
     distanceToSquared(v: Vector4): number {
         return Vector4.distanceSquared(this, v);
     }
 
     /**
-     * Лінійна інтерполяція між цим вектором та іншим (мутує поточний).
+     * Interpolates this vector towards another, in place.
      */
     lerp(v: Vector4, t: number): this {
         t = Math.max(0, Math.min(1, t));
@@ -492,7 +493,7 @@ export class Vector4 {
     }
 
     /**
-     * Лінійна інтерполяція без обмеження t.
+     * Linearly interpolates without clamping `t`.
      */
     lerpUnclamped(v: Vector4, t: number): this {
         this.x += (v.x - this.x) * t;
@@ -503,7 +504,7 @@ export class Vector4 {
     }
 
     /**
-     * Обмежує компоненти вектора між мінімальними та максимальними значеннями.
+     * Clamps each component between the matching components of `min` and `max`, in place.
      */
     clamp(min: Vector4, max: Vector4): this {
         this.x = Math.max(min.x, Math.min(max.x, this.x));
@@ -514,7 +515,7 @@ export class Vector4 {
     }
 
     /**
-     * Обмежує довжину вектора максимальним значенням.
+     * Clamps the vector's length to `maxLength`, leaving its direction alone.
      */
     clampMagnitude(maxLength: number): this {
         const sqrMag = this.sqrMagnitude();
@@ -530,7 +531,7 @@ export class Vector4 {
     }
 
     /**
-     * Інвертує вектор (множить на -1).
+     * Negates every component, in place.
      */
     negate(): this {
         this.x = -this.x;
@@ -541,21 +542,21 @@ export class Vector4 {
     }
 
     /**
-     * Повертає рядкове представлення вектора.
+     * A readable string form, for logging.
      */
     toString(): string {
         return `(${this.x.toFixed(2)}, ${this.y.toFixed(2)}, ${this.z.toFixed(2)}, ${this.w.toFixed(2)})`;
     }
 
     /**
-     * Повертає масив з компонентів вектора [x, y, z, w].
+     * Returns the components as `[x, y, z, w]`.
      */
     toArray(): [number, number, number, number] {
         return [this.x, this.y, this.z, this.w];
     }
 
     /**
-     * Встановлює значення з масиву.
+     * Sets the components from an array.
      */
     fromArray(array: number[], offset: number = 0): this {
         this.x = array[offset];

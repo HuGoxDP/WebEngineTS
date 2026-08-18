@@ -1,6 +1,6 @@
 /**
  * Scenario Module Index
- * Експортує всі класи системи сценаріїв.
+ * Re-exports the scenario system's public classes.
  */
 
 export { Scenario } from './Scenario';

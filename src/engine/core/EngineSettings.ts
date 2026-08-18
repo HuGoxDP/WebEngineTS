@@ -1,50 +1,52 @@
 /**
  * EngineSettings.ts
- * Глобальний файл конфігурації двигуна.
- * Містить константи для фізики, часу, рендерингу та шарів.
+ * Engine-wide configuration.
+ * Constants for time, physics, rendering and layers.
  */
 export const EngineSettings = {
     /**
-     * Налаштування часу та ігрового циклу.
+     * Time and game-loop settings.
      */
     Time: {
         /**
-         * Бажана частота оновлення фізики (FixedUpdate).
+         * The fixed timestep physics and `FixedUpdate` run at.
          * 50 Hz = 0.02s
          */
         FIXED_TIMESTEP: 1 / 50,
 
         /**
-         * Максимальний час кадру, який може пройти, щоб уникнути спіралі смерті фізики при лагах.
+         * Frame delta ceiling. Without it, one slow frame asks for more fixed
+         * steps than fit in the next, which asks for more still — the spiral of
+         * death. Time slows down instead.
          */
         MAX_DELTA_TIME: 0.1,
     },
     /**
-     * Налаштування фізики (майбутнє).
+     * Physics settings.
      */
     Physics: {
         /**
-         * Глобальна гравітація (Y вісь).
+         * Global gravity, on the Y axis.
          */
         GRAVITY: -9.81,
 
         /**
-         * Кількість ітерацій вирішувача фізики (більше = точніше, але повільніше).
+         * Solver iterations. More is more accurate and slower.
          */
         DEFAULT_SOLVER_ITERATIONS: 6,
     },
     /**
-     * Константи математики.
+     * Math constants.
      */
     Math: {
         /**
-         * Поріг похибки для порівняння float чисел.
+         * Tolerance for floating-point comparisons.
          */
         EPSILON: 0.00001,
     },
     /**
-     * Системні шари (Layers).
-     * Використовуються для Raycasting, рендерингу та фізичних колізій.
+     * Built-in layers.
+     * Used for raycasting, rendering and collision filtering.
      */
     Layers: {
         DEFAULT: 0,
@@ -54,7 +56,7 @@ export const EngineSettings = {
         UI: 5,
     },
     /**
-     * Стандартні теги об'єктів.
+     * Built-in object tags.
      */
     Tags: {
         UNTAGGED: "Untagged",
@@ -62,9 +64,10 @@ export const EngineSettings = {
         MAIN_CAMERA: "MainCamera",
     },
     /**
-     * Налаштування за замовчуванням для нових об'єктів.
+     * Defaults applied to new objects.
      */
     Defaults: {
         GAME_OBJECT_NAME: "New GameObject",
     }
-} as const; // 'as const' робить поля readonly, щоб ми випадково не змінили налаштування в runtime
+} as const; // `as const` makes every field readonly, so nothing can change a
+           // setting at runtime by accident.
