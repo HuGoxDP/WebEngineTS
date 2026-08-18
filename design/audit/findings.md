@@ -61,7 +61,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F47 | 7 | A `<size>` run drew over the line beneath it | fixed `aa36804` |
 | F48 | 8 | `Mathf.round` rounded halves the JavaScript way, not Unity's | fixed `8d1b1d0` |
 | F49 | 8 | Only `Vector3`'s shared constants were frozen | fixed `31d7ad5` |
-| F50 | 8 | `Keyframe`'s tangent weights are stored and never applied | documented `3d24607`; weighting **open** |
+| F50 | 8 | `Keyframe`'s tangent weights are stored and never applied | fixed `3d24607`, `55db7d6` |
 | F51 | 8 | Writing through `Ray.direction` bypassed its normalization | documented `954e6ea` |
 | F52 | 9 | Cinemachine printed debug traces in shipped builds | fixed `16aa7ab` |
 | F53 | 9 | A virtual camera kept following a destroyed target | fixed `90deb81` |
@@ -1731,7 +1731,7 @@ corrupting the next through a shared constant is exactly what this does to a sce
 throws on a `Float32Array` that has elements, so the guarantee cannot be had there. That one
 really is a contract, and it is documented as one.
 
-### F50. `Keyframe`'s tangent weights are stored and never applied — documented `3d24607`, weighting **open**
+### F50. `Keyframe`'s tangent weights are stored and never applied — fixed `3d24607`, `55db7d6`
 
 The F39 shape in the math: a documented property nothing reads.
 
@@ -1746,9 +1746,28 @@ present and plausible.
 **Done.** The fields say what they are: stored so a curve survives a round trip, never applied,
 with a `TODO` naming what applying them needs.
 
-**Open.** Real weighting means a `weightedMode` per key and a cubic Bezier evaluator that solves
-for the parameter at a given time. That is a feature, and it is not something to smuggle into a
-documentation commit — the same call as F31's spring.
+**Fixed (2026-08-17).** Exactly what that sentence described, in its own commit: a
+`WeightedMode` per key and a cubic Bezier evaluator. Of the four remainders this audit parked,
+this is the only one whose stated difficulty turned out to be right.
+
+**The root solve is why.** A Bezier is parameterised by its own `u`, not by time, so evaluating
+at a *time* means first finding the `u` whose x-coordinate is that time. Bisection, twenty-four
+halvings: `x` is monotonic once the weights are clamped, so it cannot diverge, and 6e-8 is far
+below anything an animation can show. Newton would be faster and would need a guard against a
+zero derivative at the ends — a worse trade for a method that has to be exactly right at `t = 0`.
+
+**Weights that reach past each other are scaled down** rather than allowed to fold the segment
+back on itself, which would give one moment two values.
+
+**Nothing existing changes.** `WeightedMode` defaults to `None`, so every curve built in code
+takes the Hermite path it always took — and the two agree exactly at the default weight of `1/3`,
+which is what makes that default the right one.
+
+**Two notes on the tests.** F69's type-checking caught the first draft passing an array to a
+varargs constructor, which is that finding paying for itself. And of thirteen tests only **two**
+fail when the weighting is removed: the rest assert invariants a Hermite satisfies too — exact
+endpoints, monotonicity, defaults, a straight line staying straight. Worth having, but two is the
+number that proves the change.
 
 **What was checked while there.** The wrap modes are the part of this class with an independent
 reference: `Mathf.repeat` and `Mathf.pingPong` answer the same question through different code.
