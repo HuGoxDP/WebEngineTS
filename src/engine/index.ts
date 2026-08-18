@@ -102,7 +102,7 @@ export { VignetteEffect } from "./core/postprocessing/VignetteEffect";
 // MATH
 // =====================
 export { Mathf } from "./core/math/Mathf";
-export { AnimationCurve, Keyframe, WrapMode } from "./core/math/AnimationCurve";
+export { AnimationCurve, Keyframe, WrapMode, WeightedMode } from "./core/math/AnimationCurve";
 export { Vector2 } from "./core/math/Vector2";
 export { Vector3 } from "./core/math/Vector3";
 export { Vector4 } from "./core/math/Vector4";
@@ -391,7 +391,7 @@ import { BloomEffect } from "./core/postprocessing/BloomEffect";
 import { VignetteEffect } from "./core/postprocessing/VignetteEffect";
 
 import { Mathf } from "./core/math/Mathf";
-import { AnimationCurve, Keyframe, WrapMode } from "./core/math/AnimationCurve";
+import { AnimationCurve, Keyframe, WrapMode, WeightedMode } from "./core/math/AnimationCurve";
 import { Vector2 } from "./core/math/Vector2";
 import { Vector3 } from "./core/math/Vector3";
 import { Vector4 } from "./core/math/Vector4";
@@ -568,7 +568,7 @@ const WebEngineTS = {
     ValueSerializer, SceneSerializer, Prefab,
 
     // Math
-    Mathf, AnimationCurve, Keyframe, WrapMode,
+    Mathf, AnimationCurve, Keyframe, WrapMode, WeightedMode,
     Vector2, Vector3, Vector4, Quaternion, Matrix4x4,
     Color, Bounds, Rect, Ray,
 

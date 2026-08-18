@@ -15,9 +15,30 @@ export enum WrapMode {
 }
 
 /**
+ * Which of a key's tangent weights the evaluator applies.
+ *
+ * @remarks
+ * Equivalent to Unity's `WeightedMode`. A segment is evaluated as a cubic
+ * Bezier when either end asks for weighting, and as the cheaper Hermite spline
+ * when neither does — the two agree exactly at the default weight of `1/3`, so
+ * turning weighting on for an untouched key changes nothing.
+ */
+export enum WeightedMode {
+    /** Neither weight is applied. The default, and Unity's. */
+    None = 0,
+    /** Apply {@link Keyframe.inWeight}. */
+    In = 1,
+    /** Apply {@link Keyframe.outWeight}. */
+    Out = 2,
+    /** Apply both. */
+    Both = 3,
+}
+
+/**
  * A single keyframe in an {@link AnimationCurve}.
  *
- * Stores a time–value pair plus tangent data for cubic Hermite interpolation.
+ * Stores a time–value pair plus the tangent data the segments either side of it
+ * are built from.
  *
  * @remarks Equivalent to Unity's `Keyframe`.
  */
@@ -41,27 +62,34 @@ export class Keyframe {
     public outTangent: number;
 
     /**
-     * Incoming weight, stored but **not applied**.
+     * Incoming weight — how far along the segment this key's tangent reaches.
      *
      * @remarks
-     * Unity uses this only when a key's `weightedMode` asks for it, and applies
-     * it by evaluating the segment as a cubic Bezier rather than a Hermite
-     * spline. This engine has no `weightedMode` and evaluates every segment as a
-     * Hermite spline, so the field is carried — through `clone`, and so a curve
-     * authored elsewhere survives a round trip — and never changes a value
-     * {@link AnimationCurve.evaluate} returns.
+     * Applied only when {@link weightedMode} includes {@link WeightedMode.In},
+     * which is Unity's rule. Expressed as a fraction of the segment's duration:
+     * `1/3` is the default, and the value at which a weighted segment and an
+     * unweighted one are the same curve.
      *
-     * Defaults to `1/3`, Unity's default, which is the weight at which a
-     * weighted segment and an unweighted one agree.
+     * A larger weight holds the curve nearer this key's tangent for longer
+     * before it turns towards the other end; a smaller one lets it turn sooner.
      */
-    // TODO: apply the weights, which needs a `weightedMode` per key and a
-    // Bezier evaluator that solves for the parameter at a given time.
     public inWeight: number;
 
     /**
-     * Outgoing weight, stored but **not applied**. See {@link inWeight}.
+     * Outgoing weight. See {@link inWeight}; applied when {@link weightedMode}
+     * includes {@link WeightedMode.Out}.
      */
     public outWeight: number;
+
+    /**
+     * Which of the two weights the evaluator applies.
+     *
+     * @remarks
+     * Defaults to {@link WeightedMode.None}, so a curve built in code behaves
+     * exactly as it did before weights were implemented. A curve authored in
+     * Unity carries its own mode, and now draws the shape it was drawn as.
+     */
+    public weightedMode: WeightedMode;
 
     /**
      * Creates a new Keyframe.
@@ -83,6 +111,7 @@ export class Keyframe {
         this.outTangent = outTangent;
         this.inWeight = 1 / 3;
         this.outWeight = 1 / 3;
+        this.weightedMode = WeightedMode.None;
     }
 
     /**
@@ -92,6 +121,7 @@ export class Keyframe {
         const k = new Keyframe(this.time, this.value, this.inTangent, this.outTangent);
         k.inWeight = this.inWeight;
         k.outWeight = this.outWeight;
+        k.weightedMode = this.weightedMode;
         return k;
     }
 }
@@ -334,7 +364,7 @@ export class AnimationCurve {
         const k0 = this._keys[lo];
         const k1 = this._keys[hi];
 
-        return AnimationCurve._hermite(k0, k1, time);
+        return AnimationCurve._segment(k0, k1, time);
     }
 
     // ==================== STATIC FACTORIES ====================
@@ -453,6 +483,108 @@ export class AnimationCurve {
      * where s = (t − t0) / (t1 − t0), dt = t1 − t0,
      * m0 = k0.outTangent, m1 = k1.inTangent.
      */
+    /**
+     * Evaluates one segment, weighted or not.
+     *
+     * @remarks
+     * Unity's rule: the segment is a cubic Bezier when either end asks for
+     * weighting, and a Hermite spline otherwise. The two are the same curve at
+     * the default weight of `1/3`, so this is a fast path rather than a
+     * different answer — the unweighted branch exists because it costs a
+     * handful of multiplies instead of a root solve.
+     */
+    private static _segment(k0: Keyframe, k1: Keyframe, time: number): number {
+        const weightedOut = (k0.weightedMode & WeightedMode.Out) !== 0;
+        const weightedIn = (k1.weightedMode & WeightedMode.In) !== 0;
+        if (!weightedOut && !weightedIn) return AnimationCurve._hermite(k0, k1, time);
+
+        return AnimationCurve._weighted(
+            k0, k1, time,
+            weightedOut ? k0.outWeight : 1 / 3,
+            weightedIn ? k1.inWeight : 1 / 3,
+        );
+    }
+
+    /**
+     * Evaluates a segment as the cubic Bezier its weights describe.
+     *
+     * @remarks
+     * The control points are the two keys and their tangents extended by the
+     * weights:
+     *
+     * ```
+     * P0 = (t0, v0)
+     * P1 = (t0 + dt·w0, v0 + dt·w0·m0)
+     * P2 = (t1 − dt·w1, v1 − dt·w1·m1)
+     * P3 = (t1, v1)
+     * ```
+     *
+     * A Bezier is parameterised by `u`, not by time, so evaluating at a *time*
+     * means first finding the `u` whose x-coordinate is that time. That root
+     * solve is the whole reason weighting is more than a change of formula, and
+     * why the unweighted path is kept.
+     */
+    private static _weighted(
+        k0: Keyframe,
+        k1: Keyframe,
+        time: number,
+        w0: number,
+        w1: number,
+    ): number {
+        const dt = k1.time - k0.time;
+        if (dt <= 0) return k0.value;
+
+        // Keep x(u) monotonic. Weights that reach past each other would make the
+        // segment fold back on itself and give a time more than one value;
+        // Unity clamps for the same reason.
+        let a = w0 < 0 ? 0 : w0 > 1 ? 1 : w0;
+        let b = w1 < 0 ? 0 : w1 > 1 ? 1 : w1;
+        const sum = a + b;
+        if (sum > 1) { a /= sum; b /= sum; }
+
+        const s = (time - k0.time) / dt;
+        const u = AnimationCurve._solveBezierParam(s, a, b);
+
+        const y1 = k0.value + dt * a * k0.outTangent;
+        const y2 = k1.value - dt * b * k1.inTangent;
+
+        const omu = 1 - u;
+        return omu * omu * omu * k0.value
+            + 3 * omu * omu * u * y1
+            + 3 * omu * u * u * y2
+            + u * u * u * k1.value;
+    }
+
+    /**
+     * Finds the Bezier parameter whose normalized x-coordinate is `s`.
+     *
+     * @remarks
+     * Bisection rather than Newton: x is monotonic once the weights are
+     * clamped, so bisection cannot diverge, and 24 halvings of [0, 1] land
+     * within 6e-8 — far below anything an animation can show. Newton would be
+     * faster and would need a guard against a zero derivative at the ends,
+     * which is a worse trade for a method that has to be right at `t = 0`.
+     */
+    private static _solveBezierParam(s: number, w0: number, w1: number): number {
+        if (s <= 0) return 0;
+        if (s >= 1) return 1;
+
+        let lo = 0;
+        let hi = 1;
+        let u = s;
+
+        for (let i = 0; i < 24; i++) {
+            const omu = 1 - u;
+            const x = 3 * omu * omu * u * w0
+                + 3 * omu * u * u * (1 - w1)
+                + u * u * u;
+            if (x < s) lo = u; else hi = u;
+            u = (lo + hi) * 0.5;
+        }
+
+        return u;
+    }
+
     private static _hermite(k0: Keyframe, k1: Keyframe, time: number): number {
         const dt = k1.time - k0.time;
         if (dt <= 0) return k0.value;
