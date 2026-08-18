@@ -376,3 +376,14 @@ the code under it has run thousands of times. Weight the suspicion accordingly.
 the thesis reports and were the last classes in the walk to be tested at all — 1485 tests covered
 the engine being measured and none covered the instrument. Any project with a measurement story
 has this asymmetry, because the instrument feels like infrastructure rather than behaviour.
+
+**Check for absence, not for presence.** The F12 translation sweep replaced known strings and
+then scanned for *any* remaining Cyrillic. That second check found three lines the first pass had
+mangled — a short comment that was a prefix of a longer one got replaced first and ate its
+beginning. A sweep verified only by "did my replacements apply?" answers yes to a corrupted file.
+Verify the property you actually want, which is that the old thing is gone.
+
+**For a mechanical edit, compare mechanically.** The claim was "comments only". Reading the diff
+would not have established it — 664 lines is past the point where an eye is evidence. Stripping
+every comment from both versions and diffing what remains does establish it, and it found the one
+file where the claim was untrue.

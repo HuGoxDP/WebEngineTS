@@ -23,7 +23,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F9 | 2 | `releaseSourceImage` has no upload guard; the documented one does not exist | docs fixed; guard **open** |
 | F10 | 2, 3, 9 | Sixteen getters handed out shared math constants | fixed `ec73f3a` |
 | F11 | 3 | `Light.shadowStrength` was stored and never applied | fixed `04e1e31` |
-| F12 | 2, 3, 8 | 674 lines of non-English comments, most of it public JSDoc | **open** — `Bounds` done `6e58f48` |
+| F12 | 2, 3, 8 | 674 lines of non-English comments, most of it public JSDoc | fixed `21e8752`, `77c3cb6` |
 | F13 | 3 | Batching twice drew every source mesh twice | fixed `f064a58` |
 | F14 | 3 | `renderScene` allocates a `Color` every frame | fixed `71c1152` |
 | F15 | 4 | Asset identity outlived the destroyed instance | fixed `c709fb5` |
@@ -543,7 +543,7 @@ kept (a Unity-shaped scene round-trips through serialization without losing the 
 carries a `TODO` naming what would have to exist first — which is what the repo's completeness
 rule asks for.
 
-### F12. 680 lines of non-English comments, most of it public JSDoc — **open**
+### F12. 674 lines of non-English comments, most of it public JSDoc — fixed `21e8752`, `77c3cb6`
 
 **Wanted.** What `CLAUDE.md` requires: "All comments and identifiers in English."
 
@@ -583,6 +583,30 @@ should not swallow it.
 **Suggested order.** The math classes first (`Vector2/3/4`, `Color`, `Quaternion`, `Bounds`) —
 most read, smallest per-file risk, and part 8 of this audit will be reading them anyway. Then
 `Mesh` and `RenderingEnums`, then the rest.
+
+
+**Fixed (2026-08-17), in two passes.** `21e8752` took the 292 lines a scenario author reads most
+— `Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Color`, plus `MeshFilter`, `EngineSettings` and
+the scenario barrel. `77c3cb6` took the remaining 372 — `Mesh`, `LineRenderer`, `RenderingEnums`
+and the dev entry. A Cyrillic scan across `src/` now returns nothing.
+
+**Verified mechanically, not by eye.** For each file: strip every comment from the committed
+version and from the new one, and compare what is left. The only file whose *code* changed is
+`src/main.ts`, deliberately — its `alert()` and console text was Ukrainian too. That is the dev
+harness, excluded from `tsconfig.build.json` and imported by nothing, so its audience is whoever
+runs `npm run dev` here; leaving those strings while translating the comments around them would
+have been half a job.
+
+**Three lines came out mangled on the first attempt**, and the way they were caught is the
+lesson. `// Вершини` is a prefix of `// Вершини куба (24 вершини…)`, so the short generic
+replacement ran first and ate the start of the specific one, leaving `// Positions. куба (…)`.
+The scan that found them looked for *what should no longer be there* rather than for the strings
+it meant to replace — a check for absence catches its own bugs, a check for presence does not.
+
+**A few translations say more than the original** where the original was terse and the reason was
+worth keeping: `MAX_DELTA_TIME` now explains the spiral of death it exists to prevent rather than
+naming it, and `LineRenderer`'s outstanding TODO says what is missing and why, per the
+Completeness rule, instead of naming a conversion.
 
 ### F13. Batching twice drew every source mesh twice — fixed
 
