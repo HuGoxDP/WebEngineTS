@@ -8,6 +8,8 @@ import { Behaviour } from "./Behaviour.ts";
 import { ScriptableBehaviour } from "./ScriptableBehaviour.ts";
 import { EngineSettings } from "./EngineSettings.ts";
 import { getExecutionOrder } from "./reflection/Decorators.ts";
+import { TypeRegistry } from "./reflection/TypeRegistry.ts";
+import { Prefab } from "./serialization/Prefab.ts";
 import type { Scene } from "./Scene.ts";
 import { Bounds } from "./math/Bounds.ts";
 import { Vector3 } from "./math/Vector3.ts";
@@ -672,30 +674,58 @@ export class GameObject extends EngineObject {
      * and invisible. Every caller of the most-used API in Unity got that
      * silently, so refusing is the honest answer until cloning is real.
      *
-     * Doing it properly means copying arbitrary component state, which the
-     * engine cannot do generically yet — that is what the serialization system
-     * in `design/unity-parity-plan.md` (Stage 1) is for. `Component._clone`
-     * already refers to this method as the one that duplicates components; when
-     * it does, this error goes away.
+     * It works by round-tripping the hierarchy through the serializer, which is
+     * what `Prefab.fromGameObject(go).instantiate()` does — name, active state,
+     * transform, children, and every component carrying `@Serializable`.
      *
-     * There *is* a working route in the meantime, and the error names it:
-     * `Prefab.fromGameObject(go).instantiate()` round-trips the hierarchy
-     * through the serializer. It copies every component carrying
-     * `@Serializable` — most of them today, though not `Transform` itself, which
-     * is why it is a route rather than the answer.
+     * **What it does not copy, it names.** A component with no `@Serializable`
+     * is skipped by the serializer, silently. That silence was the reason this
+     * method used to refuse outright: a copy missing an `Animator` is worse than
+     * no copy at all if nobody says so. It now says so — one warning listing the
+     * types that were dropped — because a loss you are told about is not the
+     * same defect as a loss you are not. The list shrinks to nothing as Stage 1
+     * of `design/unity-parity-plan.md` decorates the rest.
      */
     protected override _clone(): EngineObject {
-        // TODO: implement real prefab cloning once components can serialize
-        // themselves — hierarchy and transform are easy, component state is not.
-        throw new Error(
-            `EngineObject.Instantiate("${this.name}"): cloning a GameObject is not ` +
-            `implemented. It would return an empty object with no components or ` +
-            `children, which is worse than an error. ` +
-            `Use Prefab.fromGameObject(go).instantiate(), which round-trips the ` +
-            `hierarchy through the serializer — it copies every component carrying ` +
-            `@Serializable, which is most of them but not yet all. ` +
-            `See design/unity-parity-plan.md.`
-        );
+        const missing = GameObject._unserializableTypes(this);
+        if (missing.length > 0) {
+            const one = missing.length === 1;
+            console.warn(
+                `EngineObject.Instantiate("${this.name}"): copied without ` +
+                `${missing.join(", ")} — ${one ? "that component carries" : "those components carry"} ` +
+                `no @Serializable, so the serializer cannot reproduce ` +
+                `${one ? "it" : "them"}. See design/unity-parity-plan.md.`,
+            );
+        }
+
+        return Prefab.fromGameObject(this).instantiate(this.scene);
+    }
+
+    /**
+     * The type names of components in this subtree the serializer cannot copy.
+     *
+     * @remarks
+     * Reported rather than counted: "3 components were dropped" tells a caller
+     * nothing they can act on, and `Animator, ParticleSystem` tells them exactly
+     * what their copy is missing.
+     */
+    private static _unserializableTypes(root: GameObject): string[] {
+        const found: string[] = [];
+
+        const walk = (go: GameObject): void => {
+            for (const comp of go._components) {
+                if (comp instanceof Transform) continue;
+                if (TypeRegistry.getTypeName(comp)) continue;
+                const name = comp.constructor.name;
+                if (!found.includes(name)) found.push(name);
+            }
+            for (let i = 0; i < go.transform.childCount; i++) {
+                walk(go.transform.getChild(i).gameObject);
+            }
+        };
+
+        walk(root);
+        return found;
     }
 
     // ==================== STATIC CONVENIENCE METHODS ====================
