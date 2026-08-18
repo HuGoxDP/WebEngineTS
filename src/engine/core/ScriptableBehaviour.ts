@@ -180,9 +180,10 @@ export class ScriptableBehaviour extends Behaviour {
      * mid-flight — the object came back and finished a sequence the scene had
      * moved on from.
      *
-     * The `enabled = false` half of Unity's rule is not implemented; see F5 in
-     * `design/audit/findings.md`. Coroutines still pause while a behaviour is
-     * disabled, because the update dispatch skips disabled behaviours entirely.
+     * The other half of Unity's rule is the opposite one, and is implemented in
+     * `_systemUpdate`: setting `enabled = false` does **not** stop or pause a
+     * coroutine. The runner is ticked whenever the GameObject is active, so
+     * disabling the script pauses the script and leaves the sequence running.
      *
      * **NEVER use in user-facing code.**
      */
@@ -361,17 +362,24 @@ export class ScriptableBehaviour extends Behaviour {
      * then ticks coroutines (Update phase).
      */
     public _systemUpdate(): void {
-        if (!this.isActiveAndEnabled) return;
+        // Unity splits the two flags, and so does this. A behaviour whose
+        // GameObject is inactive does nothing at all. A behaviour that is
+        // merely `enabled = false` runs no callbacks — but its coroutines keep
+        // going, which is the rule that makes a coroutine a useful place to put
+        // a sequence: disabling the script pauses the script, not the sequence.
+        if (!this.exists() || !this.gameObject.activeInHierarchy) return;
 
         this._guard("update", () => {
-            if (!this._started) {
-                this.start();
-                this._started = true;
+            if (this.enabled) {
+                if (!this._started) {
+                    this.start();
+                    this._started = true;
+                }
+
+                this.update();
             }
 
-            this.update();
-
-            // Tick coroutines after user Update (Unity order)
+            // Ticked whatever `enabled` says, after user Update (Unity order).
             this._coroutineRunner?.tickUpdate();
         });
     }
@@ -383,13 +391,15 @@ export class ScriptableBehaviour extends Behaviour {
      * Runs LateUpdate, then ticks coroutines (LateUpdate phase — resolves WaitForEndOfFrame).
      */
     public _systemLateUpdate(): void {
-        if (this.isActiveAndEnabled && this._started) {
-            this._guard("lateUpdate", () => {
-                this.lateUpdate();
-                // Resolve WaitForEndOfFrame
-                this._coroutineRunner?.tickLateUpdate();
-            });
-        }
+        if (!this.exists() || !this.gameObject.activeInHierarchy) return;
+
+        this._guard("lateUpdate", () => {
+            if (this.enabled && this._started) this.lateUpdate();
+
+            // Resolve WaitForEndOfFrame — for a disabled behaviour too, or a
+            // coroutine still running on it would wait forever.
+            this._coroutineRunner?.tickLateUpdate();
+        });
     }
 
     /**
@@ -399,13 +409,14 @@ export class ScriptableBehaviour extends Behaviour {
      * Runs FixedUpdate, then ticks coroutines (FixedUpdate phase — resolves WaitForFixedUpdate).
      */
     public _systemFixedUpdate(): void {
-        if (this.isActiveAndEnabled && this._started) {
-            this._guard("fixedUpdate", () => {
-                this.fixedUpdate();
-                // Resolve WaitForFixedUpdate
-                this._coroutineRunner?.tickFixedUpdate();
-            });
-        }
+        if (!this.exists() || !this.gameObject.activeInHierarchy) return;
+
+        this._guard("fixedUpdate", () => {
+            if (this.enabled && this._started) this.fixedUpdate();
+
+            // Resolve WaitForFixedUpdate — same reason as above.
+            this._coroutineRunner?.tickFixedUpdate();
+        });
     }
 
     /**
