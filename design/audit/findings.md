@@ -36,7 +36,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F22 | 4 | No per-callback isolation: one bad script stops the frame | fixed `04acb15` |
 | F23 | 4 | A failed `run()` left a scene, a source and blob URLs behind | fixed `9bdad0e` |
 | F24 | 4 | `unload()` emptied the scene but left it registered and active | fixed `9bdad0e` |
-| F25 | 1, 4 | `Instantiate` on a GameObject returned an empty object | refuses now `030ae4b`; cloning **open** |
+| F25 | 1, 4 | `Instantiate` on a GameObject returned an empty object | fixed `030ae4b`, `318ea1f`, `38112ab` |
 | F26 | 5 | `useGravity = false` did nothing after the first frame | fixed `27e4134` |
 | F27 | 5 | `Collider.center` moved the ray proxy, not the shape | fixed `54c54e4` |
 | F28 | 5 | Raycast normals were local-space; hits used stale matrices | fixed `09341b7` |
@@ -1017,7 +1017,7 @@ Both are covered by `tests/ScenarioRunFailure.test.ts`, which induces the failur
 environment rather than faking it: `run()` imports the entry point from a blob URL, which Node
 cannot do, and that is a real failure in the same place a broken scenario script fails.
 
-### F25. `Instantiate` on a GameObject returned an empty object — made honest `030ae4b`, cloning still **open**
+### F25. `Instantiate` on a GameObject returned an empty object — fixed `030ae4b`, `318ea1f`, `38112ab`
 
 Found reading `ScenarioAssets.loadModel`, whose docs promise a "prefab".
 
@@ -1054,6 +1054,29 @@ override removed. The commit also corrected `loadModel`'s example, which positio
 instance as though it were a fresh copy — the trap this defect made unavoidable.
 
 ## Part 5 — Physics
+
+**Fixed (2026-08-17), and the last remainder in the audit to close.** `Instantiate` makes a real
+copy: the hierarchy round-trips through the serializer, carrying the name, the active state, the
+transform, the children, and every component with `@Serializable`.
+
+**Why it refused rather than doing this from the start**, and what changed: the serializer skips
+undecorated components *silently*, and a copy missing an `Animator` is worse than no copy at all
+**if nobody says so**. So it says so — one warning naming the types it dropped. A loss you are
+told about is a different defect from a loss you are not, and the list shrinks to nothing as
+Stage 1 decorates the rest. Named rather than counted: "3 components were dropped" is not
+something a caller can act on; "Animator, ParticleSystem" is.
+
+**Two things re-derived rather than assumed**, following the four remainders before this one:
+
+- **`Transform` does not need `@Serializable`.** `SceneSerializer._serializeGO` writes position,
+  rotation and scale explicitly. The parity plan's framing of `Transform` as *the* blocker — and
+  F67's repetition of it — was wrong, and it had been the stated reason a real clone had to wait.
+- **`GameObject` importing `Prefab` closes a cycle** through `SceneSerializer`. It holds because
+  the use is at call time rather than module-eval time; the suite and the bundle both confirm it
+  rather than the reasoning being trusted on its own.
+
+**The four tests that asserted the refusal now assert the copy.** Fifth time in this audit that a
+behaviour change made existing tests fail rather than quietly stop testing anything.
 
 ### F26. `useGravity = false` did nothing after the first frame — fixed `27e4134`
 

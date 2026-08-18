@@ -21,10 +21,11 @@ codebase actually produces, listed in [`method.md`](method.md).
 
 ## Progress
 
-**175 of 175 classes walked — the walk is complete.** 74 findings: **73 closed** and 1 partly
-closed. **Nothing is fully open**, and the one remainder is below.
-The walk is finished; that list is now the work. Live counts are in [`checklist.md`](checklist.md#progress); the
-summary below is updated when a part changes state.
+**175 of 175 classes walked, and every finding is closed — 74 of 74.**
+What each one cost, and what was learned doing it, is in [`findings.md`](findings.md) and
+[`method.md`](method.md). Ideas that were never defects are in
+[`improvements.md`](improvements.md). Live counts are in
+[`checklist.md`](checklist.md#progress); the summary below is updated when a part changes state.
 
 | Part | Area | Classes | State |
 |---|---|---:|---|
@@ -38,12 +39,6 @@ summary below is updated when a part changes state.
 | 8 | Math | 12 | **done** — 4 findings, 2 fixed, 2 documented |
 | 9 | Animation and Cinemachine | 17 | **done** — 6 findings, all fixed |
 | 10 | The tail | 29 | **done** — 17 findings, 15 fixed |
-
-### Not closed
-
-| # | What | What is left, and why |
-|---|---|---|
-| F25 | Cloning a GameObject | Refuses loudly and names `Prefab.fromGameObject().instantiate()`; a real clone waits on Stage 1 |
 
 ## The loop
 
