@@ -239,7 +239,7 @@ Each step runs components first, then the active scenario.
   camera viewports and sprite bounds, which are genuinely Y-up. Every new UI feature must state
   its Y convention in its JSDoc — see `design/canvas-ui-roadmap.md` §3.
 - **Cinemachine first-frame**: Always Cut on first activation (blending from null CameraState causes camera at origin)
-- **Texture GPU upload timing**: `releaseSourceImage()` uses a two-frame countdown (`_releaseCountdown = 2`) to ensure GPU upload completes before CPU data is released
+- **Texture GPU upload timing**: `releaseSourceImage()` queues rather than frees. `TextureRelease` (`graphics/TextureRelease.ts`) releases the CPU pixels after a render, once `renderer.properties.get(texture).__webglTexture` shows the GPU has them — a texture never drawn is never released, which is safe; releasing early leaves it blank for the run. A two-frame countdown is the fallback when there is no `WebGLRenderer` to ask
 - **ImageBitmap leak**: Three.js `dispose()` does not call `.close()` on ImageBitmap sources — engine handles this in `Texture.onDestroy()`
 - **Batch loading**: `Resources.tryLoad()` wraps individual loads instead of `Promise.all` (which fails entire batch on single missing asset)
 - **Scenario script pre-linking**: All `.js` files in a scenario ZIP are topologically sorted by dependency, relative import specifiers are rewritten to Blob URLs, bare specifiers (e.g. `"WebEngineTS"`) are left for the host import map. Entry point brand-checked via `__scenarioBehaviour` marker (not `instanceof`, which breaks across bundle copies)

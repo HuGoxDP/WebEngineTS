@@ -20,7 +20,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `5c585b0` |
 | F7 | 1 | `DontDestroyOnLoad` on a child recorded a survival that never happened | fixed `ac95d83` |
 | F8 | 1 | Held keys and mouse buttons stuck after focus loss | fixed `aca2caa` |
-| F9 | 2 | `releaseSourceImage` has no upload guard; the documented one does not exist | docs fixed; guard **open** |
+| F9 | 2 | `releaseSourceImage` has no upload guard; the documented one does not exist | fixed `4feb81b` |
 | F10 | 2, 3, 9 | Sixteen getters handed out shared math constants | fixed `ec73f3a` |
 | F11 | 3 | `Light.shadowStrength` was stored and never applied | fixed `04e1e31` |
 | F12 | 2, 3, 8 | 674 lines of non-English comments, most of it public JSDoc | fixed `21e8752`, `77c3cb6` |
@@ -420,7 +420,7 @@ that input works again once focus returns.
 
 ## Part 2 — Graphics assets
 
-### F9. `releaseSourceImage` blanks a texture that has not been uploaded yet — docs fixed, guard **open**
+### F9. `releaseSourceImage` blanks a texture that has not been uploaded yet — fixed `4feb81b`
 
 **Wanted.** Release the CPU copy of a texture's pixels without losing the texture.
 
@@ -468,11 +468,27 @@ the per-texture call, correctly, via its own countdown.
 claimed to change something — and rewrote the `Texture2D` JSDoc to say plainly that the call is
 unsafe before the first render, with an example that defers.
 
-**Still open: the guard itself.** The fix is the countdown `CLAUDE.md` already promises: schedule
-the release, tick it after render from `Application._loop`, and free when it reaches zero. That
-deletes the workaround from every scenario. It needs a per-frame driver and a shared home —
-`Cubemap` extends `EngineObject`, not `Texture`, so the scheduling cannot simply live on the
-base class.
+**Fixed (2026-08-17), and better than the countdown that was promised.** The call queues;
+`TextureRelease` frees the pixels after a render, once the GPU actually has them. The probe reads
+`renderer.properties.get(texture).__webglTexture`, which exists exactly when the upload has
+happened — so a texture is released on the first frame after it is genuinely safe, however many
+frames that takes, and one that is never drawn is never released. That costs the memory the
+caller asked to reclaim, which is what they would have had anyway; a blank texture is not.
+
+The countdown survives only as the fallback for a backend with no `WebGLRenderer` to ask, and it
+is documented there as the guess it is rather than as a guarantee.
+
+**The parked reason named a real constraint and drew the wrong conclusion**, for the fourth
+remainder running. `Cubemap` extends `EngineObject` and `Texture2D` extends `Texture`, so the
+scheduling genuinely cannot live on a shared base class — and it did not need to. An interface
+with two members and a module that holds the queue was the whole answer.
+
+**`Resources.releaseAllSourceImages` is safe by construction now.** It was the worst call site:
+public, applies to every cached texture at once, and a host calling it during loading would have
+blanked the scene.
+
+**`CLAUDE.md` was corrected too.** It described a `_releaseCountdown` that existed nowhere in
+`src/`; it now describes the mechanism that does exist.
 
 **`CLAUDE.md` is wrong until that lands** and should be corrected either way; it is outside this
 audit's reach because it carries unrelated uncommitted edits.

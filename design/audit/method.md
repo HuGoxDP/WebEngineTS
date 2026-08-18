@@ -414,3 +414,10 @@ reporting "eleven tests" as evidence for the change would overstate it by eight.
 control, count what fails, and quote *that* number. If it is small, the tests that survive the
 revert are describing something both versions do, which is a useful thing to notice before
 claiming otherwise.
+
+**Four for four: the constraint was real, the conclusion was not.** F29, F5, F31 and F9 each
+parked a remainder behind a stated obstacle, and in every case the obstacle existed exactly as
+described — cannon's broadphase, the update dispatch, a Spring not being a constraint, two
+texture classes with no common base — while the conclusion drawn from it ("so this needs X")
+was wrong. The pattern is specific enough to act on: when a finding says *this is hard because
+Y*, believe Y and re-derive everything after the word "because".
