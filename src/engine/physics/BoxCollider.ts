@@ -66,6 +66,27 @@ export class BoxCollider extends Collider {
     }
 
     /** @internal */
+    public override _sqrDistanceToPoint(point: Vector3): number {
+        // In the box's own frame the test is a clamp: the nearest point on the
+        // box to `point` is `point` with each axis pulled inside the extents,
+        // and what is left over is the distance. Rotation is handled by being
+        // in local space at all, which is why this is exact for an oriented box
+        // rather than an approximation by its AABB.
+        const local = this._toLocalPoint(point, BoxCollider._tmp);
+        const dx = Math.abs(local.x - this._center.x) - this._size.x / 2;
+        const dy = Math.abs(local.y - this._center.y) - this._size.y / 2;
+        const dz = Math.abs(local.z - this._center.z) - this._size.z / 2;
+
+        const ox = dx > 0 ? dx : 0;
+        const oy = dy > 0 ? dy : 0;
+        const oz = dz > 0 ? dz : 0;
+        return ox * ox + oy * oy + oz * oz;
+    }
+
+    /** Scratch for {@link _sqrDistanceToPoint}. */
+    private static readonly _tmp = new Vector3();
+
+    /** @internal */
     protected _createCannonShape(): CANNON.Shape {
         return new CANNON.Box(
             new CANNON.Vec3(this._size.x / 2, this._size.y / 2, this._size.z / 2)

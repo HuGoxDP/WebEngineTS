@@ -78,6 +78,29 @@ export class CapsuleCollider extends Collider {
     }
 
     /** @internal */
+    public override _sqrDistanceToPoint(point: Vector3): number {
+        // A capsule is a segment thickened by its radius, so the distance to it
+        // is the distance to that segment less the radius. The segment runs on
+        // local Y between the two cap centres, which is where cannon puts the
+        // cylinder.
+        const local = this._toLocalPoint(point, CapsuleCollider._tmp);
+        const dx = local.x - this._center.x;
+        const dz = local.z - this._center.z;
+
+        const half = Math.max(0, this._height / 2 - this._radius);
+        let dy = local.y - this._center.y;
+        if (dy > half) dy -= half;
+        else if (dy < -half) dy += half;
+        else dy = 0;
+
+        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz) - this._radius;
+        return distance <= 0 ? 0 : distance * distance;
+    }
+
+    /** Scratch for {@link _sqrDistanceToPoint}. */
+    private static readonly _tmp = new Vector3();
+
+    /** @internal */
     protected _createCannonShape(): CANNON.Shape {
         // cannon-es Cylinder approximation for capsule:
         // Use a cylinder for the middle + compound shape with spheres on ends.

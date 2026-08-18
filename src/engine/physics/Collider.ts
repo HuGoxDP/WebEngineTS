@@ -91,6 +91,49 @@ export abstract class Collider extends Behaviour {
 
     /**
      * @internal
+     * Squared distance from a world-space point to this collider's surface,
+     * or `0` when the point is inside it.
+     *
+     * @remarks
+     * The primitive every shape query is built from: a sphere overlaps a
+     * collider exactly when this is at most the sphere's radius squared. Each
+     * shape answers for itself, so adding a collider type means implementing
+     * one method rather than extending a switch in `Physics`.
+     *
+     * Squared, because every caller compares against a squared radius and the
+     * square root would be thrown away.
+     *
+     * **Scale is ignored**, deliberately: the cannon shapes are built from the
+     * collider's own `size`/`radius` and take no notice of the Transform's
+     * scale either. A query that disagreed with the simulation would be worse
+     * than one that shares its limitation.
+     */
+    public abstract _sqrDistanceToPoint(point: Vector3): number;
+
+    /** Reused conjugate rotation — see {@link _toLocalPoint}. */
+    private static readonly _invRot = { x: 0, y: 0, z: 0, w: 1 };
+
+    /**
+     * Brings a world-space point into this collider's local space.
+     *
+     * @param point - the world-space point.
+     * @param out - destination, to keep the query allocation-free.
+     * @returns `out`.
+     */
+    protected _toLocalPoint(point: Vector3, out: Vector3): Vector3 {
+        const t = this.transform;
+        const p = t.position;
+        const q = t.rotation;
+
+        const inv = Collider._invRot;
+        inv.x = -q.x; inv.y = -q.y; inv.z = -q.z; inv.w = q.w;
+
+        out.set(point.x - p.x, point.y - p.y, point.z - p.z);
+        return out.applyQuaternion(inv);
+    }
+
+    /**
+     * @internal
      * This collider's local offset from the GameObject's origin.
      *
      * @remarks

@@ -65,6 +65,20 @@ export class SphereCollider extends Collider {
     }
 
     /** @internal */
+    public override _sqrDistanceToPoint(point: Vector3): number {
+        const local = this._toLocalPoint(point, SphereCollider._tmp);
+        const dx = local.x - this._center.x;
+        const dy = local.y - this._center.y;
+        const dz = local.z - this._center.z;
+
+        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz) - this._radius;
+        return distance <= 0 ? 0 : distance * distance;
+    }
+
+    /** Scratch for {@link _sqrDistanceToPoint}. */
+    private static readonly _tmp = new Vector3();
+
+    /** @internal */
     protected _createCannonShape(): CANNON.Shape {
         return new CANNON.Sphere(this._radius);
     }

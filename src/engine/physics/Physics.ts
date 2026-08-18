@@ -357,23 +357,30 @@ export class Physics {
     }
 
     /**
-     * Returns every collider whose **origin** lies within the sphere.
+     * Returns every collider the sphere touches.
      *
      * @param position Center of the sphere in world space.
      * @param radius Radius of the sphere.
-     * @returns Colliders whose transform position is inside the sphere.
+     * @returns Every collider overlapping the sphere.
      *
      * @remarks
-     * **Not Unity's `Physics.OverlapSphere`, which tests the shapes.** This
-     * compares the sphere against each collider's transform position, so a
-     * large box whose origin sits outside is missed even when half of it is
-     * inside, and a collider whose origin is inside is returned however far its
-     * shape extends away.
+     * Equivalent to Unity's `Physics.OverlapSphere`: a real shape test, not a
+     * distance between origins. A box half inside the sphere is returned; a box
+     * whose origin is inside but whose body reaches away is judged by its
+     * surface like everything else. Rotation is exact — the test runs in each
+     * collider's own frame, so an oriented box is an oriented box and not its
+     * bounding box.
      *
-     * The difference matters most where the API is most tempting — a blast
-     * radius, a pickup range, a trigger volume built by hand. A real shape query
-     * belongs on cannon's broadphase, which already maintains an AABB per body;
-     * until that exists, this is what the method does.
+     * Each shape answers through `Collider._sqrDistanceToPoint`, so a new
+     * collider type joins the query by implementing one method.
+     *
+     * **Scale is ignored**, because the simulation ignores it too: cannon's
+     * shapes are built from the collider's own `size`/`radius` and take no
+     * notice of the Transform's scale. A query that disagreed with what
+     * actually collides would be worse than one sharing its limitation.
+     *
+     * `overlapBox` and `sphereCast` do not exist yet — see F29 in
+     * `design/audit/findings.md`.
      */
     public static overlapSphere(position: Vector3, radius: number): Collider[] {
         const results: Collider[] = [];
@@ -381,19 +388,33 @@ export class Physics {
 
         for (const col of this._colliders) {
             if (!col.enabled || !col.gameObject.activeSelf) continue;
-
-            const colPos = col.transform.position;
-            const dx = colPos.x - position.x;
-            const dy = colPos.y - position.y;
-            const dz = colPos.z - position.z;
-            const distSq = dx * dx + dy * dy + dz * dz;
-
-            if (distSq <= rSq) {
-                results.push(col);
-            }
+            if (col._sqrDistanceToPoint(position) <= rSq) results.push(col);
         }
 
         return results;
+    }
+
+    /**
+     * Whether any collider overlaps the sphere.
+     *
+     * @param position - the sphere's centre, in world space.
+     * @param radius - the sphere's radius.
+     * @returns `true` if at least one collider is touched.
+     *
+     * @remarks
+     * Equivalent to Unity's `Physics.CheckSphere`. The same test
+     * {@link overlapSphere} runs, stopping at the first hit and allocating
+     * nothing — the right call when the question is only "is anything there?".
+     */
+    public static checkSphere(position: Vector3, radius: number): boolean {
+        const rSq = radius * radius;
+
+        for (const col of this._colliders) {
+            if (!col.enabled || !col.gameObject.activeSelf) continue;
+            if (col._sqrDistanceToPoint(position) <= rSq) return true;
+        }
+
+        return false;
     }
 
     /** @internal Clears all registrations (e.g., on scene change). */
