@@ -40,7 +40,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F26 | 5 | `useGravity = false` did nothing after the first frame | fixed `27e4134` |
 | F27 | 5 | `Collider.center` moved the ray proxy, not the shape | fixed `54c54e4` |
 | F28 | 5 | Raycast normals were local-space; hits used stale matrices | fixed `09341b7` |
-| F29 | 5 | `overlapSphere` tests origins, not shapes | **open** |
+| F29 | 5 | `overlapSphere` tests origins, not shapes | fixed `006a793` |
 | F30 | 5 | A hinge told cannon only half of itself | fixed `8825050` |
 | F31 | 5 | `SpringJoint` is a rigid rod, not a spring | docs fixed `8825050`; spring **open** |
 | F32 | 5 | A material on a `Rigidbody` was unregistered and unreadable | fixed `24771f2` |
@@ -1134,21 +1134,40 @@ commit is not read as three fixes.
 world one. Two defects in one path can mask each other, so the control has to revert one at a
 time.
 
-### F29. `overlapSphere` tests origins, not shapes — **open**
+### F29. `overlapSphere` tests origins, not shapes — fixed `006a793`
 
 **What happens.** `Physics.overlapSphere(position, radius)` compares the sphere against each
 collider's **transform position**. A large box whose origin sits outside the sphere is missed
 even when half of it is inside; a collider whose origin is inside is returned however far its
 shape extends away.
 
-**Why it is not fixed here.** The honest fix is a real shape query, and the pieces for it are
-already in the simulation: every cannon body maintains an AABB, and `world.broadphase` exists to
-answer exactly this kind of question. Wiring `overlapSphere` (and the missing `overlapBox`,
-`checkSphere`, `sphereCast`) into cannon is a small feature rather than a repair, and it wants
-its own commit and its own tests.
+**Why it was not fixed when found.** The honest fix is a real shape query, and it is a small
+feature rather than a repair — it wanted its own commit and its own tests. Until it had them the
+JSDoc said what the method did, so nobody planned a trigger volume around a promise it did not
+keep.
 
-Until then the JSDoc says what it does — "colliders whose origin lies within the sphere" — so
-nobody plans a trigger volume around a promise the method does not keep.
+**Fixed (2026-08-17), and not the way this entry expected.** It assumed cannon's broadphase and
+its per-body AABBs. That was unnecessary: the engine has exactly three collider shapes, and the
+*exact* test for each is a few lines — so the query is exact rather than an AABB approximation.
+Sphere against sphere by distance; box by clamping the query point into the box's own frame, so
+an oriented box is an oriented box and not its bounding box; capsule as a segment thickened by
+its radius.
+
+**The shape answers for itself.** `Collider` gains one abstract member,
+`_sqrDistanceToPoint(worldPoint)` — squared distance to the surface, `0` inside — and a sphere
+overlaps a collider exactly when that is at most the radius squared. A new collider type joins
+every shape query by implementing one method rather than by extending a switch in `Physics`.
+`checkSphere` is built on the same primitive and stops at the first hit.
+
+**Scale is ignored, deliberately and in writing.** cannon builds its shapes from the collider's
+own `size`/`radius` and takes no notice of the Transform's scale, so a query that honoured scale
+would disagree with what actually collides. Sharing the limitation is better than contradicting
+the simulation; the JSDoc says which it is.
+
+**Still missing:** `overlapBox` and `sphereCast`. Now named in `overlapSphere`'s JSDoc as well as
+here, so the gap is visible from the code rather than only from this file.
+
+**Negative control.** Restoring the origin comparison fails 6 of the 13 new tests.
 
 ### F30. A hinge told cannon only half of itself — fixed `8825050`
 

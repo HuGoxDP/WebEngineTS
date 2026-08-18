@@ -394,3 +394,9 @@ true one was that those tests assert what survives a frame cut short, and the ch
 being cut short. Left alone they would have passed forever without exercising anything. Turning
 the new behaviour off inside that file restored what it was there to test. A behaviour change is
 the one moment when a test that was about to go vacuous still announces itself.
+
+**Check whether the hard version is actually needed.** F29 sat open on the assumption that a real
+shape query meant going through cannon's broadphase. It did not: three collider types, three
+exact tests, a few lines each — and exact beats the AABB approximation the broadphase would have
+given. A finding's own "why this is hard" is a hypothesis from the moment it was written, and it
+ages like any other claim in a document. Re-check it before scheduling the work it describes.

@@ -131,3 +131,16 @@ that are missed. Unity fires them on reparenting.
 Not folded into F4 because it is a different defect with a different blast radius — every
 `.parent =` assignment in every scenario, rather than the zero uses F4 turned out to have.
 Worth its own pass with its own check.
+
+## `overlapBox` and `sphereCast` do not exist
+
+Noted while fixing F29, and not part of it. Unity's query set has four members; the engine now
+has `overlapSphere` and `checkSphere`, both exact. The other two are missing.
+
+Neither is hard now that `Collider._sqrDistanceToPoint` exists — but neither is expressible
+through it either, which is the point worth writing down. A box query needs box-vs-shape, not
+point-vs-shape, and a sphere cast needs a swept test against time. Both want a second primitive
+on `Collider` rather than a reuse of the first, and that is a design decision rather than an
+oversight.
+
+Named in `overlapSphere`'s JSDoc as well as here, so the gap is visible from the code.
