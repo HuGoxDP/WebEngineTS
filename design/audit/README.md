@@ -21,8 +21,8 @@ codebase actually produces, listed in [`method.md`](method.md).
 
 ## Progress
 
-**175 of 175 classes walked — the walk is complete.** 74 findings: **69 closed** and 5 partly
-closed, with the remainder named in their entry. **Nothing is fully open.** All five are below.
+**175 of 175 classes walked — the walk is complete.** 74 findings: **70 closed** and 4 partly
+closed, with the remainder named in their entry. **Nothing is fully open.** All four are below.
 The walk is finished; that list is now the work. Live counts are in [`checklist.md`](checklist.md#progress); the
 summary below is updated when a part changes state.
 
@@ -43,7 +43,6 @@ summary below is updated when a part changes state.
 
 | # | What | What is left, and why |
 |---|---|---|
-| F5 | Coroutines pause instead of stopping on deactivation | Half fixed — the remaining half is Unity's stop-on-disable |
 | F9 | `releaseSourceImage` has no upload guard | Documented; the guard needs a real GPU-upload signal, not a frame count |
 | F25 | Cloning a GameObject | Refuses loudly and names `Prefab.fromGameObject().instantiate()`; a real clone waits on Stage 1 |
 | F31 | `SpringJoint` is a rigid rod | Documented as such; a real spring is a solver change |

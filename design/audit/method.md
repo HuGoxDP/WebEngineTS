@@ -400,3 +400,10 @@ shape query meant going through cannon's broadphase. It did not: three collider 
 exact tests, a few lines each — and exact beats the AABB approximation the broadphase would have
 given. A finding's own "why this is hard" is a hypothesis from the moment it was written, and it
 ages like any other claim in a document. Re-check it before scheduling the work it describes.
+
+**Twice now, the parked reason was wrong.** F29 was held back by an assumed dependency on
+cannon's broadphase; F5 by an assumed change to the core loop. Both turned out to be a few lines
+in a file the finding had already read. A "why this is hard" written at discovery time is the
+least examined sentence in a finding — it is written to justify moving on, not to be checked, and
+nothing re-reads it before the work is scheduled. When picking up an old finding, re-derive its
+difficulty before believing it.

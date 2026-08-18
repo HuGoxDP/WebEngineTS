@@ -16,7 +16,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F2 | 1 | `Destroy(obj, delay)` counts wall-clock, not game time | fixed `ca3fdbe` |
 | F3 | 1 | `FindObjectsOfType` promises "active" and does not filter | fixed `7786d55` |
 | F4 | 1 | `Awake` fires on `addComponent` even when the object is inactive | fixed `dadff02` |
-| F5 | 1 | Coroutines paused instead of stopping on deactivation | half fixed `e6e0b45` |
+| F5 | 1 | Coroutines paused instead of stopping on deactivation | fixed `e6e0b45`, `070ed7c` |
 | F6 | 1 | `Time.deltaTime` did not report the fixed step inside `fixedUpdate` | fixed `5c585b0` |
 | F7 | 1 | `DontDestroyOnLoad` on a child recorded a survival that never happened | fixed `ac95d83` |
 | F8 | 1 | Held keys and mouse buttons stuck after focus loss | fixed `aca2caa` |
@@ -277,7 +277,7 @@ places activation is discovered.
 `tests/GameObjectLifecycle.test.ts` covers the transitions that *are* correct and says so at the
 top.
 
-### F5. Coroutines paused where Unity stops them — deactivation half fixed
+### F5. Coroutines paused where Unity stops them — fixed `e6e0b45`, `070ed7c`
 
 **Wanted.** Unity's two rules, which pull in opposite directions:
 
@@ -308,11 +308,25 @@ behaviour.
 leaves the GameObject inactive — not when only `enabled` went false. Covered in
 `tests/Coroutine.test.ts`; the test fails with the stop removed.
 
-**Still open — the `enabled = false` half.** Making coroutines keep running while a behaviour is
-disabled means ticking the runner outside the update guard, which means the dispatch has to
-visit disabled behaviours. That is a change to the core loop rather than to this class, and it
-needs its own pass: today a disabled behaviour is skipped wholesale, and nothing else about it
-runs either.
+**The `enabled = false` half — fixed (2026-08-17).** And, like F29 the same day, not the way this
+entry predicted. It expected a change to the core loop, "the dispatch has to visit disabled
+behaviours". It already does: `GameObject._systemUpdate` calls every `ScriptableBehaviour` on an
+active object, and the early return that skipped the disabled ones was inside *this class*.
+Splitting the guard was the whole change.
+
+**What the guard is now.** The GameObject's activity decides whether anything happens at all;
+`enabled` decides only whether the user callbacks run. `_systemLateUpdate` and
+`_systemFixedUpdate` tick their runners on the same terms — a coroutine yielding
+`WaitForEndOfFrame` on a behaviour that has just been disabled would otherwise wait forever, and
+a paused-but-not-stopped coroutine that can never be resumed is worse than either rule.
+
+**Why the rules differ, which is the part worth keeping.** Disabling the script pauses the
+script, not the sequence it started — that is what makes a coroutine a useful place to put one.
+Deactivating the object stops the sequence outright, because a reactivated object must not finish
+something the scene has moved on from.
+
+**Negative control.** Restoring the `isActiveAndEnabled` guard fails 2 of the 8 new tests, and
+exactly the two that name the behaviour.
 
 ### F6. `Time.deltaTime` reported the frame delta inside `fixedUpdate` — fixed
 
