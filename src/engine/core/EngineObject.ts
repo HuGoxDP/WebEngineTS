@@ -456,9 +456,20 @@ export class EngineObject {
      * Returns the first active loaded object of the specified type.
      *
      * @param type The class/constructor to search for
+     * @param includeInactive Whether to also return objects on inactive
+     *        GameObjects. Default `false`, as Unity's is.
      * @returns The first found object, or null if none exists
      *
      * @remarks
+     * Equivalent to Unity's `Object.FindObjectOfType<T>(bool includeInactive)`:
+     * a component on a GameObject that is not `activeInHierarchy` is skipped
+     * unless you ask for it. A *disabled* component on an active object is
+     * still returned — Unity filters on the object's activity, not the
+     * component's `enabled`.
+     *
+     * Assets — meshes, textures, materials — have no activity and are always
+     * found, whatever this flag says.
+     *
      * This searches all registered EngineObjects.
      * For better performance with many objects, consider caching references.
      *
@@ -466,51 +477,79 @@ export class EngineObject {
      * const camera = EngineObject.FindObjectOfType(Camera);
      */
     public static FindObjectOfType<T extends EngineObject>(
-        type: EngineObjectConstructor<T>
+        type: EngineObjectConstructor<T>,
+        includeInactive: boolean = false,
     ): T | null {
         for (const [, weakRef] of EngineObject._registry) {
             const obj = weakRef.deref();
-            if (obj && obj.exists() && obj instanceof type) {
-                return obj as T;
-            }
+            if (!obj || !obj.exists() || !(obj instanceof type)) continue;
+            if (!includeInactive && !EngineObject._isFindableActive(obj)) continue;
+            return obj as T;
         }
         return null;
     }
 
     /**
-     * Returns every registered object of the given type that has not been
-     * destroyed.
+     * Returns every registered object of the given type.
      *
      * @param type The class/constructor to search for
+     * @param includeInactive Whether to also return objects on inactive
+     *        GameObjects. Default `false`, as Unity's is.
      * @returns Array of found objects (empty if none)
      *
      * @remarks
-     * **Includes objects on inactive GameObjects**, unlike Unity's
-     * `Object.FindObjectsOfType`, which excludes them. Only destruction is
-     * filtered here, not activity — an earlier version of this comment said
-     * "active" and meant "not destroyed", which promised a filter that does
-     * not exist. Check `activeInHierarchy` yourself if you need Unity's set.
+     * Equivalent to Unity's `Object.FindObjectsOfType<T>(bool includeInactive)`.
+     * A component on a GameObject that is not `activeInHierarchy` is skipped
+     * unless asked for; a *disabled* component on an active object is still
+     * returned, since Unity filters on the object's activity rather than the
+     * component's `enabled`.
      *
-     * Searches every registered EngineObject, assets included, so it is also
-     * how the diagnostics subsystem enumerates textures and meshes. Can be slow
-     * with many objects — use sparingly.
+     * **Assets are always found.** A mesh, texture or material has no activity
+     * to test, so the flag does not apply to it — which is why the diagnostics
+     * subsystem can keep enumerating them through here.
+     *
+     * Searches every registered EngineObject. Can be slow with many objects —
+     * use sparingly.
      *
      * @example
      * const allLights = EngineObject.FindObjectsOfType(Light);
+     * const everyLight = EngineObject.FindObjectsOfType(Light, true);
      */
     public static FindObjectsOfType<T extends EngineObject>(
-        type: EngineObjectConstructor<T>
+        type: EngineObjectConstructor<T>,
+        includeInactive: boolean = false,
     ): T[] {
         const results: T[] = [];
 
         for (const [, weakRef] of EngineObject._registry) {
             const obj = weakRef.deref();
-            if (obj && obj.exists() && obj instanceof type) {
-                results.push(obj as T);
-            }
+            if (!obj || !obj.exists() || !(obj instanceof type)) continue;
+            if (!includeInactive && !EngineObject._isFindableActive(obj)) continue;
+            results.push(obj as T);
         }
 
         return results;
+    }
+
+    /**
+     * Whether an object counts as active for the `Find*` filters.
+     *
+     * @remarks
+     * Duck-typed deliberately. `EngineObject` is the base of `GameObject` and
+     * `Component` and cannot import either without a cycle — and it does not
+     * need to. A GameObject answers `activeInHierarchy`; a Component forwards
+     * to the one it is on; anything else is an asset, which has no activity and
+     * is always findable. Unity treats assets the same way.
+     */
+    private static _isFindableActive(obj: EngineObject): boolean {
+        const probe = obj as unknown as {
+            activeInHierarchy?: boolean;
+            gameObject?: { activeInHierarchy?: boolean } | null;
+        };
+        if (typeof probe.activeInHierarchy === "boolean") return probe.activeInHierarchy;
+        const owner = probe.gameObject;
+        if (owner && typeof owner.activeInHierarchy === "boolean") return owner.activeInHierarchy;
+        return true;
     }
 
     /**

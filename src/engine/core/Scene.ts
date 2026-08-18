@@ -249,14 +249,21 @@ export class Scene {
      * Finds the first Component of the specified type in the entire scene.
      *
      * @remarks
-     * Equivalent to Unity's `Object.FindObjectOfType<T>()`.
+     * Equivalent to Unity's `Object.FindObjectOfType<T>(bool includeInactive)`:
+     * components on GameObjects that are not `activeInHierarchy` are skipped
+     * unless asked for. A disabled component on an active object is still
+     * found — the filter is the object's activity, not the component's
+     * `enabled`.
      *
      * @param type — the component constructor to search for.
+     * @param includeInactive — also search inactive GameObjects. Default `false`.
      */
     public findObjectOfType<T extends Component>(
-        type: new (...args: never[]) => T
+        type: new (...args: never[]) => T,
+        includeInactive: boolean = false,
     ): T | null {
         for (const go of this._registry.values()) {
+            if (!includeInactive && !go.activeInHierarchy) continue;
             const comp = go.getComponent(type);
             if (comp) return comp;
         }
@@ -267,15 +274,21 @@ export class Scene {
      * Finds all Components of the specified type in the entire scene.
      *
      * @remarks
-     * Equivalent to Unity's `Object.FindObjectsOfType<T>()`.
+     * Equivalent to Unity's `Object.FindObjectsOfType<T>(bool includeInactive)`.
+     * Components on GameObjects that are not `activeInHierarchy` are skipped
+     * unless asked for; a disabled component on an active object is still
+     * returned.
      *
      * @param type — the component constructor to search for.
+     * @param includeInactive — also search inactive GameObjects. Default `false`.
      */
     public findObjectsOfType<T extends Component>(
-        type: new (...args: never[]) => T
+        type: new (...args: never[]) => T,
+        includeInactive: boolean = false,
     ): T[] {
         const results: T[] = [];
         for (const go of this._registry.values()) {
+            if (!includeInactive && !go.activeInHierarchy) continue;
             const comps = go.getComponents(type);
             results.push(...comps);
         }
