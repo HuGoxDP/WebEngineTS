@@ -387,3 +387,10 @@ Verify the property you actually want, which is that the old thing is gone.
 would not have established it — 664 lines is past the point where an eye is evidence. Stripping
 every comment from both versions and diffing what remains does establish it, and it found the one
 file where the claim was untrue.
+
+**When a change makes an old test fail, ask whether it should now be testing something else.**
+F22's isolation broke four tests in F21's file. The quick reading is "the change is wrong"; the
+true one was that those tests assert what survives a frame cut short, and the change stops frames
+being cut short. Left alone they would have passed forever without exercising anything. Turning
+the new behaviour off inside that file restored what it was there to test. A behaviour change is
+the one moment when a test that was about to go vacuous still announces itself.

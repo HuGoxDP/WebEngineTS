@@ -33,7 +33,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F19 | 4 | A streaming pass could overlap, and kept a level it never loaded | fixed `9b49401` |
 | F20 | 4 | Disposing a streaming source left its queue running | fixed `0906e35` |
 | F21 | 1, 4 | A throwing callback left `Time` and `Input` broken for the rest of the run | fixed `c338cda` |
-| F22 | 4 | No per-callback isolation: one bad script stops the frame | **open** |
+| F22 | 4 | No per-callback isolation: one bad script stops the frame | fixed `04acb15` |
 | F23 | 4 | A failed `run()` left a scene, a source and blob URLs behind | fixed `9bdad0e` |
 | F24 | 4 | `unload()` emptied the scene but left it registered and active | fixed `9bdad0e` |
 | F25 | 1, 4 | `Instantiate` on a GameObject returned an empty object | refuses now `030ae4b`; cloning **open** |
@@ -906,7 +906,7 @@ stays broken. Only bookkeeping is restored. The body is indented one level as a 
 
 Covered by `tests/LoopFrameIntegrity.test.ts`, each half negative-controlled separately.
 
-### F22. One bad script stops every callback after it in the frame — **open**
+### F22. One bad script stops every callback after it in the frame — fixed `04acb15`
 
 **Wanted.** Unity's isolation: an exception in one `MonoBehaviour.Update` is logged, and the
 next component still updates.
@@ -916,13 +916,33 @@ every component after it, the scenario's own `update`, animation, particles, UI 
 input. F21 stopped that from corrupting engine state, but the frame is still cut short at the
 first error.
 
-**Why it is not fixed here.** It is a design decision, not an oversight. Wrapping every
+**Why it was not fixed when found.** It is a design decision, not an oversight. Wrapping every
 callback in `try`/`catch` costs a little per call in the hottest loop in the engine and — more
 importantly — changes what a scenario author sees: an error becomes a console line rather than
 a stopped scene, which hides bugs during authoring. Unity makes that trade because it has an
-editor console nobody can miss; a browser console is easier to ignore. Worth deciding
-deliberately, with a `console.error` per failure and a policy for repeat offenders, rather than
-adding it to a bug-fix commit.
+editor console nobody can miss; a browser console is easier to ignore.
+
+**Decided and fixed (2026-08-17).** Isolation is on by default, and the trade the entry above
+feared is avoided by not making it: **isolation does not mean silence.** Every failure is logged
+with the script, its GameObject and the phase, and a script that fails three times in a row is
+**disabled**, with a line saying so and how to change it. A broken script visibly stops working
+and says why. That is louder than a stack trace scrolling past sixty times a second, and it ends
+after three lines instead of thousands — so the authoring experience gets *better*, not quieter.
+
+**The counter is consecutive**, reset by the first callback that returns normally, so a script
+with one bad frame is not punished for it, and each script counts its own. Two knobs, both
+public: `ScriptableBehaviour.isolateCallbackErrors = false` restores the old hard stop for
+debugging; `callbackFailureLimit = 0` lets a script throw forever.
+
+**It took four tests down with it, which is the point worth recording.** `LoopFrameIntegrity` —
+F21's test — asserts what survives *a frame cut short*, and a cut-short frame is precisely what
+isolation prevents. Left alone, its saboteur's throw would never leave the script, the frame
+would complete normally, and all four assertions would pass for the wrong reason. They went red
+instead, and the file now turns isolation off in its `beforeEach` with a comment saying why. A
+behaviour change that makes an existing test vacuous is the same shape as F69's `KeyCode.W`,
+caught this time because the change made it fail before it made it lie.
+
+**Negative control.** Forcing the guard to pass everything through fails 11 of the 14 new tests.
 
 ### F23. A failed `run()` left a scene, a source and blob URLs behind — fixed `9bdad0e`
 
