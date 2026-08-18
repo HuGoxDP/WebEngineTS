@@ -14,6 +14,11 @@ import type {
  * is already scheduled by then, so the loop runs on — and used to run on with
  * `Time` stuck inside the fixed phase and `Input` never reset, for the rest of
  * the session. Audit part 4, F21.
+ *
+ * These tests turn `ScriptableBehaviour.isolateCallbackErrors` off, because a
+ * frame cut short is exactly what isolation prevents (F22). Without that line
+ * the saboteur's throw never leaves the script, the frame completes normally,
+ * and every assertion below passes for the wrong reason.
  */
 
 class FakeBackend implements RenderBackend {
@@ -91,6 +96,7 @@ describe("A frame a callback cut short", () => {
     let app: { isPlaying: boolean; dispose(): void };
 
     beforeEach(async () => {
+        ScriptableBehaviour.isolateCallbackErrors = false;
         restoreDom = installDomStubs();
         const Application = await loadApplication();
         Application.backendFactory = options => new FakeBackend(options);
@@ -100,6 +106,7 @@ describe("A frame a callback cut short", () => {
     });
 
     afterEach(async () => {
+        ScriptableBehaviour.isolateCallbackErrors = true;
         throwIn = "none";
         const Application = await loadApplication();
         Application.current?.dispose();
