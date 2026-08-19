@@ -87,6 +87,7 @@ export class Texture2D extends Texture {
      * | {@link fromArrayBuffer} — image bytes from a scenario ZIP or manifest | yes |
      * | {@link Load} — an image URL | yes |
      * | {@link Cubemap.fromEquirectangular} given a URL | yes |
+     * | {@link Cubemap.fromEquirectangular} given a Texture2D | whatever applied to that texture |
      * | {@link fromKTX2ArrayBuffer} — KTX2 / Basis | **no** |
      * | Textures inside a GLB/GLTF, wrapped by `_fromThreeTexture` | **no** |
      * | The constructor and {@link CreateFromData} | no (not asset loads) |
