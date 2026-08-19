@@ -4,9 +4,20 @@ import { EngineObject } from "../src/engine/core/EngineObject";
 import { SceneManager, LoadSceneMode } from "../src/engine/core/SceneManager";
 import { Texture } from "../src/engine/core/graphics/Texture";
 
-/** Leaves exactly one empty scene loaded, whatever the previous test did. */
+/**
+ * Leaves exactly one empty scene loaded, whatever the previous test did.
+ *
+ * `loadScene` alone does not achieve that: an object marked DontDestroyOnLoad
+ * survives it by design and is carried into the new scene, so a test that marks
+ * one leaves the next test's "fresh" scene already populated. The survivors are
+ * destroyed here, which is what makes every block in this file independent of
+ * the order the blocks happen to run in.
+ */
 function resetScenes(): void {
     SceneManager.loadScene("Test");
+    for (const go of SceneManager.activeScene.getRootGameObjects()) {
+        go.destroyImmediate();
+    }
 }
 
 describe("SceneManager — additive loading", () => {
@@ -193,6 +204,8 @@ describe("DontDestroyOnLoad — only roots survive, and it says so", () => {
     // _isPersistent() reported a survival that never happened. Unity refuses
     // the same case and warns. Audit part 1, finding F7.
 
+    beforeEach(resetScenes);
+
     test("marking a child is refused, with a warning naming the parent", () => {
         const parent = new GameObject("Parent");
         const child = new GameObject("Child");
@@ -239,5 +252,9 @@ describe("DontDestroyOnLoad — only roots survive, and it says so", () => {
         EngineObject.DontDestroyOnLoad(asset);
 
         expect(asset._isPersistent()).toBe(true);
+
+        // resetScenes only reaches objects that live in a scene, and this one
+        // deliberately does not.
+        asset.destroyImmediate();
     });
 });
