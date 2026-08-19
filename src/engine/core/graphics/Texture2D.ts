@@ -75,26 +75,54 @@ export class Texture2D extends Texture {
     /**
      * Maximum texture dimension (width or height) allowed at load time.
      *
-     * Textures loaded via {@link fromArrayBuffer} that exceed this size
-     * are automatically downscaled proportionally before GPU upload.
-     * Set to `0` to disable the limit (default).
+     * A texture that exceeds it is downscaled proportionally — the larger
+     * dimension becomes `maxSize` — before GPU upload. Set to `0` to disable
+     * the limit (default).
      *
-     * This does not affect textures created via the constructor or
-     * {@link CreateFromData} — only asset-loaded textures.
+     * **The cap applies where the engine decodes the image itself**, which is
+     * narrower than "every texture". Precisely:
+     *
+     * | Path | Capped |
+     * |---|---|
+     * | {@link fromArrayBuffer} — image bytes from a scenario ZIP or manifest | yes |
+     * | {@link Load} — an image URL | yes |
+     * | {@link Cubemap.fromEquirectangular} given a URL | yes |
+     * | {@link fromKTX2ArrayBuffer} — KTX2 / Basis | **no** |
+     * | Textures inside a GLB/GLTF, wrapped by `_fromThreeTexture` | **no** |
+     * | The constructor and {@link CreateFromData} | no (not asset loads) |
+     *
+     * The two exceptions are worth knowing before relying on this:
+     *
+     * - **KTX2 cannot be downscaled here at all.** A block-compressed texture
+     *   is not resizable by drawing it into a canvas, and picking a smaller mip
+     *   from the container is not implemented. So `maxSize` and KTX2 do not
+     *   compound: a run with both gets the format saving and not the resolution
+     *   one.
+     * - **GLTF textures are decoded by three.js before the engine sees them.**
+     *   `ScenarioAssets` wraps each material map after the fact, recording its
+     *   dimensions; there is no resize step and no warning. Setting
+     *   `maxSize = 2048` and loading a model with 4K embedded textures gets the
+     *   full 4K.
      *
      * @remarks
      * Equivalent to Unity's texture import "Max Size" setting combined
-     * with `QualitySettings.globalTextureMipmapLimit`. Downscaling
-     * happens on the CPU before GPU upload, reducing both CPU and GPU
-     * memory consumption.
+     * with `QualitySettings.globalTextureMipmapLimit` — except that Unity
+     * applies it at import time, to every texture including those inside a
+     * model, whereas this applies at load time and only where the engine owns
+     * the decode.
      *
      * @example
      * ```ts
-     * // Cap all loaded textures to 2048 max dimension
+     * // Cap loaded images to 2048 in their largest dimension
      * Texture2D.maxSize = 2048;
      *
-     * // Skybox at 8192×4096 will be loaded as 2048×1024
-     * const sky = await Resources.load(Texture2D, "textures/skybox");
+     * // A standalone 8192×4096 panorama arrives as 2048×1024
+     * const sky = await Resources.load(Texture2D, "textures/skybox.jpg");
+     *
+     * // The .ktx2 variant of the same panorama arrives at 8192×4096,
+     * // compressed. The cap does not apply to it.
+     * Resources.preferExtension = ".ktx2";
+     * const compressedSky = await Resources.load(Texture2D, "textures/skybox");
      * ```
      */
     public static maxSize: number = 0;
@@ -164,11 +192,19 @@ export class Texture2D extends Texture {
      * - The engine must be running (`Application.run()` called) so
      *   the WebGL renderer is available for format detection.
      *
+     * {@link maxSize} does **not** apply on this path. The transcoder hands
+     * back block-compressed data, which cannot be resized by drawing it into a
+     * canvas the way {@link fromArrayBuffer} resizes a decoded image; selecting
+     * a smaller mip level from the container instead is not implemented. A
+     * KTX2 texture therefore arrives at its authored resolution however the cap
+     * is set — the saving is in the format, not the dimensions.
+     *
      * @param data — raw `.ktx2` file contents as an ArrayBuffer.
      * @returns a Texture2D wrapping the decoded compressed texture.
      *
      * @remarks
-     * Analogous to {@link fromArrayBuffer} for standard image formats.
+     * Analogous to {@link fromArrayBuffer} for standard image formats, except
+     * for the cap noted above.
      */
     public static fromKTX2ArrayBuffer(data: ArrayBuffer): Promise<Texture2D> {
         const loader = Texture2D._ensureKTX2Loader();
@@ -631,6 +667,10 @@ export class Texture2D extends Texture {
      *
      * Used by asset loaders (GLTF, OBJ, etc.) that produce THREE.Texture
      * objects from external sources.
+     *
+     * Wrapping only records the dimensions — the image was decoded by the
+     * loader before it got here, so {@link maxSize} cannot be applied and is
+     * not. Textures embedded in a GLB keep their authored resolution.
      *
      * @param threeTexture â€” the Three.js texture to wrap.
      * @returns a new Texture2D wrapping the given handle.
