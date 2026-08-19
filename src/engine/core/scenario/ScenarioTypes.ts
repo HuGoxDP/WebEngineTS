@@ -329,6 +329,14 @@ export interface IScenarioScriptSource {
  *
  * The context provides only **runtime-specific** services that can't
  * be statically imported (manifest data, asset loading from the ZIP).
+ *
+ * There is deliberately **no channel for the host to pass values in**. A
+ * `params` object here would let a measurement harness configure content from
+ * the outside, which the engine's single-profiling-system policy forbids, and
+ * would make an archive's behaviour depend on something the archive does not
+ * carry. As a general platform feature — a difficulty level, an interface
+ * language, a starting chapter — it is an open question rather than a settled
+ * no; see `design/scenario-parameters-decision.md` before adding one.
  */
 export interface IScenarioContext {
     /** Read-only manifest of the currently running scenario. */
