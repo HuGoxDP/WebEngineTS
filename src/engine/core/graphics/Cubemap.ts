@@ -2,7 +2,7 @@
 
 import * as THREE from "three";
 import { EngineObject } from "../EngineObject.ts";
-import { FilterMode } from "./Texture.ts";
+import { FilterMode, type ITextureReferent, type Texture } from "./Texture.ts";
 import { Texture2D } from "./Texture2D.ts";
 import { estimateThreeTextureVramBytes } from "./_TextureMemory.ts";
 import { TextureRelease } from "./TextureRelease.ts";
@@ -34,9 +34,14 @@ import { TextureRelease } from "./TextureRelease.ts";
  * // From a single equirectangular panorama
  * const hdri = await Cubemap.fromEquirectangular(assets.getBlobUrl("sky.jpg"));
  * RenderSettings.skybox = hdri;
+ *
+ * // From a panorama already loaded through Resources — the only way to get a
+ * // KTX2 skybox, since no image decoder reads KTX2
+ * const panorama = await Resources.load(Texture2D, "skybox/stars_panorama");
+ * RenderSettings.skybox = await Cubemap.fromEquirectangular(panorama);
  * ```
  */
-export class Cubemap extends EngineObject {
+export class Cubemap extends EngineObject implements ITextureReferent {
 
     /**
      * The internal Three.js texture. Either a CubeTexture (6-face)
@@ -59,6 +64,18 @@ export class Cubemap extends EngineObject {
      */
     private _srcWidth: number = 0;
     private _srcHeight: number = 0;
+
+    /**
+     * The texture this cubemap borrows its pixels from, or null when it decoded
+     * its own. Set only by {@link fromEquirectangular} when handed a
+     * {@link Texture2D}.
+     *
+     * A borrowed cubemap owns no pixels: it holds a second Three.js texture over
+     * the *same* GPU upload, differing only in mapping. That is what keeps the
+     * skybox to one upload, and what makes freeing or counting its memory the
+     * source's business rather than this object's.
+     */
+    private _borrowedFrom: Texture2D | null = null;
 
     // ==================== CONSTRUCTOR ====================
 
@@ -156,7 +173,24 @@ export class Cubemap extends EngineObject {
      * This is the most common format for HDR environment maps.
      * The image should be a 2:1 aspect ratio panorama.
      *
-     * @param url — the panoramic image URL (JPEG, PNG, or HDR).
+     * Accepts either a URL or an already-decoded {@link Texture2D}:
+     *
+     * - **URL** — decoded here with the browser's image decoder, so the format
+     *   must be one an `<img>` can read (JPEG, PNG, WebP). {@link Texture2D.maxSize}
+     *   is honoured on this path.
+     * - **Texture2D** — the pixels are taken as they are. This is the only way
+     *   to build a cubemap from a format the browser cannot decode, KTX2/Basis
+     *   above all: load it through {@link Resources}, which transcodes it, and
+     *   hand the result over. The texture keeps its own format, so a compressed
+     *   panorama stays compressed in VRAM. `maxSize` does **not** apply — it was
+     *   already applied (or not) when the texture was loaded.
+     *
+     * A borrowed texture is not copied and not modified: the cubemap holds a
+     * second Three.js handle over the same GPU upload. The caller keeps
+     * ownership, and must keep the texture alive for as long as the cubemap is
+     * in use — destroying it frees the pixels both are drawing from.
+     *
+     * @param source — the panoramic image URL, or a decoded panorama texture.
      * @returns a Promise that resolves to the loaded Cubemap.
      *
      * @remarks
@@ -165,14 +199,23 @@ export class Cubemap extends EngineObject {
      *
      * @example
      * ```ts
+     * // From a URL:
      * const sky = await Cubemap.fromEquirectangular(
      *     assets.getBlobUrl("space_panorama.jpg")
      * );
-     * RenderSettings.skybox = sky;
+     *
+     * // From an asset, which is what a KTX2 panorama requires. No extension,
+     * // so Resources.preferExtension decides which variant is read:
+     * const panorama = await Resources.load(Texture2D, "skybox/space_panorama");
+     * RenderSettings.skybox = await Cubemap.fromEquirectangular(panorama);
      * ```
      */
-    public static async fromEquirectangular(url: string): Promise<Cubemap> {
-        const image = await Cubemap._loadImage(url);
+    public static async fromEquirectangular(source: string | Texture2D): Promise<Cubemap> {
+        if (typeof source !== "string") {
+            return Cubemap._fromEquirectangularTexture(source);
+        }
+
+        const image = await Cubemap._loadImage(source);
         const texture = new THREE.Texture(image);
         texture.mapping = THREE.EquirectangularReflectionMapping;
         texture.needsUpdate = true;
@@ -182,6 +225,59 @@ export class Cubemap extends EngineObject {
         cubemap._srcWidth = image.width;
         cubemap._srcHeight = image.height;
         return cubemap;
+    }
+
+    /**
+     * Builds an equirectangular cubemap over a texture someone else owns.
+     *
+     * @remarks
+     * The handle is cloned rather than used directly. A clone shares the
+     * Three.js `Source`, so there is still exactly one GPU upload and one entry
+     * in `renderer.info.memory.textures`; what it does not share is `mapping`,
+     * which has to become equirectangular here and must not become
+     * equirectangular on a cached asset that something else may be sampling as
+     * an ordinary map.
+     */
+    private static _fromEquirectangularTexture(source: Texture2D): Cubemap {
+        const cubemap = new Cubemap(
+            Cubemap._equirectHandleFor(source), "Cubemap (equirectangular)",
+        );
+        cubemap._isEquirectangular = true;
+        cubemap._borrowedFrom = source;
+        cubemap._srcWidth = source.width;
+        cubemap._srcHeight = source.height;
+
+        // A streamed texture is re-decoded in place at another detail level;
+        // without this the cubemap would keep drawing the level that was
+        // replaced. Dropped again in dispose().
+        source._addReferent(cubemap);
+
+        return cubemap;
+    }
+
+    /** A private handle over a borrowed texture's pixels, mapped as a panorama. */
+    private static _equirectHandleFor(source: Texture2D): THREE.Texture {
+        const handle = source._internalThreeTexture.clone();
+        handle.mapping = THREE.EquirectangularReflectionMapping;
+        handle.needsUpdate = true;
+        return handle;
+    }
+
+    /**
+     * @internal
+     * Re-points this cubemap at a borrowed texture's replacement handle.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _onTextureSwapped(texture: Texture): void {
+        if (texture !== this._borrowedFrom) return;
+
+        // Only the clone is disposed. It shares the previous upload's refcount,
+        // which the source drops on its own side.
+        this._threeTexture.dispose();
+        this._threeTexture = Cubemap._equirectHandleFor(this._borrowedFrom);
+        this._srcWidth = this._borrowedFrom.width;
+        this._srcHeight = this._borrowedFrom.height;
     }
 
     /**
@@ -230,6 +326,11 @@ export class Cubemap extends EngineObject {
      * from GPU memory. However, it cannot be re-uploaded if a WebGL
      * context loss occurs.
      *
+     * A cubemap built from a {@link Texture2D} does not own those pixels, so
+     * this forwards to that texture — which frees them once and keeps its own
+     * `isReadable` bookkeeping straight, instead of blanking a texture its owner
+     * still holds.
+     *
      * @example
      * ```ts
      * // In start() — after first render:
@@ -238,6 +339,10 @@ export class Cubemap extends EngineObject {
      * ```
      */
     public releaseSourceImage(): void {
+        if (this._borrowedFrom) {
+            this._borrowedFrom.releaseSourceImage();
+            return;
+        }
         TextureRelease.schedule(this);
     }
 
@@ -249,6 +354,13 @@ export class Cubemap extends EngineObject {
     /** @internal Frees the pixels. Called by {@link TextureRelease} when safe. */
     public _releaseSourceImageNow(): void {
         const tex = this._threeTexture;
+
+        if (this._borrowedFrom) {
+            // Borrowed pixels: the source frees them, so that its own readable
+            // state matches and nothing is freed twice.
+            this._borrowedFrom._releaseSourceImageNow();
+            return;
+        }
 
         if ((tex as THREE.CubeTexture).isCubeTexture) {
             // 6-face CubeTexture — images are in .images array
@@ -282,8 +394,20 @@ export class Cubemap extends EngineObject {
      *
      * Closes `ImageBitmap` source images if present (required because
      * `ImageBitmap` is not garbage-collected through normal dereferencing).
+     *
+     * A cubemap built from a {@link Texture2D} disposes only its own handle.
+     * The pixels belong to that texture and are left intact; Three.js reference
+     * -counts the shared upload, so the GPU copy survives for as long as the
+     * source still points at it.
      */
     public dispose(): void {
+        if (this._borrowedFrom) {
+            this._borrowedFrom._removeReferent(this);
+            this._borrowedFrom = null;
+            this._threeTexture.dispose();
+            return;
+        }
+
         const image = (this._threeTexture as THREE.Texture).image;
         if (image != null && typeof image === "object" && "close" in image
             && typeof (image as ImageBitmap).close === "function") {
@@ -313,9 +437,17 @@ export class Cubemap extends EngineObject {
      * as a single 2D texture. Uses cached source dimensions so the estimate
      * survives {@link releaseSourceImage}.
      *
+     * A cubemap borrowing a {@link Texture2D} reports zero. There is one upload,
+     * and the source already reports it — `MemoryProfiler` sums live textures
+     * and live cubemaps into the same figure, so counting it here as well would
+     * inflate `estimatedTextureVramBytes` by the size of what is usually the
+     * largest texture in the scene.
+     *
      * **NEVER use in user-facing code.**
      */
     public _estimateVramBytes(): number {
+        if (this._borrowedFrom) return 0;
+
         if (this._isEquirectangular) {
             return estimateThreeTextureVramBytes(
                 this._threeTexture, this._srcWidth, this._srcHeight, 1,
