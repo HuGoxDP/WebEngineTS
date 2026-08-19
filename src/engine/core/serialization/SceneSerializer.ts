@@ -1,5 +1,5 @@
 import type { Scene } from "../Scene";
-import { GameObject } from "../GameObject";
+import type { GameObject } from "../GameObject";
 import { Component } from "../Component";
 import { Transform } from "../Transform";
 import { SceneManager } from "../SceneManager";
@@ -369,8 +369,42 @@ export class SceneSerializer {
         }
     }
 
+    /**
+     * @internal
+     * Builds an empty GameObject. Installed by `GameObject` when it loads.
+     *
+     * @remarks
+     * A callback rather than an import, for the same reason as
+     * {@link Texture._onDestroyed}. Constructing the class here was the edge
+     * that closed the loop `GameObject` → `Prefab` → `SceneSerializer` →
+     * `GameObject`, which Rollup warned about on every build. The loop was
+     * harmless only because no module in it touched another while being
+     * evaluated — nothing enforced that, and a single static field initializer
+     * would have turned the warning into an `undefined` at load.
+     *
+     * The direction is deliberate. `GameObject` still reaches this module (its
+     * `_clone` round-trips through `Prefab`), so it is always the module loaded
+     * first, and installing from there means the hook is in place before
+     * anything can call it. Installing the other way round is what does not
+     * work: nothing guarantees `Prefab` is loaded at all, and a build that
+     * dropped it would leave `Instantiate` broken.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _createGameObject: ((name: string) => GameObject) | null = null;
+
     private static _deserializeGO(json: SerializedGameObject, ctx: DeserializeContext): GameObject {
-        const go = new GameObject(json.name);
+        const create = SceneSerializer._createGameObject;
+        if (!create) {
+            // Only reachable if this module was used without GameObject ever
+            // being loaded, which leaves nothing to deserialize into.
+            throw new Error(
+                "[SceneSerializer] Cannot create GameObjects: the GameObject " +
+                "module is not loaded. Import GameObject from \"WebEngineTS\".",
+            );
+        }
+
+        const go = create(json.name);
         go.setActive(json.active);
 
         const t = go.transform;

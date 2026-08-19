@@ -250,7 +250,16 @@ Each step runs components first, then the active scenario.
 - **ImageBitmap leak**: Three.js `dispose()` does not call `.close()` on ImageBitmap sources — engine handles this in `Texture.onDestroy()`
 - **Batch loading**: `Resources.tryLoad()` wraps individual loads instead of `Promise.all` (which fails entire batch on single missing asset)
 - **Scenario script pre-linking**: All `.js` files in a scenario ZIP are topologically sorted by dependency, relative import specifiers are rewritten to Blob URLs, bare specifiers (e.g. `"WebEngineTS"`) are left for the host import map. Entry point brand-checked via `__scenarioBehaviour` marker (not `instanceof`, which breaks across bundle copies)
-- **Circular deps**: Use `import type` for engine asset types in interfaces
+- **Circular deps**: Use `import type` for engine asset types in interfaces. When a value is
+  genuinely needed across a would-be cycle, the **lower** layer declares a hook and the
+  **upper** layer installs it at load — `Texture._onDestroyed`, `Rigidbody._onEnabled`,
+  `SceneSerializer._createGameObject`. Which side installs is not a style choice: it must be
+  the module that is *guaranteed already loaded* whenever the hook can be called. For
+  `GameObject` ⇄ `SceneSerializer`, `GameObject` installs, because `GameObject._clone` reaches
+  the serializer and so `GameObject` is always evaluated first; installing from `Prefab`
+  instead was tried and broke `Instantiate` outright, since nothing guarantees `Prefab` is
+  loaded at all. `tests/InstantiateGameObject.test.ts` imports `GameObject` without `Prefab`
+  and is what catches a hook installed from the wrong side
 - **Single profiling system**: the measurement *primitives* (`MemoryProfiler`, `Profiler`,
   `Benchmark`) are engine API; the *harness* that drives them lives in WebEngineTS-Benchmarks.
   Nothing else may grow its own. Scenario content must never embed a benchmark harness or

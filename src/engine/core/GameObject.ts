@@ -10,6 +10,7 @@ import { EngineSettings } from "./EngineSettings.ts";
 import { getExecutionOrder } from "./reflection/Decorators.ts";
 import { TypeRegistry } from "./reflection/TypeRegistry.ts";
 import { Prefab } from "./serialization/Prefab.ts";
+import { SceneSerializer } from "./serialization/SceneSerializer.ts";
 import type { Scene } from "./Scene.ts";
 import { Bounds } from "./math/Bounds.ts";
 import { Vector3 } from "./math/Vector3.ts";
@@ -818,3 +819,9 @@ export class GameObject extends EngineObject {
         this.transform.localScale = new Vector3(scale, scale, scale);
     }
 }
+
+// Deserializing a scene has to build GameObjects, and the serializer must not
+// import this module to do it — that import is what made the dependency circular.
+// Installed from here because this module is the one that reaches the serializer,
+// so it is always evaluated first; see `SceneSerializer._createGameObject`.
+SceneSerializer._createGameObject = (name: string) => new GameObject(name);
