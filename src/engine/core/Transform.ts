@@ -123,6 +123,20 @@ export class Transform extends Component {
     }
 
     /**
+     * Whether dirty-flag transform batching is currently on.
+     *
+     * Read-only: the switch itself is engine-internal
+     * ({@link _setDirtyTransformsEnabled}), but what it holds is worth reading
+     * back. A host that toggles it per run — a benchmark configuration, a
+     * profiling session — can then record the engine's own state rather than
+     * the value it passed in, so a toggle that failed to take shows up instead
+     * of being taken on trust.
+     */
+    public static get dirtyTransformsEnabled(): boolean {
+        return _dirtyTransformsEnabled;
+    }
+
+    /**
      * @internal
      * Flushes all dirty transforms to Three.js. Called once before render.
      */
