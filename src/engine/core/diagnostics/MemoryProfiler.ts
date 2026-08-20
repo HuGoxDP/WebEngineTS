@@ -2,7 +2,9 @@
 
 import { Resources } from "../assets/Resources.ts";
 import { EngineObject, type EngineObjectConstructor } from "../EngineObject.ts";
+import type * as THREE from "three";
 import { Texture } from "../graphics/Texture.ts";
+import { textureFormatName } from "../graphics/_TextureMemory.ts";
 import { Cubemap } from "../graphics/Cubemap.ts";
 import { Mesh } from "../graphics/Mesh.ts";
 import { PostProcessing } from "../postprocessing/PostProcessing.ts";
@@ -67,6 +69,25 @@ export interface MemoryReport {
          * render targets (shadow maps, post-processing buffers).
          */
         estimatedTextureVramBytes: number;
+        /**
+         * How many live textures sit in each GPU format, e.g.
+         * `{ BC7: 3, ETC2: 8, RGBA8: 1 }`.
+         *
+         * @remarks
+         * Answers "did KTX2 actually transcode, and to what?" directly. Without
+         * it the only route was inference — comparing
+         * {@link estimatedTextureVramBytes} against what an uncompressed
+         * fallback would give — which works but is a proxy for a pipeline whose
+         * failure mode is silent.
+         *
+         * The transcoder picks its target from what the device supports, so the
+         * same asset reads `BC7` on a desktop and `ASTC 4x4` or `ETC2` on a
+         * phone. A KTX2 asset that reads `RGBA8` here did not transcode.
+         *
+         * Counts the same set as `estimatedTextureVramBytes`: every live engine
+         * texture, uploaded or not, excluding render targets.
+         */
+        textureFormats: Record<string, number>;
         /**
          * Estimated VRAM occupied by all live mesh vertex + index buffers, in
          * bytes. An estimate: counts every live engine {@link Mesh} whether or
@@ -397,7 +418,47 @@ export class MemoryProfiler {
 
     // ==================== OVERLAY: SHOW / HIDE / TOGGLE ====================
 
+    /**
+     * Whether diagnostics may be displayed at all in this deployment.
+     *
+     * A host sets this **once, before loading any scenario**, and scenario code
+     * cannot get past it: {@link showOverlay}, {@link toggleOverlay} and
+     * {@link enableToggle} all do nothing while it is `false`, and an overlay
+     * already on screen is taken down.
+     *
+     * @remarks
+     * A scenario is arbitrary engine code, so a host that merely refrains from
+     * calling `showOverlay` has still not decided anything — the shipped
+     * `solar-system` scenario calls it itself and put a developer overlay of FPS
+     * and VRAM counters in front of students. Gating the host's own button
+     * cannot prevent that; only the engine can.
+     *
+     * Reading the report through {@link snapshot} stays available, since it puts
+     * nothing on screen and a host may well want the numbers without the panel.
+     *
+     * @example
+     * ```ts
+     * // Platform startup, before any scenario is loaded:
+     * MemoryProfiler.diagnosticsAllowed = new URLSearchParams(location.search).has("diag");
+     * ```
+     */
+    public static get diagnosticsAllowed(): boolean {
+        return MemoryProfiler._diagnosticsAllowed;
+    }
+
+    public static set diagnosticsAllowed(value: boolean) {
+        MemoryProfiler._diagnosticsAllowed = value;
+        if (!value) {
+            MemoryProfiler.disableToggle();
+            MemoryProfiler.hideOverlay();
+        }
+    }
+
+    /** Backing field for {@link diagnosticsAllowed}. Open unless a host says otherwise. */
+    private static _diagnosticsAllowed: boolean = true;
+
     public static showOverlay(): void {
+        if (!MemoryProfiler._diagnosticsAllowed) return;
         if (_s) return;
 
         const root = _el("div", _PANEL);
@@ -512,6 +573,7 @@ export class MemoryProfiler {
     // ==================== KEYBOARD TOGGLE ====================
 
     public static enableToggle(): void {
+        if (!MemoryProfiler._diagnosticsAllowed) return;
         if (_keyHandler) return;
         _keyHandler = (e: KeyboardEvent) => {
             if (e.repeat || e.code !== "Backquote") return;
@@ -557,6 +619,7 @@ export class MemoryProfiler {
             textures: info.memory.textures ?? 0,
             geometries: info.memory.geometries ?? 0,
             estimatedTextureVramBytes: MemoryProfiler._estimateTextureVram(),
+            textureFormats: MemoryProfiler._tallyTextureFormats(),
             estimatedGeometryVramBytes: MemoryProfiler._estimateGeometryVram(),
             estimatedRenderTargetVramBytes: MemoryProfiler._estimateRenderTargetVram(),
             estimatedUICanvasBytes: profilerHooks.uiCanvasBytes?.() ?? 0,
@@ -630,6 +693,28 @@ export class MemoryProfiler {
             total += c._estimateVramBytes();
         }
         return total;
+    }
+
+    /**
+     * Counts live textures by the GPU format they actually ended up in.
+     *
+     * Walks the same set {@link _estimateTextureVram} sums, so the two agree
+     * about what "a live texture" means.
+     */
+    private static _tallyTextureFormats(): Record<string, number> {
+        const tally: Record<string, number> = {};
+        const add = (name: string): void => {
+            tally[name] = (tally[name] ?? 0) + 1;
+        };
+
+        for (const t of EngineObject.FindObjectsOfType(Texture)) {
+            add(textureFormatName(t._internalThreeTexture));
+        }
+        const cubemapCtor = Cubemap as unknown as EngineObjectConstructor<Cubemap>;
+        for (const c of EngineObject.FindObjectsOfType(cubemapCtor)) {
+            add(textureFormatName(c._internalThreeTexture as THREE.Texture));
+        }
+        return tally;
     }
 
     private static _getRenderStats(): MemoryReport["renderStats"] {

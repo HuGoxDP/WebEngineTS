@@ -120,6 +120,64 @@ function typeBytesPerChannel(type: number): number {
 
 /**
  * @internal
+ * The GPU format a texture actually ended up in, as a short readable name.
+ *
+ * @remarks
+ * Exists because "did KTX2 transcode, and to what?" was otherwise only
+ * answerable by inference — comparing a VRAM figure against what an
+ * uncompressed fallback would have given. That works, the gap is ~4x and
+ * unmistakable, but it is a proxy for a question the engine can answer
+ * directly. The transcoder picks its target from what the device supports, so
+ * the answer differs per machine and cannot be predicted from the asset.
+ *
+ * Names are the family a reader would recognise (`BC7`, `ETC2`, `ASTC 4x4`),
+ * not the THREE constant, and uncompressed textures report their pixel layout
+ * (`RGBA8`, `RGBA16F`) so a tally covers every texture rather than only the
+ * compressed ones.
+ */
+export function textureFormatName(tex: THREE.Texture | null | undefined): string {
+    if (!tex) return "unknown";
+
+    if ((tex as THREE.CompressedTexture).isCompressedTexture === true) {
+        switch (tex.format) {
+            case THREE.RGB_S3TC_DXT1_Format:
+            case THREE.RGBA_S3TC_DXT1_Format: return "BC1";
+            case THREE.RGBA_S3TC_DXT3_Format: return "BC2";
+            case THREE.RGBA_S3TC_DXT5_Format: return "BC3";
+            case THREE.RED_RGTC1_Format:
+            case THREE.SIGNED_RED_RGTC1_Format: return "BC4";
+            case THREE.RED_GREEN_RGTC2_Format:
+            case THREE.SIGNED_RED_GREEN_RGTC2_Format: return "BC5";
+            case THREE.RGB_BPTC_SIGNED_Format:
+            case THREE.RGB_BPTC_UNSIGNED_Format: return "BC6H";
+            case THREE.RGBA_BPTC_Format: return "BC7";
+            case THREE.RGB_ETC1_Format: return "ETC1";
+            case THREE.RGB_ETC2_Format:
+            case THREE.RGBA_ETC2_EAC_Format: return "ETC2";
+            case THREE.RGB_PVRTC_2BPPV1_Format:
+            case THREE.RGBA_PVRTC_2BPPV1_Format: return "PVRTC 2bpp";
+            case THREE.RGB_PVRTC_4BPPV1_Format:
+            case THREE.RGBA_PVRTC_4BPPV1_Format: return "PVRTC 4bpp";
+            case THREE.RGBA_ASTC_4x4_Format: return "ASTC 4x4";
+            case THREE.RGBA_ASTC_5x5_Format: return "ASTC 5x5";
+            case THREE.RGBA_ASTC_6x6_Format: return "ASTC 6x6";
+            case THREE.RGBA_ASTC_8x8_Format: return "ASTC 8x8";
+            case THREE.RGBA_ASTC_10x10_Format: return "ASTC 10x10";
+            case THREE.RGBA_ASTC_12x12_Format: return "ASTC 12x12";
+            default: return "compressed";
+        }
+    }
+
+    const channels = formatChannels(tex.format);
+    const bytes = typeBytesPerChannel(tex.type);
+    const layout = channels === 1 ? "R" : channels === 2 ? "RG" : "RGBA";
+    if (tex.type === THREE.HalfFloatType) return `${layout}16F`;
+    if (tex.type === THREE.FloatType) return `${layout}32F`;
+    return `${layout}${bytes * 8}`;
+}
+
+/**
+ * @internal
  * Estimates the VRAM footprint of a THREE texture, in bytes.
  *
  * The figure is an estimate: exact GPU allocation depends on driver padding,

@@ -151,6 +151,33 @@ export class Texture2D extends Texture {
     /** @internal Lazy singleton KTX2Loader. */
     private static _ktx2Loader: KTX2Loader | null = null;
 
+    /** @internal Whether the maxSize-on-KTX2 notice has already been given. */
+    private static _warnedMaxSizeIgnored: boolean = false;
+
+    /**
+     * Says once that {@link maxSize} does not reach this loader.
+     *
+     * @remarks
+     * A silent no-op is the worst version of this: a results table with a
+     * `maxSize` column and a `ktx2` column shows cells where the cap plainly did
+     * nothing, and the reason is in neither the content nor any message. One
+     * line, once per process, turns that into something a reader can act on —
+     * and it stays quiet for everyone who never sets the cap.
+     */
+    private static _warnMaxSizeIgnoredOnce(): void {
+        if (Texture2D._warnedMaxSizeIgnored) return;
+        if (Texture2D.maxSize <= 0) return;
+        Texture2D._warnedMaxSizeIgnored = true;
+
+        console.warn(
+            `[Texture2D] maxSize=${Texture2D.maxSize} does not apply to KTX2 ` +
+            `textures — block-compressed data cannot be resized through a ` +
+            `canvas, and mip selection is not implemented. They load at their ` +
+            `authored resolution; the saving is in the format, not the size. ` +
+            `This is said once per run.`,
+        );
+    }
+
     /**
      * @internal
      * Returns the singleton KTX2Loader, creating and configuring it on
@@ -208,6 +235,7 @@ export class Texture2D extends Texture {
      * for the cap noted above.
      */
     public static fromKTX2ArrayBuffer(data: ArrayBuffer): Promise<Texture2D> {
+        Texture2D._warnMaxSizeIgnoredOnce();
         const loader = Texture2D._ensureKTX2Loader();
 
         return new Promise<Texture2D>((resolve, reject) => {

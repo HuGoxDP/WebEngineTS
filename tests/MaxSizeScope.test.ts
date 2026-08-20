@@ -77,8 +77,17 @@ function decoded(width: number, height: number) {
     return tex;
 }
 
+/** Stands in for the transcoder, which needs wasm and a GPU. */
+function stubKtx2Loader(result: THREE.Texture): void {
+    (Texture2D as unknown as { _ktx2Loader: unknown })._ktx2Loader = {
+        parse: (_d: ArrayBuffer, onLoad: (t: THREE.Texture) => void) => onLoad(result),
+    };
+}
+
 beforeEach(() => {
     Texture2D.maxSize = CAP;
+    // The notice is once per process; each test wants its own first time.
+    (Texture2D as unknown as { _warnedMaxSizeIgnored: boolean })._warnedMaxSizeIgnored = false;
 });
 
 afterEach(() => {
@@ -132,8 +141,7 @@ describe("Texture2D.maxSize — the loaders that do not", () => {
         // by drawing it into a canvas. The consequence is that `maxSize` and
         // KTX2 do not compound — worth stating, because a run with both set
         // gets the compression saving and not the resolution one.
-        const loader = { parse: (_data: ArrayBuffer, onLoad: (t: THREE.Texture) => void) => onLoad(compressed(8192, 4096)) };
-        (Texture2D as unknown as { _ktx2Loader: unknown })._ktx2Loader = loader;
+        stubKtx2Loader(compressed(8192, 4096));
 
         const texture = await Texture2D.fromKTX2ArrayBuffer(new ArrayBuffer(8));
 
@@ -141,11 +149,35 @@ describe("Texture2D.maxSize — the loaders that do not", () => {
         expect(texture.height).toBe(4096);
     });
 
+    test("but it says so, once", async () => {
+        // A silent no-op is the defect the consumers reported: a results table
+        // shows cells where the cap did nothing and the reason is nowhere.
+        stubKtx2Loader(compressed(8192, 4096));
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        await Texture2D.fromKTX2ArrayBuffer(new ArrayBuffer(8));
+        await Texture2D.fromKTX2ArrayBuffer(new ArrayBuffer(8));
+
+        expect(warn).toHaveBeenCalledOnce();
+        expect(String(warn.mock.calls[0][0])).toContain("maxSize");
+        warn.mockRestore();
+    });
+
+    test("and stays quiet when no cap is set", async () => {
+        Texture2D.maxSize = 0;
+        stubKtx2Loader(compressed(8192, 4096));
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        await Texture2D.fromKTX2ArrayBuffer(new ArrayBuffer(8));
+
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+    });
+
     test("the KTX2 texture is still the cheaper one", async () => {
         // The saving is in the format, not the resolution: BC7 at 8 bpp against
         // RGBA8 at 32 bpp, at four times the dimensions the cap would allow.
-        const loader = { parse: (_data: ArrayBuffer, onLoad: (t: THREE.Texture) => void) => onLoad(compressed(8192, 4096)) };
-        (Texture2D as unknown as { _ktx2Loader: unknown })._ktx2Loader = loader;
+        stubKtx2Loader(compressed(8192, 4096));
 
         const ktx2 = await Texture2D.fromKTX2ArrayBuffer(new ArrayBuffer(8));
         const capped = await Texture2D.fromArrayBuffer(new ArrayBuffer(8));
