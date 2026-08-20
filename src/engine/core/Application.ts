@@ -321,6 +321,15 @@ export class Application {
      * 3. A Scene is created and the entry point is executed.
      * 4. If the game loop isn't running yet, it is started automatically.
      *
+     * **Content Security Policy.** Scenario scripts are executed as ES modules
+     * from `blob:` URLs — the archive's scripts are rewritten and handed to the
+     * browser that way, on every delivery path. A host serving a CSP therefore
+     * needs `script-src blob:`, and without it **no scenario runs at all**: the
+     * failure is total rather than degraded, and the console message names the
+     * blob URL rather than the policy. Bare specifiers such as `"WebEngineTS"`
+     * are left for the host's import map, which is the other half of the same
+     * integration.
+     *
      * @param data - the ZIP file as an ArrayBuffer.
      * @param onProgress - optional callback for loading progress updates.
      * @returns the loaded and running Scenario instance.
@@ -358,7 +367,8 @@ export class Application {
      * Downloads and runs a scenario from a URL.
      *
      * Convenience wrapper: fetches the ZIP, then delegates to
-     * {@link loadScenarioFromBuffer}.
+     * {@link loadScenarioFromBuffer} — including its Content Security Policy
+     * requirement, `script-src blob:`.
      *
      * @param url - URL to the ZIP archive.
      * @param onProgress - optional callback for loading progress updates.
@@ -395,6 +405,13 @@ export class Application {
      * lists, rather than unpacked from one archive. Scenario code is unaffected
      * — the same `Resources` calls resolve against the manifest instead of the
      * ZIP — so a scenario can be published either way without being rebuilt.
+     *
+     * Scripts still run from `blob:` URLs, so this path needs the same
+     * `script-src blob:` as {@link loadScenarioFromBuffer}.
+     *
+     * Asset URLs in the manifest are resolved against it the way a browser
+     * resolves a link, so both `objects/ab/cd.bin` and `/store/objects/ab/cd.bin`
+     * work; `options.baseUrl` replaces the base the URLs resolve against.
      *
      * @param url - URL of the manifest document (`scenario.json`).
      * @param onProgress - optional callback for loading progress updates.

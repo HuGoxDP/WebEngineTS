@@ -24,22 +24,24 @@ import { describe, test, expect } from "vitest";
  * That is an invariant of `src/engine/index.ts`, which is what this file pins.
  */
 
-describe("the barrel installs the serializer's GameObject factory", () => {
-    test("importing the package is enough for the hook to be in place", async () => {
-        const engine = await import("../src/engine/index");
-        const { SceneSerializer } = engine as unknown as {
-            SceneSerializer: { _createGameObject: unknown };
-        };
+// At module scope on purpose: importing the whole barrel is seconds of
+// transform work, and inside a test body it spends the per-test timeout on
+// something that is setup rather than the thing being measured.
+const engine = await import("../src/engine/index");
+const { GameObject, EngineObject, SceneSerializer } = engine;
 
-        expect(typeof SceneSerializer._createGameObject).toBe("function");
+describe("the barrel installs the serializer's GameObject factory", () => {
+    test("importing the package is enough for the hook to be in place", () => {
+        const hook = (SceneSerializer as unknown as { _createGameObject: unknown })
+            ._createGameObject;
+
+        expect(typeof hook).toBe("function");
     });
 
-    test("and a deserialize round trip works through it", async () => {
+    test("and a deserialize round trip works through it", () => {
         // The end the hook exists for. Reached the way a consumer reaches it,
         // rather than by importing GameObject directly, which would install the
         // hook itself and prove nothing.
-        const { GameObject, SceneSerializer } = await import("../src/engine/index");
-
         const original = new GameObject("Original");
         const restored = SceneSerializer.deserializeGameObject(
             SceneSerializer.serializeGameObject(original),
@@ -48,9 +50,7 @@ describe("the barrel installs the serializer's GameObject factory", () => {
         expect(restored.name).toBe("Original");
     });
 
-    test("Instantiate copies a GameObject through the same path", async () => {
-        const { GameObject, EngineObject } = await import("../src/engine/index");
-
+    test("Instantiate copies a GameObject through the same path", () => {
         const original = new GameObject("Original");
         const copy = EngineObject.Instantiate(original);
 
