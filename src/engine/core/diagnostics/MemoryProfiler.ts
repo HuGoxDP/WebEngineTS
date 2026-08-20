@@ -632,12 +632,13 @@ export class MemoryProfiler {
     private static _getRendererMemory(): MemoryReport["renderer"] {
         const info = MemoryProfiler._info();
         if (!info?.memory) return null;
+        const textures = MemoryProfiler._surveyTextures();
         return {
             textures: info.memory.textures ?? 0,
             geometries: info.memory.geometries ?? 0,
-            liveTextures: MemoryProfiler._countLiveTextures(),
-            estimatedTextureVramBytes: MemoryProfiler._estimateTextureVram(),
-            textureFormats: MemoryProfiler._tallyTextureFormats(),
+            liveTextures: textures.count,
+            estimatedTextureVramBytes: textures.bytes,
+            textureFormats: textures.formats,
             estimatedGeometryVramBytes: MemoryProfiler._estimateGeometryVram(),
             estimatedRenderTargetVramBytes: MemoryProfiler._estimateRenderTargetVram(),
             estimatedUICanvasBytes: profilerHooks.uiCanvasBytes?.() ?? 0,
@@ -693,58 +694,50 @@ export class MemoryProfiler {
     }
 
     /**
-     * Sums the estimated VRAM of every live engine texture. Texture2D and any
-     * other {@link Texture} subclass are enumerated via the EngineObject
-     * registry; {@link Cubemap} extends EngineObject directly and is summed
-     * separately (the skybox is often the single largest texture in a scene).
+     * Everything the report says about live engine textures, in one traversal.
+     *
+     * @remarks
+     * Texture2D and any other {@link Texture} subclass are enumerated via the
+     * EngineObject registry; {@link Cubemap} extends EngineObject directly and
+     * is walked separately (the skybox is often the single largest texture in a
+     * scene).
+     *
+     * Count, bytes and formats are gathered together rather than by three
+     * passes, for two reasons. They must describe the same set — a count that
+     * disagreed with the bytes beside it would be worse than not reporting one —
+     * and this runs inside the diagnostics the evaluation measures with, where
+     * three registry walks where one suffices is cost the measurement does not
+     * need to carry.
      */
-    private static _estimateTextureVram(): number {
-        let total = 0;
+    private static _surveyTextures(): { count: number; bytes: number; formats: Record<string, number> } {
+        const formats: Record<string, number> = {};
+        let count = 0;
+        let bytes = 0;
+
+        const record = (tex: THREE.Texture | null, vram: number): void => {
+            count++;
+            bytes += vram;
+            const name = textureFormatName(tex);
+            formats[name] = (formats[name] ?? 0) + 1;
+        };
+
         for (const t of EngineObject.FindObjectsOfType(Texture)) {
-            total += t._estimateVramBytes();
+            record(t._internalThreeTexture, t._estimateVramBytes());
         }
         // Cubemap has a private constructor, so it does not satisfy the
         // EngineObjectConstructor signature; FindObjectsOfType only uses it for
         // a runtime `instanceof` check, which works regardless. Cast is safe.
         const cubemapCtor = Cubemap as unknown as EngineObjectConstructor<Cubemap>;
         for (const c of EngineObject.FindObjectsOfType(cubemapCtor)) {
-            total += c._estimateVramBytes();
+            record(c._internalThreeTexture as THREE.Texture, c._estimateVramBytes());
         }
-        return total;
+
+        return { count, bytes, formats };
     }
 
-    /**
-     * How many live engine textures the estimate covers.
-     *
-     * Counts the same set {@link _estimateTextureVram} sums, so the two cannot
-     * disagree about what is being measured.
-     */
-    private static _countLiveTextures(): number {
-        const cubemapCtor = Cubemap as unknown as EngineObjectConstructor<Cubemap>;
-        return EngineObject.FindObjectsOfType(Texture).length
-            + EngineObject.FindObjectsOfType(cubemapCtor).length;
-    }
-
-    /**
-     * Counts live textures by the GPU format they actually ended up in.
-     *
-     * Walks the same set {@link _estimateTextureVram} sums, so the two agree
-     * about what "a live texture" means.
-     */
-    private static _tallyTextureFormats(): Record<string, number> {
-        const tally: Record<string, number> = {};
-        const add = (name: string): void => {
-            tally[name] = (tally[name] ?? 0) + 1;
-        };
-
-        for (const t of EngineObject.FindObjectsOfType(Texture)) {
-            add(textureFormatName(t._internalThreeTexture));
-        }
-        const cubemapCtor = Cubemap as unknown as EngineObjectConstructor<Cubemap>;
-        for (const c of EngineObject.FindObjectsOfType(cubemapCtor)) {
-            add(textureFormatName(c._internalThreeTexture as THREE.Texture));
-        }
-        return tally;
+    /** Sums the estimated VRAM of every live engine texture. */
+    private static _estimateTextureVram(): number {
+        return MemoryProfiler._surveyTextures().bytes;
     }
 
     private static _getRenderStats(): MemoryReport["renderStats"] {
