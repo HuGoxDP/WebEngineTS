@@ -14,7 +14,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "rollup -c rollup.config.mjs",
