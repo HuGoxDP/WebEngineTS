@@ -54,6 +54,23 @@ export interface MemoryReport {
         textures: number;
 
         /**
+         * Live engine textures — the set {@link estimatedTextureVramBytes} sums
+         * and {@link textureFormats} tallies.
+         *
+         * @remarks
+         * The counterpart to {@link textures}, which counts GPU uploads. Both
+         * numbers were needed to tell two explanations apart and only one of
+         * them existed: when a delivery path reports more estimated VRAM for the
+         * same scene, either it really retains more textures — which shows up
+         * here and not in {@link textures}, since an engine texture nothing has
+         * drawn is never uploaded — or it retains the same ones at different
+         * dimensions, in which case these two agree and the bytes still differ.
+         *
+         * A host comparing two runs can now say which, instead of inferring.
+         */
+        liveTextures: number;
+
+        /**
          * Geometries the renderer currently holds on the GPU, from
          * `renderer.info.memory.geometries`. Related to
          * {@link estimatedGeometryVramBytes} the same way {@link textures} is
@@ -618,6 +635,7 @@ export class MemoryProfiler {
         return {
             textures: info.memory.textures ?? 0,
             geometries: info.memory.geometries ?? 0,
+            liveTextures: MemoryProfiler._countLiveTextures(),
             estimatedTextureVramBytes: MemoryProfiler._estimateTextureVram(),
             textureFormats: MemoryProfiler._tallyTextureFormats(),
             estimatedGeometryVramBytes: MemoryProfiler._estimateGeometryVram(),
@@ -693,6 +711,18 @@ export class MemoryProfiler {
             total += c._estimateVramBytes();
         }
         return total;
+    }
+
+    /**
+     * How many live engine textures the estimate covers.
+     *
+     * Counts the same set {@link _estimateTextureVram} sums, so the two cannot
+     * disagree about what is being measured.
+     */
+    private static _countLiveTextures(): number {
+        const cubemapCtor = Cubemap as unknown as EngineObjectConstructor<Cubemap>;
+        return EngineObject.FindObjectsOfType(Texture).length
+            + EngineObject.FindObjectsOfType(cubemapCtor).length;
     }
 
     /**
