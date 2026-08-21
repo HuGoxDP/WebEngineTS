@@ -9,6 +9,7 @@ ecosystem map and the same live status. Edit those files rather than duplicating
 
 @../.claude-shared/ECOSYSTEM.md
 @../.claude-shared/PAPER-STATUS.md
+@../.claude-shared/ENGINE-GAPS.md
 
 
 # WebEngineTS
