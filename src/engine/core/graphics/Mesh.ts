@@ -627,14 +627,17 @@ export class Mesh extends EngineObject {
             this._threeGeometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
         }
 
-        // UV2
+        // UV2 — Unity's second set, which Three.js calls `uv1`: channel 0 is
+        // `uv`, channel 1 is `uv1`. Writing it as `uv2` fed channel *two*, an
+        // attribute nothing sampled, so a material pointed at the second set
+        // read an absent one.
         if (this._uv2.length > 0) {
             const uv2s = new Float32Array(this._uv2.length * 2);
             for (let i = 0; i < this._uv2.length; i++) {
                 uv2s[i * 2 + 0] = this._uv2[i].x;
                 uv2s[i * 2 + 1] = this._uv2[i].y;
             }
-            this._threeGeometry.setAttribute('uv2', new THREE.BufferAttribute(uv2s, 2));
+            this._threeGeometry.setAttribute('uv1', new THREE.BufferAttribute(uv2s, 2));
         }
 
         // Colours.
@@ -1344,6 +1347,23 @@ export class Mesh extends EngineObject {
                 mesh._uv.push(new Vector2(
                     uvAttr.getX(i),
                     uvAttr.getY(i)
+                ));
+            }
+        }
+
+        // The second UV set, which Three.js calls `uv1` and Unity calls `uv2`.
+        // Dropping it silently broke any imported material whose texture sat on
+        // `texCoord: 1` — a common choice for normal and lightmap maps in glTF.
+        // The map stayed assigned and sampled an attribute that no longer
+        // existed, which reads on screen as broken shading rather than a
+        // missing texture.
+        const uv1Attr = geometry.getAttribute('uv1');
+        if (uv1Attr) {
+            mesh._uv2 = [];
+            for (let i = 0; i < uv1Attr.count; i++) {
+                mesh._uv2.push(new Vector2(
+                    uv1Attr.getX(i),
+                    uv1Attr.getY(i)
                 ));
             }
         }

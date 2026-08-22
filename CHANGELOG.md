@@ -53,6 +53,13 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 - **`createCapsule` also stitched its middle rings to the wrong neighbours.** The hemispheres
   ordered rings top-down while the cylindrical middle ordered them bottom-up, and one index grid
   joined them as if they agreed, so the middle band spanned the whole capsule.
+- **An imported mesh keeps its second UV set, and it reaches the channel that samples it.**
+  Two defects met in the middle: `Mesh.fromThreeGeometry` read only the `uv` attribute, dropping
+  the second set every glTF import brought; and the writer emitted the engine's `uv2` as three's
+  `uv2`, which is channel *two*. A material whose texture sits on `texCoord: 1` — an ordinary
+  choice for normal and lightmap maps — therefore sampled an attribute that was not there. The
+  failure does not look like a missing texture, it looks like broken shading. Engine `uv2` is
+  Unity's second set, which is three's `uv1`.
 - **Data textures are no longer decoded as sRGB.** `Texture2D.fromArrayBuffer` tags everything
   sRGB — it decodes an image and cannot know what the image means — while the KTX2 path tags
   nothing. So a normal map shaded one way as a JPEG and another as KTX2, and metallic-roughness
