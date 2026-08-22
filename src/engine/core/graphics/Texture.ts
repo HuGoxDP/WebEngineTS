@@ -210,6 +210,42 @@ export class Texture extends EngineObject {
 
     /**
      * @internal
+     * States whether this texture holds **linear data** rather than colour.
+     *
+     * @remarks
+     * A normal map, a metallic-roughness map and an ambient-occlusion map store
+     * numbers, not colours. Decoding them from sRGB — which the GPU does for
+     * anything tagged as colour — skews a normal map's X and Y non-linearly and
+     * gives the wrong metalness and roughness, showing up as a dark, blotchy
+     * model with false metallic patches.
+     *
+     * `Texture2D.fromArrayBuffer` cannot know which it decoded, so it tags
+     * everything sRGB; the KTX2 path tags nothing and inherits the container's
+     * own transfer function. Neither is wrong on its own, but the two disagree,
+     * so the same asset shaded differently depending on the format it shipped
+     * in. The material slot knows which it is, and sets it here.
+     *
+     * `NoColorSpace` is used for data, matching what three.js's `GLTFLoader`
+     * assigns to the same slots — so a texture behaves the same whether it
+     * arrived inside a GLB or as a standalone file.
+     *
+     * Mutates the texture, which a cache may be sharing: a texture used as both
+     * colour and data in one scene takes whichever slot was assigned last. That
+     * combination has no correct answer anyway — the file is one or the other.
+     *
+     * **NEVER use in user-facing code.**
+     *
+     * @param linear — true for data maps, false for colour.
+     */
+    public _setLinearData(linear: boolean): void {
+        const want = linear ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+        if (this._threeTexture.colorSpace === want) return;
+        this._threeTexture.colorSpace = want;
+        this._threeTexture.needsUpdate = true;
+    }
+
+    /**
+     * @internal
      * Registers something that holds this texture and must be told when the
      * underlying GPU resource is replaced.
      *

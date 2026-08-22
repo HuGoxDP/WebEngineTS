@@ -858,8 +858,11 @@ export class Mesh extends EngineObject {
                 const c = (ix + 1) + gridX * (iy + 1);
                 const d = (ix + 1) + gridX * iy;
 
-                indices.push(a, b, d);
-                indices.push(b, c, d);
+                // Wound counter-clockwise seen from +Z, which is the normal
+                // these vertices store. The opposite order back-face culled the
+                // whole plane away.
+                indices.push(a, d, b);
+                indices.push(b, d, c);
             }
         }
 
@@ -923,8 +926,11 @@ export class Mesh extends EngineObject {
                 const c = a + 1;
                 const d = b + 1;
 
-                indices.push(a, b, c);
-                indices.push(b, d, c);
+                // Counter-clockwise seen from outside the wall, agreeing with
+                // the outward radial normals above. Both caps were already
+                // right, which is why a cylinder rendered as an open tube.
+                indices.push(a, c, b);
+                indices.push(b, c, d);
             }
         }
 
@@ -1035,7 +1041,11 @@ export class Mesh extends EngineObject {
         // The cylindrical middle.
         const cylinderSegs = 2;
         for (let i = 0; i <= cylinderSegs; i++) {
-            const y = (i / cylinderSegs) * cylinderHeight - halfCylinderHeight;
+            // Top-down, matching the hemispheres either side. Bottom-up left
+            // the single index grid stitching the top hemisphere's equator to
+            // the *bottom* of the cylinder, so the middle band spanned the whole
+            // capsule and its facing disagreed with the caps'.
+            const y = halfCylinderHeight - (i / cylinderSegs) * cylinderHeight;
 
             for (let lon = 0; lon <= radialSegments; lon++) {
                 const phi = (lon * 2 * Math.PI) / radialSegments;
@@ -1081,8 +1091,10 @@ export class Mesh extends EngineObject {
                 const c = a + 1;
                 const d = b + 1;
 
-                indices.push(a, b, c);
-                indices.push(b, d, c);
+                // Counter-clockwise seen from outside, agreeing with the
+                // outward normals stored above.
+                indices.push(a, c, b);
+                indices.push(b, c, d);
             }
         }
 
@@ -1177,8 +1189,10 @@ export class Mesh extends EngineObject {
                 const c = a + 1;
                 const d = b + 1;
 
-                indices.push(a, b, c);
-                indices.push(b, d, c);
+                // Counter-clockwise seen from outside the tube, agreeing with
+                // the outward normals stored above.
+                indices.push(a, c, b);
+                indices.push(b, c, d);
             }
         }
 

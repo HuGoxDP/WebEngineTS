@@ -86,6 +86,7 @@ export class StandardMaterial extends Material {
     }
 
     public set albedoTexture(value: Texture2D | null) {
+        value?._setLinearData(false);
         this.setTexture("_MainTex", value);
     }
 
@@ -114,6 +115,7 @@ export class StandardMaterial extends Material {
     }
 
     public set metallicTexture(value: Texture2D | null) {
+        value?._setLinearData(true);
         this.setTexture("_MetallicGlossMap", value);
     }
 
@@ -158,6 +160,7 @@ export class StandardMaterial extends Material {
     }
 
     public set normalTexture(value: Texture2D | null) {
+        value?._setLinearData(true);
         this.setTexture("_BumpMap", value);
 
         // Ensure Three.js normalScale is initialized when a normal map is set
@@ -194,6 +197,7 @@ export class StandardMaterial extends Material {
     }
 
     public set heightTexture(value: Texture2D | null) {
+        value?._setLinearData(true);
         this.setTexture("_ParallaxMap", value);
 
         // Sync displacement map to Three.js
@@ -232,6 +236,7 @@ export class StandardMaterial extends Material {
     }
 
     public set occlusionTexture(value: Texture2D | null) {
+        value?._setLinearData(true);
         this.setTexture("_OcclusionMap", value);
     }
 
@@ -297,6 +302,7 @@ export class StandardMaterial extends Material {
     }
 
     public set emissionTexture(value: Texture2D | null) {
+        value?._setLinearData(false);
         this.setTexture("_EmissionMap", value);
     }
 

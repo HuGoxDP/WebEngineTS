@@ -44,6 +44,21 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Fixed
 
+- **Four `Mesh.create*` primitives were wound inside out.** `createPlane`, `createCylinder`
+  (its side wall), `createCapsule` and `createTorus` emitted triangle indices opposite to the
+  normals they stored, so `side: FrontSide` culled them: a plane vanished entirely, a torus was a
+  hollow shell, a cylinder an open tube with its lids intact. Every build has done this since the
+  builders were written. **This changes what these primitives look like and therefore what they
+  cost to draw** — any measurement taken on a scene using them is not comparable across the fix.
+- **`createCapsule` also stitched its middle rings to the wrong neighbours.** The hemispheres
+  ordered rings top-down while the cylindrical middle ordered them bottom-up, and one index grid
+  joined them as if they agreed, so the middle band spanned the whole capsule.
+- **Data textures are no longer decoded as sRGB.** `Texture2D.fromArrayBuffer` tags everything
+  sRGB — it decodes an image and cannot know what the image means — while the KTX2 path tags
+  nothing. So a normal map shaded one way as a JPEG and another as KTX2, and metallic-roughness
+  maps were wrong on both. The `StandardMaterial` slot now says which it is: albedo and emission
+  are colour, normal, metallic, occlusion and height are linear data, matching what three.js's
+  `GLTFLoader` assigns to the same slots.
 - **A borrowed cubemap is no longer counted twice in VRAM.** `MemoryProfiler` sums live textures
   and live cubemaps into one figure; a cubemap sharing a `Texture2D`'s upload now reports zero,
   since the source already reports those bytes.
