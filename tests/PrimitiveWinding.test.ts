@@ -95,6 +95,31 @@ describe("Mesh primitives are wound to face outwards", () => {
         });
     }
 
+    test("a plane is a floor, not a wall", () => {
+        // Unity's `PrimitiveType.Plane` lies in XZ facing +Y. Following
+        // three.js's `PlaneGeometry` instead put it in XY facing +Z, which is a
+        // wall — and duplicated `createQuad`. Nothing could depend on the old
+        // orientation: the winding culled the plane away, so it had never
+        // rendered.
+        const mesh = Mesh.createPlane(4, 6);
+
+        for (const n of mesh.normals) {
+            expect(n.y).toBeCloseTo(1, 6);
+            expect(n.x).toBeCloseTo(0, 6);
+            expect(n.z).toBeCloseTo(0, 6);
+        }
+
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (const v of mesh.vertices) {
+            expect(v.y).toBeCloseTo(0, 6);
+            minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+            minZ = Math.min(minZ, v.z); maxZ = Math.max(maxZ, v.z);
+        }
+
+        expect(maxX - minX).toBeCloseTo(4, 6);
+        expect(maxZ - minZ).toBeCloseTo(6, 6);
+    });
+
     test("the capsule still occupies the box it is asked for", () => {
         // The winding fix reordered the capsule's middle rings top-down to
         // match its hemispheres. That moves vertices, which the winding audit

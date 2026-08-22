@@ -841,14 +841,18 @@ export class Mesh extends EngineObject {
         const uvs: Vector2[] = [];
         const indices: number[] = [];
 
-        // Vertices.
+        // Vertices, laid out in XZ facing +Y — a floor, which is what Unity's
+        // `PrimitiveType.Plane` is. Laying them out in XY facing +Z made this a
+        // wall and duplicated {@link createQuad}; nothing could depend on the
+        // old orientation, because the winding also culled the plane away and
+        // it had never rendered.
         for (let iy = 0; iy < gridY; iy++) {
-            const y = iy * segmentHeight - halfHeight;
+            const z = iy * segmentHeight - halfHeight;
             for (let ix = 0; ix < gridX; ix++) {
                 const x = ix * segmentWidth - halfWidth;
 
-                vertices.push(new Vector3(x, y, 0));
-                normals.push(new Vector3(0, 0, 1));
+                vertices.push(new Vector3(x, 0, z));
+                normals.push(new Vector3(0, 1, 0));
                 uvs.push(new Vector2(ix / widthSegs, 1 - (iy / heightSegs)));
             }
         }
@@ -861,11 +865,10 @@ export class Mesh extends EngineObject {
                 const c = (ix + 1) + gridX * (iy + 1);
                 const d = (ix + 1) + gridX * iy;
 
-                // Wound counter-clockwise seen from +Z, which is the normal
-                // these vertices store. The opposite order back-face culled the
-                // whole plane away.
-                indices.push(a, d, b);
-                indices.push(b, d, c);
+                // Counter-clockwise seen from +Y, the normal these vertices
+                // store.
+                indices.push(a, b, d);
+                indices.push(b, c, d);
             }
         }
 
