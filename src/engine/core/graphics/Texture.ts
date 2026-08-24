@@ -209,6 +209,48 @@ export class Texture extends EngineObject {
     }
 
     /**
+     * Whether the image is flipped vertically as it is uploaded.
+     *
+     * @remarks
+     * Two conventions meet here and the engine cannot pick one for you yet.
+     * An image decoded by the browser has its first row at the *top*, and
+     * `true` — the default for {@link Texture2D.fromArrayBuffer} and for
+     * canvas-backed textures — flips it so that V=0 is the bottom, which is
+     * what the engine's own primitives expect and what Unity does.
+     *
+     * glTF puts the UV origin at the top-left instead, so `GLTFLoader` uploads
+     * every texture it creates with `false`, and a **KTX2 texture is always
+     * `false`** — block-compressed data cannot be flipped on upload at all.
+     *
+     * The consequence: a standalone image applied to a glTF-imported mesh
+     * samples upside down, and the same asset shipped as `.ktx2` does not — so
+     * the file format silently changes the picture. Set this to `false` when
+     * handing a separately-loaded map to an imported model, and set it
+     * unconditionally rather than only on the image path, so both formats stay
+     * in one orientation:
+     *
+     * ```ts
+     * const albedo = await Resources.load(Texture2D, "textures/model_albedo");
+     * albedo.flipVertically = false;   // match the model's glTF UVs
+     * material.albedoTexture = albedo;
+     * ```
+     *
+     * This exists because there is otherwise no way to say it. Unifying the
+     * engine on one convention is the real answer and is planned separately —
+     * see `design/unity-coordinates-plan.md`; when that lands this property
+     * stays, but needing it becomes the exception rather than the rule.
+     */
+    public get flipVertically(): boolean {
+        return this._threeTexture.flipY;
+    }
+
+    public set flipVertically(value: boolean) {
+        if (this._threeTexture.flipY === value) return;
+        this._threeTexture.flipY = value;
+        this._threeTexture.needsUpdate = true;
+    }
+
+    /**
      * @internal
      * States whether this texture holds **linear data** rather than colour.
      *

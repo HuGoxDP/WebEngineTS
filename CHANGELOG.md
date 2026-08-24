@@ -18,6 +18,14 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Added
 
+- **`Texture.flipVertically`** — states whether an image is flipped as it is uploaded. Two
+  conventions meet in the engine: the image path uploads `flipY = true` (V=0 at the bottom, as
+  Unity and the engine's own primitives expect), while glTF uploads `false` and a KTX2 texture is
+  always `false` because block-compressed data cannot be flipped at all. So a separately-loaded
+  map on a glTF-imported mesh samples upside down, and the same asset shipped as `.ktx2` does
+  not — the file format changes the picture. Content can now say which orientation it wants
+  instead of reaching past the API into the Three.js texture. Unifying the engine on one
+  convention is planned separately: `design/unity-coordinates-plan.md`.
 - **`Cubemap.fromEquirectangular` accepts a `Texture2D`**, not only a URL. This is the only way
   to build a skybox from a format the browser cannot decode — KTX2 above all: load the panorama
   through `Resources`, which honours `preferExtension` and transcodes, and hand the result over.
