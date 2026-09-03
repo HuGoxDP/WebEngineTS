@@ -704,6 +704,16 @@ export class Transform extends Component {
     }
 
     /**
+     * Sets the world rotation so the forward (blue, +Z) axis points along `value`.
+     *
+     * @remarks Equivalent to Unity's `Transform.forward` setter
+     * (`rotation = Quaternion.LookRotation(value)`).
+     */
+    public set forward(value: Vector3) {
+        this.rotation = Quaternion.lookRotation(value);
+    }
+
+    /**
      * The right direction in world space (positive X).
      *
      * @remarks
@@ -718,6 +728,16 @@ export class Transform extends Component {
     }
 
     /**
+     * Sets the world rotation so the right (red, +X) axis points along `value`.
+     *
+     * @remarks Equivalent to Unity's `Transform.right` setter
+     * (`rotation = Quaternion.FromToRotation(Vector3.right, value)`).
+     */
+    public set right(value: Vector3) {
+        this.rotation = Quaternion.fromToRotation(Vector3.right, value);
+    }
+
+    /**
      * The upward direction in world space (positive Y).
      *
      * @remarks
@@ -729,6 +749,16 @@ export class Transform extends Component {
         return new Vector3(0, 1, 0).applyQuaternion(
             _equatA.set(_tquatA.x, _tquatA.y, _tquatA.z, _tquatA.w)
         );
+    }
+
+    /**
+     * Sets the world rotation so the up (green, +Y) axis points along `value`.
+     *
+     * @remarks Equivalent to Unity's `Transform.up` setter
+     * (`rotation = Quaternion.FromToRotation(Vector3.up, value)`).
+     */
+    public set up(value: Vector3) {
+        this.rotation = Quaternion.fromToRotation(Vector3.up, value);
     }
 
     // ==================== V. TRANSFORM METHODS ====================

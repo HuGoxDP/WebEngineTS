@@ -169,6 +169,20 @@ describe("Transform — translate / rotate / rotateAround with Space", () => {
         expect(dist(pa, pb)).toBeGreaterThan(0.1);
     });
 
+    test("forward / up / right setters orient the corresponding axis", () => {
+        const f = spawn("f");
+        f.transform.forward = new Vector3(1, 0, 0);
+        expect(dist(f.transform.forward, new Vector3(1, 0, 0))).toBeLessThan(1e-4);
+
+        const u = spawn("u");
+        u.transform.up = new Vector3(0, 0, 1);
+        expect(dist(u.transform.up, new Vector3(0, 0, 1))).toBeLessThan(1e-4);
+
+        const r = spawn("r");
+        r.transform.right = new Vector3(0, 1, 0);
+        expect(dist(r.transform.right, new Vector3(0, 1, 0))).toBeLessThan(1e-4);
+    });
+
     test("rotateAround preserves distance to the pivot", () => {
         const o = spawn("o");
         o.transform.position = new Vector3(0, 0, 1);

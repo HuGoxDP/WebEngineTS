@@ -13,9 +13,10 @@ a shared `_ensureCameraMatrices`. Etap 5 — added `worldToViewportPoint`, `view
 shared `_buildRay` modelled on Three's `Raycaster.setFromCamera` (parallel rays from the near
 plane, not a fan from the eye).
 Etap 4 — `Transform.transformVector`/`inverseTransformVector`, `localToWorldMatrix`/
-`worldToLocalMatrix`, `rotateAround`, and a `Space` param on `translate`/`rotate` (clearing two
-`@todo`s); also fixed a latent staleness bug where `transformPoint` read an un-updated world
-matrix (new `_ensureWorldMatrix`). Etap 1 — `tests/CoordinateSpaces.test.ts` (19 tests). Etap 3/6
+`worldToLocalMatrix`, `rotateAround`, `forward`/`up`/`right` **setters** (direction → world
+rotation, matching Unity's `LookRotation`/`FromToRotation`), and a `Space` param on
+`translate`/`rotate` (clearing two `@todo`s); also fixed a latent staleness bug where
+`transformPoint` read an un-updated world matrix (new `_ensureWorldMatrix`). Etap 1 — `tests/CoordinateSpaces.test.ts` (19 tests). Etap 3/6
 — JSDoc Y-down notes + a `CLAUDE.md` "Coordinate spaces" entry. **Still open:** Etap 0 (visual
 mirror check — needs a rendered frame, cannot run headlessly) and F4 (viewport rect, deferred). This is the zone the texture-UV plan
 ([`unity-coordinates-plan.md`](unity-coordinates-plan.md)) explicitly excluded: *"Not a physics
