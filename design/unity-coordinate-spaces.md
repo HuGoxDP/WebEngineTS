@@ -111,7 +111,7 @@ point "on the screen".
 | F4 | `Camera.viewport` (`Rect`) is ignored by conversions | `Camera.ts` | **deferred** — see §4 |
 | F5 | Correct projection lives in `@internal _worldToViewportPoint`, not reused by the public methods | `Camera.ts` | **Etap 2** |
 | F6 | No tests for any coordinate conversion | `tests/` | **Etap 1** |
-| F7 | Handedness compensation is one line, `rotateY(Math.PI)` — a *rotation*, which cannot mirror. Analysis predicts a **horizontally mirrored image** vs. Unity | `Camera.ts` | **Etap 0 — needs visual check** |
+| F7 | Handedness compensation is one line, `rotateY(Math.PI)` — a *rotation*, which cannot mirror, so the image is a **horizontal mirror** of Unity's | `Camera.ts` | **CONFIRMED 2026-09-03** — fix not started, see "F7 in detail" |
 | F8 | Missing API: `transformVector`/`inverseTransformVector`, `localToWorldMatrix`/`worldToLocalMatrix`, `rotateAround`, `Space` param; camera viewport family, `viewportPointToRay`, `cameraToWorldMatrix` | — | **Etap 4/5** |
 
 Correct and untouched: `transformPoint`/`transformDirection` (TRS vs R-only is exact),
@@ -122,10 +122,31 @@ handedness. Starting from Three's default camera (right +X, up +Y, view −Z), a
 right **−X**, up +Y, view **+Z**. So the camera correctly looks toward engine/Unity forward (+Z)
 but its right axis is −X, whereas Unity's is +X. Prediction: a point at world +X lands on the
 **left** of the engine's screen and on the **right** of Unity's — a horizontal mirror. There is no
-global compensation (negative scale / Z flip) anywhere in the engine; verified by search. This is
-a conclusion from reading code and matrices, **not** an observation — there is no render test, so
-it stays a hypothesis until a human looks at a rendered frame. A characterization test pins the
-current numeric behaviour so any future flip is caught.
+global compensation (negative scale / Z flip) anywhere in the engine; verified by search.
+
+**Confirmed visually on 2026-09-03** through `coordinate-check/`, with two independent witnesses in
+one frame: the chiral "F" renders backwards, and the row of primitives runs right-to-left (the cube
+is authored first, at the leftmost x, and appears rightmost). The prediction was exact. A
+characterization test pins the current numeric behaviour so the fix has a witness.
+
+### Fixing F7 — why it is not a one-line change
+
+Mapping a left-handed world onto a right-handed renderer needs a **reflection**
+(`diag(1, 1, −1)`, determinant −1). No rotation can supply it, so `rotateY(π)` cannot be "tuned"
+into correctness. Every route has the same consequence: a reflection flips triangle winding, so
+front faces become back faces and culling inverts unless winding is flipped in the same step.
+
+| Route | What it costs |
+|---|---|
+| Camera `scale.z = −1` | Simplest to write; inverts winding for the whole scene — every material would need its `side` flipped, and Three's shadow/normal paths follow the determinant too |
+| Negate X in the projection matrix | Same winding inversion, but now hidden inside the projection, where it is harder to see and harder to test |
+| Mirror geometry at load (negate Z on positions/normals, reverse index order) | Correct winding by construction and no per-frame cost, but it touches every mesh source: primitives, glTF import, `Mesh.combine`, instancing, batching |
+| Adopt a left-handed convention engine-wide, flipping winding order globally | What Babylon does with `useRightHandedSystem`; the honest fix, and the largest |
+
+**All four change the rendered output of every existing scenario.** That is a project decision, not
+a refactor — so it stays recorded here rather than half-applied. The engine is internally
+consistent today; what it is not, is a mirror-accurate match for a scene authored against Unity's
+axes.
 
 ---
 
@@ -183,10 +204,11 @@ The one question whose answer changes the scope of everything else. A non-symmet
 frame. **Cannot be run headlessly** — needs a rendered frame and human eyes. Pinned numerically by
 a characterization test in the meantime.
 
-**Harness built (2026-09-03):** [`coordinate-check/`](coordinate-check/) — coloured +X/+Y/+Z cubes
-plus a chiral cube-"F" and a lit row of every primitive. `npm run build`, serve from the repo root,
-open `/design/coordinate-check/`. Awaits a human's eyes; see that folder's README for exactly what
-to look for.
+**Done 2026-09-03.** [`coordinate-check/`](coordinate-check/) — coloured +X/+Y/+Z cubes plus a
+chiral cube-"F" and a lit row of every primitive. `npm run build`, serve from the repo root, open
+`/design/coordinate-check/`. **Verdict: the mirror is real** — red +X renders left of centre, the
+"F" reads backwards, and the primitive row runs right-to-left. See "Fixing F7" above for what
+correcting it would cost.
 
 ### Etap 1 — Lock behaviour with tests (F6)
 Round-trip `world → screen → world`, `transformPoint` under non-uniform hierarchy scale,

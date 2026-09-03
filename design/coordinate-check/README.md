@@ -1,5 +1,10 @@
 # Etap 0 — visual handedness check (F7)
 
+> **Result, 2026-09-03: the mirror is REAL.** Red **+X** renders left of centre, the "F" reads
+> backwards, and the primitive row runs right-to-left. F7 is confirmed. What fixing it would cost
+> is written up under "Fixing F7" in [`../unity-coordinate-spaces.md`](../unity-coordinate-spaces.md).
+> This page stays as the regression check for whenever that fix lands.
+
 A tiny in-browser scene whose only job is to answer, by eye, the one question the test suite
 cannot: **is the rendered image horizontally mirrored versus Unity?** (design note
 [`../unity-coordinate-spaces.md`](../unity-coordinate-spaces.md), finding **F7**).

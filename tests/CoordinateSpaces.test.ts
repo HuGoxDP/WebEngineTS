@@ -271,13 +271,18 @@ describe("Camera — screen / viewport conversions", () => {
     });
 
     /**
-     * CHARACTERIZATION, not a spec. The camera compensates handedness with a
-     * single rotateY(π), a rotation that cannot mirror, so world +X lands on the
-     * LEFT of the screen where Unity puts it on the RIGHT (design note F7). This
-     * pins that observation; if the mirror is ever fixed, THIS expectation must be
-     * inverted, on purpose.
+     * CHARACTERIZATION of a CONFIRMED DEFECT, not a spec. The camera compensates
+     * handedness with a single rotateY(π), a rotation that cannot mirror, so world
+     * +X lands on the LEFT of the screen where Unity puts it on the RIGHT.
+     *
+     * Confirmed visually 2026-09-03 via design/coordinate-check/: the chiral "F"
+     * renders backwards and the primitive row runs right-to-left. So the whole
+     * image is a horizontal mirror of Unity's (design note F7).
+     *
+     * This pins current behaviour so the fix has a witness. When the mirror is
+     * corrected, THIS expectation must be inverted, on purpose.
      */
-    test("[characterization] world +X currently projects LEFT of centre (mirror, F7)", () => {
+    test("[characterization] world +X projects LEFT of centre — confirmed mirror (F7)", () => {
         const cam = makeCamera();
         const s = cam.worldToScreenPoint(new Vector3(1, 0, 5));
         expect(s.x).toBeLessThan(400);

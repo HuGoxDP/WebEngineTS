@@ -263,8 +263,10 @@ Each step runs components first, then the active scenario.
   *surface*-normalized and rect-aware — do not confuse it with the public `worldToViewportPoint`. Full research + staged plan: [`design/unity-coordinate-spaces.md`](design/unity-coordinate-spaces.md);
   the separate texture-UV convention is [`design/unity-coordinates-plan.md`](design/unity-coordinates-plan.md).
   Known open item: the handedness compensation is a single `rotateY(π)`, which cannot mirror, so
-  the rendered image is predicted to be **horizontally mirrored vs. Unity** (design note F7) —
-  unconfirmed until a human checks a rendered frame; a characterization test pins current behaviour.
+  the rendered image is **horizontally mirrored vs. Unity** — **confirmed visually 2026-09-03**
+  via `design/coordinate-check/` (design note F7). Not fixed: a reflection flips triangle winding,
+  so every route changes the rendered output of every existing scenario — a project decision, with
+  the four options costed in the design note. A characterization test pins current behaviour.
 - **Cinemachine first-frame**: Always Cut on first activation (blending from null CameraState causes camera at origin)
 - **Texture GPU upload timing**: `releaseSourceImage()` queues rather than frees. `TextureRelease` (`graphics/TextureRelease.ts`) releases the CPU pixels after a render, once `renderer.properties.get(texture).__webglTexture` shows the GPU has them — a texture never drawn is never released, which is safe; releasing early leaves it blank for the run. A two-frame countdown is the fallback when there is no `WebGLRenderer` to ask
 - **`Texture2D.maxSize` caps only what the engine decodes**: `fromArrayBuffer`, `Load` and
