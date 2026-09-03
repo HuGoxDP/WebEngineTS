@@ -312,9 +312,13 @@ kept here so future sessions understand *why* each item exists.
 
 **Unity architecture parity** — research + staged plan for closing the gap with Unity's asset
 pipeline, serialization and editor architecture: [`design/unity-parity-plan.md`](design/unity-parity-plan.md).
-Key measured finding: the serialization system exists but **no built-in component uses it**, so
-a saved scene currently loses every built-in component. Stage 1 (make the engine serialize
-itself) is the prerequisite for the editor and for everything else in that plan.
+That plan's headline finding — "no built-in component uses serialization, so a saved scene loses
+every built-in component" — is **out of date (re-measured 2026-09-03)**. ~40 files now carry
+`@Serializable`: `Camera`, every light, `MeshFilter`/`MeshRenderer`, `SpriteRenderer`,
+`LineRenderer`, `LODGroup`, `Rigidbody`, every collider, `Joint`, and the whole UI suite.
+`Transform` is excluded from the component loop on purpose — its pose is written straight onto the
+GameObject as `transform: { position, rotation, scale }`, the shape Unity uses. **Stage 1 is
+substantially done**; re-scope the rest of that plan against the code before working from it.
 
 **Canvas UI toolkit** has its own plan — inventory of gaps, defects, per-task complexity and
 priority, and the Y-down coordinate contract: [`design/canvas-ui-roadmap.md`](design/canvas-ui-roadmap.md).
@@ -387,7 +391,13 @@ The first item there (**P0-A**, batch/matrix mode for the harness) is the only t
 
 ### P2 — Architecture enabling P1
 8. Generalize the Adapter layer (decouple from Three.js) — prerequisite for the WebGPU
-   backend; the un-generalized adapter is listed as a limitation in the paper.
+   backend; listed as a limitation in the paper. **Audited 2026-09-03, not started:**
+   [`design/render-adapter-plan.md`](design/render-adapter-plan.md). The *frame* seam is already
+   generalized — `RenderBackend` is fully engine-typed, `Application.backendFactory` swaps it, and
+   a fake backend is driven in tests. What is still Three.js-typed is **resources**
+   (`Texture`/`Mesh`/`Material`, ~130 uses) and the **scene graph** (`Transform._object3D`), across
+   39 of 160 files. Staged there so each stage leaves exactly one way to reach the GPU —
+   half-abstracting would break the `instanceof THREE.Mesh` checks the engine relies on.
 9. OffscreenCanvas-based rendering.
 
 Note: paper-text-only fixes (abstract tense, deployment scale, comparison with
