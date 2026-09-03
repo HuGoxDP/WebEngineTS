@@ -248,6 +248,21 @@ Each step runs components first, then the active scenario.
   documented convention-*neutral* ("lower/upper Y", not "bottom/top") because it is shared with
   camera viewports and sprite bounds, which are genuinely Y-up. Every new UI feature must state
   its Y convention in its JSDoc — see `design/canvas-ui-roadmap.md` §3.
+- **Coordinate spaces (Transform / Camera conversions)** — `Transform.transformPoint`/`Vector`/
+  `Direction` (+ inverses, `localToWorldMatrix`/`worldToLocalMatrix`) and the `Camera.*Point`/
+  `*Ray` family. Two conventions to remember, both documented per-method and pinned by
+  `tests/CoordinateSpaces.test.ts`: **(1) screen & viewport are Y-down**, top-left origin, sized
+  from `Camera.pixelWidth`/`pixelHeight` (fed by `Application`, *not* `window`) — the same Y-down
+  choice as the UI, matching `Input.mousePosition`; `worldToScreenPoint().z` and the input `z` of
+  `screenToWorldPoint`/`viewportToWorldPoint` are **world-unit distances from the camera**, not
+  NDC. **(2) Camera (view) space is −Z-forward**, which is *agreement* with Unity (Unity's view
+  space is OpenGL −Z too), not a deviation — don't "fix" it. `Camera.viewport` (`Rect`) is **not**
+  yet honoured by conversions, deliberately, because rendering ignores it too (see the design
+  note's §4). Full research + staged plan: [`design/unity-coordinate-spaces.md`](design/unity-coordinate-spaces.md);
+  the separate texture-UV convention is [`design/unity-coordinates-plan.md`](design/unity-coordinates-plan.md).
+  Known open item: the handedness compensation is a single `rotateY(π)`, which cannot mirror, so
+  the rendered image is predicted to be **horizontally mirrored vs. Unity** (design note F7) —
+  unconfirmed until a human checks a rendered frame; a characterization test pins current behaviour.
 - **Cinemachine first-frame**: Always Cut on first activation (blending from null CameraState causes camera at origin)
 - **Texture GPU upload timing**: `releaseSourceImage()` queues rather than frees. `TextureRelease` (`graphics/TextureRelease.ts`) releases the CPU pixels after a render, once `renderer.properties.get(texture).__webglTexture` shows the GPU has them — a texture never drawn is never released, which is safe; releasing early leaves it blank for the run. A two-frame countdown is the fallback when there is no `WebGLRenderer` to ask
 - **`Texture2D.maxSize` caps only what the engine decodes**: `fromArrayBuffer`, `Load` and
