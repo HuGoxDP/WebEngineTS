@@ -164,6 +164,11 @@ The one question whose answer changes the scope of everything else. A non-symmet
 frame. **Cannot be run headlessly** — needs a rendered frame and human eyes. Pinned numerically by
 a characterization test in the meantime.
 
+**Harness built (2026-09-03):** [`coordinate-check/`](coordinate-check/) — coloured +X/+Y/+Z cubes
+plus a chiral cube-"F" and a lit row of every primitive. `npm run build`, serve from the repo root,
+open `/design/coordinate-check/`. Awaits a human's eyes; see that folder's README for exactly what
+to look for.
+
 ### Etap 1 — Lock behaviour with tests (F6)
 Round-trip `world → screen → world`, `transformPoint` under non-uniform hierarchy scale,
 `lossyScale` under shear, `transformDirection` ignores scale. Tests asserting the Unity-correct
