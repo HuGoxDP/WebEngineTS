@@ -18,6 +18,7 @@ import type { GameObject } from "../GameObject.ts";
 
 const _tvec3 = new THREE.Vector3();
 const _tvec3B = new THREE.Vector3();
+const _tvec2 = new THREE.Vector2();
 
 // ==================== ENUMS ====================
 
@@ -342,25 +343,26 @@ export class Camera extends Behaviour {
     }
 
     /**
-     * The width of the camera's render surface in pixels.
+     * The width of the camera's viewport in pixels: the render-surface width
+     * scaled by {@link viewport}'s width.
      *
      * @remarks
-     * Equivalent to Unity's `Camera.pixelWidth`. Driven by the {@link Application}
-     * when the canvas resizes; falls back to the window width until then (e.g. in
-     * isolated tests). Does not yet account for {@link viewport} — see the
-     * coordinate-spaces design note.
+     * Equivalent to Unity's `Camera.pixelWidth`. The surface size is driven by the
+     * {@link Application} on resize, falling back to the window width until then
+     * (e.g. in isolated tests).
      */
     public get pixelWidth(): number {
-        return this._surfaceWidth();
+        return this._surfaceWidth() * this._viewport.width;
     }
 
     /**
-     * The height of the camera's render surface in pixels.
+     * The height of the camera's viewport in pixels: the render-surface height
+     * scaled by {@link viewport}'s height.
      *
      * @remarks Equivalent to Unity's `Camera.pixelHeight`. See {@link pixelWidth}.
      */
     public get pixelHeight(): number {
-        return this._surfaceHeight();
+        return this._surfaceHeight() * this._viewport.height;
     }
 
     /**
@@ -387,7 +389,17 @@ export class Camera extends Behaviour {
     }
 
     public set viewport(value: Rect) {
-        this._viewport = value.clone();
+        this._viewport.set(value.x, value.y, value.width, value.height);
+        this._updateAspectFromViewport();
+    }
+
+    /**
+     * @internal
+     * The live viewport rect (no clone), read once per frame by the render
+     * backend's hot path. Treat as read-only.
+     */
+    public get _internalViewport(): Rect {
+        return this._viewport;
     }
 
     /**
@@ -494,31 +506,35 @@ export class Camera extends Behaviour {
         const distance = -_tvec3.z;
 
         _tvec3.set(position.x, position.y, position.z).project(cam);
-        return new Vector3(
-            (_tvec3.x + 1) * 0.5 * this._surfaceWidth(),
-            (1 - _tvec3.y) * 0.5 * this._surfaceHeight(),
-            distance
-        );
+        this._ndcToScreen(_tvec3.x, _tvec3.y, _tvec2);
+        return new Vector3(_tvec2.x, _tvec2.y, distance);
     }
 
     /**
      * Converts a world-space position to viewport coordinates.
      *
      * @param position — world-space point.
-     * @returns viewport point where `x`/`y` are 0–1 across the surface (Y **down**:
-     *          0 = top, 1 = bottom) and `z` is the distance from the camera in
-     *          world units.
+     * @returns viewport point where `x`/`y` are 0–1 across this camera's
+     *          {@link viewport} rect (Y **down**: 0 = top, 1 = bottom) and `z` is
+     *          the distance from the camera in world units.
      *
      * @remarks
      * Equivalent to Unity's `Camera.WorldToViewportPoint`, except Y points down
-     * (see {@link worldToScreenPoint}), staying consistent with the engine's
-     * screen space rather than Unity's bottom-left viewport.
+     * (see {@link worldToScreenPoint}). Viewport coordinates are relative to the
+     * camera's own frustum, so — unlike screen coordinates — they do not depend on
+     * where {@link viewport} places the camera on the surface.
      */
     public worldToViewportPoint(position: Vector3): Vector3 {
-        const s = this.worldToScreenPoint(position);
-        const w = this._surfaceWidth();
-        const h = this._surfaceHeight();
-        return new Vector3(w > 0 ? s.x / w : 0, h > 0 ? s.y / h : 0, s.z);
+        const cam = this._threeCamera;
+        if (cam === null) return Vector3.zero.clone();
+        this._ensureCameraMatrices(cam);
+
+        _tvec3.set(position.x, position.y, position.z).applyMatrix4(cam.matrixWorldInverse);
+        const distance = -_tvec3.z;
+
+        _tvec3.set(position.x, position.y, position.z).project(cam);
+        // NDC (Y-up, −1..1) → viewport (Y-down, 0..1 within the frustum).
+        return new Vector3((_tvec3.x + 1) * 0.5, (1 - _tvec3.y) * 0.5, distance);
     }
 
     /**
@@ -538,26 +554,11 @@ export class Camera extends Behaviour {
         if (cam === null) return Vector3.zero.clone();
         this._ensureCameraMatrices(cam);
 
-        const ndcX = (screenPos.x / this._surfaceWidth()) * 2 - 1;
-        const ndcY = -(screenPos.y / this._surfaceHeight()) * 2 + 1;
-        this._buildRay(cam, ndcX, ndcY, _tvec3, _tvec3B); // origin, direction
-
-        // Step along the ray until the camera-space depth equals screenPos.z, a
-        // world distance in front of the camera. View-space z is row 2 of the
-        // inverse-world matrix (column-major 2/6/10, translation 14) applied to a
-        // point, and without the translation for the direction. Solving
-        // viewZ(origin) + s·viewZ(dir) = −z handles perspective (origin z 0) and
-        // orthographic (origin on the near plane) alike.
-        const e = cam.matrixWorldInverse.elements;
-        const viewZorigin = e[2] * _tvec3.x + e[6] * _tvec3.y + e[10] * _tvec3.z + e[14];
-        const viewZdir = e[2] * _tvec3B.x + e[6] * _tvec3B.y + e[10] * _tvec3B.z;
-        const s = viewZdir !== 0 ? (-screenPos.z - viewZorigin) / viewZdir : 0;
-
-        return new Vector3(
-            _tvec3.x + _tvec3B.x * s,
-            _tvec3.y + _tvec3B.y * s,
-            _tvec3.z + _tvec3B.z * s
-        );
+        // _ndcToWorld steps along the picking ray until the camera-space depth
+        // equals screenPos.z, a world distance in front of the camera. Screen
+        // coordinates are full-surface, so _screenToNdc removes the viewport rect.
+        this._screenToNdc(screenPos.x, screenPos.y, _tvec2);
+        return this._ndcToWorld(cam, _tvec2.x, _tvec2.y, screenPos.z);
     }
 
     /**
@@ -571,11 +572,11 @@ export class Camera extends Behaviour {
      *          {@link worldToViewportPoint}).
      */
     public viewportToWorldPoint(viewportPos: Vector3): Vector3 {
-        return this.screenToWorldPoint(new Vector3(
-            viewportPos.x * this._surfaceWidth(),
-            viewportPos.y * this._surfaceHeight(),
-            viewportPos.z
-        ));
+        const cam = this._threeCamera;
+        if (cam === null) return Vector3.zero.clone();
+        this._ensureCameraMatrices(cam);
+        // Viewport (Y-down, 0..1 within the frustum) → NDC (Y-up, −1..1).
+        return this._ndcToWorld(cam, viewportPos.x * 2 - 1, 1 - viewportPos.y * 2, viewportPos.z);
     }
 
     /**
@@ -595,10 +596,8 @@ export class Camera extends Behaviour {
         if (cam === null) return new Ray();
         this._ensureCameraMatrices(cam);
 
-        const ndcX = (position.x / this._surfaceWidth()) * 2 - 1;
-        const ndcY = -(position.y / this._surfaceHeight()) * 2 + 1;
-        this._buildRay(cam, ndcX, ndcY, _tvec3, _tvec3B);
-
+        this._screenToNdc(position.x, position.y, _tvec2);
+        this._buildRay(cam, _tvec2.x, _tvec2.y, _tvec3, _tvec3B);
         return new Ray(
             new Vector3(_tvec3.x, _tvec3.y, _tvec3.z),
             new Vector3(_tvec3B.x, _tvec3B.y, _tvec3B.z)
@@ -614,10 +613,15 @@ export class Camera extends Behaviour {
      * @remarks Equivalent to Unity's `Camera.ViewportPointToRay` (Y-down).
      */
     public viewportPointToRay(position: Vector2): Ray {
-        return this.screenPointToRay(new Vector2(
-            position.x * this._surfaceWidth(),
-            position.y * this._surfaceHeight()
-        ));
+        const cam = this._threeCamera;
+        if (cam === null) return new Ray();
+        this._ensureCameraMatrices(cam);
+
+        this._buildRay(cam, position.x * 2 - 1, 1 - position.y * 2, _tvec3, _tvec3B);
+        return new Ray(
+            new Vector3(_tvec3.x, _tvec3.y, _tvec3.z),
+            new Vector3(_tvec3B.x, _tvec3B.y, _tvec3B.z)
+        );
     }
 
     /**
@@ -630,9 +634,8 @@ export class Camera extends Behaviour {
      * @remarks Equivalent to Unity's `Camera.ScreenToViewportPoint` (Y-down).
      */
     public screenToViewportPoint(screenPos: Vector3): Vector3 {
-        const w = this._surfaceWidth();
-        const h = this._surfaceHeight();
-        return new Vector3(w > 0 ? screenPos.x / w : 0, h > 0 ? screenPos.y / h : 0, screenPos.z);
+        this._screenToNdc(screenPos.x, screenPos.y, _tvec2);
+        return new Vector3((_tvec2.x + 1) * 0.5, (1 - _tvec2.y) * 0.5, screenPos.z);
     }
 
     /**
@@ -645,11 +648,8 @@ export class Camera extends Behaviour {
      * @remarks Equivalent to Unity's `Camera.ViewportToScreenPoint` (Y-down).
      */
     public viewportToScreenPoint(viewportPos: Vector3): Vector3 {
-        return new Vector3(
-            viewportPos.x * this._surfaceWidth(),
-            viewportPos.y * this._surfaceHeight(),
-            viewportPos.z
-        );
+        this._ndcToScreen(viewportPos.x * 2 - 1, 1 - viewportPos.y * 2, _tvec2);
+        return new Vector3(_tvec2.x, _tvec2.y, viewportPos.z);
     }
 
     // ==================== MATRIX ACCESS ====================
@@ -812,6 +812,72 @@ export class Camera extends Behaviour {
     private _surfaceHeight(): number {
         if (this._pixelHeight > 0) return this._pixelHeight;
         return typeof window !== "undefined" ? window.innerHeight : 0;
+    }
+
+    /**
+     * @internal
+     * Recomputes the projection aspect from the viewport's pixel rect so a
+     * non-full viewport does not stretch the image. Skipped until a surface size
+     * is known (e.g. before the first resize, or in a test without a window).
+     */
+    private _updateAspectFromViewport(): void {
+        const w = this.pixelWidth;
+        const h = this.pixelHeight;
+        if (w > 0 && h > 0) this.aspect = w / h;
+    }
+
+    /**
+     * @internal
+     * Maps normalized device coords (Y-up, −1..1) to full-surface screen pixels
+     * (top-left origin, Y-down), placed inside this camera's {@link viewport} rect.
+     * The rect is Y-up (bottom-left origin, Unity's `Camera.rect`), so its `y` is
+     * measured from the bottom. `out` receives the pixel x/y.
+     */
+    private _ndcToScreen(ndcX: number, ndcY: number, out: THREE.Vector2): void {
+        const vp = this._viewport;
+        const u = (ndcX + 1) * 0.5;
+        const v = (ndcY + 1) * 0.5;
+        out.x = (vp.x + u * vp.width) * this._surfaceWidth();
+        out.y = (1 - vp.y - v * vp.height) * this._surfaceHeight();
+    }
+
+    /**
+     * @internal
+     * Inverse of {@link _ndcToScreen}: full-surface screen pixels to NDC (Y-up),
+     * relative to this camera's viewport rect. `out` receives ndc x/y.
+     */
+    private _screenToNdc(screenX: number, screenY: number, out: THREE.Vector2): void {
+        const vp = this._viewport;
+        const w = this._surfaceWidth();
+        const h = this._surfaceHeight();
+        const u = vp.width !== 0 ? (screenX / w - vp.x) / vp.width : 0;
+        const v = vp.height !== 0 ? (1 - vp.y - screenY / h) / vp.height : 0;
+        out.x = 2 * u - 1;
+        out.y = 2 * v - 1;
+    }
+
+    /**
+     * @internal
+     * Casts the picking ray for an NDC (Y-up) and returns the world point at
+     * `distance` world units in front of the camera. Shared by the screen/viewport
+     * → world conversions; see {@link screenToWorldPoint} for the depth solve.
+     */
+    private _ndcToWorld(
+        cam: THREE.PerspectiveCamera | THREE.OrthographicCamera,
+        ndcX: number,
+        ndcY: number,
+        distance: number
+    ): Vector3 {
+        this._buildRay(cam, ndcX, ndcY, _tvec3, _tvec3B);
+        const e = cam.matrixWorldInverse.elements;
+        const viewZorigin = e[2] * _tvec3.x + e[6] * _tvec3.y + e[10] * _tvec3.z + e[14];
+        const viewZdir = e[2] * _tvec3B.x + e[6] * _tvec3B.y + e[10] * _tvec3B.z;
+        const s = viewZdir !== 0 ? (-distance - viewZorigin) / viewZdir : 0;
+        return new Vector3(
+            _tvec3.x + _tvec3B.x * s,
+            _tvec3.y + _tvec3B.y * s,
+            _tvec3.z + _tvec3B.z * s
+        );
     }
 
     /**

@@ -895,8 +895,12 @@ export class Application {
         // coordinate conversions use the true surface rather than the window.
         const aspect = width / height;
         for (const cam of Camera.allCameras) {
-            cam.aspect = aspect;
             cam._setPixelSize(width, height);
+            // Aspect follows the camera's pixel rect (surface × viewport), so a
+            // non-full viewport does not stretch the image.
+            const pw = cam.pixelWidth;
+            const ph = cam.pixelHeight;
+            cam.aspect = ph > 0 ? pw / ph : aspect;
         }
     }
 }

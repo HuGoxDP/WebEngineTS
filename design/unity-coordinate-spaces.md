@@ -145,12 +145,26 @@ current numeric behaviour so any future flip is caught.
 
 ---
 
-## 4. Why F4 (viewport rect) is deferred, not done
+## 4. F4 — viewport rect (done 2026-09-03)
 
-`Camera.viewport` is a stored `Rect` that **nothing in the render path reads** (verified: no
-`setViewport`/`.rect` use in `Application` or the backend). Honouring it in coordinate conversion
-while rendering ignores it would create a *new* inconsistency, not remove one. It is left with a
-`// TODO` and picked up when (if) sub-rect rendering is actually wired into the backend.
+Originally deferred because `Camera.viewport` was a stored `Rect` that nothing in the render path
+read — honouring it in conversions while rendering ignored it would have added inconsistency. Both
+sides now exist:
+
+- **Rendering:** `WebGLRenderBackend.renderScene` applies the camera's rect via
+  `setViewport`/`setScissor` (Y-up, Unity's `Camera.rect`). A full rect keeps the old behaviour
+  with scissor off; a sub-rect renders and clears only that region.
+- **Projection:** `Camera.pixelWidth`/`pixelHeight` are the rect-scaled pixel size (Unity's
+  definition), and `Application._resize` sets each camera's aspect from that pixel rect so a
+  non-full viewport does not stretch. The `viewport` setter recomputes aspect live.
+- **Conversions:** **screen** coordinates are full-surface (they must round-trip with
+  `Input.mousePosition`), so screen↔world/viewport go through the rect (`_ndcToScreen`/
+  `_screenToNdc`). **Viewport** coordinates are frustum-relative (0..1 across the camera's own
+  view), so viewport↔world are rect-independent, exactly NDC remapped.
+
+**Known limitation:** the internal `_worldToViewportPoint` (used by `Canvas` world-space UI) is
+*not* rect-aware yet — world-space UI over a sub-rect camera is a follow-up. Pinned by the
+"viewport rect (F4)" tests in `tests/CoordinateSpaces.test.ts`.
 
 ---
 

@@ -5,6 +5,7 @@ import { Space } from "../src/engine/core/Transform";
 import { Vector3 } from "../src/engine/core/math/Vector3";
 import { Vector2 } from "../src/engine/core/math/Vector2";
 import { Quaternion } from "../src/engine/core/math/Quaternion";
+import { Rect } from "../src/engine/core/math/Rect";
 
 /**
  * Pins the coordinate-conversion contract for Transform and Camera against Unity
@@ -317,5 +318,48 @@ describe("Camera — orthographic conversions", () => {
         expect(dist(r1.direction, r2.direction)).toBeLessThan(1e-4); // parallel
         expect(dist(r1.origin, r2.origin)).toBeGreaterThan(0.1);     // but offset
         expect(dist(r1.direction, new Vector3(0, 0, 1))).toBeLessThan(1e-4); // = forward
+    });
+});
+
+describe("Camera — viewport rect (F4)", () => {
+    test("pixelWidth/pixelHeight and aspect follow the viewport rect", () => {
+        const cam = makeCamera(800, 600);
+        cam.viewport = new Rect(0, 0, 0.5, 1);
+        expect(cam.pixelWidth).toBeCloseTo(400, 4);
+        expect(cam.pixelHeight).toBeCloseTo(600, 4);
+        expect(cam.aspect).toBeCloseTo(400 / 600, 4);
+    });
+
+    test("worldToScreenPoint maps into the camera's sub-rect", () => {
+        const cam = makeCamera(800, 600);
+        cam.viewport = new Rect(0.5, 0, 0.5, 1); // right half of the surface
+        const s = cam.worldToScreenPoint(new Vector3(0, 0, 5));
+        expect(s.x).toBeCloseTo(600, 1); // centre of the right half: 0.75 * 800
+        expect(s.y).toBeCloseTo(300, 1);
+        expect(s.z).toBeCloseTo(5, 4);
+    });
+
+    test("world → screen → world round-trips under a sub-rect", () => {
+        const cam = makeCamera(800, 600);
+        cam.viewport = new Rect(0.25, 0.1, 0.5, 0.8);
+        const p = new Vector3(1.2, -0.6, 7);
+        const back = cam.screenToWorldPoint(cam.worldToScreenPoint(p));
+        expect(dist(back, p)).toBeLessThan(1e-3);
+    });
+
+    test("screen <-> viewport respect the rect; viewport stays frustum-relative", () => {
+        const cam = makeCamera(800, 600);
+        cam.viewport = new Rect(0.5, 0, 0.5, 1); // right half
+        // The centre of the right half, in screen pixels, is the frustum centre.
+        const vp = cam.screenToViewportPoint(new Vector3(600, 300, 5));
+        expect(vp.x).toBeCloseTo(0.5, 4);
+        expect(vp.y).toBeCloseTo(0.5, 4);
+        const sp = cam.viewportToScreenPoint(new Vector3(0.5, 0.5, 5));
+        expect(sp.x).toBeCloseTo(600, 3);
+        expect(sp.y).toBeCloseTo(300, 3);
+        // The frustum centre projects to viewport (0.5, 0.5) regardless of the rect.
+        const wv = cam.worldToViewportPoint(new Vector3(0, 0, 5));
+        expect(wv.x).toBeCloseTo(0.5, 4);
+        expect(wv.y).toBeCloseTo(0.5, 4);
     });
 });

@@ -256,9 +256,11 @@ Each step runs components first, then the active scenario.
   choice as the UI, matching `Input.mousePosition`; `worldToScreenPoint().z` and the input `z` of
   `screenToWorldPoint`/`viewportToWorldPoint` are **world-unit distances from the camera**, not
   NDC. **(2) Camera (view) space is −Z-forward**, which is *agreement* with Unity (Unity's view
-  space is OpenGL −Z too), not a deviation — don't "fix" it. `Camera.viewport` (`Rect`) is **not**
-  yet honoured by conversions, deliberately, because rendering ignores it too (see the design
-  note's §4). Full research + staged plan: [`design/unity-coordinate-spaces.md`](design/unity-coordinate-spaces.md);
+  space is OpenGL −Z too), not a deviation — don't "fix" it. `Camera.viewport` (`Rect`, Y-up) **is**
+  honoured — in rendering (`setViewport`/`setScissor`), in `pixelWidth`/`pixelHeight`/aspect, and in
+  the screen conversions; viewport coordinates are frustum-relative so those stay rect-independent.
+  (One gap: the internal `_worldToViewportPoint` behind `Canvas` world-space UI is not rect-aware
+  yet — see the design note's §4.) Full research + staged plan: [`design/unity-coordinate-spaces.md`](design/unity-coordinate-spaces.md);
   the separate texture-UV convention is [`design/unity-coordinates-plan.md`](design/unity-coordinates-plan.md).
   Known open item: the handedness compensation is a single `rotateY(π)`, which cannot mirror, so
   the rendered image is predicted to be **horizontally mirrored vs. Unity** (design note F7) —

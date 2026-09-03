@@ -22,6 +22,9 @@ const _clearColor = new THREE.Color();
  */
 const _cameraBackground = new Color();
 
+/** Reused for the render-surface size when applying a camera's viewport rect. */
+const _backendSize = new THREE.Vector2();
+
 /**
  * The WebGL 2 backend, over Three.js' `WebGLRenderer`.
  *
@@ -114,6 +117,24 @@ export class WebGLRenderBackend implements RenderBackend {
         const threeScene = scene._internalThreeScene;
         const threeCamera = camera._internalThreeCamera;
         if (!threeCamera) return;
+
+        // Honour the camera's normalized viewport rect (Unity's Camera.rect, Y-up).
+        // A full-surface rect keeps the previous behaviour with scissor off; a
+        // sub-rect renders — and clears — only that region.
+        const vp = camera._internalViewport;
+        this._renderer.getSize(_backendSize);
+        if (vp.x === 0 && vp.y === 0 && vp.width === 1 && vp.height === 1) {
+            this._renderer.setViewport(0, 0, _backendSize.x, _backendSize.y);
+            this._renderer.setScissorTest(false);
+        } else {
+            const vx = vp.x * _backendSize.x;
+            const vy = vp.y * _backendSize.y;
+            const vw = vp.width * _backendSize.x;
+            const vh = vp.height * _backendSize.y;
+            this._renderer.setViewport(vx, vy, vw, vh);
+            this._renderer.setScissor(vx, vy, vw, vh);
+            this._renderer.setScissorTest(true);
+        }
 
         // Skybox and fog are scene-wide render settings, and which of them
         // applies depends on the camera's clear flags — so they are resolved
