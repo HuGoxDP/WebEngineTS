@@ -16,7 +16,7 @@
 //                              no npm dependency — it loads the bundle through an
 //                              import map, exactly as the platform does)
 //
-// Cache-busting: `package.json`'s version stays fixed (0.1.0) for the repo/thesis
+// Cache-busting: `package.json`'s version stays fixed (0.1.0) for the repo
 // — only bump it deliberately for a real release. To still guarantee every local
 // pack is genuinely new content (so a plain `npm install` in a consumer, or even a
 // stale lockfile, can never silently reuse an old tarball), this script stamps a

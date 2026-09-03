@@ -29,7 +29,7 @@ export interface BenchmarkOptions {
     /**
      * Scenario/scene load time in ms, measured by the caller (e.g. around
      * `loadScenarioFromUrl`). Recorded verbatim into {@link BenchmarkResult.loadTimeMs}
-     * and the CSV so exported runs carry the paper's "Load" column. Default `0`.
+     * and the CSV so exported runs carry a "Load" column. Default `0`.
      */
     loadTimeMs?: number;
 }

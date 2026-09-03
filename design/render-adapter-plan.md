@@ -1,7 +1,7 @@
 # Plan: generalize the render adapter (P2.8)
 
 **Status:** audited 2026-09-03, **not started**. This is the roadmap's P2.8 — the prerequisite for
-the WebGPU backend (P1.6) and the item the paper names as a limitation.
+the WebGPU backend (P1.6).
 
 Written after measuring the codebase rather than from the roadmap text, because two neighbouring
 roadmap claims turned out to be stale (see §5).

@@ -5,7 +5,7 @@ A Unity-like 3D game engine for the web, written in TypeScript and built on top 
 work only with high-level engine types (`GameObject`, `Component`, `Transform`, `Material`,
 lifecycle hooks) and never touch Three.js directly.
 
-> Master's thesis project — "Unity for Web". Distributed as an npm library.
+> "Unity for Web". Distributed as an npm library.
 
 ---
 

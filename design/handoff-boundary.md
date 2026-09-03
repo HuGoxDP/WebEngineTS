@@ -81,10 +81,10 @@ sharing assets with the first exists to dedup against.
 
 ### 3.3 WebGPU backend, OffscreenCanvas, material property blocks
 
-Unblocked by the `RenderBackend` seam and genuinely wanted, but none of them is on the paper's
-critical path, and all three are large. They compete directly with the evaluation data.
+Unblocked by the `RenderBackend` seam and genuinely wanted, but all three are large.
 
-*Back above the line when:* Section 5 is defensible, or a consumer blocks on one of them.
+*Back above the line when:* a consumer blocks on one of them, or the adapter generalization
+(`render-adapter-plan.md`) has landed far enough to make a second backend cheap.
 
 ### 3.4 The residual WebGL assumptions
 
@@ -135,9 +135,9 @@ identically to its ZIP, and `Scenario.timeToFirstFrame` differs measurably betwe
 
 ### Second — `WebEngineTS-Benchmarks`: the matrix runner, then the runs
 
-The thesis critical path, and the only remaining item that *shortens* it. Already scoped as
-**P0-A** in `roadmap-2026H2.md`. The harness there is mid-rewrite (`rollup.config.mjs`,
-`tsconfig.json` are untracked in the working tree) — finish that first.
+The matrix runner (`#matrix=<name>` in `run.ts`) landed there; the harness had been mid-rewrite
+(`rollup.config.mjs`, `tsconfig.json` untracked in the working tree) — confirm that settled before
+building on it.
 
 Once ScenarioCreator emits manifests, the same harness measures the streaming claims:
 time-to-first-frame ZIP vs. manifest, and peak texture VRAM with `TextureStreaming` on and off
@@ -167,7 +167,7 @@ Any of:
 
 1. A consumer blocks on a missing engine capability — that is a real requirement, not a guess.
 2. A measurement contradicts something built here, most likely §3.1's cost-only degradation.
-3. Section 5 becomes defensible, at which point §3.3's larger items stop competing with it.
+3. The adapter generalization lands far enough that §3.3's larger items become cheap.
 
 Until one of those happens, engine changes should be confined to defects.
 

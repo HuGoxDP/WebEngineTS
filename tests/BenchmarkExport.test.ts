@@ -4,7 +4,7 @@ import type { BenchmarkResult } from "../src/engine/core/diagnostics/Benchmark";
 import { Profiler } from "../src/engine/core/diagnostics/Profiler";
 
 /**
- * The harness that produces the paper's Section 5 numbers had no tests. These
+ * The harness that produces the published benchmark numbers had no tests. These
  * pin the run loop's frame accounting and the CSV shape — a column that drifts
  * out of step with its header mislabels every figure downstream, and nothing
  * about the file would look wrong. Audit part 10, F73.
@@ -159,8 +159,8 @@ describe("A measurement run", () => {
     });
 
     test("coldStart keeps the first frame's stall instead of warming it away", async () => {
-        // The documented purpose of the flag, and what the paper's startup
-        // column depends on.
+        // The documented purpose of the flag, and what the startup column
+        // depends on.
         const frames = fakeFrames();
         const promise = Benchmark.run({
             coldStart: true, warmupFrames: 120, sampleFrames: 3, captureMemory: false,

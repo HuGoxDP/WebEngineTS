@@ -2,7 +2,7 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { Profiler } from "../src/engine/core/diagnostics/Profiler";
 
 /**
- * `Profiler` and `Benchmark` compute every number the paper's Section 5
+ * `Profiler` and `Benchmark` compute every number a benchmark run
  * reports, and neither had a single test. These pin the statistics against
  * values worked out by hand, so a change to the percentile rule or the standard
  * deviation cannot pass quietly. Audit part 10, F73.
@@ -68,8 +68,8 @@ describe("computeStats", () => {
 
     test("p99 is the tail, not the mean wearing a hat", () => {
         // 99 frames at 16ms and one at 500: the stutter must survive into p99
-        // and max while barely moving the median. This is the whole reason the
-        // paper reports percentiles.
+        // and max while barely moving the median. This is the whole reason
+        // percentiles are reported at all.
         const frames = [...Array.from({ length: 99 }, () => 16), 500];
 
         const s = Profiler.computeStats(frames);

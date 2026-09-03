@@ -21,7 +21,7 @@ This packaging is the root blocker for the capabilities we want:
   engine cannot fetch a low-detail model/texture first and upgrade to high detail on demand.
 - **No progressive first paint.** The scene cannot appear until the *entire* ZIP is
   downloaded and every texture is decoded → long time-to-first-frame, especially on the
-  constrained networks/hardware the thesis targets.
+  constrained networks and hardware this engine targets.
 - **No preloading / prioritization.** Loading is all-or-nothing; the engine cannot prefetch
   the next-likely asset or defer a rarely-seen one.
 - **No cross-scenario dedup / caching.** Each ZIP re-bundles shared assets (skybox, common
@@ -29,7 +29,7 @@ This packaging is the root blocker for the capabilities we want:
   content.
 - **No partial updates.** Changing one texture forces repacking + redistributing the whole ZIP.
 - **High peak VRAM.** Every texture is uploaded at full resolution regardless of on-screen
-  size — the opposite of what integrated GPUs (the paper's target) need.
+  size — the opposite of what integrated GPUs need.
 
 The engine already ships the *runtime* primitives to fix this (see §5); what is missing is an
 **asset-addressing model** (manifest + individually-fetchable, content-hashed assets) and a
@@ -126,7 +126,7 @@ New capabilities layered on top:
 
 Each stage is independently shippable and reversible, ends with measurable value, and builds
 toward the full system. Metrics are captured with the existing `Benchmark` harness (load time,
-frame time, VRAM) so every stage is quantified for the thesis.
+frame time, VRAM) so every stage is quantified.
 
 ### Stage 0 — Foundation: real storage + manifest (no engine streaming yet)
 - Platform: drop Google Drive → content-addressed store (nginx/MinIO); immutable caching.
@@ -372,7 +372,7 @@ remaining gap, and a design question rather than a missing line of code.
 - Each stage is small and independently valuable, so the migration can pause at any stage
   without leaving the system broken.
 
-## 7. Metrics (thesis-relevant)
+## 7. Metrics
 
 Per stage, on **discrete (RTX 3050)** vs **integrated (Intel UHD)** GPUs, via the benchmark
 harness / real `?scenario=` runs:
@@ -381,5 +381,5 @@ harness / real `?scenario=` runs:
 - Frame-time percentiles under streaming vs. all-up-front.
 - Bytes transferred on first load vs. repeat load vs. second scenario (dedup).
 
-These directly strengthen the paper's loading-latency and VRAM-reduction claims and its
-integrated-graphics story.
+These are the loading-latency, VRAM-reduction and integrated-graphics numbers the proposal
+stands or falls on.

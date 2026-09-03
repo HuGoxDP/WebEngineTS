@@ -4,7 +4,7 @@ Execution plan for the `src/engine/core/ui/` subsystem. Round 1 (commit `4a84e99
 HiDPI surface, `CanvasScaler`, on-demand repaint, topmost hit-testing) is done; this
 document covers what round 2+ should be.
 
-Companion to `design/roadmap-2026H2.md`, sequenced independently of it — see §8.
+Sequenced by engine value — see §8.
 
 **Status:** Everything through §4.7 landed 2026-08-03 — Stage 0, the rect cache, the
 2D affine pipeline (rotation/scale), the full layout API, the `UIEvent` + pointer/drag
@@ -45,10 +45,9 @@ needed for "the editor lets an author compose a panel" is absent.
 - [INFERRED] The consumer that most needs this is **WebEngineTSEditor** — a WYSIWYG editor
   needs rotation/scale gizmos, layout groups, and the Unity RectTransform API surface for
   its inspector. Nothing in the engine repo currently forces those.
-- **Superseded 2026-08-03:** the original draft sequenced this plan behind the thesis
-  evaluation. The user has since directed that UI work proceed on its own merits, so §8 now
-  orders by engine value rather than by what feeds the paper. The ⚑ marks are kept only as a
-  note of which items happen to also produce publishable numbers.
+- **Superseded 2026-08-03:** an earlier draft sequenced this plan behind a measurement
+  campaign. UI work proceeds on its own merits, so §8 orders by engine value. The ⚑ marks are
+  kept only as a note of which items happen to also produce measurable numbers.
 - Y-down is a **deliberate, permanent** deviation from Unity (`RectTransform` class doc).
   This plan hardens it rather than reversing it — see §3.
 - Three.js isolation: the UI subsystem is already 100 % Three-free (it draws through the
@@ -402,7 +401,7 @@ multiplies down the same traversal) and constantly needed in practice.
 Each `Canvas` allocates its own full-screen backing store at DPR: 1920×1080 at DPR 2 is
 ~33 MB, and browsers back these with GPU surfaces. `MemoryProfiler` reported texture,
 geometry and render-target VRAM but knew nothing about them — so a multi-canvas UI was
-invisible in exactly the metric the thesis added to be complete.
+invisible in exactly the metric added to make the report complete.
 
 **Shipped:** `Canvas.backingStoreBytes` (per canvas) and `Canvas.totalBackingStoreBytes` /
 `Canvas.liveCanvasCount` (all canvases) feed `MemoryReport.renderer.estimatedUICanvasBytes`
@@ -788,7 +787,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 
 ## 7. Master task table
 
-⚑ = feeds the thesis evaluation (§8).
+⚑ = produces a measurable number (§8).
 
 | # | Task | Pri | Cx | Depends on |
 |---|---|---|---|---|
@@ -843,7 +842,7 @@ stage 3 ≈ 4+ weeks.
 
 ## 8. Sequencing
 
-Ordered by engine value. (An earlier draft sequenced this behind the thesis evaluation;
+Ordered by engine value. (An earlier draft sequenced this behind a measurement campaign;
 that constraint has been lifted — see §1.)
 
 1. ~~**Stage 0** — correctness and the test safety net.~~ **Done 2026-08-03.** Everything
@@ -881,5 +880,5 @@ was slotted in on 2026-08-05.
   measure/arrange protocol + Vertical/Horizontal + `ContentSizeFitter`; defer Grid.
 - **§5.2 and §5.1 are behaviour changes to `Button`**, the single most-used UI component in
   existing scenarios. Forwarding accessors are mandatory, not optional.
-- **Doing any of this instead of the thesis measurements is the real risk.** §8 exists to
-  make that trade-off explicit rather than accidental.
+- **Scope creep is the real risk here.** §8 exists to make the ordering explicit rather than
+  accidental.

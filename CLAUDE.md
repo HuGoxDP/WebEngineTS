@@ -8,19 +8,18 @@ Loaded from a directory outside this repository, so every project's session sees
 ecosystem map and the same live status. Edit those files rather than duplicating them here.
 
 @../.claude-shared/ECOSYSTEM.md
-@../.claude-shared/PAPER-STATUS.md
 @../.claude-shared/ENGINE-GAPS.md
 
 
 # WebEngineTS
 
-Unity-like 3D game engine in TypeScript wrapping Three.js as a hidden backend.
-Master's thesis project ("Unity for Web"). Scenario authors import only from `"WebEngineTS"` and never interact with Three.js directly.
+Unity-like 3D game engine in TypeScript wrapping Three.js as a hidden backend
+("Unity for Web"). Scenario authors import only from `"WebEngineTS"` and never interact with Three.js directly.
 
 ## Ecosystem / Related Projects
 
-**This repo holds the engine, its documentation, and (temporarily) the thesis article —
-nothing else.** No scenario content, no benchmark harness, no platform UI, no editor. Each of
+**This repo holds the engine and its documentation — nothing else.**
+No scenario content, no benchmark harness, no platform UI, no editor. Each of
 those has its own repository. Sibling projects (under `C:\Users\Work\WebstormProjects\`)
 consume the engine; the engine never imports from or depends on any of them.
 
@@ -47,7 +46,7 @@ consume the engine; the engine never imports from or depends on any of them.
   `Application.loadScenarioFromBuffer`, resolving `"WebEngineTS"` through an import map to
   `WebEngineTS.standalone.js`. Consumes the engine tarball.
 - **WebEngineTS-Benchmarks** — the reproducible benchmark suite: the `run.ts` harness, the
-  deterministic paper scenes, `aggregate.mjs`, the RUNBOOK and the recorded results. Moved
+  deterministic scenes, `aggregate.mjs`, the RUNBOOK and the recorded results. Moved
   out of this repo on 2026-08-04. It runs over the standalone bundle in `engine/`, refreshed
   the same way the other consumers are.
 
@@ -308,9 +307,8 @@ Each step runs components first, then the active scenario.
 
 ## Roadmap / Next Steps
 
-Prioritized plan for continued engine work. Driven by peer-review feedback on the
-thesis paper (submission 76) and the paper's own "future work" section. Rationale is
-kept here so future sessions understand *why* each item exists.
+Prioritized plan for continued engine work. Rationale is kept here so future sessions
+understand *why* each item exists.
 
 **Unity architecture parity** — research + staged plan for closing the gap with Unity's asset
 pipeline, serialization and editor architecture: [`design/unity-parity-plan.md`](design/unity-parity-plan.md).
@@ -327,13 +325,7 @@ priority, and the Y-down coordinate contract: [`design/canvas-ui-roadmap.md`](de
 Stage 0 (correctness + coordinate docs + event-driven surface sync) landed 2026-08-03;
 Stage 1 (layout dirty flags → rotation/scale → layout groups) is next.
 
-**Execution plan** (sequencing, effort, resources, per-item success metrics, risks):
-[`design/roadmap-2026H2.md`](design/roadmap-2026H2.md). The critical path is the paper's
-Section 5 evaluation data — the engine-side measurement tooling exists, the runs do not.
-The first item there (**P0-A**, batch/matrix mode for the harness) is the only task that
-*shortens* that path; everything else waits behind it.
-
-### P0 — Paper-critical, pure engine work (address reviewers R1 & R3)
+### P0 — Measurement and diagnostics
 1. **GPU/VRAM diagnostics** *(done 2026-07-16)*. `MemoryProfiler` surfaces
    `renderer.info.memory` (geometries, textures) plus engine-side VRAM estimates:
    per-texture bytes accounting for format (uncompressed RGBA8 vs. KTX2-transcoded
@@ -342,8 +334,8 @@ The first item there (**P0-A**, batch/matrix mode for the harness) is the only t
    `estimatedTextureVramBytes` + `estimatedGeometryVramBytes` + `estimatedRenderTargetVramBytes`
    (shadow maps per shadow-casting light via scene traversal, plus post-processing ping-pong
    buffers); `Benchmark` includes all three in its snapshot/CSV and the overlay shows a total.
-   Reviewers asked for a direct VRAM metric (KTX2's main benefit is VRAM reduction, invisible
-   in the JS heap). Public API is free of `THREE.*` types.
+   A direct VRAM metric matters because KTX2's main benefit is VRAM reduction, which is
+   invisible in the JS heap. Public API is free of `THREE.*` types.
    The diagnostics also surface **measured main-thread CPU frame time** (`Application.cpuFrameTime`
    = busy ms per loop, distinct from the VSync-capped frame interval) in `MemoryProfiler`
    (report + overlay `% of frame`) and `Benchmark` (`cpuFrameMsMean` + CSV). Note: browsers
@@ -351,11 +343,11 @@ The first item there (**P0-A**, batch/matrix mode for the harness) is the only t
 2. **Reproducible benchmark harness** *(done 2026-07-16)*. `Benchmark`
    (`diagnostics/Benchmark.ts`) does warmup + frame-time percentiles
    (mean/median/p95/p99/max/stdDev) + memory snapshot (heap, GPU counts, estimated
-   texture VRAM, draw calls, triangles) via rAF, with JSON/CSV export. The three paper
+   texture VRAM, draw calls, triangles) via rAF, with JSON/CSV export. The three benchmark
    scenes (procedural grid, high-poly model, Solar System) are deterministic, seeded and
    asset-free. **They and the whole harness now live in WebEngineTS-Benchmarks** (moved
-   2026-08-04); only the `Benchmark` class itself is still here. Closes R3's reproducibility
-   gap. For faithful, texture/VRAM-meaningful runs the harness loads the real ScenarioCreator
+   2026-08-04); only the `Benchmark` class itself is still here.
+   For faithful, texture/VRAM-meaningful runs the harness loads the real ScenarioCreator
    ZIPs (`Benchscene2/3`) via `Application.loadScenarioFromUrl`. Scene 1 exposes the
    dirty-flag optimization via `?dirty=0/1`.
 3. **Integrated-graphics readiness**. *Harness enabled (2026-07-18):* `Application.powerPreference`
@@ -365,7 +357,7 @@ The first item there (**P0-A**, batch/matrix mode for the harness) is the only t
    / CSV so runs self-label. *Remaining (needs hardware):* actually run the harness on the
    integrated GPU (Intel UHD/Iris Xe) and a phone, and verify KTX2 transcodes to ASTC/ETC2 there.
 
-### P1 — Future-work features named in the paper
+### P1 — Feature work
 4. Static geometry batching / GPU instancing (draw-call reduction). *Done (2026-07-16):*
    (a) `InstancedMeshRenderer` (`rendering/InstancedMeshRenderer.ts`) draws N copies of one
    mesh+material in a single draw call via `THREE.InstancedMesh` (engine-typed per-instance
@@ -393,7 +385,7 @@ The first item there (**P0-A**, batch/matrix mode for the harness) is the only t
 
 ### P2 — Architecture enabling P1
 8. Generalize the Adapter layer (decouple from Three.js) — prerequisite for the WebGPU
-   backend; listed as a limitation in the paper. **Audited 2026-09-03, not started:**
+   backend. **Audited 2026-09-03, not started:**
    [`design/render-adapter-plan.md`](design/render-adapter-plan.md). The *frame* seam is already
    generalized — `RenderBackend` is fully engine-typed, `Application.backendFactory` swaps it, and
    a fake backend is driven in tests. What is still Three.js-typed is **resources**
@@ -401,10 +393,6 @@ The first item there (**P0-A**, batch/matrix mode for the harness) is the only t
    39 of 160 files. Staged there so each stage leaves exactly one way to reach the GPU —
    half-abstracting would break the `instanceof THREE.Mesh` checks the engine relies on.
 9. OffscreenCanvas-based rendering.
-
-Note: paper-text-only fixes (abstract tense, deployment scale, comparison with
-three-game-engine / Rogue Engine / Needle Engine, user study) are tracked separately and
-are **not** engine tasks.
 
 ## Dependencies
 

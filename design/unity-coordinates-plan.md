@@ -1,8 +1,8 @@
 # Plan: one coordinate convention, Unity's
 
-**Status:** planned, not started. **Do not begin before the thesis is submitted (24 August 2026).**
-Every item here changes rendered output, and several change it in ways only a human looking at a
-screen can confirm.
+**Status:** planned, not started. Every item here changes rendered output, and several change it
+in ways only a human looking at a screen can confirm — use the visual harness in
+[`coordinate-check/`](coordinate-check/) as the before/after reference.
 
 The engine advertises Unity semantics — `CLAUDE.md` names Unity 6 / 2022 LTS as the reference —
 but it currently carries **four** conventions at once, three of them inherited from Three.js by
@@ -53,8 +53,8 @@ UV origin at the **top-left**, matching glTF and matching the UI's Y-down choice
 texture convention is the one the engine cannot keep, and the reason is a file format, not a
 preference.
 
-That is worth stating plainly in the thesis's limitations if the paper claims Unity-convention
-parity: the engine follows Unity everywhere it can, and compressed textures are where it cannot.
+That is worth stating plainly wherever the engine claims Unity-convention parity: it follows Unity
+everywhere it can, and compressed textures are where it cannot.
 
 ## 3. The migration, in the order it must happen
 

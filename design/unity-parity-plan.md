@@ -828,9 +828,9 @@ painful to write, that is real information about Stages 2–4.
 
 Two cautions worth stating plainly:
 
-- **The thesis does not need this.** Its critical path is the Section 5 evaluation data. Stage 1
-  helps the editor chapter; Stages 2–4 do not help the paper at all and would consume the time
-  it needs. This plan describes the engineering, not a claim that it should start now.
+- **Nothing currently blocks on Stages 2–4.** Stage 1 is what the editor needs; the rest is
+  large and speculative. This plan describes the engineering, not a claim that it should start
+  now.
 - **"Exactly like Unity" is the wrong success metric.** Unity's architecture is shaped by
   constraints this engine does not share (native runtime, C# reflection, one editor). The
   parts worth copying are the ones that solve problems this engine *actually has* — and those
