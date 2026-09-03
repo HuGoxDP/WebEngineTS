@@ -9,6 +9,9 @@ world distance, the surface comes from `Camera.pixelWidth`/`pixelHeight` (fed by
 `_setPixelSize`) instead of `window`, and the public methods build on `_worldToViewportPoint` via
 a shared `_ensureCameraMatrices`. Etap 5 — added `worldToViewportPoint`, `viewportToWorldPoint`,
 `screenToViewportPoint`, `viewportToScreenPoint`, `viewportPointToRay`, `cameraToWorldMatrix`.
+`screenToWorldPoint`/`screenPointToRay` are now correct for **orthographic** cameras too, via a
+shared `_buildRay` modelled on Three's `Raycaster.setFromCamera` (parallel rays from the near
+plane, not a fan from the eye).
 Etap 4 — `Transform.transformVector`/`inverseTransformVector`, `localToWorldMatrix`/
 `worldToLocalMatrix`, `rotateAround`, and a `Space` param on `translate`/`rotate` (clearing two
 `@todo`s); also fixed a latent staleness bug where `transformPoint` read an un-updated world

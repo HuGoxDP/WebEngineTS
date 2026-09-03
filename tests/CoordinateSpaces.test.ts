@@ -36,6 +36,15 @@ function makeCamera(w = 800, h = 600): Camera {
     return cam;
 }
 
+function makeOrthoCamera(w = 800, h = 600, size = 5): Camera {
+    const cam = spawn("OrthoCam").addComponent(Camera);
+    cam.orthographic = true;
+    cam.orthographicSize = size;
+    cam.aspect = w / h;
+    cam._setPixelSize(w, h);
+    return cam;
+}
+
 const dist = (a: Vector3, b: Vector3): number =>
     Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
@@ -257,5 +266,42 @@ describe("Camera — screen / viewport conversions", () => {
         const cam = makeCamera();
         const s = cam.worldToScreenPoint(new Vector3(1, 0, 5));
         expect(s.x).toBeLessThan(400);
+    });
+});
+
+describe("Camera — orthographic conversions", () => {
+    test("world → screen → world round-trips", () => {
+        const cam = makeOrthoCamera();
+        const p = new Vector3(2, -1, 8);
+        const back = cam.screenToWorldPoint(cam.worldToScreenPoint(p));
+        expect(dist(back, p)).toBeLessThan(1e-3);
+    });
+
+    test("centre pixel maps to the axis at the requested depth", () => {
+        const cam = makeOrthoCamera();
+        const near = cam.screenToWorldPoint(new Vector3(400, 300, 3));
+        const far = cam.screenToWorldPoint(new Vector3(400, 300, 9));
+        expect(dist(near, new Vector3(0, 0, 3))).toBeLessThan(1e-3);
+        expect(dist(far, new Vector3(0, 0, 9))).toBeLessThan(1e-3);
+    });
+
+    test("off-centre pixel: world XY is independent of depth (parallel projection)", () => {
+        const cam = makeOrthoCamera();
+        const a = cam.screenToWorldPoint(new Vector3(600, 200, 4));
+        const b = cam.screenToWorldPoint(new Vector3(600, 200, 12));
+        expect(Math.abs(a.x)).toBeGreaterThan(0.1); // genuinely off-axis
+        expect(a.x).toBeCloseTo(b.x, 4);
+        expect(a.y).toBeCloseTo(b.y, 4);
+        expect(a.z).toBeCloseTo(4, 3);
+        expect(b.z).toBeCloseTo(12, 3);
+    });
+
+    test("screenPointToRay produces parallel rays along the camera forward", () => {
+        const cam = makeOrthoCamera();
+        const r1 = cam.screenPointToRay(new Vector2(100, 100));
+        const r2 = cam.screenPointToRay(new Vector2(700, 500));
+        expect(dist(r1.direction, r2.direction)).toBeLessThan(1e-4); // parallel
+        expect(dist(r1.origin, r2.origin)).toBeGreaterThan(0.1);     // but offset
+        expect(dist(r1.direction, new Vector3(0, 0, 1))).toBeLessThan(1e-4); // = forward
     });
 });

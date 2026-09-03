@@ -540,27 +540,23 @@ export class Camera extends Behaviour {
 
         const ndcX = (screenPos.x / this._surfaceWidth()) * 2 - 1;
         const ndcY = -(screenPos.y / this._surfaceHeight()) * 2 + 1;
+        this._buildRay(cam, ndcX, ndcY, _tvec3, _tvec3B); // origin, direction
 
-        // World-space ray through the pixel: origin at the camera, direction toward
-        // the unprojected near-plane point.
-        cam.getWorldPosition(_tvec3B);
-        _tvec3.set(ndcX, ndcY, 0.5).unproject(cam);
-        const dirX = _tvec3.x - _tvec3B.x;
-        const dirY = _tvec3.y - _tvec3B.y;
-        const dirZ = _tvec3.z - _tvec3B.z;
-
-        // Step along the ray until the camera-space depth equals screenPos.z. The
-        // view-space z of the direction is row 2 of the inverse-world matrix dotted
-        // with it (column-major elements 2/6/10); the camera origin has view-space
-        // z 0, so the point at distance d satisfies t · viewZ(dir) = −d.
+        // Step along the ray until the camera-space depth equals screenPos.z, a
+        // world distance in front of the camera. View-space z is row 2 of the
+        // inverse-world matrix (column-major 2/6/10, translation 14) applied to a
+        // point, and without the translation for the direction. Solving
+        // viewZ(origin) + s·viewZ(dir) = −z handles perspective (origin z 0) and
+        // orthographic (origin on the near plane) alike.
         const e = cam.matrixWorldInverse.elements;
-        const viewZofDir = e[2] * dirX + e[6] * dirY + e[10] * dirZ;
-        const t = viewZofDir !== 0 ? -screenPos.z / viewZofDir : 0;
+        const viewZorigin = e[2] * _tvec3.x + e[6] * _tvec3.y + e[10] * _tvec3.z + e[14];
+        const viewZdir = e[2] * _tvec3B.x + e[6] * _tvec3B.y + e[10] * _tvec3B.z;
+        const s = viewZdir !== 0 ? (-screenPos.z - viewZorigin) / viewZdir : 0;
 
         return new Vector3(
-            _tvec3B.x + dirX * t,
-            _tvec3B.y + dirY * t,
-            _tvec3B.z + dirZ * t
+            _tvec3.x + _tvec3B.x * s,
+            _tvec3.y + _tvec3B.y * s,
+            _tvec3.z + _tvec3B.z * s
         );
     }
 
@@ -585,11 +581,14 @@ export class Camera extends Behaviour {
     /**
      * Creates a ray from the camera through a screen-space pixel position.
      *
-     * @param position — screen position in pixels (e.g. `Input.mousePosition`).
-     * @returns a {@link Ray} from the camera's position in the direction of
-     *          the screen point.
+     * @param position — screen position in pixels from the top-left, Y down
+     *          (e.g. `Input.mousePosition`).
+     * @returns a {@link Ray} through the screen point: from the eye for a
+     *          perspective camera, or parallel from the near plane for an
+     *          orthographic one.
      *
-     * @remarks Equivalent to Unity's `Camera.ScreenPointToRay`.
+     * @remarks Equivalent to Unity's `Camera.ScreenPointToRay` (top-left, Y-down
+     *          screen origin — see {@link worldToScreenPoint}).
      */
     public screenPointToRay(position: Vector2): Ray {
         const cam = this._threeCamera;
@@ -598,17 +597,12 @@ export class Camera extends Behaviour {
 
         const ndcX = (position.x / this._surfaceWidth()) * 2 - 1;
         const ndcY = -(position.y / this._surfaceHeight()) * 2 + 1;
+        this._buildRay(cam, ndcX, ndcY, _tvec3, _tvec3B);
 
-        _tvec3.set(ndcX, ndcY, 0.5).unproject(cam);
-
-        const origin = this.transform.position;
-        const direction = new Vector3(
-            _tvec3.x - origin.x,
-            _tvec3.y - origin.y,
-            _tvec3.z - origin.z
-        ).normalize();
-
-        return new Ray(origin, direction);
+        return new Ray(
+            new Vector3(_tvec3.x, _tvec3.y, _tvec3.z),
+            new Vector3(_tvec3B.x, _tvec3B.y, _tvec3B.z)
+        );
     }
 
     /**
@@ -774,6 +768,31 @@ export class Camera extends Behaviour {
     private _ensureCameraMatrices(cam: THREE.Camera): void {
         cam.updateWorldMatrix(true, false);
         cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+    }
+
+    /**
+     * @internal
+     * Builds the world-space picking ray through a normalized device coordinate,
+     * modelled on Three's `Raycaster.setFromCamera`: a perspective ray fans out
+     * from the eye, an orthographic ray is parallel and starts on the near plane.
+     * Fills `originOut` and a normalized `dirOut`; matrices must already be current.
+     */
+    private _buildRay(
+        cam: THREE.PerspectiveCamera | THREE.OrthographicCamera,
+        ndcX: number,
+        ndcY: number,
+        originOut: THREE.Vector3,
+        dirOut: THREE.Vector3
+    ): void {
+        if (this._orthographic) {
+            const near = this._nearClipPlane;
+            const far = this._farClipPlane;
+            originOut.set(ndcX, ndcY, (near + far) / (near - far)).unproject(cam);
+            dirOut.set(0, 0, -1).transformDirection(cam.matrixWorld);
+        } else {
+            originOut.setFromMatrixPosition(cam.matrixWorld);
+            dirOut.set(ndcX, ndcY, 0.5).unproject(cam).sub(originOut).normalize();
+        }
     }
 
     /**
