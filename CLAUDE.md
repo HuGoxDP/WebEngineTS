@@ -259,8 +259,8 @@ Each step runs components first, then the active scenario.
   space is OpenGL −Z too), not a deviation — don't "fix" it. `Camera.viewport` (`Rect`, Y-up) **is**
   honoured — in rendering (`setViewport`/`setScissor`), in `pixelWidth`/`pixelHeight`/aspect, and in
   the screen conversions; viewport coordinates are frustum-relative so those stay rect-independent.
-  (One gap: the internal `_worldToViewportPoint` behind `Canvas` world-space UI is not rect-aware
-  yet — see the design note's §4.) Full research + staged plan: [`design/unity-coordinate-spaces.md`](design/unity-coordinate-spaces.md);
+  World-space `Canvas` UI projects through the internal `_worldToSurfacePoint`, which is
+  *surface*-normalized and rect-aware — do not confuse it with the public `worldToViewportPoint`. Full research + staged plan: [`design/unity-coordinate-spaces.md`](design/unity-coordinate-spaces.md);
   the separate texture-UV convention is [`design/unity-coordinates-plan.md`](design/unity-coordinates-plan.md).
   Known open item: the handedness compensation is a single `rotateY(π)`, which cannot mirror, so
   the rendered image is predicted to be **horizontally mirrored vs. Unity** (design note F7) —

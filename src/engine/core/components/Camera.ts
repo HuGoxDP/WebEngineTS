@@ -709,12 +709,15 @@ export class Camera extends Behaviour {
 
     /**
      * @internal
-     * Projects a world point into normalized viewport coordinates, without
-     * allocating and without assuming the render surface fills the window.
+     * Projects a world point into normalized **render-surface** coordinates,
+     * without allocating and without assuming the surface fills the window.
      *
-     * Writes `x`/`y` in 0–1 across the viewport with **Y down** (0 = top), the
-     * UI subsystem's convention rather than {@link worldToScreenPoint}'s, and
-     * `z` = distance in front of the camera in world units.
+     * Writes `x`/`y` in 0–1 across the whole surface with **Y down** (0 = top),
+     * the UI subsystem's convention, and `z` = distance in front of the camera in
+     * world units. Unlike the public {@link worldToViewportPoint}, which is
+     * frustum-relative and so rect-independent, this **includes**
+     * {@link viewport}: the UI overlay spans the full surface, so a world-space
+     * canvas over a sub-rect camera must land where that camera actually draws.
      *
      * @param x - world X.
      * @param y - world Y.
@@ -723,7 +726,7 @@ export class Camera extends Behaviour {
      * @returns false when the point is at or behind the eye, where the
      *          projection mirrors and the result would be meaningless.
      */
-    public _worldToViewportPoint(x: number, y: number, z: number, out: Vector3): boolean {
+    public _worldToSurfacePoint(x: number, y: number, z: number, out: Vector3): boolean {
         const cam = this._threeCamera;
         if (cam === null) return false;
 
@@ -742,7 +745,13 @@ export class Camera extends Behaviour {
         if (distance <= 1e-6) return false;
 
         _tvec3.applyMatrix4(cam.projectionMatrix);
-        out.set((_tvec3.x + 1) * 0.5, (1 - _tvec3.y) * 0.5, distance);
+
+        // NDC → surface-normalized, placed inside the viewport rect. The rect is
+        // Y-up (Unity's Camera.rect) while the output is Y-down, hence the flip.
+        const vp = this._viewport;
+        const u = (_tvec3.x + 1) * 0.5;
+        const vUp = (_tvec3.y + 1) * 0.5;
+        out.set(vp.x + u * vp.width, 1 - vp.y - vUp * vp.height, distance);
         return true;
     }
 

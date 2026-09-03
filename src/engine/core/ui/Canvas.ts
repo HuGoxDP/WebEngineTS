@@ -835,7 +835,7 @@ export class Canvas extends Behaviour {
         const p = this._projScratch;
         const pos = this.gameObject.transform.position;
 
-        if (!camera || !camera._worldToViewportPoint(pos.x, pos.y, pos.z, p)) {
+        if (!camera || !camera._worldToSurfacePoint(pos.x, pos.y, pos.z, p)) {
             this._projected = false;
             this._worldDistance = 0;
             return;
@@ -850,7 +850,10 @@ export class Canvas extends Behaviour {
         let scale = 1;
         if (this._distanceScaling) {
             const frustumHeight = camera._frustumHeightAt(p.z);
-            const cssPerWorldUnit = frustumHeight > 1e-6 ? this._cssHeight / frustumHeight : 0;
+            // The frustum spans the camera's viewport rect, not the whole surface,
+            // so a sub-rect camera fits the same world height into fewer pixels.
+            const viewportCssHeight = this._cssHeight * camera._internalViewport.height;
+            const cssPerWorldUnit = frustumHeight > 1e-6 ? viewportCssHeight / frustumHeight : 0;
             scale = this._worldScale * cssPerWorldUnit;
         }
         this._baseScale = scale;

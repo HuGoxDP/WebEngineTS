@@ -162,9 +162,14 @@ sides now exist:
   `_screenToNdc`). **Viewport** coordinates are frustum-relative (0..1 across the camera's own
   view), so viewport↔world are rect-independent, exactly NDC remapped.
 
-**Known limitation:** the internal `_worldToViewportPoint` (used by `Canvas` world-space UI) is
-*not* rect-aware yet — world-space UI over a sub-rect camera is a follow-up. Pinned by the
-"viewport rect (F4)" tests in `tests/CoordinateSpaces.test.ts`.
+- **World-space UI:** the internal projection behind `Canvas` was renamed
+  `_worldToViewportPoint` → **`_worldToSurfacePoint`** and made rect-aware. The UI overlay spans
+  the whole surface, so it needs *surface*-normalized coordinates, not the frustum-relative ones
+  the public `worldToViewportPoint` returns — keeping the old name would have left two things
+  called "viewport" meaning different spaces. `Canvas`'s distance scaling was corrected too: the
+  frustum spans `cssHeight × rect.height`, not the full height.
+
+Pinned by the "viewport rect (F4)" tests in `tests/CoordinateSpaces.test.ts`.
 
 ---
 

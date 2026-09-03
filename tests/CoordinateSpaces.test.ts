@@ -362,4 +362,32 @@ describe("Camera — viewport rect (F4)", () => {
         expect(wv.x).toBeCloseTo(0.5, 4);
         expect(wv.y).toBeCloseTo(0.5, 4);
     });
+
+    /**
+     * _worldToSurfacePoint backs world-space Canvas UI. The overlay spans the
+     * whole surface, so unlike the frustum-relative public viewport API this one
+     * must include the rect, or a world-space canvas drifts off the 3D object it
+     * is anchored to whenever the camera does not fill the surface.
+     */
+    test("_worldToSurfacePoint is surface-normalized and rect-aware", () => {
+        const cam = makeCamera(800, 600);
+        const out = new Vector3();
+
+        expect(cam._worldToSurfacePoint(0, 0, 5, out)).toBe(true);
+        expect(out.x).toBeCloseTo(0.5, 4); // full rect: centre of the surface
+        expect(out.y).toBeCloseTo(0.5, 4);
+        expect(out.z).toBeCloseTo(5, 4);   // world-unit distance
+
+        cam.viewport = new Rect(0.5, 0, 0.5, 1); // right half
+        expect(cam._worldToSurfacePoint(0, 0, 5, out)).toBe(true);
+        expect(out.x).toBeCloseTo(0.75, 4); // centre of the right half
+        expect(out.y).toBeCloseTo(0.5, 4);
+    });
+
+    test("_worldToSurfacePoint rejects points at or behind the eye", () => {
+        const cam = makeCamera();
+        const out = new Vector3();
+        expect(cam._worldToSurfacePoint(0, 0, -5, out)).toBe(false);
+        expect(cam._worldToSurfacePoint(0, 0, 0, out)).toBe(false);
+    });
 });
