@@ -17,6 +17,7 @@ import type { GameObject } from "../GameObject.ts";
 // Used in coordinate conversion methods to avoid per-call allocations.
 
 const _tvec3 = new THREE.Vector3();
+const _tvec3B = new THREE.Vector3();
 
 // ==================== ENUMS ====================
 
@@ -146,6 +147,12 @@ export class Camera extends Behaviour {
 
     /** Normalized viewport rectangle (0–1). */
     private _viewport: Rect = new Rect(0, 0, 1, 1);
+
+    /** Render-surface width in CSS pixels; 0 until the Application sets it. */
+    private _pixelWidth: number = 0;
+
+    /** Render-surface height in CSS pixels; 0 until the Application sets it. */
+    private _pixelHeight: number = 0;
 
     /** Background clear color. */
     private _backgroundColor: Color = Color.black;
@@ -334,6 +341,39 @@ export class Camera extends Behaviour {
         }
     }
 
+    /**
+     * The width of the camera's render surface in pixels.
+     *
+     * @remarks
+     * Equivalent to Unity's `Camera.pixelWidth`. Driven by the {@link Application}
+     * when the canvas resizes; falls back to the window width until then (e.g. in
+     * isolated tests). Does not yet account for {@link viewport} — see the
+     * coordinate-spaces design note.
+     */
+    public get pixelWidth(): number {
+        return this._surfaceWidth();
+    }
+
+    /**
+     * The height of the camera's render surface in pixels.
+     *
+     * @remarks Equivalent to Unity's `Camera.pixelHeight`. See {@link pixelWidth}.
+     */
+    public get pixelHeight(): number {
+        return this._surfaceHeight();
+    }
+
+    /**
+     * @internal
+     * Sets the render-surface size in CSS pixels. The {@link Application} calls
+     * this on resize so coordinate conversions do not assume the canvas fills the
+     * window. Pass `0`, `0` to clear and fall back to the window size.
+     */
+    public _setPixelSize(width: number, height: number): void {
+        this._pixelWidth = width;
+        this._pixelHeight = height;
+    }
+
     // ==================== VIEWPORT & RENDERING PROPERTIES ====================
 
     /**
@@ -431,50 +471,115 @@ export class Camera extends Behaviour {
      * Converts a world-space position to screen-space pixel coordinates.
      *
      * @param position — world-space point.
-     * @returns screen-space point where `x`/`y` are in pixels and
-     *          `z` is the depth from the camera.
+     * @returns screen-space point where `x`/`y` are pixels from the **top-left** of
+     *          the render surface (X right, Y **down**, matching
+     *          {@link Input.mousePosition}) and `z` is the distance from the camera
+     *          in world units.
      *
-     * @remarks Equivalent to Unity's `Camera.WorldToScreenPoint`.
+     * @remarks
+     * Equivalent to Unity's `Camera.WorldToScreenPoint`, except the screen origin
+     * is the top-left with Y down rather than Unity's bottom-left, Y up — the
+     * engine's screen convention. Pixel size comes from {@link pixelWidth} /
+     * {@link pixelHeight}, not the window.
      */
     public worldToScreenPoint(position: Vector3): Vector3 {
-        if (this._threeCamera === null) return Vector3.zero.clone();
+        const cam = this._threeCamera;
+        if (cam === null) return Vector3.zero.clone();
+        this._ensureCameraMatrices(cam);
 
-        _tvec3.set(position.x, position.y, position.z);
-        _tvec3.project(this._threeCamera);
+        // View-space z is negative in front of the camera; Unity's screen z is the
+        // world-unit distance from the camera, so negate it. Kept signed, so a
+        // point behind the camera reports a negative distance, as Unity's does.
+        _tvec3.set(position.x, position.y, position.z).applyMatrix4(cam.matrixWorldInverse);
+        const distance = -_tvec3.z;
 
-        const screenWidth = window.innerWidth;
-        const screenHeight = window.innerHeight;
-
+        _tvec3.set(position.x, position.y, position.z).project(cam);
         return new Vector3(
-            ((_tvec3.x + 1) * 0.5) * screenWidth,
-            ((1 - _tvec3.y) * 0.5) * screenHeight,
-            -_tvec3.z
+            (_tvec3.x + 1) * 0.5 * this._surfaceWidth(),
+            (1 - _tvec3.y) * 0.5 * this._surfaceHeight(),
+            distance
         );
+    }
+
+    /**
+     * Converts a world-space position to viewport coordinates.
+     *
+     * @param position — world-space point.
+     * @returns viewport point where `x`/`y` are 0–1 across the surface (Y **down**:
+     *          0 = top, 1 = bottom) and `z` is the distance from the camera in
+     *          world units.
+     *
+     * @remarks
+     * Equivalent to Unity's `Camera.WorldToViewportPoint`, except Y points down
+     * (see {@link worldToScreenPoint}), staying consistent with the engine's
+     * screen space rather than Unity's bottom-left viewport.
+     */
+    public worldToViewportPoint(position: Vector3): Vector3 {
+        const s = this.worldToScreenPoint(position);
+        const w = this._surfaceWidth();
+        const h = this._surfaceHeight();
+        return new Vector3(w > 0 ? s.x / w : 0, h > 0 ? s.y / h : 0, s.z);
     }
 
     /**
      * Converts screen-space pixel coordinates to a world-space position.
      *
-     * @param screenPos — screen-space point where `x`/`y` are in pixels
-     *                     and `z` is the depth from the camera.
+     * @param screenPos — screen-space point where `x`/`y` are pixels from the
+     *          top-left (Y down) and `z` is the distance **in front of the camera
+     *          in world units** at which the returned point lies. `z = 0` returns
+     *          the camera's own position.
      * @returns world-space position.
      *
-     * @remarks Equivalent to Unity's `Camera.ScreenToWorldPoint`.
+     * @remarks Equivalent to Unity's `Camera.ScreenToWorldPoint`, with the
+     *          top-left, Y-down screen origin described on {@link worldToScreenPoint}.
      */
     public screenToWorldPoint(screenPos: Vector3): Vector3 {
-        if (this._threeCamera === null) return Vector3.zero.clone();
+        const cam = this._threeCamera;
+        if (cam === null) return Vector3.zero.clone();
+        this._ensureCameraMatrices(cam);
 
-        const screenWidth = window.innerWidth;
-        const screenHeight = window.innerHeight;
+        const ndcX = (screenPos.x / this._surfaceWidth()) * 2 - 1;
+        const ndcY = -(screenPos.y / this._surfaceHeight()) * 2 + 1;
 
-        _tvec3.set(
-            (screenPos.x / screenWidth) * 2 - 1,
-            -(screenPos.y / screenHeight) * 2 + 1,
-            -screenPos.z
+        // World-space ray through the pixel: origin at the camera, direction toward
+        // the unprojected near-plane point.
+        cam.getWorldPosition(_tvec3B);
+        _tvec3.set(ndcX, ndcY, 0.5).unproject(cam);
+        const dirX = _tvec3.x - _tvec3B.x;
+        const dirY = _tvec3.y - _tvec3B.y;
+        const dirZ = _tvec3.z - _tvec3B.z;
+
+        // Step along the ray until the camera-space depth equals screenPos.z. The
+        // view-space z of the direction is row 2 of the inverse-world matrix dotted
+        // with it (column-major elements 2/6/10); the camera origin has view-space
+        // z 0, so the point at distance d satisfies t · viewZ(dir) = −d.
+        const e = cam.matrixWorldInverse.elements;
+        const viewZofDir = e[2] * dirX + e[6] * dirY + e[10] * dirZ;
+        const t = viewZofDir !== 0 ? -screenPos.z / viewZofDir : 0;
+
+        return new Vector3(
+            _tvec3B.x + dirX * t,
+            _tvec3B.y + dirY * t,
+            _tvec3B.z + dirZ * t
         );
-        _tvec3.unproject(this._threeCamera);
+    }
 
-        return new Vector3(_tvec3.x, _tvec3.y, _tvec3.z);
+    /**
+     * Converts viewport coordinates to a world-space position.
+     *
+     * @param viewportPos — viewport point (`x`/`y` in 0–1, Y down) whose `z` is the
+     *          distance in front of the camera in world units.
+     * @returns world-space position.
+     *
+     * @remarks Equivalent to Unity's `Camera.ViewportToWorldPoint` (Y-down — see
+     *          {@link worldToViewportPoint}).
+     */
+    public viewportToWorldPoint(viewportPos: Vector3): Vector3 {
+        return this.screenToWorldPoint(new Vector3(
+            viewportPos.x * this._surfaceWidth(),
+            viewportPos.y * this._surfaceHeight(),
+            viewportPos.z
+        ));
     }
 
     /**
@@ -487,13 +592,14 @@ export class Camera extends Behaviour {
      * @remarks Equivalent to Unity's `Camera.ScreenPointToRay`.
      */
     public screenPointToRay(position: Vector2): Ray {
-        if (this._threeCamera === null) return new Ray();
+        const cam = this._threeCamera;
+        if (cam === null) return new Ray();
+        this._ensureCameraMatrices(cam);
 
-        const ndcX = (position.x / window.innerWidth) * 2 - 1;
-        const ndcY = -(position.y / window.innerHeight) * 2 + 1;
+        const ndcX = (position.x / this._surfaceWidth()) * 2 - 1;
+        const ndcY = -(position.y / this._surfaceHeight()) * 2 + 1;
 
-        _tvec3.set(ndcX, ndcY, 0.5);
-        _tvec3.unproject(this._threeCamera);
+        _tvec3.set(ndcX, ndcY, 0.5).unproject(cam);
 
         const origin = this.transform.position;
         const direction = new Vector3(
@@ -503,6 +609,53 @@ export class Camera extends Behaviour {
         ).normalize();
 
         return new Ray(origin, direction);
+    }
+
+    /**
+     * Creates a ray from the camera through a viewport position.
+     *
+     * @param position — viewport position (`x`/`y` in 0–1, Y down).
+     * @returns a {@link Ray} from the camera's position through the viewport point.
+     *
+     * @remarks Equivalent to Unity's `Camera.ViewportPointToRay` (Y-down).
+     */
+    public viewportPointToRay(position: Vector2): Ray {
+        return this.screenPointToRay(new Vector2(
+            position.x * this._surfaceWidth(),
+            position.y * this._surfaceHeight()
+        ));
+    }
+
+    /**
+     * Converts screen-space pixel coordinates to viewport coordinates.
+     *
+     * @param screenPos — screen point (`x`/`y` pixels from the top-left, Y down);
+     *          `z` is passed through unchanged.
+     * @returns viewport point (`x`/`y` in 0–1, Y down).
+     *
+     * @remarks Equivalent to Unity's `Camera.ScreenToViewportPoint` (Y-down).
+     */
+    public screenToViewportPoint(screenPos: Vector3): Vector3 {
+        const w = this._surfaceWidth();
+        const h = this._surfaceHeight();
+        return new Vector3(w > 0 ? screenPos.x / w : 0, h > 0 ? screenPos.y / h : 0, screenPos.z);
+    }
+
+    /**
+     * Converts viewport coordinates to screen-space pixel coordinates.
+     *
+     * @param viewportPos — viewport point (`x`/`y` in 0–1, Y down); `z` is passed
+     *          through unchanged.
+     * @returns screen point (`x`/`y` pixels from the top-left, Y down).
+     *
+     * @remarks Equivalent to Unity's `Camera.ViewportToScreenPoint` (Y-down).
+     */
+    public viewportToScreenPoint(viewportPos: Vector3): Vector3 {
+        return new Vector3(
+            viewportPos.x * this._surfaceWidth(),
+            viewportPos.y * this._surfaceHeight(),
+            viewportPos.z
+        );
     }
 
     // ==================== MATRIX ACCESS ====================
@@ -530,9 +683,30 @@ export class Camera extends Behaviour {
      */
     public get worldToCameraMatrix(): Matrix4x4 {
         if (this._threeCamera === null) return Matrix4x4.identity.clone();
+        this._ensureCameraMatrices(this._threeCamera);
 
         const result = new Matrix4x4();
         const src = this._threeCamera.matrixWorldInverse.elements;
+        for (let i = 0; i < 16; i++) {
+            result.elements[i] = src[i];
+        }
+        return result;
+    }
+
+    /**
+     * Returns the camera-to-world matrix (camera space → world).
+     *
+     * @remarks
+     * Equivalent to Unity's `Camera.cameraToWorldMatrix`. Camera space follows the
+     * OpenGL convention (forward is −Z), which **matches** Unity — this is not a
+     * deviation. See the class docs.
+     */
+    public get cameraToWorldMatrix(): Matrix4x4 {
+        if (this._threeCamera === null) return Matrix4x4.identity.clone();
+        this._ensureCameraMatrices(this._threeCamera);
+
+        const result = new Matrix4x4();
+        const src = this._threeCamera.matrixWorld.elements;
         for (let i = 0; i < 16; i++) {
             result.elements[i] = src[i];
         }
@@ -564,8 +738,7 @@ export class Camera extends Behaviour {
         // camera's current position rather than lagging it by a frame. Ancestors
         // included: the camera is a child of its Transform's object, and a rig
         // that moved this frame has not been flushed either.
-        cam.updateWorldMatrix(true, false);
-        cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+        this._ensureCameraMatrices(cam);
 
         _tvec3.set(x, y, z).applyMatrix4(cam.matrixWorldInverse);
 
@@ -590,6 +763,37 @@ export class Camera extends Behaviour {
     }
 
     // ==================== PRIVATE HELPERS ====================
+
+    /**
+     * @internal
+     * Refreshes the Three.js camera's world and inverse-world matrices so a
+     * conversion reflects the camera's current pose. Coordinate methods and the UI
+     * can run before the render pass, when Three's cached matrices still hold the
+     * previous frame's values; ancestors are included so a moved rig is current too.
+     */
+    private _ensureCameraMatrices(cam: THREE.Camera): void {
+        cam.updateWorldMatrix(true, false);
+        cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+    }
+
+    /**
+     * @internal
+     * Render-surface width in pixels: the size set by the Application, or the
+     * window width as a fallback when none has been set (isolated tests).
+     */
+    private _surfaceWidth(): number {
+        if (this._pixelWidth > 0) return this._pixelWidth;
+        return typeof window !== "undefined" ? window.innerWidth : 0;
+    }
+
+    /**
+     * @internal
+     * Render-surface height in pixels. See {@link _surfaceWidth}.
+     */
+    private _surfaceHeight(): number {
+        if (this._pixelHeight > 0) return this._pixelHeight;
+        return typeof window !== "undefined" ? window.innerHeight : 0;
+    }
 
     /**
      * @internal

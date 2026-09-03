@@ -891,10 +891,12 @@ export class Application {
 
         this._backend.setSize(width, height);
 
-        // Update aspect ratio on all active cameras
+        // Update aspect ratio and render-surface size on all active cameras, so
+        // coordinate conversions use the true surface rather than the window.
         const aspect = width / height;
         for (const cam of Camera.allCameras) {
             cam.aspect = aspect;
+            cam._setPixelSize(width, height);
         }
     }
 }
