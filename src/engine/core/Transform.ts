@@ -7,6 +7,7 @@ import { Quaternion } from "./math/Quaternion.ts";
 import type { GameObject } from "./GameObject.ts";
 import { SceneManager } from "./SceneManager.ts";
 import { Bounds } from "./math/Bounds.ts";
+import { Matrix4x4 } from "./math/Matrix4x4.ts";
 
 // ==================== MODULE-LEVEL CACHE ====================
 // Cached Three.js temporaries for zero-allocation internal math.
@@ -17,6 +18,7 @@ const _tquatA = new THREE.Quaternion();
 const _tquatB = new THREE.Quaternion();
 const _tBox3 = new THREE.Box3();
 const _tVec3B = new THREE.Vector3();
+const _tMat4 = new THREE.Matrix4();
 // Cached engine-math temporary for direction vector calculations
 const _equatA = new Quaternion();
 
@@ -29,6 +31,18 @@ let _dirtyTransformsEnabled = false;
 
 /** Set of transforms that need syncing before render. */
 const _dirtySet: Set<Transform> = new Set();
+
+/**
+ * The coordinate space a {@link Transform} operation is relative to.
+ *
+ * @remarks Equivalent to Unity's `Space`.
+ */
+export enum Space {
+    /** Relative to the world axes. */
+    World = 0,
+    /** Relative to the Transform's own local axes. */
+    Self = 1,
+}
 
 /**
  * Defines the position, rotation, and scale of a {@link GameObject}.
@@ -156,6 +170,18 @@ export class Transform extends Component {
         this._localRotation._copyToThree(this._object3D.quaternion);
         this._localScale._copyToThree(this._object3D.scale);
         this._dirty = false;
+    }
+
+    /**
+     * @internal
+     * Ensures the backing object's world matrix reflects the current local TRS
+     * and ancestor chain. Local edits only mark the transform dirty and the world
+     * matrix is recomputed at render, so coordinate conversions call this to stay
+     * correct between frames and before the first render (e.g. in tests).
+     */
+    private _ensureWorldMatrix(): void {
+        if (this._dirty) this._syncToThree();
+        this._object3D.updateWorldMatrix(true, false);
     }
 
     /** Marks this transform as needing sync before next render. */
@@ -708,22 +734,25 @@ export class Transform extends Component {
     // ==================== V. TRANSFORM METHODS ====================
 
     /**
-     * Moves the Transform by `translation` in world space.
+     * Moves the Transform by `translation`.
      *
-     * @param translation — the world-space offset to apply.
+     * @param translation — the offset to apply.
+     * @param relativeTo — {@link Space.World} (default) adds the offset along the
+     *        world axes; {@link Space.Self} first rotates it by the Transform's own
+     *        orientation (ignoring scale), i.e. moves along its local axes.
      *
      * @remarks
-     * Equivalent to Unity's `Transform.Translate(translation, Space.World)`.
-     *
-     * @todo Support `Space` parameter (Self vs World).
+     * Equivalent to Unity's `Transform.Translate(translation, relativeTo)`.
      */
-    public translate(translation: Vector3): void {
-        // Get current world position into cache (avoids allocation)
+    public translate(translation: Vector3, relativeTo: Space = Space.World): void {
         if (this._dirty) this._syncToThree();
+        const offset = relativeTo === Space.Self
+            ? this.transformDirection(translation)
+            : translation;
         this._object3D.getWorldPosition(_tvec3A);
-        _tvec3A.x += translation.x;
-        _tvec3A.y += translation.y;
-        _tvec3A.z += translation.z;
+        _tvec3A.x += offset.x;
+        _tvec3A.y += offset.y;
+        _tvec3A.z += offset.z;
 
         // Convert back to local
         if (this._parent) {
@@ -742,16 +771,19 @@ export class Transform extends Component {
      * Rotates the Transform by the given Euler angles (in degrees).
      *
      * @param eulers — rotation angles in degrees (x = pitch, y = yaw, z = roll).
+     * @param relativeTo — {@link Space.Self} (default) rotates around the
+     *        Transform's own axes; {@link Space.World} rotates around the world axes.
      *
-     * @remarks
-     * Equivalent to Unity's `Transform.Rotate(eulers, Space.Self)`.
-     * Applies rotation in local space relative to current rotation.
-     *
-     * @todo Support `Space` parameter and axis-angle overload.
+     * @remarks Equivalent to Unity's `Transform.Rotate(eulers, relativeTo)`.
      */
-    public rotate(eulers: Vector3): void {
+    public rotate(eulers: Vector3, relativeTo: Space = Space.Self): void {
         const delta = Quaternion.euler(eulers.x, eulers.y, eulers.z);
-        // Apply in local space: newLocalRot = currentLocalRot * delta
+        if (relativeTo === Space.World) {
+            // World: newWorldRot = delta * currentWorldRot.
+            this.rotation = Quaternion.multiply(delta, this.rotation);
+            return;
+        }
+        // Self: newLocalRot = currentLocalRot * delta.
         const newRot = Quaternion.multiply(this._localRotation, delta, _equatA);
         this._localRotation.copy(newRot);
         if (_dirtyTransformsEnabled) {
@@ -759,6 +791,25 @@ export class Transform extends Component {
         } else {
             this._localRotation._copyToThree(this._object3D.quaternion);
         }
+    }
+
+    /**
+     * Rotates the Transform around a world-space `point` and `axis` by `angle`
+     * degrees, updating both its position and orientation.
+     *
+     * @param point — the world-space pivot to rotate around.
+     * @param axis — the world-space axis to rotate about (need not be normalized).
+     * @param angle — rotation angle in degrees.
+     *
+     * @remarks Equivalent to Unity's `Transform.RotateAround(point, axis, angle)`.
+     */
+    public rotateAround(point: Vector3, axis: Vector3, angle: number): void {
+        const q = Quaternion.angleAxis(angle, axis);
+        const pos = this.position;
+        const offset = new Vector3(pos.x - point.x, pos.y - point.y, pos.z - point.z);
+        offset.applyQuaternion(q);
+        this.position = new Vector3(point.x + offset.x, point.y + offset.y, point.z + offset.z);
+        this.rotation = Quaternion.multiply(q, this.rotation);
     }
 
     /**
@@ -840,7 +891,7 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.TransformPoint(point)`.
      */
     public transformPoint(localPoint: Vector3): Vector3 {
-        if (this._dirty) this._syncToThree();
+        this._ensureWorldMatrix();
         localPoint._copyToThree(_tvec3A);
         this._object3D.localToWorld(_tvec3A);
         return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
@@ -856,8 +907,53 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.InverseTransformPoint(point)`.
      */
     public inverseTransformPoint(worldPoint: Vector3): Vector3 {
-        if (this._dirty) this._syncToThree();
+        this._ensureWorldMatrix();
         worldPoint._copyToThree(_tvec3A);
+        this._object3D.worldToLocal(_tvec3A);
+        return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
+    }
+
+    /**
+     * Transforms a vector from local space to world space.
+     *
+     * Applies rotation **and scale** but not position, so the result may have a
+     * different length than `localVector`. Use it for offsets and sizes; use
+     * {@link transformDirection} for directions that must keep unit length and
+     * {@link transformPoint} for positions.
+     *
+     * @param localVector — vector in this Transform's local space.
+     * @returns the vector in world space.
+     *
+     * @remarks Equivalent to Unity's `Transform.TransformVector(vector)`.
+     */
+    public transformVector(localVector: Vector3): Vector3 {
+        this._ensureWorldMatrix();
+        // World rotation + scale without translation: the difference of two points
+        // (the vector, and the origin) taken through the same world matrix.
+        _tvec3A.set(localVector.x, localVector.y, localVector.z);
+        this._object3D.localToWorld(_tvec3A);
+        _tVec3B.set(0, 0, 0);
+        this._object3D.localToWorld(_tVec3B);
+        return new Vector3(_tvec3A.x - _tVec3B.x, _tvec3A.y - _tVec3B.y, _tvec3A.z - _tVec3B.z);
+    }
+
+    /**
+     * Transforms a vector from world space to local space.
+     *
+     * Inverse of {@link transformVector}: undoes rotation and scale but not
+     * position, so the result may have a different length than `worldVector`.
+     *
+     * @param worldVector — vector in world space.
+     * @returns the vector in this Transform's local space.
+     *
+     * @remarks Equivalent to Unity's `Transform.InverseTransformVector(vector)`.
+     */
+    public inverseTransformVector(worldVector: Vector3): Vector3 {
+        this._ensureWorldMatrix();
+        // worldToLocal(worldPos + v) − worldToLocal(worldPos); the second term is
+        // this transform's local origin (0,0,0), so one conversion suffices.
+        this._object3D.getWorldPosition(_tVec3B);
+        _tvec3A.set(_tVec3B.x + worldVector.x, _tVec3B.y + worldVector.y, _tVec3B.z + worldVector.z);
         this._object3D.worldToLocal(_tvec3A);
         return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
     }
@@ -898,6 +994,32 @@ export class Transform extends Component {
         _tvec3A.set(worldDirection.x, worldDirection.y, worldDirection.z);
         _tvec3A.applyQuaternion(_tquatA);
         return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
+    }
+
+    /**
+     * The matrix that transforms a point from local space to world space.
+     *
+     * @remarks Equivalent to Unity's `Transform.localToWorldMatrix`.
+     */
+    public get localToWorldMatrix(): Matrix4x4 {
+        this._ensureWorldMatrix();
+        const result = new Matrix4x4();
+        const src = this._object3D.matrixWorld.elements;
+        for (let i = 0; i < 16; i++) result.elements[i] = src[i];
+        return result;
+    }
+
+    /**
+     * The matrix that transforms a point from world space to local space.
+     *
+     * @remarks Equivalent to Unity's `Transform.worldToLocalMatrix`.
+     */
+    public get worldToLocalMatrix(): Matrix4x4 {
+        this._ensureWorldMatrix();
+        const result = new Matrix4x4();
+        const src = _tMat4.copy(this._object3D.matrixWorld).invert().elements;
+        for (let i = 0; i < 16; i++) result.elements[i] = src[i];
+        return result;
     }
 
     // ==================== VII. LIFECYCLE ====================

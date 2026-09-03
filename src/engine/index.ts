@@ -23,7 +23,7 @@
 // =====================
 export { GameObject } from "./core/GameObject";
 export { Component } from "./core/Component";
-export { Transform } from "./core/Transform";
+export { Transform, Space } from "./core/Transform";
 export { Scene } from "./core/Scene";
 export { SceneManager, LoadSceneMode } from "./core/SceneManager";
 export { Application, GraphicsPowerPreference } from "./core/Application";
