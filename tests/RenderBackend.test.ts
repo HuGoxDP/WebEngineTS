@@ -185,4 +185,40 @@ describe("RenderBackend — the seam", () => {
 
         expect(backend.disposed).toBe(true);
     });
+
+    /**
+     * The WebGL-specific counters reach around the seam, through
+     * `_internalThreeRenderer`, which a non-WebGL backend does not provide. They
+     * are written to degrade rather than throw — but nothing exercised that until
+     * now, and it is exactly what breaks first when a second backend appears.
+     * Stage 0 of design/render-adapter-plan.md.
+     */
+    test("diagnostics degrade instead of throwing when the backend is not WebGL", async () => {
+        await makeApp();
+        const { MemoryProfiler } = await import("../src/engine/core/diagnostics/MemoryProfiler");
+
+        const report = MemoryProfiler.snapshot();
+
+        // WebGL-only sections report absence...
+        expect(report.renderer).toBeNull();
+        expect(report.renderStats).toBeNull();
+        expect(report.gpu).toBeNull();
+
+        // ...while the backend-independent ones still work.
+        expect(report.resources).toBeDefined();
+        expect(typeof report.resources.cacheEntries).toBe("number");
+    });
+
+    test("logReport survives a backend with no Three.js renderer", async () => {
+        await makeApp();
+        const { MemoryProfiler } = await import("../src/engine/core/diagnostics/MemoryProfiler");
+
+        const saved = { group: console.group, groupEnd: console.groupEnd, log: console.log };
+        console.group = () => {}; console.groupEnd = () => {}; console.log = () => {};
+        try {
+            expect(() => MemoryProfiler.logReport()).not.toThrow();
+        } finally {
+            console.group = saved.group; console.groupEnd = saved.groupEnd; console.log = saved.log;
+        }
+    });
 });

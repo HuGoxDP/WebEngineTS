@@ -70,10 +70,19 @@ So the staging below is ordered so that **each stage leaves exactly one way to r
 
 ## 4. Stages
 
-### Stage 0 — Pin the seam that exists
-Extend the fake backend in `tests/RenderBackend.test.ts` into a full no-op backend and assert the
-engine runs a frame, loads a scenario and reports diagnostics against it. Today the fake only
-covers construction and disposal. **Without this, every later stage is unverifiable.**
+### Stage 0 — Pin the seam that exists — **done 2026-09-03**
+
+*Correction to this document's first draft: it claimed the fake backend "only covers construction
+and disposal". That was wrong.* `tests/RenderBackend.test.ts` already drove the factory swap, the
+construction options, the initial resize, quality delegation, a full frame through `_render` as
+engine types, the no-camera clear path, warmup and disposal.
+
+The real gap was one layer over: the **WebGL-specific diagnostics reach around the seam** through
+`_internalThreeRenderer`, which a non-WebGL backend does not provide. They were written to degrade
+(`?.` throughout, with a comment saying a second backend needs its own reporting) but nothing
+exercised it — and it is the first thing that breaks when a second backend appears. Now pinned:
+`MemoryProfiler.snapshot()` against the fake backend reports `renderer: null`, `renderStats: null`,
+`gpu: null` while `resources` still works, and `logReport()` does not throw.
 
 ### Stage 1 — Resource handles
 Give `Texture`, `Mesh` and `Material` an opaque, backend-created handle instead of a public-by-
