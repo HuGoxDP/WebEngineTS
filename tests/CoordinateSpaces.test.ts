@@ -186,6 +186,35 @@ describe("Transform — translate / rotate / rotateAround with Space", () => {
         expect(dist(r.transform.right, new Vector3(0, 1, 0))).toBeLessThan(1e-4);
     });
 
+    /**
+     * `lookAt` used to delegate to `Object3D.lookAt`, which aims an object's −Z at
+     * the target where Unity aims its +Z — so `forward` ended up pointing away
+     * from what was just looked at. The camera's old `rotateY(π)` hid it; with
+     * that gone, a `lookAt` camera rendered an empty scene.
+     */
+    test("lookAt points forward AT the target, not away from it", () => {
+        const o = spawn("looker");
+        o.transform.position = new Vector3(0, 0, -10);
+        o.transform.lookAt(new Vector3(0, 0, 0));
+        expect(dist(o.transform.forward, new Vector3(0, 0, 1))).toBeLessThan(1e-4);
+
+        const side = spawn("side");
+        side.transform.lookAt(new Vector3(5, 0, 0));
+        expect(dist(side.transform.forward, new Vector3(1, 0, 0))).toBeLessThan(1e-4);
+    });
+
+    test("lookAt keeps up roughly world-up and is stable at the target", () => {
+        const o = spawn("looker");
+        o.transform.lookAt(new Vector3(0, 0, 3));
+        expect(o.transform.up.y).toBeGreaterThan(0.9);
+
+        // Degenerate: looking at its own position must not produce NaN.
+        const before = o.transform.rotation;
+        o.transform.lookAt(o.transform.position);
+        expect(Number.isNaN(o.transform.rotation.x)).toBe(false);
+        expect(o.transform.rotation.w).toBeCloseTo(before.w, 5);
+    });
+
     test("rotateAround preserves distance to the pivot", () => {
         const o = spawn("o");
         o.transform.position = new Vector3(0, 0, 1);
@@ -286,6 +315,25 @@ describe("Camera — screen / viewport conversions", () => {
         const cam = makeCamera();
         const s = cam.worldToScreenPoint(new Vector3(1, 0, 5));
         expect(s.x).toBeGreaterThan(400);
+    });
+
+    /**
+     * End to end, the way a scenario actually sets a camera up: place it back
+     * along −Z and `lookAt` the subject. This is what rendered an empty frame when
+     * `lookAt` still aimed −Z at the target.
+     */
+    test("a lookAt camera frames its subject, with +X still to the right", () => {
+        const cam = makeCamera();
+        cam.gameObject.transform.position = new Vector3(0, 2, -24);
+        cam.gameObject.transform.lookAt(new Vector3(0, 2, 0));
+
+        const centre = cam.worldToScreenPoint(new Vector3(0, 2, 0));
+        expect(centre.x).toBeCloseTo(400, 0);
+        expect(centre.y).toBeCloseTo(300, 0);
+        expect(centre.z).toBeGreaterThan(0); // in front of the camera, not behind
+
+        const right = cam.worldToScreenPoint(new Vector3(6, 2, 0));
+        expect(right.x).toBeGreaterThan(400);
     });
 
     test("world +Y projects ABOVE centre and +Z recedes (no vertical or depth flip)", () => {

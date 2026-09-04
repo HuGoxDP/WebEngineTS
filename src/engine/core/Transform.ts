@@ -871,20 +871,16 @@ export class Transform extends Component {
      * @remarks
      * Equivalent to Unity's `Transform.LookAt(target)`.
      */
-    public lookAt(target: Vector3, worldUp?: Vector3): void {
-        if (this._dirty) this._syncToThree();
-        // Use Three.js lookAt for robust implementation
-        target._copyToThree(_tvec3A);
-        this._object3D.lookAt(_tvec3A);
+    public lookAt(target: Vector3, worldUp: Vector3 = Vector3.up): void {
+        // Engine math, not `Object3D.lookAt`: Three aims an object's **−Z** at the
+        // target, where Unity aims its **+Z**. That disagreement used to be hidden
+        // by the camera's old `rotateY(π)`; for anything else it meant `forward`
+        // pointed away from what was just looked at.
+        const pos = this.position;
+        const dir = new Vector3(target.x - pos.x, target.y - pos.y, target.z - pos.z);
+        if (dir.magnitude() < 1e-6) return;
 
-        if (worldUp) {
-            // Three.js lookAt uses Y-up. If custom up is provided,
-            // we'd need more complex math. For now, rely on Three.js default.
-            // TODO: Support custom worldUp properly.
-        }
-
-        // Sync back from Three.js to engine state
-        this._localRotation._copyFromThree(this._object3D.quaternion);
+        this.rotation = Quaternion.lookRotation(dir, worldUp);
     }
 
     /**
