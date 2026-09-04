@@ -25,7 +25,7 @@ consume the engine; the engine never imports from or depends on any of them.
 
 | Repo | Owns |
 |---|---|
-| **WebEngineTS** (here) | The engine, its docs, temporarily the article. |
+| **WebEngineTS** (here) | The engine and its docs. |
 | **ScenarioCreator** | Scenario *content* and the CLI that packages it. |
 | **WebEngineTSEditor** | The graphical editor — the future way to author scenarios. |
 | **testv/virtual-lab** | The platform students use: catalog, database, Docker. |
@@ -261,11 +261,16 @@ Each step runs components first, then the active scenario.
   World-space `Canvas` UI projects through the internal `_worldToSurfacePoint`, which is
   *surface*-normalized and rect-aware — do not confuse it with the public `worldToViewportPoint`. Full research + staged plan: [`design/unity-coordinate-spaces.md`](design/unity-coordinate-spaces.md);
   the separate texture-UV convention is [`design/unity-coordinates-plan.md`](design/unity-coordinates-plan.md).
-  Known open item: the handedness compensation is a single `rotateY(π)`, which cannot mirror, so
-  the rendered image is **horizontally mirrored vs. Unity** — **confirmed visually 2026-09-03**
-  via `design/coordinate-check/` (design note F7). Not fixed: a reflection flips triangle winding,
-  so every route changes the rendered output of every existing scenario — a project decision, with
-  the four options costed in the design note. A characterization test pins current behaviour.
+  **Handedness (F7, fixed 2026-09-03).** The engine's left-handed world reaches Three's
+  right-handed one through a reflection held in **`Scene._contentRoot`** (a group scaled
+  `(1, 1, −1)`); the internal Three camera carries a matching scale that cancels it, so its *view*
+  matrix stays proper. That split is load-bearing: Three flips triangle winding per object from
+  `matrixWorld.determinant() < 0`, so a content-side mirror is free, while a camera-side one would
+  invert culling scene-wide. **Three world space is therefore the mirror of engine world space** —
+  anything reading world state back out of an `Object3D` must undo it (`Transform._engineWorldMatrix`,
+  `Camera`'s point/matrix conversions, `Physics.raycast`, `Renderer._computeWorldBounds`). Before
+  this, the whole image was flipped, which for chirality-carrying content (B-DNA is right-handed)
+  was a factual error. Existing scenarios still need checking by eye via `design/coordinate-check/`.
 - **Cinemachine first-frame**: Always Cut on first activation (blending from null CameraState causes camera at origin)
 - **Texture GPU upload timing**: `releaseSourceImage()` queues rather than frees. `TextureRelease` (`graphics/TextureRelease.ts`) releases the CPU pixels after a render, once `renderer.properties.get(texture).__webglTexture` shows the GPU has them — a texture never drawn is never released, which is safe; releasing early leaves it blank for the run. A two-frame countdown is the fallback when there is no `WebGLRenderer` to ask
 - **`Texture2D.maxSize` caps only what the engine decodes**: `fromArrayBuffer`, `Load` and

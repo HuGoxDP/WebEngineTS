@@ -502,10 +502,11 @@ export class Camera extends Behaviour {
         // View-space z is negative in front of the camera; Unity's screen z is the
         // world-unit distance from the camera, so negate it. Kept signed, so a
         // point behind the camera reports a negative distance, as Unity's does.
-        _tvec3.set(position.x, position.y, position.z).applyMatrix4(cam.matrixWorldInverse);
+        // Engine world → Three world across the scene's handedness mirror.
+        _tvec3.set(position.x, position.y, -position.z).applyMatrix4(cam.matrixWorldInverse);
         const distance = -_tvec3.z;
 
-        _tvec3.set(position.x, position.y, position.z).project(cam);
+        _tvec3.set(position.x, position.y, -position.z).project(cam);
         this._ndcToScreen(_tvec3.x, _tvec3.y, _tvec2);
         return new Vector3(_tvec2.x, _tvec2.y, distance);
     }
@@ -529,10 +530,10 @@ export class Camera extends Behaviour {
         if (cam === null) return Vector3.zero.clone();
         this._ensureCameraMatrices(cam);
 
-        _tvec3.set(position.x, position.y, position.z).applyMatrix4(cam.matrixWorldInverse);
+        _tvec3.set(position.x, position.y, -position.z).applyMatrix4(cam.matrixWorldInverse);
         const distance = -_tvec3.z;
 
-        _tvec3.set(position.x, position.y, position.z).project(cam);
+        _tvec3.set(position.x, position.y, -position.z).project(cam);
         // NDC (Y-up, −1..1) → viewport (Y-down, 0..1 within the frustum).
         return new Vector3((_tvec3.x + 1) * 0.5, (1 - _tvec3.y) * 0.5, distance);
     }
@@ -599,8 +600,8 @@ export class Camera extends Behaviour {
         this._screenToNdc(position.x, position.y, _tvec2);
         this._buildRay(cam, _tvec2.x, _tvec2.y, _tvec3, _tvec3B);
         return new Ray(
-            new Vector3(_tvec3.x, _tvec3.y, _tvec3.z),
-            new Vector3(_tvec3B.x, _tvec3B.y, _tvec3B.z)
+            new Vector3(_tvec3.x, _tvec3.y, -_tvec3.z),
+            new Vector3(_tvec3B.x, _tvec3B.y, -_tvec3B.z)
         );
     }
 
@@ -619,8 +620,8 @@ export class Camera extends Behaviour {
 
         this._buildRay(cam, position.x * 2 - 1, 1 - position.y * 2, _tvec3, _tvec3B);
         return new Ray(
-            new Vector3(_tvec3.x, _tvec3.y, _tvec3.z),
-            new Vector3(_tvec3B.x, _tvec3B.y, _tvec3B.z)
+            new Vector3(_tvec3.x, _tvec3.y, -_tvec3.z),
+            new Vector3(_tvec3B.x, _tvec3B.y, -_tvec3B.z)
         );
     }
 
@@ -679,11 +680,15 @@ export class Camera extends Behaviour {
         if (this._threeCamera === null) return Matrix4x4.identity.clone();
         this._ensureCameraMatrices(this._threeCamera);
 
+        // View maps THREE world → camera space; engine world is the mirror of it,
+        // so compose with S on the right (negate the third column).
         const result = new Matrix4x4();
         const src = this._threeCamera.matrixWorldInverse.elements;
         for (let i = 0; i < 16; i++) {
             result.elements[i] = src[i];
         }
+        const e = result.elements;
+        e[8] = -e[8]; e[9] = -e[9]; e[10] = -e[10]; e[11] = -e[11];
         return result;
     }
 
@@ -699,11 +704,14 @@ export class Camera extends Behaviour {
         if (this._threeCamera === null) return Matrix4x4.identity.clone();
         this._ensureCameraMatrices(this._threeCamera);
 
+        // Camera space → engine world: S on the left (negate the third row).
         const result = new Matrix4x4();
         const src = this._threeCamera.matrixWorld.elements;
         for (let i = 0; i < 16; i++) {
             result.elements[i] = src[i];
         }
+        const e = result.elements;
+        e[2] = -e[2]; e[6] = -e[6]; e[10] = -e[10]; e[14] = -e[14];
         return result;
     }
 
@@ -737,7 +745,7 @@ export class Camera extends Behaviour {
         // that moved this frame has not been flushed either.
         this._ensureCameraMatrices(cam);
 
-        _tvec3.set(x, y, z).applyMatrix4(cam.matrixWorldInverse);
+        _tvec3.set(x, y, -z).applyMatrix4(cam.matrixWorldInverse);
 
         // View space looks down −Z, so a point in front of the camera has
         // negative z there.
@@ -882,10 +890,11 @@ export class Camera extends Behaviour {
         const viewZorigin = e[2] * _tvec3.x + e[6] * _tvec3.y + e[10] * _tvec3.z + e[14];
         const viewZdir = e[2] * _tvec3B.x + e[6] * _tvec3B.y + e[10] * _tvec3B.z;
         const s = viewZdir !== 0 ? (-distance - viewZorigin) / viewZdir : 0;
+        // Back across the mirror into engine world space.
         return new Vector3(
             _tvec3.x + _tvec3B.x * s,
             _tvec3.y + _tvec3B.y * s,
-            _tvec3.z + _tvec3B.z * s
+            -(_tvec3.z + _tvec3B.z * s)
         );
     }
 
@@ -907,7 +916,12 @@ export class Camera extends Behaviour {
             );
         }
 
-        this._threeCamera.rotateY(Math.PI);
+        // Cancels the scene's handedness mirror (see Scene._contentRoot) so the
+        // view matrix stays proper — Three.js decides face winding from each
+        // object's matrix alone and assumes the camera's is not reflected. The
+        // net effect is a camera that looks along the engine's +Z (Unity forward)
+        // with +X to the right of the screen.
+        this._threeCamera.scale.set(1, 1, -1);
     }
 
     /**

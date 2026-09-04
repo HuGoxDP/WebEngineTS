@@ -31,6 +31,11 @@ function rayFromRight(): Ray {
     return new Ray(new Vector3(10, 0, 0), new Vector3(-1, 0, 0));
 }
 
+/** A ray along +Z, the axis the scene's handedness mirror acts on. */
+function rayForward(): Ray {
+    return new Ray(new Vector3(0, 0, -10), new Vector3(0, 0, 1));
+}
+
 beforeEach(() => {
     PhysicsWorld._reset();
 });
@@ -39,6 +44,41 @@ afterEach(() => {
     for (const go of made) if (go.exists()) go.destroyImmediate();
     made.length = 0;
     PhysicsWorld._reset();
+});
+
+/**
+ * Colliders hang under the scene's handedness mirror (`Scene._contentRoot`), so a
+ * raycast crosses into Three world space and its results cross back. Every test
+ * above fires along X, which a Z mirror leaves alone — these fire along Z, where
+ * getting the conversion wrong sends the ray behind the camera instead.
+ */
+describe("Physics.raycast across the handedness mirror", () => {
+    test("a box in front on +Z is hit, and the hit point keeps its sign", () => {
+        boxAt(new Vector3(0, 0, 4));
+
+        const hit = new RaycastHit();
+        expect(Physics.raycast(rayForward(), hit)).toBe(true);
+
+        expect(hit.point.z).toBeGreaterThan(0);   // in front, not mirrored behind
+        expect(hit.point.z).toBeCloseTo(3.5, 1);  // near face of a unit box at z=4
+        expect(hit.distance).toBeCloseTo(13.5, 1);
+    });
+
+    test("the surface normal faces back along the ray, not into the screen", () => {
+        boxAt(new Vector3(0, 0, 4));
+
+        const hit = new RaycastHit();
+        expect(Physics.raycast(rayForward(), hit)).toBe(true);
+
+        expect(hit.normal.z).toBeCloseTo(-1, 5); // toward the ray's origin
+        expect(hit.normal.x).toBeCloseTo(0, 5);
+        expect(hit.normal.y).toBeCloseTo(0, 5);
+    });
+
+    test("a box behind the ray's origin is not hit", () => {
+        boxAt(new Vector3(0, 0, -20));
+        expect(Physics.raycast(rayForward())).toBe(false);
+    });
 });
 
 describe("Physics.raycast reports the world", () => {

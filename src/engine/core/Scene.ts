@@ -66,6 +66,26 @@ export class Scene {
     private readonly _threeScene: THREE.Scene;
 
     /**
+     * @internal
+     * Mirrors the engine's left-handed world (X right, Y up, **Z forward**) into
+     * Three.js' right-handed one, so a scene authored against Unity's axes renders
+     * the same way Unity renders it rather than horizontally flipped.
+     *
+     * Every root GameObject hangs from here, so `matrixWorld` for any renderable
+     * has a negative determinant — which Three.js detects per object
+     * (`renderBufferDirect`: `frontFaceCW = object.matrixWorld.determinant() < 0`)
+     * and compensates for by flipping the winding. Front faces stay front, so no
+     * geometry, index order or normal has to change.
+     *
+     * The consequence to remember: **Three.js world space is now the mirror of
+     * engine world space.** Anything reading a world position, rotation or matrix
+     * back out of an `Object3D` must undo it — see `Transform`'s
+     * `_fromThreeWorld*` helpers. Cameras cancel it with a matching scale so their
+     * view matrix stays proper, which Three.js requires for culling.
+     */
+    private readonly _contentRoot: THREE.Group;
+
+    /**
      * Root-level GameObjects (those whose Transform has no parent).
      * Iterated by the update loops.
      */
@@ -87,6 +107,10 @@ export class Scene {
     constructor(name: string = "New Scene") {
         this.name = name;
         this._threeScene = new THREE.Scene();
+        this._contentRoot = new THREE.Group();
+        this._contentRoot.name = "__engineContentRoot";
+        this._contentRoot.scale.set(1, 1, -1);
+        this._threeScene.add(this._contentRoot);
     }
 
     // ==================== PUBLIC READ-ONLY PROPERTIES ====================
@@ -151,7 +175,7 @@ export class Scene {
         if (go.transform.parent === null) {
             this._rootGameObjects.push(go);
             // Sync: add to Three.js scene root
-            this._threeScene.add(go.transform._internalObject3D);
+            this._contentRoot.add(go.transform._internalObject3D);
         }
     }
 
@@ -173,7 +197,7 @@ export class Scene {
         }
 
         // 3. Remove from Three.js scene (safe even if not a direct child)
-        this._threeScene.remove(go.transform._internalObject3D);
+        this._contentRoot.remove(go.transform._internalObject3D);
     }
 
     /**
@@ -189,7 +213,7 @@ export class Scene {
             // Became a root → add to root list and Three.js scene
             if (!this._rootGameObjects.includes(go)) {
                 this._rootGameObjects.push(go);
-                this._threeScene.add(go.transform._internalObject3D);
+                this._contentRoot.add(go.transform._internalObject3D);
             }
         } else {
             // Became a child → remove from root list
@@ -401,7 +425,9 @@ export class Scene {
 
         this._rootGameObjects = [];
         this._registry.clear();
-        this._threeScene.clear();
+        // Clears the content, not the mirror root itself — the scene keeps its
+        // handedness conversion across an unload.
+        this._contentRoot.clear();
         this._isLoaded = false;
     }
 }

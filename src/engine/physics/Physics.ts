@@ -298,9 +298,11 @@ export class Physics {
      */
     public static raycast(ray: Ray, hitInfo?: RaycastHit, maxDistance: number = Infinity): boolean {
         // Use Three.js raycaster for visual-layer raycasting
+        // Colliders live under the scene's handedness mirror, so the ray crosses
+        // into Three world space (z negated) and every result crosses back.
         this._raycaster.set(
-            new THREE.Vector3(ray.origin.x, ray.origin.y, ray.origin.z),
-            new THREE.Vector3(ray.direction.x, ray.direction.y, ray.direction.z).normalize()
+            new THREE.Vector3(ray.origin.x, ray.origin.y, -ray.origin.z),
+            new THREE.Vector3(ray.direction.x, ray.direction.y, -ray.direction.z).normalize()
         );
         this._raycaster.far = maxDistance;
 
@@ -327,7 +329,7 @@ export class Physics {
 
             if (hitInfo) {
                 hitInfo.distance = hit.distance;
-                hitInfo.point.set(hit.point.x, hit.point.y, hit.point.z);
+                hitInfo.point.set(hit.point.x, hit.point.y, -hit.point.z);
 
                 if (hit.face) {
                     // `face.normal` is in the object's local space; Unity's
@@ -340,7 +342,7 @@ export class Physics {
                         )
                         .normalize();
                     hitInfo.normal.set(
-                        Physics._worldNormal.x, Physics._worldNormal.y, Physics._worldNormal.z,
+                        Physics._worldNormal.x, Physics._worldNormal.y, -Physics._worldNormal.z,
                     );
                 } else {
                     // Nothing to report beats the previous call's normal.

@@ -111,7 +111,7 @@ point "on the screen".
 | F4 | `Camera.viewport` (`Rect`) is ignored by conversions | `Camera.ts` | **deferred** — see §4 |
 | F5 | Correct projection lives in `@internal _worldToViewportPoint`, not reused by the public methods | `Camera.ts` | **Etap 2** |
 | F6 | No tests for any coordinate conversion | `tests/` | **Etap 1** |
-| F7 | Handedness compensation is one line, `rotateY(Math.PI)` — a *rotation*, which cannot mirror, so the image is a **horizontal mirror** of Unity's | `Camera.ts` | **CONFIRMED 2026-09-03** — fix not started, see "F7 in detail" |
+| F7 | Handedness compensation is one line, `rotateY(Math.PI)` — a *rotation*, which cannot mirror, so the image is a **horizontal mirror** of Unity's | `Camera.ts` | **FIXED 2026-09-03** — see "F7 in detail" |
 | F8 | Missing API: `transformVector`/`inverseTransformVector`, `localToWorldMatrix`/`worldToLocalMatrix`, `rotateAround`, `Space` param; camera viewport family, `viewportPointToRay`, `cameraToWorldMatrix` | — | **Etap 4/5** |
 
 Correct and untouched: `transformPoint`/`transformDirection` (TRS vs R-only is exact),
@@ -125,30 +125,49 @@ but its right axis is −X, whereas Unity's is +X. Prediction: a point at world 
 global compensation (negative scale / Z flip) anywhere in the engine; verified by search.
 
 **Confirmed visually on 2026-09-03** through `coordinate-check/`, with two independent witnesses in
-one frame: the chiral "F" renders backwards, and the row of primitives runs right-to-left (the cube
-is authored first, at the leftmost x, and appears rightmost). The prediction was exact. A
-characterization test pins the current numeric behaviour so the fix has a witness.
+one frame: the chiral "F" rendered backwards, and the row of primitives ran right-to-left (the cube
+is authored first, at the leftmost x, and appeared rightmost). The prediction was exact — and
+**fixed the same day**; see below.
 
-### Fixing F7 — why it is not a one-line change
+### Fixing F7 — done 2026-09-03
 
 Mapping a left-handed world onto a right-handed renderer needs a **reflection**
-(`diag(1, 1, −1)`, determinant −1). No rotation can supply it, so `rotateY(π)` cannot be "tuned"
-into correctness. Every route has the same consequence: a reflection flips triangle winding, so
-front faces become back faces and culling inverts unless winding is flipped in the same step.
+(`diag(1, 1, −1)`, determinant −1), which no rotation can supply — so `rotateY(π)` could never be
+tuned into correctness.
 
-| Route | What it costs |
-|---|---|
-| Camera `scale.z = −1` | Simplest to write; inverts winding for the whole scene — every material would need its `side` flipped, and Three's shadow/normal paths follow the determinant too |
-| Negate X in the projection matrix | Same winding inversion, but now hidden inside the projection, where it is harder to see and harder to test |
-| Mirror geometry at load (negate Z on positions/normals, reverse index order) | Correct winding by construction and no per-frame cost, but it touches every mesh source: primitives, glTF import, `Mesh.combine`, instancing, batching |
-| Adopt a left-handed convention engine-wide, flipping winding order globally | What Babylon does with `useRightHandedSystem`; the honest fix, and the largest |
+The earlier draft of this section listed four routes and called them all expensive, because a
+reflection flips triangle winding. **That was wrong about Three.js.** `WebGLRenderer.renderBufferDirect`
+computes `frontFaceCW = object.isMesh && object.matrixWorld.determinant() < 0` and hands it to
+`setMaterial`, which flips `flipSided` accordingly. Three already compensates, **per object**, for
+a reflected model matrix. So mirroring the *content* costs nothing in geometry, index order or
+normals.
 
-**All four change the rendered output of every existing scenario.** That is a project decision, not
-a refactor — so it stays recorded here rather than half-applied. The engine is internally
-consistent today; what it is not, is a mirror-accurate match for a scene authored against Unity's
-axes.
+What shipped:
 
----
+- **`Scene._contentRoot`** — a `THREE.Group` with scale `(1, 1, −1)` that every root GameObject
+  hangs from. Three sees a negative determinant per renderable and flips winding itself, so front
+  faces stay front.
+- **Cameras cancel it** — the internal Three camera carries a matching `scale(1, 1, −1)` in place
+  of the old `rotateY(π)`, so its *view* matrix stays proper. That part matters: Three decides
+  winding from the object matrix alone and assumes the view is not reflected, so a camera-side
+  mirror would have inverted culling for the whole scene.
+- **The boundary conversions** — Three world space is now the mirror of engine world space, so
+  anything reading world state back out of an `Object3D` undoes it. `Transform._engineWorldMatrix`
+  left-multiplies `matrixWorld` by `S` (negating the third row), which is also *proper*, so
+  decomposition gives a correct rotation and `lossyScale` — reading a reflected matrix directly
+  makes Three park the negative sign on X arbitrarily. `Camera` converts points on the way in and
+  out and composes `S` into `worldToCameraMatrix` / `cameraToWorldMatrix`. `Physics.raycast`
+  converts the ray in and the hit point and normal back. `Renderer._computeWorldBounds` undoes it
+  the same way as `Transform`.
+
+**Why it was worth the disruption.** The platform teaches chirality-carrying subjects — a B-DNA
+double helix is right-handed, molecular stereochemistry and crystal handedness are the content, and
+Circuits/Mechanics rely on the right-hand rule. `HelixBuilder` derives its geometry from real
+constants (3.4 Å rise, 34.29°/bp, 240° strand offset) rather than tuning by eye, so the mirror was
+rendering a *left*-handed helix: a factual error, not a cosmetic one.
+
+**Still to check by eye:** every existing scenario. Content authored against the mirrored engine may
+have been compensated by hand, and only looking will tell. `coordinate-check/` is the reference.
 
 ## 3. Engine-specific facts that shape the implementation
 

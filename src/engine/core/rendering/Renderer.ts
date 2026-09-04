@@ -13,6 +13,8 @@ import type { GameObject } from "../GameObject.ts";
 // Avoids allocation per-call. Only touched inside _computeWorldBounds().
 
 const _tBox3 = new THREE.Box3();
+/** Holds the world matrix with the scene's handedness mirror undone. */
+const _tMat4 = new THREE.Matrix4();
 
 // ==================== ENUMS ====================
 
@@ -615,7 +617,12 @@ export abstract class Renderer extends Behaviour {
         const obj = this._internalRenderObject;
         if (obj !== null) {
             obj.updateMatrixWorld(true);
-            _tBox3.applyMatrix4(obj.matrixWorld);
+            // Bounds are engine-space, but matrixWorld carries the scene's
+            // handedness mirror — undo it (negate the third row) so a renderer's
+            // reported bounds sit where the engine says the object is.
+            const e = _tMat4.copy(obj.matrixWorld).elements;
+            e[2] = -e[2]; e[6] = -e[6]; e[10] = -e[10]; e[14] = -e[14];
+            _tBox3.applyMatrix4(_tMat4);
         }
 
         // Convert back to engine Bounds via adapter

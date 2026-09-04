@@ -9,13 +9,15 @@ import { Rect } from "../src/engine/core/math/Rect";
 
 /**
  * Pins the coordinate-conversion contract for Transform and Camera against Unity
- * semantics (design/unity-coordinate-spaces.md). Two kinds of assertion:
- *   - correctness, where Unity fixes the answer (z is a world distance;
- *     round-trips return the input; TransformVector scales, TransformDirection
- *     does not);
- *   - characterization, where the engine's handedness compensation (rotateY(π))
- *     produces a horizontally mirrored image vs. Unity (F7). That test is marked
- *     and MUST flip if the mirror is ever corrected.
+ * semantics (design/unity-coordinate-spaces.md): z is a world distance,
+ * round-trips return the input, TransformVector scales where TransformDirection
+ * does not, and world +X renders to the right of the screen.
+ *
+ * That last one is F7. The engine used to compensate handedness with a single
+ * `rotateY(π)` — a rotation, and no rotation can mirror — so the whole image came
+ * out flipped, which for chirality-carrying content (a B-DNA helix, molecular
+ * stereochemistry) is a factual error, not a cosmetic one. The scene now carries
+ * the reflection itself and cameras cancel it; these tests are the witness.
  *
  * Every GameObject is tracked and destroyed after each test so cameras do not
  * linger in the static registry that Application._resize iterates.
@@ -271,21 +273,30 @@ describe("Camera — screen / viewport conversions", () => {
     });
 
     /**
-     * CHARACTERIZATION of a CONFIRMED DEFECT, not a spec. The camera compensates
-     * handedness with a single rotateY(π), a rotation that cannot mirror, so world
-     * +X lands on the LEFT of the screen where Unity puts it on the RIGHT.
+     * SPEC, and the witness for F7's fix. World +X must land on the RIGHT of the
+     * screen, as Unity puts it. Until 2026-09-03 it landed on the LEFT: the
+     * handedness compensation was a single `rotateY(π)`, a rotation, and no
+     * rotation can mirror — so the whole image was a horizontal flip of Unity's.
      *
-     * Confirmed visually 2026-09-03 via design/coordinate-check/: the chiral "F"
-     * renders backwards and the primitive row runs right-to-left. So the whole
-     * image is a horizontal mirror of Unity's (design note F7).
-     *
-     * This pins current behaviour so the fix has a witness. When the mirror is
-     * corrected, THIS expectation must be inverted, on purpose.
+     * The scene now carries the reflection itself (`Scene._contentRoot`), with
+     * cameras cancelling it so their view matrix stays proper. If this ever goes
+     * back to being less than 400, the mirror has returned.
      */
-    test("[characterization] world +X projects LEFT of centre — confirmed mirror (F7)", () => {
+    test("world +X projects RIGHT of centre, as Unity renders it (F7 fixed)", () => {
         const cam = makeCamera();
         const s = cam.worldToScreenPoint(new Vector3(1, 0, 5));
-        expect(s.x).toBeLessThan(400);
+        expect(s.x).toBeGreaterThan(400);
+    });
+
+    test("world +Y projects ABOVE centre and +Z recedes (no vertical or depth flip)", () => {
+        const cam = makeCamera();
+        const up = cam.worldToScreenPoint(new Vector3(0, 1, 5));
+        expect(up.y).toBeLessThan(300); // screen Y is down, so "above" is smaller
+
+        const near = cam.worldToScreenPoint(new Vector3(0, 0, 3));
+        const far = cam.worldToScreenPoint(new Vector3(0, 0, 9));
+        expect(near.z).toBeCloseTo(3, 4);
+        expect(far.z).toBeCloseTo(9, 4);
     });
 });
 

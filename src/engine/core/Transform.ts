@@ -19,6 +19,11 @@ const _tquatB = new THREE.Quaternion();
 const _tBox3 = new THREE.Box3();
 const _tVec3B = new THREE.Vector3();
 const _tMat4 = new THREE.Matrix4();
+const _tMat4B = new THREE.Matrix4();
+// Decomposition targets for the engine-space world matrix.
+const _dPos = new THREE.Vector3();
+const _dRot = new THREE.Quaternion();
+const _dScale = new THREE.Vector3();
 // Cached engine-math temporary for direction vector calculations
 const _equatA = new Quaternion();
 
@@ -182,6 +187,27 @@ export class Transform extends Component {
     private _ensureWorldMatrix(): void {
         if (this._dirty) this._syncToThree();
         this._object3D.updateWorldMatrix(true, false);
+    }
+
+    /**
+     * @internal
+     * The object's world matrix **in engine space**, undoing the scene's
+     * handedness mirror (`Scene._contentRoot`, scale `(1, 1, −1)`).
+     *
+     * Three's `matrixWorld` is `S · M` where `S = diag(1, 1, −1)`; left-multiplying
+     * by `S` again recovers `M`, because `S` is its own inverse. That product is a
+     * *proper* matrix, which matters: decomposing a reflected matrix makes Three
+     * park the negative sign on X arbitrarily, so `lossyScale` and world rotation
+     * would both come out wrong if read from `matrixWorld` directly.
+     *
+     * In column-major storage the left-multiply is just negating the third row —
+     * elements 2, 6, 10 and 14.
+     */
+    private _engineWorldMatrix(out: THREE.Matrix4): THREE.Matrix4 {
+        this._ensureWorldMatrix();
+        const e = out.copy(this._object3D.matrixWorld).elements;
+        e[2] = -e[2]; e[6] = -e[6]; e[10] = -e[10]; e[14] = -e[14];
+        return out;
     }
 
     /** Marks this transform as needing sync before next render. */
@@ -599,16 +625,15 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.position`.
      */
     public get position(): Vector3 {
-        if (this._dirty) this._syncToThree();
-        this._object3D.getWorldPosition(_tvec3A);
-        return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
+        const e = this._engineWorldMatrix(_tMat4).elements;
+        return new Vector3(e[12], e[13], e[14]);
     }
 
     public set position(value: Vector3) {
         if (this._parent) {
-            // Convert world position to local: localPos = parent.worldToLocal(worldPos)
-            value._copyToThree(_tvec3A);
-            this._parent._object3D.worldToLocal(_tvec3A);
+            // localPos = inverse(parent engine world) · worldPos
+            _tMat4.copy(this._parent._engineWorldMatrix(_tMat4B)).invert();
+            _tvec3A.set(value.x, value.y, value.z).applyMatrix4(_tMat4);
             this._localPosition.set(_tvec3A.x, _tvec3A.y, _tvec3A.z);
         } else {
             this._localPosition.copy(value);
@@ -629,15 +654,14 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.rotation`.
      */
     public get rotation(): Quaternion {
-        if (this._dirty) this._syncToThree();
-        this._object3D.getWorldQuaternion(_tquatA);
-        return new Quaternion(_tquatA.x, _tquatA.y, _tquatA.z, _tquatA.w);
+        this._engineWorldMatrix(_tMat4).decompose(_dPos, _dRot, _dScale);
+        return new Quaternion(_dRot.x, _dRot.y, _dRot.z, _dRot.w);
     }
 
     public set rotation(value: Quaternion) {
         if (this._parent) {
             // localRotation = inverse(parentWorldRotation) * worldRotation
-            this._parent._object3D.getWorldQuaternion(_tquatA);
+            this._parent._engineWorldMatrix(_tMat4).decompose(_dPos, _tquatA, _dScale);
             _tquatA.invert(); // _tquatA = parentWorldRot⁻¹
             value._copyToThree(_tquatB);
             _tquatA.multiply(_tquatB); // _tquatA = parentWorldRot⁻¹ * targetWorldRot
@@ -677,9 +701,8 @@ export class Transform extends Component {
      * with non-uniform parent scaling or shear.
      */
     public get lossyScale(): Vector3 {
-        if (this._dirty) this._syncToThree();
-        this._object3D.getWorldScale(_tvec3A);
-        return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
+        this._engineWorldMatrix(_tMat4).decompose(_dPos, _dRot, _dScale);
+        return new Vector3(_dScale.x, _dScale.y, _dScale.z);
     }
 
     // ==================== IV. DIRECTION VECTORS ====================
@@ -696,10 +719,9 @@ export class Transform extends Component {
     public get forward(): Vector3 {
         // Must use WORLD rotation, not local — a child with identity
         // localRotation still inherits its parent's orientation.
-        if (this._dirty) this._syncToThree();
-        this._object3D.getWorldQuaternion(_tquatA);
+        this._engineWorldMatrix(_tMat4).decompose(_dPos, _dRot, _dScale);
         return new Vector3(0, 0, 1).applyQuaternion(
-            _equatA.set(_tquatA.x, _tquatA.y, _tquatA.z, _tquatA.w)
+            _equatA.set(_dRot.x, _dRot.y, _dRot.z, _dRot.w)
         );
     }
 
@@ -720,10 +742,9 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.right`.
      */
     public get right(): Vector3 {
-        if (this._dirty) this._syncToThree();
-        this._object3D.getWorldQuaternion(_tquatA);
+        this._engineWorldMatrix(_tMat4).decompose(_dPos, _dRot, _dScale);
         return new Vector3(1, 0, 0).applyQuaternion(
-            _equatA.set(_tquatA.x, _tquatA.y, _tquatA.z, _tquatA.w)
+            _equatA.set(_dRot.x, _dRot.y, _dRot.z, _dRot.w)
         );
     }
 
@@ -744,10 +765,9 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.up`.
      */
     public get up(): Vector3 {
-        if (this._dirty) this._syncToThree();
-        this._object3D.getWorldQuaternion(_tquatA);
+        this._engineWorldMatrix(_tMat4).decompose(_dPos, _dRot, _dScale);
         return new Vector3(0, 1, 0).applyQuaternion(
-            _equatA.set(_tquatA.x, _tquatA.y, _tquatA.z, _tquatA.w)
+            _equatA.set(_dRot.x, _dRot.y, _dRot.z, _dRot.w)
         );
     }
 
