@@ -56,6 +56,10 @@
     <hr />
     Bottom row: every <code>Mesh.create*</code> primitive, lit — check they face the camera
     (front faces, not inside-out).
+    <hr />
+    Also chiral: the orange <b>L</b> (LineRenderer) — its foot must run
+    <span class="ok">RIGHT</span>. The blue <b>TEXT</b> is a world-space Canvas — it must read
+    forwards, not mirrored.
   </div>
   <div id="err"></div>
 
@@ -67,6 +71,7 @@
     import {
       Application, GameObject, Camera, MeshFilter, MeshRenderer, Mesh,
       Material, Shader, Color, Vector3, DirectionalLight,
+      LineRenderer, Canvas, CanvasRenderMode, UIText,
     } from "WebEngineTS";
 
     try {
@@ -121,6 +126,34 @@
         go.addComponent(MeshRenderer).sharedMaterial = mat;
         px += 3;
       }
+
+      // --- LineRenderer: a chiral "L". The long arm runs toward +X, so a mirror
+      //     puts it on the wrong side just like the cube "F" does. ---
+      const lineGO = new GameObject("ChiralLine");
+      lineGO.transform.position = new Vector3(-9, 2, 0);
+      const line = lineGO.addComponent(LineRenderer);
+      line.positionCount = 3;
+      line.setPosition(0, new Vector3(0, 3, 0));   // top of the upright
+      line.setPosition(1, new Vector3(0, 0, 0));   // corner
+      line.setPosition(2, new Vector3(3, 0, 0));   // foot, toward +X
+      line.startWidth = 0.12;
+      line.endWidth = 0.12;
+      line.startColor = new Color(1, 0.45, 0.1, 1);
+
+      // --- World-space UI: text must read forwards, not mirrored. ---
+      const uiGO = new GameObject("WorldUI");
+      uiGO.transform.position = new Vector3(5, 8, 0);
+      const worldCanvas = uiGO.addComponent(Canvas);
+      worldCanvas.renderMode = CanvasRenderMode.WorldSpace;
+      worldCanvas.worldCamera = cam;
+      worldCanvas.worldScale = 0.02;
+
+      const textGO = new GameObject("WorldLabel");
+      textGO.transform.setParent(uiGO.transform, false);
+      const label = textGO.addComponent(UIText);
+      label.text = "TEXT";
+      label.fontSize = 64;
+      label.color = new Color(0.4, 0.9, 1, 1);
 
       app.run();
     } catch (e) {
