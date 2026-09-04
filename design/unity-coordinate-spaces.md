@@ -1,6 +1,10 @@
 # Plan: Unity coordinate spaces — Transform & Camera conversions
 
-**Status:** in progress (started 2026-09-03). Scope is the *transform / camera coordinate
+**Status: COMPLETE (2026-09-03).** Kept as the reference for the engine's coordinate contract, not
+as a to-do — every stage below has landed, including F7. What remains is verification against real
+scenario content, tracked in [`ROADMAP.md`](ROADMAP.md) as P0.
+
+Scope was the *transform / camera coordinate
 conversion* surface — world/local/screen/viewport spaces and the methods that move points
 between them.
 
