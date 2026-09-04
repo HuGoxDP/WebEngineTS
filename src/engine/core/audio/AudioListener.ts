@@ -51,6 +51,17 @@ export class AudioListener extends Behaviour {
         AudioListener._activeInstances.delete(this);
     }
 
+    /**
+     * Web Audio's space is **right-handed**: it derives the listener's right ear
+     * as `forward × up`. The engine's world is Unity's, left-handed with +Z
+     * forward, where right is `up × forward`. Handing engine vectors over
+     * unconverted puts a source on the engine's +X into the *left* ear — audible
+     * as sound panned opposite to where the object is drawn.
+     *
+     * Negating Z is the same reflection the renderer applies
+     * (`Scene._contentRoot`), so audio and picture agree. Engine forward +Z maps
+     * to (0, 0, −1), which is also Web Audio's own default.
+     */
     private _syncToContext(): void {
         const listener = AudioManager.context.listener;
         const pos = this.transform.position;
@@ -60,16 +71,16 @@ export class AudioListener extends Behaviour {
         if (listener.positionX !== undefined) {
             listener.positionX.value = pos.x;
             listener.positionY.value = pos.y;
-            listener.positionZ.value = pos.z;
+            listener.positionZ.value = -pos.z;
             listener.forwardX.value = fwd.x;
             listener.forwardY.value = fwd.y;
-            listener.forwardZ.value = fwd.z;
+            listener.forwardZ.value = -fwd.z;
             listener.upX.value = up.x;
             listener.upY.value = up.y;
-            listener.upZ.value = up.z;
+            listener.upZ.value = -up.z;
         } else {
-            (listener as any).setPosition(pos.x, pos.y, pos.z);
-            (listener as any).setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
+            (listener as any).setPosition(pos.x, pos.y, -pos.z);
+            (listener as any).setOrientation(fwd.x, fwd.y, -fwd.z, up.x, up.y, -up.z);
         }
     }
 }

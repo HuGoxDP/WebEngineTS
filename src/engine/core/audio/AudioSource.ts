@@ -307,12 +307,13 @@ export class AudioSource extends Behaviour {
         }
     }
 
+    /** Z is negated to cross into Web Audio's right-handed space — see AudioListener. */
     private _updateSpatial(): void {
         if (!this._pannerNode) return;
         const pos = this.transform.position;
         this._pannerNode.positionX.value = pos.x;
         this._pannerNode.positionY.value = pos.y;
-        this._pannerNode.positionZ.value = pos.z;
+        this._pannerNode.positionZ.value = -pos.z;
     }
 }
 
