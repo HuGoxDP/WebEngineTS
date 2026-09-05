@@ -112,7 +112,14 @@ export class CinemachineOrbitalBody extends CinemachineBody {
         // ── Rotation (LMB drag) ──
         if (Input.getMouseButton(0)) {
             const delta = Input.mouseDelta;
-            this._yaw -= delta.x * this.orbitSpeed;
+            // Dragging right orbits the camera right, so the scene appears to
+            // swing left — the direction every orbit control uses.
+            //
+            // The sign was the other way while the renderer mirrored the scene
+            // horizontally (F7): the picture cancelled it and the gesture felt
+            // correct. Un-mirroring the render left the gesture inverted, so the
+            // compensation moves here, where it is visible.
+            this._yaw += delta.x * this.orbitSpeed;
             this._pitch -= delta.y * this.orbitSpeedY;
             this._pitch = Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._pitch));
         }

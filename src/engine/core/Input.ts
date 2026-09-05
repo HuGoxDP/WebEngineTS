@@ -118,6 +118,29 @@ export class Input {
         visibilitychange: () => void;
     } | null = null;
 
+    /** Pixels a `DOM_DELTA_LINE` step stands for. */
+    private static readonly _LINE_PX = 16;
+
+    /** Pixels a `DOM_DELTA_PAGE` step stands for. */
+    private static readonly _PAGE_PX = 800;
+
+    /** Pixels one wheel notch scrolls, which is what Unity reports as 1. */
+    private static readonly _NOTCH_PX = 100;
+
+    /**
+     * Converts one axis of a `WheelEvent` into Unity-scale notches.
+     *
+     * @param delta - the raw `deltaX`/`deltaY`.
+     * @param mode - the event's `deltaMode`: pixels, lines or pages.
+     * @returns the scroll in notches, about ±1 for one detent of a mouse wheel.
+     */
+    private static _notches(delta: number, mode: number): number {
+        const px = mode === 1 ? delta * Input._LINE_PX
+            : mode === 2 ? delta * Input._PAGE_PX
+            : delta;
+        return px / Input._NOTCH_PX;
+    }
+
     // ==================== INITIALIZATION ====================
 
     /**
@@ -168,13 +191,24 @@ export class Input {
                 );
             },
             wheel: (e: WheelEvent) => {
-                // Accumulate scroll delta for this frame.
-                // Unity convention: positive y = scroll up.
-                // DOM convention: positive deltaY = scroll down.
-                // We invert to match Unity.
+                // Accumulate this frame's scroll, normalised to Unity's scale.
+                //
+                // Two conversions, and the second one used to be missing:
+                //  - sign: Unity's positive y is scroll *up*, the DOM's positive
+                //    deltaY is scroll *down*;
+                //  - magnitude: Unity reports about one unit per wheel notch,
+                //    while a browser reports the distance it would have scrolled
+                //    — roughly 100 px per notch in the default pixel mode. Passing
+                //    that through raw made every consumer about 100x too
+                //    sensitive, which is why a single notch zoomed scenarios to
+                //    their limit.
+                //
+                // `deltaMode` decides the unit, and ignoring it made the same
+                // gesture behave differently across browsers: Chrome and Edge
+                // report pixels, Firefox usually reports lines.
                 Input._mouseScrollDelta.set(
-                    Input._mouseScrollDelta.x + e.deltaX,
-                    Input._mouseScrollDelta.y + (-e.deltaY)
+                    Input._mouseScrollDelta.x + Input._notches(e.deltaX, e.deltaMode),
+                    Input._mouseScrollDelta.y - Input._notches(e.deltaY, e.deltaMode)
                 );
             },
             contextmenu: (e: Event) => e.preventDefault(),
