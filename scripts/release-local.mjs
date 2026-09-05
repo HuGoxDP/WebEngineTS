@@ -11,7 +11,7 @@
 //   ScenarioCreator            file:WebEngineTS-0.1.0.tgz   (builds scenarios)
 //   testv/virtual-lab/frontend file:WebEngineTS-0.1.0.tgz   (Angular auto-copies
 //                                the standalone bundle to /assets via angular.json)
-//   WebEngineTSEditor/app      file:../../WebEngineTS       (uses dist/ directly)
+//   WebEngineTSEditor/app      WebEngineTS-0.1.0.tgz        (packed, like the rest)
 //   WebEngineTS-Benchmarks     engine/WebEngineTS.standalone.js  (plain bundle copy,
 //                              no npm dependency — it loads the bundle through an
 //                              import map, exactly as the platform does)
@@ -52,7 +52,7 @@ const noInstall = process.argv.includes("--no-install");
 const consumers = [
     { name: "ScenarioCreator", dir: join(PARENT, "ScenarioCreator"), copyTgz: true, spec: `./${TGZ}` },
     { name: "virtual-lab frontend", dir: join(PARENT, "testv", "virtual-lab", "frontend"), copyTgz: true, spec: `./${TGZ}` },
-    { name: "WebEngineTSEditor app", dir: join(PARENT, "WebEngineTSEditor", "app"), copyTgz: false, spec: "../../WebEngineTS" },
+    { name: "WebEngineTSEditor app", dir: join(PARENT, "WebEngineTSEditor", "app"), copyTgz: true, spec: `./${TGZ}` },
 ];
 
 /**

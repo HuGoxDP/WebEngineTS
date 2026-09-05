@@ -8,9 +8,9 @@
   "types": "./dist/WebEngineTS.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/WebEngineTS.d.ts",
       "import": "./dist/WebEngineTS.esm.js",
-      "require": "./dist/WebEngineTS.cjs.js",
-      "types": "./dist/WebEngineTS.d.ts"
+      "require": "./dist/WebEngineTS.cjs.js"
     }
   },
   "files": [

@@ -39,7 +39,7 @@ consume the engine; the engine never imports from or depends on any of them.
   export pipeline replaces it.
 - **WebEngineTSEditor** — the graphical scenario editor, and the intended replacement for
   ScenarioCreator. `app/` is the Angular editor app (consumes the engine via
-  `file:../../WebEngineTS`); `design/` is the JSX/CSS mockup guiding its redesign.
+  the packed tarball, as every consumer does); `design/` is the JSX/CSS mockup guiding its redesign.
 - **testv/virtual-lab** — the educational platform (own git repo): Angular `frontend`
   ("university-mock") + `backend` + `db` + `nginx` + docker-compose. The frontend is the
   scenario catalog + viewer; it downloads scenario ZIPs and runs them via
@@ -75,9 +75,11 @@ reach a consumer. It builds, packs, and pushes to all three consumers above in o
    ScenarioCreator and `testv/virtual-lab/frontend`, so their `package.json` dependency specs
    never need editing even though the *content* changes every run.
 4. Reinstalls the dependency **explicitly** in each already-set-up consumer (`npm install
-   <tgz-or-path>`) as defense in depth. `WebEngineTSEditor/app` uses `file:../../WebEngineTS`
-   (the dist folder directly, no tarball) and is skipped until it has a `node_modules/` (i.e.
-   until someone has run `npm install` there at least once).
+   <tgz-or-path>`) as defense in depth. Every consumer, the editor included, takes the packed
+   tarball. The editor used to take `file:../../WebEngineTS` — the engine directory — and that
+   **loaded two THREE.js instances**: the symlink let the bundler resolve the engine's own
+   `node_modules/three` alongside the app's. Measured 2026-09-05 and fixed by packing; a consumer
+   is still skipped until it has a `node_modules/`.
 
 `--no-install` builds/packs/copies without reinstalling (useful to just refresh the tarball).
 One-directional; the engine still imports from no consumer.
