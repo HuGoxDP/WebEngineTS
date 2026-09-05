@@ -10,11 +10,17 @@
 // is borrowed from testv/virtual-lab/e2e, the one place in the ecosystem that
 // already depends on it.
 //
-//   node scripts/shoot.mjs <url> <out.png> [waitMs] [clip] [scale]
+//   node scripts/shoot.mjs <url> <out.png> [waitMs] [clip] [scale] [--do "steps"]
 //
 // `clip` is "x,y,w,h" in CSS pixels and `scale` a device pixel ratio — together
 // they answer questions a full-frame shot cannot, such as which way a DNA helix
 // actually winds.
+//
+// `--do` runs input before the shot, as semicolon-separated steps — a UI that
+// only appears once something is clicked cannot be verified from a still frame
+// of the untouched page:
+//
+//   click:x,y   move:x,y   drag:x1,y1,x2,y2   key:Space   wait:ms
 //
 // WebGL in headless Chromium needs ANGLE's software rasteriser; without the
 // flags below the canvas comes back blank and the picture lies.
@@ -29,11 +35,15 @@ const E2E = resolve(HERE, "../../testv/virtual-lab/e2e");
 const require = createRequire(resolve(E2E, "package.json"));
 const { chromium } = require("playwright");
 
-const url = process.argv[2];
-const out = process.argv[3] ?? "shot.png";
-const waitMs = Number(process.argv[4] ?? 3500);
-const clipArg = process.argv[5];
-const scale = Number(process.argv[6] ?? 1);
+const argv = process.argv.slice(2);
+const doAt = argv.indexOf("--do");
+const steps = doAt === -1 ? [] : (argv.splice(doAt, 2)[1] ?? "").split(";").map(s => s.trim()).filter(Boolean);
+
+const url = argv[0];
+const out = argv[1] ?? "shot.png";
+const waitMs = Number(argv[2] ?? 3500);
+const clipArg = argv[3];
+const scale = Number(argv[4] ?? 1);
 
 const clip = clipArg
     ? (([x, y, width, height]) => ({ x, y, width, height }))(clipArg.split(",").map(Number))
@@ -71,6 +81,32 @@ console.log(`HTTP ${response?.status()} ${url}`);
 // The engine needs frames on the clock before anything is on screen: textures
 // upload during render, and the UI repaints on demand.
 await page.waitForTimeout(waitMs);
+
+for (const step of steps) {
+    const [verb, rest = ""] = step.split(":");
+    const n = rest.split(",").map(Number);
+    switch (verb) {
+        case "click": await page.mouse.click(n[0], n[1]); break;
+        case "move":  await page.mouse.move(n[0], n[1]); break;
+        case "drag":
+            await page.mouse.move(n[0], n[1]);
+            await page.mouse.down();
+            // In steps, so a control that reads a delta per frame sees the motion
+            // rather than one jump it may round away.
+            for (let i = 1; i <= 10; i++) {
+                await page.mouse.move(n[0] + (n[2] - n[0]) * i / 10, n[1] + (n[3] - n[1]) * i / 10);
+                await page.waitForTimeout(16);
+            }
+            await page.mouse.up();
+            break;
+        case "key":   await page.keyboard.press(rest); break;
+        case "wait":  await page.waitForTimeout(n[0]); break;
+        default: throw new Error(`Unknown step: ${step}`);
+    }
+    // The UI repaints on demand, and a click's effect lands on the next frame.
+    if (verb !== "wait") await page.waitForTimeout(250);
+}
+if (steps.length) console.log(`did ${steps.length} step(s): ${steps.join(" ")}`);
 
 await page.screenshot({ path: out, ...(clip ? { clip } : {}) });
 console.log(`saved ${out}`);
