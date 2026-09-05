@@ -131,7 +131,8 @@
       // --- LineRenderer: a chiral "L". The long arm runs toward +X, so a mirror
       //     puts it on the wrong side just like the cube "F" does. ---
       const lineGO = new GameObject("ChiralLine");
-      lineGO.transform.position = new Vector3(-9, 2, 0);
+      // Clear of the legend panel, which covered it at (-9, 2, 0).
+      lineGO.transform.position = new Vector3(-7, -2.5, 0);
       const line = lineGO.addComponent(LineRenderer);
       line.positionCount = 3;
       line.setPosition(0, new Vector3(0, 3, 0));   // top of the upright

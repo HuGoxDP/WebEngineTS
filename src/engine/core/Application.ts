@@ -31,6 +31,7 @@ import { ScrollRect } from "./ui/ScrollRect.ts";
 import { Selectable } from "./ui/Selectable.ts";
 import { ParticleSystem } from "./particles/ParticleSystem.ts";
 import { LODGroup } from "./components/LODGroup.ts";
+import { LineRenderer } from "./components/LineRenderer.ts";
 import { Gamepad } from "./input/Gamepad.ts";
 import { Touch } from "./input/Touch.ts";
 import { PluginManager } from "./plugins/PluginManager.ts";
@@ -772,6 +773,10 @@ export class Application {
 
             // 7d. Level-of-detail selection (uses final world transforms + Camera.main)
             LODGroup._updateAll();
+
+            // Lines flush their own dirty state: GameObject's LateUpdate walk
+            // only visits ScriptableBehaviours, and a LineRenderer is a Renderer.
+            LineRenderer._updateAll();
 
             // 7e. Streamed texture quality against the VRAM budget. Rate-limited
             // and fire-and-forget — it issues a fetch, so the loop never waits on

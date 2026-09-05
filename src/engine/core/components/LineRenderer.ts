@@ -133,6 +133,29 @@ export class LineRenderer extends Renderer {
 
     // === Lifecycle ===
 
+    // ==================== PER-FRAME DRIVER ====================
+
+    /** @internal Every enabled line, so the loop can flush dirty ones. */
+    private static _activeInstances: Set<LineRenderer> = new Set();
+
+    /**
+     * @internal
+     * Rebuilds every line whose state changed this frame. Called once per frame
+     * from `Application._loop`, the same registry pattern as `LODGroup`.
+     *
+     * Without this nothing consumed `_needsUpdate`. `GameObject._systemLateUpdate`
+     * only visits `ScriptableBehaviour`s, and a LineRenderer is a `Renderer`, so
+     * its own `_systemLateUpdate` was never called: geometry happened to work
+     * because `setPosition` rebuilds directly, while colour, width and every
+     * other setter marked the line dirty and were then silently dropped.
+     */
+    public static _updateAll(): void {
+        if (LineRenderer._activeInstances.size === 0) return;
+        for (const line of LineRenderer._activeInstances) {
+            if (line.isActiveAndEnabled) line._systemLateUpdate();
+        }
+    }
+
     protected override onAwake(): void {
         // Build the backing Three.js line.
         const geometry = new THREE.BufferGeometry();
@@ -153,6 +176,7 @@ export class LineRenderer extends Renderer {
 
     protected override onEnable(): void {
         super.onEnable();
+        LineRenderer._activeInstances.add(this);
         if (this._threeLine) {
             this._threeLine.visible = true;
         }
@@ -160,12 +184,14 @@ export class LineRenderer extends Renderer {
 
     protected override onDisable(): void {
         super.onDisable();
+        LineRenderer._activeInstances.delete(this);
         if (this._threeLine) {
             this._threeLine.visible = false;
         }
     }
 
     protected override onDestroy(): void {
+        LineRenderer._activeInstances.delete(this);
         if (this._threeLine && this.gameObject?.transform._internalObject3D) {
             this.gameObject.transform._internalObject3D.remove(this._threeLine);
         }
