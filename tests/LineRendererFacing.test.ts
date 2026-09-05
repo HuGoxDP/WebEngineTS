@@ -115,6 +115,62 @@ describe("LineRenderer ribbon facing", () => {
         expect(object!.geometry.getAttribute("position")).toBe(first);
     });
 
+    /**
+     * `useWorldSpace` was stored and never read: every line was drawn as though
+     * its points were local, so the declared default of `true` described the
+     * opposite of what happened. The ribbon's vertices are local either way, so
+     * the test reads them back and asks where the line ended up.
+     */
+    describe("useWorldSpace", () => {
+        /** Where the ribbon's first point sits in the object's own space. */
+        function firstLocalPoint(line: LineRenderer): Vector3 {
+            const v = vertices(line);
+            // The two vertices of the first rib straddle the point by half a width.
+            return new Vector3((v[0] + v[3]) / 2, (v[1] + v[4]) / 2, (v[2] + v[5]) / 2);
+        }
+
+        test("a world-space line ignores its transform", () => {
+            cameraAt(new Vector3(0, 0, -10));
+            const line = lineAlongX();
+            line.useWorldSpace = true;
+            line.transform.position = new Vector3(5, 0, 0);
+            LineRenderer._updateAll();
+
+            // Point 0 is world (-1, 0, 0); from an object at x = 5 that is x = -6
+            // in local space, which is what puts it back at world -1 when drawn.
+            expect(firstLocalPoint(line).x).toBeCloseTo(-6, 4);
+        });
+
+        test("a local-space line moves with its transform", () => {
+            cameraAt(new Vector3(0, 0, -10));
+            const line = lineAlongX();
+            line.useWorldSpace = false;
+            line.transform.position = new Vector3(5, 0, 0);
+            LineRenderer._updateAll();
+
+            expect(firstLocalPoint(line).x).toBeCloseTo(-1, 4);
+        });
+
+        test("world space is engine world space, not the mirrored one", () => {
+            cameraAt(new Vector3(0, 0, -10));
+            const line = spawn("Line").addComponent(LineRenderer);
+            line.useWorldSpace = true;
+            line.positionCount = 2;
+            line.setPosition(0, new Vector3(0, 0, 3));
+            line.setPosition(1, new Vector3(0, 1, 3));
+            line.transform.position = new Vector3(0, 0, 1);
+            LineRenderer._updateAll();
+
+            // z = 3 seen from an object at z = 1 is z = +2 ahead of it. Reading the
+            // Three.js matrix instead would answer -4.
+            expect(firstLocalPoint(line).z).toBeCloseTo(2, 4);
+        });
+
+        test("the default is world space, as Unity has it", () => {
+            expect(spawn("Line").addComponent(LineRenderer).useWorldSpace).toBe(true);
+        });
+    });
+
     test("grows its buffers when the point count changes", () => {
         cameraAt(new Vector3(0, 0, -10));
         const line = lineAlongX();

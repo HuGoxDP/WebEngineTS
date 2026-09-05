@@ -216,7 +216,7 @@ export class Transform extends Component {
      * In column-major storage the left-multiply is just negating the third row —
      * elements 2, 6, 10 and 14.
      */
-    private _engineWorldMatrix(out: THREE.Matrix4): THREE.Matrix4 {
+    public _engineWorldMatrix(out: THREE.Matrix4): THREE.Matrix4 {
         this._ensureWorldMatrix();
         const e = out.copy(this._object3D.matrixWorld).elements;
         e[2] = -e[2]; e[6] = -e[6]; e[10] = -e[10]; e[14] = -e[14];

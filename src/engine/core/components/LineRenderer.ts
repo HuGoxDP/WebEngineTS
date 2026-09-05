@@ -78,6 +78,9 @@ export interface CurveKey {
 const _eye = { x: 0, y: 0, z: 0 };
 /** The same camera in world space, kept so a built ribbon can record what it faced. */
 const _eyeWorld = { x: 0, y: 0, z: 0 };
+/** Scratch for pulling a world-space line's points into the ribbon's own space. */
+const _worldToLocal = new THREE.Matrix4();
+const _point = new THREE.Vector3();
 
 /**
  * The camera's position expressed in `go`'s local space, which is the space the
@@ -168,6 +171,9 @@ export class LineRenderer extends Renderer {
      */
     private readonly _facedCamera = new Float64Array([NaN, NaN, NaN]);
     private readonly _facedMatrix = new Float64Array(16).fill(NaN);
+
+    /** The points the ribbon is built from, closed and converted; see `_buildPath`. */
+    private readonly _pathBuffer: { x: number; y: number; z: number }[] = [];
 
     constructor(gameObject: GameObject) {
         super(gameObject);
@@ -393,8 +399,14 @@ export class LineRenderer extends Renderer {
 
     /**
      * Whether the points are in world space.
-     * `true` — the points are world-space positions.
-     * `false` — the points are relative to the Transform.
+     * `true` — the points are world-space positions, and the line stays where they
+     * put it however its Transform moves. This is the default, as in Unity.
+     * `false` — the points are relative to the Transform and move with it.
+     *
+     * @remarks
+     * World-space points are in **engine** world space, the space `position` and
+     * `Physics.raycast` speak, not the mirrored space of the Three.js object
+     * underneath.
      */
     @SerializedField()
     public get useWorldSpace(): boolean {
@@ -594,6 +606,42 @@ export class LineRenderer extends Renderer {
     // === Internals ===
 
     /**
+     * Fills {@link _pathBuffer} with the points the ribbon is built from, closed
+     * when {@link loop} is set and brought into the ribbon's own space when
+     * {@link useWorldSpace} is set. Returns how many points it wrote.
+     *
+     * @remarks
+     * `useWorldSpace` was stored and never read: every line was drawn as though
+     * its points were local, so the property's own default — `true`, Unity's —
+     * described the opposite of what happened. A world-space line is now pulled
+     * through the inverse of its object's world matrix, which is what makes it sit
+     * still while its transform moves. `_checkFacing` already marks the line dirty
+     * when that matrix changes, so the conversion is redone when it must be.
+     *
+     * Writes into a reused buffer. The ribbon rebuilds whenever the view turns, so
+     * a fresh array per rebuild would be an allocation per line per frame.
+     */
+    private _buildPath(): number {
+        const source = this._positions;
+        const count = source.length + (this._loop ? 1 : 0);
+        while (this._pathBuffer.length < count) this._pathBuffer.push({ x: 0, y: 0, z: 0 });
+
+        if (this._useWorldSpace) this.transform._engineWorldMatrix(_worldToLocal).invert();
+
+        for (let i = 0; i < count; i++) {
+            const p = source[i % source.length];
+            const out = this._pathBuffer[i];
+            if (this._useWorldSpace) {
+                _point.set(p.x, p.y, p.z).applyMatrix4(_worldToLocal);
+                out.x = _point.x; out.y = _point.y; out.z = _point.z;
+            } else {
+                out.x = p.x; out.y = p.y; out.z = p.z;
+            }
+        }
+        return count;
+    }
+
+    /**
      * Rebuilds the backing Three.js geometry.
      */
     private updateLine(): void {
@@ -608,18 +656,14 @@ export class LineRenderer extends Renderer {
 
         this._threeLine.visible = this.enabled;
 
-        // The path, with the first point repeated when the line is closed.
-        const path = this._loop
-            ? [...this._positions, this._positions[0]]
-            : this._positions;
+        const count = this._buildPath();
+        const path = this._pathBuffer;
 
         // Width is geometry here, so the ribbon has to face somewhere. Facing the
         // camera is Unity's default (`alignment = View`) and the only choice that
         // keeps a line visible from every angle; the fallback matters when there
         // is no camera yet, as in a test.
         const eye = _viewPointFor(this.gameObject);
-
-        const count = path.length;
         const geometry = this._threeLine.geometry as THREE.BufferGeometry;
 
         // Buffers are reused while the point count holds. The ribbon now rebuilds
