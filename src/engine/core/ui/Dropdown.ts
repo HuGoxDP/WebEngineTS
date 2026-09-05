@@ -21,10 +21,12 @@ const NO_SELECTION = -1;
  * template hierarchy of child objects. That keeps it usable from a scenario
  * without any prefab wiring, which is the point of every control here.
  *
- * The open list is drawn **below the field within the same element**, so give
- * the dropdown a RectTransform tall enough for the list, or leave
- * {@link maxVisibleItems} low. A list longer than that scrolls with the wheel
- * once open.
+ * The open list is drawn below the field, extending past the control's own
+ * RectTransform. While open the dropdown **raises its {@link sortingOrder}**, so
+ * the list covers whatever sits beneath it instead of being painted over by the
+ * next sibling — the Canvas sorts drawing and hit-testing by the same key, so
+ * clicks follow the picture. The order is restored on close. A list longer than
+ * {@link maxVisibleItems} scrolls with the wheel once open.
  *
  * ```ts
  * const dd = go.addComponent(Dropdown);
@@ -93,6 +95,16 @@ export class Dropdown extends Selectable {
     private _options: string[] = [];
     private _value: number = NO_SELECTION;
     private _open: boolean = false;
+
+    /**
+     * How far the control is lifted while its list is open. Large enough to clear
+     * the hand-assigned orders a layout is likely to use, small enough to stay
+     * below anything deliberately pinned above a dropdown.
+     */
+    private static readonly OPEN_SORTING_BOOST = 1000;
+
+    /** The order to return to on close. */
+    private _closedSortingOrder: number = 0;
     private _hoveredIndex: number = NO_SELECTION;
     private _scroll: number = 0;
 
@@ -159,12 +171,20 @@ export class Dropdown extends Selectable {
     /** Opens the list. Does nothing when the control is not interactable. */
     public open(): void {
         if (!this.isInteractable() || this._options.length === 0) return;
+        if (!this._open) {
+            // Lift the whole control so the list covers its neighbours. Drawing
+            // and hit-testing share this key, so the option under the cursor is
+            // the one that gets clicked.
+            this._closedSortingOrder = this.sortingOrder;
+            this.sortingOrder = this._closedSortingOrder + Dropdown.OPEN_SORTING_BOOST;
+        }
         this._open = true;
         this._scrollTo(this._value);
     }
 
     /** Closes the list. */
     public close(): void {
+        if (this._open) this.sortingOrder = this._closedSortingOrder;
         this._open = false;
         this._hoveredIndex = NO_SELECTION;
     }
