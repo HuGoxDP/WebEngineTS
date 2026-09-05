@@ -6,6 +6,9 @@ import { Vector3 } from "../src/engine/core/math/Vector3";
 import { Vector2 } from "../src/engine/core/math/Vector2";
 import { Quaternion } from "../src/engine/core/math/Quaternion";
 import { Rect } from "../src/engine/core/math/Rect";
+import { Mesh } from "../src/engine/core/graphics/Mesh";
+import { MeshFilter } from "../src/engine/core/rendering/MeshFilter";
+import { MeshRenderer } from "../src/engine/core/rendering/MeshRenderer";
 
 /**
  * Pins the coordinate-conversion contract for Transform and Camera against Unity
@@ -345,6 +348,45 @@ describe("Camera — screen / viewport conversions", () => {
         const far = cam.worldToScreenPoint(new Vector3(0, 0, 9));
         expect(near.z).toBeCloseTo(3, 4);
         expect(far.z).toBeCloseTo(9, 4);
+    });
+});
+
+/**
+ * World bounds are read out of Three's `matrixWorld`, which carries the scene's
+ * handedness mirror — and which `updateMatrixWorld` refreshes *without* walking
+ * up to its ancestors. Both bit: before the first render the world matrix of an
+ * ancestor is still identity, so bounds came back at the origin however the
+ * object was placed. Neither was covered.
+ */
+describe("Bounds across the handedness mirror", () => {
+    function boxAt(pos: Vector3): MeshRenderer {
+        const go = spawn("Boxy");
+        go.transform.position = pos;
+        go.addComponent(MeshFilter).sharedMesh = Mesh.createCube(2);
+        return go.addComponent(MeshRenderer);
+    }
+
+    test("Renderer.bounds sits where the engine placed the object", () => {
+        const b = boxAt(new Vector3(2, 1, 6)).bounds;
+        expect(b.center.x).toBeCloseTo(2, 3);
+        expect(b.center.y).toBeCloseTo(1, 3);
+        expect(b.center.z).toBeCloseTo(6, 3); // not 0, and not -6
+    });
+
+    test("Renderer.bounds follows a parent that moved this frame", () => {
+        const parent = spawn("Parent");
+        const r = boxAt(Vector3.zero);
+        r.gameObject.transform.setParent(parent.transform, false);
+        parent.transform.position = new Vector3(0, 0, 5);
+
+        expect(r.bounds.center.z).toBeCloseTo(5, 3);
+    });
+
+    test("GameObject hierarchy bounds are in engine space too", () => {
+        const r = boxAt(new Vector3(0, 0, 4));
+        const b = r.gameObject.transform._computeHierarchyBounds();
+        expect(b.center.z).toBeCloseTo(4, 3); // not -4
+        expect(b.size.z).toBeGreaterThan(0);  // size is unsigned
     });
 });
 

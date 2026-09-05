@@ -616,7 +616,10 @@ export abstract class Renderer extends Behaviour {
         // Transform by world matrix
         const obj = this._internalRenderObject;
         if (obj !== null) {
-            obj.updateMatrixWorld(true);
+            // Ancestors first: `updateMatrixWorld` reads `parent.matrixWorld`
+            // without refreshing it, so before the first render this returned
+            // bounds at the origin however the object was placed.
+            obj.updateWorldMatrix(true, false);
             // Bounds are engine-space, but matrixWorld carries the scene's
             // handedness mirror — undo it (negate the third row) so a renderer's
             // reported bounds sit where the engine says the object is.

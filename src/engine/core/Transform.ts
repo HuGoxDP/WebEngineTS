@@ -269,7 +269,11 @@ export class Transform extends Component {
      * @returns world-space Bounds enclosing the entire hierarchy.
      */
     public _computeHierarchyBounds(): Bounds {
-        this._object3D.updateMatrixWorld(true);
+        // `updateWorldMatrix(true, ...)` walks *up* first. `updateMatrixWorld`
+        // does not — it reads `parent.matrixWorld` as it finds it, so an ancestor
+        // that moved this frame would place these bounds at the old pose, or at
+        // the origin before the first render.
+        this._object3D.updateWorldMatrix(true, true);
         _tBox3.setFromObject(this._object3D);
 
         if (_tBox3.isEmpty()) {
@@ -277,7 +281,9 @@ export class Transform extends Component {
         }
 
         _tBox3.getCenter(_tVec3B);
-        const center = new Vector3(_tVec3B.x, _tVec3B.y, _tVec3B.z);
+        // Three world space is the mirror of engine world space (Scene._contentRoot),
+        // so the centre crosses back. Size is unsigned and needs no flip.
+        const center = new Vector3(_tVec3B.x, _tVec3B.y, -_tVec3B.z);
 
         _tBox3.getSize(_tVec3B);
         const size = new Vector3(_tVec3B.x, _tVec3B.y, _tVec3B.z);
@@ -385,8 +391,9 @@ export class Transform extends Component {
             }
         }
 
-        // Ensure matrices are up to date
-        this._object3D.updateMatrixWorld(true);
+        // Ensure matrices are up to date, ancestors included — reparenting is
+        // exactly when the chain above this object has just changed.
+        this._object3D.updateWorldMatrix(true, true);
 
         Transform._hierarchyEpoch++;
     }
