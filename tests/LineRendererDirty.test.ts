@@ -26,22 +26,36 @@ function line(): LineRenderer {
 
 const materialOf = (l: LineRenderer): any => (l as any)._threeLine?.material;
 
+/** First vertex's colour: the ribbon carries colour per vertex, not per material. */
+function firstVertexColor(l: LineRenderer): { r: number; g: number; b: number } {
+    const attr = (l as any)._threeLine.geometry.getAttribute("color");
+    return { r: attr.getX(0), g: attr.getY(0), b: attr.getZ(0) };
+}
+
 afterEach(() => {
     for (const go of made) if (go.exists()) go.destroyImmediate();
     made.length = 0;
 });
 
 describe("LineRenderer flushes its dirty state from the loop", () => {
-    test("a colour set after the first build reaches the material", () => {
+    test("a colour set after the first build reaches the geometry", () => {
         const l = line();
         l.startColor = new Color(1, 0.45, 0.1, 1);
 
         LineRenderer._updateAll();
 
-        const c = materialOf(l).color;
+        const c = firstVertexColor(l);
         expect(c.r).toBeCloseTo(1, 3);
         expect(c.g).toBeCloseTo(0.45, 3);
         expect(c.b).toBeCloseTo(0.1, 3);
+    });
+
+    test("the material stays unlit and vertex-coloured", () => {
+        const l = line();
+        LineRenderer._updateAll();
+
+        expect(materialOf(l).vertexColors).toBe(true);
+        expect(materialOf(l).type).toBe("MeshBasicMaterial");
     });
 
     test("an enabled line is registered, a disabled one is not", () => {

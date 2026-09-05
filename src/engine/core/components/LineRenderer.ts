@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Renderer } from "../rendering/Renderer.ts";
 import { Color } from "../math/Color";
 import { Vector3 } from "../math/Vector3";
+import { Camera } from "./Camera";
 import { Serializable, SerializedField } from "../reflection/Decorators";
 import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
@@ -73,13 +74,36 @@ export interface CurveKey {
  * line.endColor = Color.blue;
  * ```
  */
+/** Scratch for the view point, so building a ribbon allocates nothing. */
+const _eye = { x: 0, y: 0, z: 0 };
+
+/**
+ * The camera's position expressed in `go`'s local space, which is the space the
+ * ribbon's vertices live in.
+ *
+ * Falls back to a point far along +Z when there is no camera — headless tests
+ * build lines with no scene, and a ribbon still has to have a facing.
+ */
+function _viewPointFor(go: GameObject): { x: number; y: number; z: number } {
+    const cam = Camera.main;
+    if (cam === null) {
+        _eye.x = 0; _eye.y = 0; _eye.z = -1e4;
+        return _eye;
+    }
+
+    const world = cam.transform.position;
+    const local = go.transform.inverseTransformPoint(world);
+    _eye.x = local.x; _eye.y = local.y; _eye.z = local.z;
+    return _eye;
+}
+
 @Serializable({ typeName: "LineRenderer", category: "Rendering" })
 export class LineRenderer extends Renderer {
     /**
      * @internal Not for use outside the engine.
      * The backing Three.js line.
      */
-    private _threeLine: THREE.Line | null = null;
+    private _threeLine: THREE.Mesh | null = null;
     
     /** The points the line passes through. */
     private _positions: Vector3[] = [];
@@ -160,12 +184,17 @@ export class LineRenderer extends Renderer {
         // Build the backing Three.js line.
         const geometry = new THREE.BufferGeometry();
         
-        const material = new THREE.LineBasicMaterial({ 
-            color: 0xffffff,
-            linewidth: 1
+        // A ribbon of triangles rather than THREE.Line: WebGL ignores
+        // `linewidth` on LineBasicMaterial, so a real width has to be geometry.
+        // Vertex colours carry the start→end gradient, and the material is unlit
+        // so a line reads as its own colour rather than as a lit surface.
+        const material = new THREE.MeshBasicMaterial({
+            vertexColors: true,
+            side: THREE.DoubleSide,
+            transparent: true,
         });
-        
-        this._threeLine = new THREE.Line(geometry, material);
+
+        this._threeLine = new THREE.Mesh(geometry, material);
        // this._threeObject = this._threeLine;
         
         // Attach it to the scene through the Transform.
@@ -522,38 +551,84 @@ export class LineRenderer extends Renderer {
 
         this._threeLine.visible = this.enabled;
 
-        // Build the vertex array.
-        const vertices: number[] = [];
+        // The path, with the first point repeated when the line is closed.
+        const path = this._loop
+            ? [...this._positions, this._positions[0]]
+            : this._positions;
 
-        for (let i = 0; i < this._positions.length; i++) {
-            const pos = this._positions[i];
-            vertices.push(pos.x, pos.y, pos.z);
-        }
-        
-        // A closed line repeats its first point at the end.
-        if (this._loop && this._positions.length > 0) {
-            const firstPos = this._positions[0];
-            vertices.push(firstPos.x, firstPos.y, firstPos.z);
+        // Width is geometry here, so the ribbon has to face somewhere. Facing the
+        // camera is Unity's default (`alignment = View`) and the only choice that
+        // keeps a line visible from every angle; the fallback matters when there
+        // is no camera yet, as in a test.
+        const eye = _viewPointFor(this.gameObject);
+
+        const count = path.length;
+        const vertices = new Float32Array(count * 6);
+        const colors = new Float32Array(count * 6);
+        const indices: number[] = [];
+
+        for (let i = 0; i < count; i++) {
+            const p = path[i];
+            const t = count > 1 ? i / (count - 1) : 0;
+
+            // Segment direction: forward difference, backward at the last point.
+            const next = path[Math.min(i + 1, count - 1)];
+            const prev = path[Math.max(i - 1, 0)];
+            let dx = next.x - prev.x, dy = next.y - prev.y, dz = next.z - prev.z;
+            let len = Math.hypot(dx, dy, dz);
+            if (len < 1e-8) { dx = 1; dy = 0; dz = 0; len = 1; }
+            dx /= len; dy /= len; dz /= len;
+
+            // Toward the viewer, then side = dir × view, giving a ribbon that
+            // turns its face to the camera.
+            let vx = eye.x - p.x, vy = eye.y - p.y, vz = eye.z - p.z;
+            let sx = dy * vz - dz * vy;
+            let sy = dz * vx - dx * vz;
+            let sz = dx * vy - dy * vx;
+            let slen = Math.hypot(sx, sy, sz);
+            if (slen < 1e-8) {
+                // Looking straight down the line: any perpendicular will do.
+                sx = -dy; sy = dx; sz = 0;
+                slen = Math.hypot(sx, sy, sz) || 1;
+            }
+            sx /= slen; sy /= slen; sz /= slen;
+
+            const half = (this._startWidth + (this._endWidth - this._startWidth) * t) * 0.5;
+            const o = i * 6;
+            vertices[o]     = p.x + sx * half;
+            vertices[o + 1] = p.y + sy * half;
+            vertices[o + 2] = p.z + sz * half;
+            vertices[o + 3] = p.x - sx * half;
+            vertices[o + 4] = p.y - sy * half;
+            vertices[o + 5] = p.z - sz * half;
+
+            const c = this.getColorAtT(t);
+            colors[o]     = c.r; colors[o + 1] = c.g; colors[o + 2] = c.b;
+            colors[o + 3] = c.r; colors[o + 4] = c.g; colors[o + 5] = c.b;
+
+            if (i < count - 1) {
+                const a = i * 2;
+                indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+            }
         }
 
-        // Hand the vertices to the geometry.
         const geometry = this._threeLine.geometry as THREE.BufferGeometry;
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        geometry.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
+        geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+        geometry.setIndex(indices);
         geometry.computeBoundingSphere();
 
-        // Apply the material colour.
-        const material = this._threeLine.material as THREE.LineBasicMaterial;
-        material.color.setRGB(this._startColor.r, this._startColor.g, this._startColor.b);
+        const material = this._threeLine.material as THREE.MeshBasicMaterial;
+        material.opacity = this._startColor.a;
         material.needsUpdate = true;
 
         this._needsUpdate = false;
     }
 
     /**
-     * The colour at position `t` along the line, 0–1.
-     * @internal Reserved for gradient support.
+     * The colour at position `t` along the line, 0–1. Written into the ribbon's
+     * vertex colours, so start/end colours and gradients all render.
      */
-    // @ts-ignore — unused until gradients are wired up.
     private getColorAtT(t: number): Color {
         // Prefer the gradient when one is set.
         if (this._colorGradient.length >= 2) {
