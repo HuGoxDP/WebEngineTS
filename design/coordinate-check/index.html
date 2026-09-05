@@ -58,7 +58,8 @@
     (front faces, not inside-out).
     <hr />
     Also chiral: the orange <b>L</b> (LineRenderer) — its foot must run
-    <span class="ok">RIGHT</span>. The blue <b>TEXT</b> is a world-space Canvas — it must read
+    <span class="ok">RIGHT</span>. It draws as a <b>1&nbsp;px hairline</b>: WebGL ignores line
+    width, so <code>startWidth</code> does nothing (a known gap, not a handedness fault). The blue <b>TEXT</b> is a world-space Canvas — it must read
     forwards, not mirrored.
   </div>
   <div id="err"></div>
@@ -70,7 +71,7 @@
   <script type="module">
     import {
       Application, GameObject, Camera, MeshFilter, MeshRenderer, Mesh,
-      Material, Shader, Color, Vector3, DirectionalLight,
+      Material, Shader, Color, Vector3, Vector2, DirectionalLight,
       LineRenderer, Canvas, CanvasRenderMode, UIText,
     } from "WebEngineTS";
 
@@ -154,6 +155,9 @@
       label.text = "TEXT";
       label.fontSize = 64;
       label.color = new Color(0.4, 0.9, 1, 1);
+      // RectTransform defaults to 100x100 and UIText defaults to Clip, so a
+      // 64 px word is cut to "TE" unless the rect is sized for it.
+      label.rectTransform.sizeDelta = new Vector2(360, 90);
 
       app.run();
     } catch (e) {
