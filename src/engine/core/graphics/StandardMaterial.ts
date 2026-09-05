@@ -74,6 +74,7 @@ export class StandardMaterial extends Material {
 
     public set albedoColor(value: Color) {
         this.setColor("_Color", value);
+        this._syncOpacity();
     }
 
     /**
@@ -426,6 +427,31 @@ export class StandardMaterial extends Material {
                 break;
         }
 
+        this._syncOpacity();
         mat.needsUpdate = true;
+    }
+
+    /**
+     * Pushes {@link albedoColor}'s alpha into the Three.js material's `opacity`.
+     *
+     * Three keeps colour and opacity apart — `MeshStandardMaterial.color` is an
+     * RGB `THREE.Color` with no alpha channel — so an engine `Color` carrying
+     * `a < 1` loses it unless it is copied across explicitly. Without this,
+     * setting a translucent albedo and `MaterialRenderMode.Fade` turned blending
+     * on but left the surface fully opaque.
+     *
+     * Only the transparent modes read the alpha; an opaque material stays at 1
+     * however its colour was written, matching Unity, where the alpha of an
+     * Opaque Standard material is ignored.
+     */
+    private _syncOpacity(): void {
+        const mat = this._threeMatHandle as THREE.MeshStandardMaterial;
+        if (mat === undefined || mat === null) return;
+
+        const mode = this.getInt("_Mode") as MaterialRenderMode;
+        const transparent = mode === MaterialRenderMode.Fade
+            || mode === MaterialRenderMode.Transparent;
+
+        mat.opacity = transparent ? this.albedoColor.a : 1;
     }
 }

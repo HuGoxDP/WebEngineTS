@@ -11,8 +11,11 @@
 
   HOW TO RUN (ES-module imports need a server; file:// will not work):
     1. npm run build            # produces dist/WebEngineTS.standalone.js
-    2. npx http-server . -p 8080 -c-1        (or: python -m http.server 8080)   -- from the REPO ROOT
-    3. open http://localhost:8080/design/coordinate-check/
+    2. npx http-server . -p 8090 -c-1   -- from the WORKSPACE ROOT (WebstormProjects),
+       so the scenario viewer beside this file can reach ScenarioCreator's archives too
+    3. open http://localhost:8090/WebEngineTS/design/coordinate-check/
+
+  The engine import is relative, so serving from either root works.
 -->
 <html lang="en">
 <head>
@@ -65,7 +68,7 @@
   <div id="err"></div>
 
   <script type="importmap">
-    { "imports": { "WebEngineTS": "/dist/WebEngineTS.standalone.js" } }
+    { "imports": { "WebEngineTS": "../../dist/WebEngineTS.standalone.js" } }
   </script>
 
   <script type="module">
