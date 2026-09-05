@@ -104,6 +104,13 @@ export class LineRenderer extends Renderer {
      * The backing Three.js line.
      */
     private _threeLine: THREE.Mesh | null = null;
+
+    /**
+     * The vertex-coloured material this line builds for itself, used whenever no
+     * engine {@link Material} has been assigned. Owned here, so it is the only
+     * one this component disposes.
+     */
+    private _ownMaterial: THREE.MeshBasicMaterial | null = null;
     
     /** The points the line passes through. */
     private _positions: Vector3[] = [];
@@ -194,47 +201,40 @@ export class LineRenderer extends Renderer {
             transparent: true,
         });
 
+        this._ownMaterial = material;
         this._threeLine = new THREE.Mesh(geometry, material);
-       // this._threeObject = this._threeLine;
-        
-        // Attach it to the scene through the Transform.
-        if (this.gameObject?.transform._internalObject3D) {
-            this.gameObject.transform._internalObject3D.add(this._threeLine);
-        }
+
+        // Register through the base class rather than adding to the Transform
+        // directly: that is what gives a line the rest of Renderer — shadow
+        // settings, visibility and bounds all key off `_internalRenderObject`,
+        // and it stayed null while this attached itself.
+        this._setInternalRenderObject(this._threeLine);
     }
 
     protected override onEnable(): void {
-        super.onEnable();
+        super.onEnable();   // base syncs visibility
         LineRenderer._activeInstances.add(this);
-        if (this._threeLine) {
-            this._threeLine.visible = true;
-        }
     }
 
     protected override onDisable(): void {
         super.onDisable();
         LineRenderer._activeInstances.delete(this);
-        if (this._threeLine) {
-            this._threeLine.visible = false;
-        }
     }
 
     protected override onDestroy(): void {
         LineRenderer._activeInstances.delete(this);
-        if (this._threeLine && this.gameObject?.transform._internalObject3D) {
-            this.gameObject.transform._internalObject3D.remove(this._threeLine);
-        }
-        
+
+        // Only what this class owns: the geometry and the fallback material it
+        // built. Detaching from the Transform is the base class's job.
         if (this._threeLine) {
             this._threeLine.geometry?.dispose();
-            if (this._threeLine.material instanceof THREE.Material) {
-                this._threeLine.material.dispose();
+            if (this._ownMaterial !== null) {
+                this._ownMaterial.dispose();
+                this._ownMaterial = null;
             }
         }
-        
+
         this._threeLine = null;
-      //  this._threeObject = null;
-        
         super.onDestroy();
     }
 
@@ -672,19 +672,23 @@ export class LineRenderer extends Renderer {
 
     // === Renderer's abstract members ===
 
-  /*  protected override updateMaterial(): void {
+    /**
+     * Uses the assigned engine {@link Material} when there is one, and this
+     * line's own vertex-coloured material otherwise.
+     *
+     * @remarks
+     * Previously commented out, so `sharedMaterial` never reached a line and
+     * colour could only come from {@link startColor}. A line is a ribbon of
+     * triangles, so an ordinary material works on it unchanged; the only thing
+     * worth saying is that a material without `vertexColors` ignores the
+     * start/end gradient, which is the assignment's own choice.
+     */
+    protected override _syncMaterialToThree(): void {
         if (!this._threeLine) return;
-        
-       // const mat = this._materialInstance || this._sharedMaterial;
-        
-        if (mat) {
-            // A line draws with a LineBasicMaterial.
-            // TODO: convert the engine Material into a LineBasicMaterial —
-            // colour, texture and blending are dropped until that exists.
-        }
-    }*/
 
-   /* protected override updateMaterials(): void {
-        this.updateMaterial();
-    }*/
+        const assigned = this._getActiveMaterial();
+        this._threeLine.material = assigned !== null
+            ? assigned._internalThreeMaterial
+            : this._ownMaterial!;
+    }
 }
