@@ -20,7 +20,7 @@
 // only appears once something is clicked cannot be verified from a still frame
 // of the untouched page:
 //
-//   click:x,y   move:x,y   drag:x1,y1,x2,y2   key:Space   wait:ms
+//   click:x,y   move:x,y   drag:x1,y1,x2,y2   key:Space   wheel:notches   wait:ms
 //
 // WebGL in headless Chromium needs ANGLE's software rasteriser; without the
 // flags below the canvas comes back blank and the picture lies.
@@ -101,6 +101,14 @@ for (const step of steps) {
             break;
         case "key":   await page.keyboard.press(rest); break;
         case "wait":  await page.waitForTimeout(n[0]); break;
+        case "wheel":
+            // In notches, like a real wheel: a scenario that reads deltaY per
+            // event sees several small steps rather than one implausible jump.
+            for (let i = 0; i < Math.abs(n[0]); i++) {
+                await page.mouse.wheel(0, Math.sign(n[0]) * 100);
+                await page.waitForTimeout(80);
+            }
+            break;
         default: throw new Error(`Unknown step: ${step}`);
     }
     // The UI repaints on demand, and a click's effect lands on the next frame.
