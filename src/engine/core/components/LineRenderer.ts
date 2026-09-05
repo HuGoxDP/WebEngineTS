@@ -76,10 +76,13 @@ export interface CurveKey {
  */
 /** Scratch for the view point, so building a ribbon allocates nothing. */
 const _eye = { x: 0, y: 0, z: 0 };
+/** The same camera in world space, kept so a built ribbon can record what it faced. */
+const _eyeWorld = { x: 0, y: 0, z: 0 };
 
 /**
  * The camera's position expressed in `go`'s local space, which is the space the
- * ribbon's vertices live in.
+ * ribbon's vertices live in. Also leaves the world-space position in
+ * {@link _eyeWorld}, which is what the facing cache compares against.
  *
  * Falls back to a point far along +Z when there is no camera — headless tests
  * build lines with no scene, and a ribbon still has to have a facing.
@@ -88,10 +91,12 @@ function _viewPointFor(go: GameObject): { x: number; y: number; z: number } {
     const cam = Camera.main;
     if (cam === null) {
         _eye.x = 0; _eye.y = 0; _eye.z = -1e4;
+        _eyeWorld.x = 0; _eyeWorld.y = 0; _eyeWorld.z = -1e4;
         return _eye;
     }
 
     const world = cam.transform.position;
+    _eyeWorld.x = world.x; _eyeWorld.y = world.y; _eyeWorld.z = world.z;
     const local = go.transform.inverseTransformPoint(world);
     _eye.x = local.x; _eye.y = local.y; _eye.z = local.z;
     return _eye;
@@ -157,6 +162,13 @@ export class LineRenderer extends Renderer {
     /** Set when the geometry needs rebuilding. */
     private _needsUpdate: boolean = true;
 
+    /**
+     * The camera position and world matrix the current ribbon was built against.
+     * `NaN` until the first build, so the first check always rebuilds.
+     */
+    private readonly _facedCamera = new Float64Array([NaN, NaN, NaN]);
+    private readonly _facedMatrix = new Float64Array(16).fill(NaN);
+
     constructor(gameObject: GameObject) {
         super(gameObject);
         this.name = "LineRenderer";
@@ -182,9 +194,54 @@ export class LineRenderer extends Renderer {
      */
     public static _updateAll(): void {
         if (LineRenderer._activeInstances.size === 0) return;
+
+        // The camera's world position once for the whole set, rather than once per
+        // line: every line needs it to decide whether its ribbon still faces the
+        // right way, and reading it allocates.
+        const cam = Camera.main;
+        const camPos = cam !== null ? cam.transform.position : null;
+        const cx = camPos !== null ? camPos.x : 0;
+        const cy = camPos !== null ? camPos.y : 0;
+        const cz = camPos !== null ? camPos.z : -1e4;
+
         for (const line of LineRenderer._activeInstances) {
-            if (line.isActiveAndEnabled) line._systemLateUpdate();
+            if (!line.isActiveAndEnabled) continue;
+            line._checkFacing(cx, cy, cz);
+            line._systemLateUpdate();
         }
+    }
+
+    /**
+     * Marks the ribbon dirty once the camera has moved relative to this line.
+     *
+     * Width is geometry here, not a shader constant, so a ribbon is built facing
+     * one viewpoint. Nothing used to invalidate that: a line under a rotating
+     * parent, or any line at all once the camera orbited, kept its original
+     * facing until some other change happened to mark it dirty, turned edge-on and
+     * rendered as a hairline. Crystals showed it plainly — of twelve unit-cell
+     * edges only three or four stayed solid, and which ones changed as the lattice
+     * turned.
+     *
+     * Compares the camera's world position and this line's world matrix instead of
+     * recomputing the local eye, because both are available without allocating.
+     * The matrix is brought current first rather than trusted: outside a render it
+     * is only refreshed lazily, and a line whose own transform turned would
+     * otherwise keep comparing equal to itself and never re-face.
+     */
+    private _checkFacing(cx: number, cy: number, cz: number): void {
+        if (this._needsUpdate || this._positions.length < 2) return;
+
+        this.transform._ensureWorldMatrix();
+        const e = this.transform._internalObject3D.matrixWorld.elements;
+        if (this._facedCamera[0] === cx && this._facedCamera[1] === cy && this._facedCamera[2] === cz) {
+            let same = true;
+            for (let i = 0; i < 16; i++) {
+                if (this._facedMatrix[i] !== e[i]) { same = false; break; }
+            }
+            if (same) return;
+        }
+
+        this._needsUpdate = true;
     }
 
     protected override onAwake(): void {
@@ -563,9 +620,24 @@ export class LineRenderer extends Renderer {
         const eye = _viewPointFor(this.gameObject);
 
         const count = path.length;
-        const vertices = new Float32Array(count * 6);
-        const colors = new Float32Array(count * 6);
-        const indices: number[] = [];
+        const geometry = this._threeLine.geometry as THREE.BufferGeometry;
+
+        // Buffers are reused while the point count holds. The ribbon now rebuilds
+        // whenever the view turns, so allocating three arrays per rebuild would be
+        // three allocations per line per frame for a scene that simply orbits.
+        let position = geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+        if (position === undefined || position.array.length !== count * 6) {
+            position = new THREE.BufferAttribute(new Float32Array(count * 6), 3);
+            geometry.setAttribute("position", position);
+            geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(count * 6), 3));
+            geometry.setIndex(new THREE.BufferAttribute(new Uint32Array((count - 1) * 6), 1));
+        }
+        const color = geometry.getAttribute("color") as THREE.BufferAttribute;
+        const index = geometry.getIndex() as THREE.BufferAttribute;
+
+        const vertices = position.array as Float32Array;
+        const colors = color.array as Float32Array;
+        const indices = index.array as Uint32Array;
 
         for (let i = 0; i < count; i++) {
             const p = path[i];
@@ -608,19 +680,27 @@ export class LineRenderer extends Renderer {
 
             if (i < count - 1) {
                 const a = i * 2;
-                indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+                const k = i * 6;
+                indices[k] = a; indices[k + 1] = a + 1; indices[k + 2] = a + 2;
+                indices[k + 3] = a + 1; indices[k + 4] = a + 3; indices[k + 5] = a + 2;
             }
         }
 
-        const geometry = this._threeLine.geometry as THREE.BufferGeometry;
-        geometry.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
-        geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-        geometry.setIndex(indices);
+        position.needsUpdate = true;
+        color.needsUpdate = true;
+        index.needsUpdate = true;
         geometry.computeBoundingSphere();
 
         const material = this._threeLine.material as THREE.MeshBasicMaterial;
         material.opacity = this._startColor.a;
         material.needsUpdate = true;
+
+        // What this ribbon now faces, so _checkFacing can tell when it stops.
+        this._facedCamera[0] = _eyeWorld.x;
+        this._facedCamera[1] = _eyeWorld.y;
+        this._facedCamera[2] = _eyeWorld.z;
+        const e = this.transform._internalObject3D.matrixWorld.elements;
+        for (let i = 0; i < 16; i++) this._facedMatrix[i] = e[i];
 
         this._needsUpdate = false;
     }

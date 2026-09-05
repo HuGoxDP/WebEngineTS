@@ -187,7 +187,17 @@ export class Transform extends Component {
      * matrix is recomputed at render, so coordinate conversions call this to stay
      * correct between frames and before the first render (e.g. in tests).
      */
-    private _ensureWorldMatrix(): void {
+    /**
+     * @internal
+     * Brings `_internalObject3D.matrixWorld` up to date, flushing any pending
+     * local change first.
+     *
+     * Public to the engine because a component that reads `matrixWorld` directly —
+     * `LineRenderer`, comparing it to decide whether its ribbon still faces the
+     * camera — would otherwise have to read a world property just for the side
+     * effect, and every one of those allocates.
+     */
+    public _ensureWorldMatrix(): void {
         if (this._dirty) this._syncToThree();
         this._object3D.updateWorldMatrix(true, false);
     }
