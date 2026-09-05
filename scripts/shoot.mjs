@@ -10,7 +10,11 @@
 // is borrowed from testv/virtual-lab/e2e, the one place in the ecosystem that
 // already depends on it.
 //
-//   node scripts/shoot.mjs <url> <out.png> [waitMs]
+//   node scripts/shoot.mjs <url> <out.png> [waitMs] [clip] [scale]
+//
+// `clip` is "x,y,w,h" in CSS pixels and `scale` a device pixel ratio — together
+// they answer questions a full-frame shot cannot, such as which way a DNA helix
+// actually winds.
 //
 // WebGL in headless Chromium needs ANGLE's software rasteriser; without the
 // flags below the canvas comes back blank and the picture lies.
@@ -28,6 +32,12 @@ const { chromium } = require("playwright");
 const url = process.argv[2];
 const out = process.argv[3] ?? "shot.png";
 const waitMs = Number(process.argv[4] ?? 3500);
+const clipArg = process.argv[5];
+const scale = Number(process.argv[6] ?? 1);
+
+const clip = clipArg
+    ? (([x, y, width, height]) => ({ x, y, width, height }))(clipArg.split(",").map(Number))
+    : undefined;
 
 if (!url) {
     console.error("usage: node scripts/shoot.mjs <url> <out.png> [waitMs]");
@@ -44,7 +54,10 @@ const browser = await chromium.launch({
     ],
 });
 
-const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+const page = await browser.newPage({
+    viewport: { width: 1600, height: 900 },
+    deviceScaleFactor: scale,
+});
 
 const logs = [];
 page.on("console", m => logs.push(`  [${m.type()}] ${m.text()}`));
@@ -59,7 +72,7 @@ console.log(`HTTP ${response?.status()} ${url}`);
 // upload during render, and the UI repaints on demand.
 await page.waitForTimeout(waitMs);
 
-await page.screenshot({ path: out });
+await page.screenshot({ path: out, ...(clip ? { clip } : {}) });
 console.log(`saved ${out}`);
 
 console.log(logs.length ? "console:" : "console: (silent)");
