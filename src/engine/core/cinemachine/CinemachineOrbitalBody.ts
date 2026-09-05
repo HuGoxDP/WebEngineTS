@@ -2,6 +2,7 @@
 
 import { CinemachineBody, CameraState } from "./CinemachineCore.ts";
 import { Input } from "../Input.ts";
+import { EventSystem } from "../ui/EventSystem.ts";
 import { Vector3 } from "../math/Vector3.ts";
 import type { GameObject } from "../GameObject.ts";
 
@@ -92,6 +93,9 @@ export class CinemachineOrbitalBody extends CinemachineBody {
         this.name = "CinemachineOrbitalBody";
     }
 
+    /** True while a drag that began on the UI is still held. */
+    private _dragStartedOverUI: boolean = false;
+
     // ==================== PIPELINE ====================
 
     /**
@@ -110,7 +114,19 @@ export class CinemachineOrbitalBody extends CinemachineBody {
         }
 
         // ── Rotation (LMB drag) ──
-        if (Input.getMouseButton(0)) {
+        //
+        // A press that lands on the UI belongs to the UI. The decision is latched
+        // on the press, not re-tested per frame: a drag that starts in the scene
+        // and passes over a panel must keep orbiting, and one that starts on a
+        // slider must never orbit, however far the pointer then travels.
+        if (Input.getMouseButtonDown(0)) {
+            this._dragStartedOverUI = EventSystem.isPointerOverUI;
+        }
+        if (!Input.getMouseButton(0)) {
+            this._dragStartedOverUI = false;
+        }
+
+        if (Input.getMouseButton(0) && !this._dragStartedOverUI) {
             const delta = Input.mouseDelta;
             // Dragging right orbits the camera right, so the scene appears to
             // swing left — the direction every orbit control uses.
@@ -125,7 +141,8 @@ export class CinemachineOrbitalBody extends CinemachineBody {
         }
 
         // ── Zoom (scroll) ──
-        if (this.enableZoom) {
+        // Scrolling over a panel scrolls the panel, not the world.
+        if (this.enableZoom && !EventSystem.isPointerOverUI) {
             const scroll = Input.mouseScrollDelta;
             if (scroll.y !== 0) {
                 this.distance -= scroll.y * this.zoomSpeed * this.distance * 0.1;

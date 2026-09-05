@@ -1131,9 +1131,18 @@ export class Mesh extends EngineObject {
      *
      * @remarks Equivalent to Unity's built-in Torus primitive.
      *
+     * **The two segment counts mean the opposite of Three.js's**, despite sharing
+     * their names and order. Here `radialSegments` divides the **main ring** — it
+     * is what makes the circle smooth — and `tubularSegments` divides the **tube's
+     * cross-section**. In `THREE.TorusGeometry` those roles are swapped. Reading
+     * them Three's way and passing `(…, 6, 96)` for a smooth ring yields a
+     * **hexagon**, which is exactly how the AtomStructure electron shells were
+     * drawn until 2026-09-05.
+     *
      * @example
      * ```ts
      * // Orbit ring: radius 9 (Earth orbit), thin tube
+     * // 128 segments AROUND THE RING, 6 around the tube.
      * const orbitMesh = Mesh.createTorus(9, 0.02, 128, 6);
      *
      * // Saturn ring: radius 2.5, flat tube
