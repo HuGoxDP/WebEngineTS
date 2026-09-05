@@ -20,6 +20,9 @@ const _tBox3 = new THREE.Box3();
 const _tVec3B = new THREE.Vector3();
 const _tMat4 = new THREE.Matrix4();
 const _tMat4B = new THREE.Matrix4();
+/** Reserved for the coordinate conversions below, which must not clobber the others. */
+const _tMat4C = new THREE.Matrix4();
+const _tVec3C = new THREE.Vector3();
 // Decomposition targets for the engine-space world matrix.
 const _dPos = new THREE.Vector3();
 const _dRot = new THREE.Quaternion();
@@ -933,6 +936,18 @@ export class Transform extends Component {
     }
 
     // ==================== VI. COORDINATE CONVERSION ====================
+    //
+    // Every method here works in **engine** world space, the space `position`,
+    // `rotation` and `lossyScale` speak. That is not the space the backing
+    // `Object3D` is in: the scene's handedness mirror (`Scene._contentRoot`)
+    // sits above it, so `matrixWorld` is the Z-mirrored image of engine world
+    // space. Going through `_engineWorldMatrix` undoes it.
+    //
+    // Reaching for `localToWorld`/`worldToLocal`/`getWorldQuaternion` directly
+    // is what these did before, and it made them disagree with `position` on
+    // the Z axis for every object in a scene — `inverseTransformPoint(position)`
+    // answered `(0, 0, -2z)` rather than the origin. The round trip still
+    // closed, which is why the tests missed it.
 
     /**
      * Transforms a point from local space to world space.
@@ -944,9 +959,8 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.TransformPoint(point)`.
      */
     public transformPoint(localPoint: Vector3): Vector3 {
-        this._ensureWorldMatrix();
-        localPoint._copyToThree(_tvec3A);
-        this._object3D.localToWorld(_tvec3A);
+        this._engineWorldMatrix(_tMat4C);
+        _tvec3A.set(localPoint.x, localPoint.y, localPoint.z).applyMatrix4(_tMat4C);
         return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
     }
 
@@ -960,9 +974,8 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.InverseTransformPoint(point)`.
      */
     public inverseTransformPoint(worldPoint: Vector3): Vector3 {
-        this._ensureWorldMatrix();
-        worldPoint._copyToThree(_tvec3A);
-        this._object3D.worldToLocal(_tvec3A);
+        this._engineWorldMatrix(_tMat4C).invert();
+        _tvec3A.set(worldPoint.x, worldPoint.y, worldPoint.z).applyMatrix4(_tMat4C);
         return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
     }
 
@@ -980,14 +993,12 @@ export class Transform extends Component {
      * @remarks Equivalent to Unity's `Transform.TransformVector(vector)`.
      */
     public transformVector(localVector: Vector3): Vector3 {
-        this._ensureWorldMatrix();
         // World rotation + scale without translation: the difference of two points
         // (the vector, and the origin) taken through the same world matrix.
-        _tvec3A.set(localVector.x, localVector.y, localVector.z);
-        this._object3D.localToWorld(_tvec3A);
-        _tVec3B.set(0, 0, 0);
-        this._object3D.localToWorld(_tVec3B);
-        return new Vector3(_tvec3A.x - _tVec3B.x, _tvec3A.y - _tVec3B.y, _tvec3A.z - _tVec3B.z);
+        this._engineWorldMatrix(_tMat4C);
+        _tvec3A.set(localVector.x, localVector.y, localVector.z).applyMatrix4(_tMat4C);
+        _tVec3C.set(0, 0, 0).applyMatrix4(_tMat4C);
+        return new Vector3(_tvec3A.x - _tVec3C.x, _tvec3A.y - _tVec3C.y, _tvec3A.z - _tVec3C.z);
     }
 
     /**
@@ -1002,13 +1013,12 @@ export class Transform extends Component {
      * @remarks Equivalent to Unity's `Transform.InverseTransformVector(vector)`.
      */
     public inverseTransformVector(worldVector: Vector3): Vector3 {
-        this._ensureWorldMatrix();
-        // worldToLocal(worldPos + v) − worldToLocal(worldPos); the second term is
-        // this transform's local origin (0,0,0), so one conversion suffices.
-        this._object3D.getWorldPosition(_tVec3B);
-        _tvec3A.set(_tVec3B.x + worldVector.x, _tVec3B.y + worldVector.y, _tVec3B.z + worldVector.z);
-        this._object3D.worldToLocal(_tvec3A);
-        return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
+        // The inverse world matrix applied to the vector and to the origin; the
+        // difference drops the translation the same way transformVector does.
+        this._engineWorldMatrix(_tMat4C).invert();
+        _tvec3A.set(worldVector.x, worldVector.y, worldVector.z).applyMatrix4(_tMat4C);
+        _tVec3C.set(0, 0, 0).applyMatrix4(_tMat4C);
+        return new Vector3(_tvec3A.x - _tVec3C.x, _tvec3A.y - _tVec3C.y, _tvec3A.z - _tVec3C.z);
     }
 
     /**
@@ -1024,11 +1034,12 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.TransformDirection(dir)`.
      */
     public transformDirection(localDirection: Vector3): Vector3 {
-        if (this._dirty) this._syncToThree();
-        this._object3D.getWorldQuaternion(_tquatA);
-        _tvec3A.set(localDirection.x, localDirection.y, localDirection.z);
-        _tvec3A.applyQuaternion(_tquatA);
-        return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
+        // Decomposed rather than taken from `getWorldQuaternion`: that reads the
+        // mirrored matrix, whose reflection Three parks as a negative scale on X.
+        // The engine matrix is proper, so its rotation is the real one.
+        this._engineWorldMatrix(_tMat4C).decompose(_tVec3C, _tquatA, _tvec3A);
+        _tVec3B.set(localDirection.x, localDirection.y, localDirection.z).applyQuaternion(_tquatA);
+        return new Vector3(_tVec3B.x, _tVec3B.y, _tVec3B.z);
     }
 
     /**
@@ -1041,12 +1052,10 @@ export class Transform extends Component {
      * Equivalent to Unity's `Transform.InverseTransformDirection(dir)`.
      */
     public inverseTransformDirection(worldDirection: Vector3): Vector3 {
-        if (this._dirty) this._syncToThree();
-        this._object3D.getWorldQuaternion(_tquatA);
+        this._engineWorldMatrix(_tMat4C).decompose(_tVec3C, _tquatA, _tvec3A);
         _tquatA.invert();
-        _tvec3A.set(worldDirection.x, worldDirection.y, worldDirection.z);
-        _tvec3A.applyQuaternion(_tquatA);
-        return new Vector3(_tvec3A.x, _tvec3A.y, _tvec3A.z);
+        _tVec3B.set(worldDirection.x, worldDirection.y, worldDirection.z).applyQuaternion(_tquatA);
+        return new Vector3(_tVec3B.x, _tVec3B.y, _tVec3B.z);
     }
 
     /**
@@ -1055,9 +1064,8 @@ export class Transform extends Component {
      * @remarks Equivalent to Unity's `Transform.localToWorldMatrix`.
      */
     public get localToWorldMatrix(): Matrix4x4 {
-        this._ensureWorldMatrix();
         const result = new Matrix4x4();
-        const src = this._object3D.matrixWorld.elements;
+        const src = this._engineWorldMatrix(_tMat4C).elements;
         for (let i = 0; i < 16; i++) result.elements[i] = src[i];
         return result;
     }
@@ -1068,9 +1076,8 @@ export class Transform extends Component {
      * @remarks Equivalent to Unity's `Transform.worldToLocalMatrix`.
      */
     public get worldToLocalMatrix(): Matrix4x4 {
-        this._ensureWorldMatrix();
         const result = new Matrix4x4();
-        const src = _tMat4.copy(this._object3D.matrixWorld).invert().elements;
+        const src = this._engineWorldMatrix(_tMat4C).invert().elements;
         for (let i = 0; i < 16; i++) result.elements[i] = src[i];
         return result;
     }

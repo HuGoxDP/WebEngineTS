@@ -115,6 +115,79 @@ describe("Transform — point / vector / direction", () => {
         expect(dist(back, p)).toBeLessThan(1e-4);
     });
 
+    /**
+     * The conversions must answer in the same world space as `position`, and the
+     * only axis that can tell them apart is Z — the axis the scene's handedness
+     * mirror acts on. Every case above uses z = 0, a round trip, or reads only
+     * `.x`, so all of them passed while `transformPoint` was answering in Three's
+     * mirrored space: an object at z = +5 converted its own origin to z = −5, and
+     * `inverseTransformPoint(position)` came back at −2z instead of the origin.
+     */
+    describe("answers in the same world space as position", () => {
+        test("transformPoint on the Z axis agrees with position", () => {
+            const go = spawn("t");
+            go.transform.position = new Vector3(1, 2, 5);
+
+            expect(dist(go.transform.transformPoint(Vector3.zero), go.transform.position))
+                .toBeLessThan(1e-4);
+        });
+
+        test("inverseTransformPoint undoes position, not something 2z away", () => {
+            const go = spawn("t");
+            go.transform.position = new Vector3(1, 2, 5);
+
+            const back = go.transform.inverseTransformPoint(go.transform.position);
+            expect(dist(back, Vector3.zero)).toBeLessThan(1e-4);
+        });
+
+        test("a child's position matches the parent's transformPoint on Z", () => {
+            const parent = spawn("parent");
+            const child = spawn("child");
+            child.transform.setParent(parent.transform, false);
+            parent.transform.position = new Vector3(0, 0, 5);
+            child.transform.localPosition = new Vector3(0, 0, 3);
+
+            expect(child.transform.position.z).toBeCloseTo(8, 4);
+            expect(parent.transform.transformPoint(new Vector3(0, 0, 3)).z).toBeCloseTo(8, 4);
+        });
+
+        test("localToWorldMatrix agrees with position on Z", () => {
+            const go = spawn("t");
+            go.transform.position = new Vector3(-2, 1, 4);
+
+            const viaMatrix = go.transform.localToWorldMatrix.multiplyPoint(Vector3.zero);
+            expect(dist(viaMatrix, go.transform.position)).toBeLessThan(1e-4);
+        });
+
+        test("transformDirection carries local forward to the object's forward", () => {
+            // `forward` is engine world space; a direction conversion that read the
+            // mirrored matrix pointed the opposite way down Z.
+            const go = spawn("t");
+            go.transform.rotation = Quaternion.euler(0, 35, 0);
+
+            const fwd = go.transform.transformDirection(new Vector3(0, 0, 1));
+            expect(dist(fwd, go.transform.forward)).toBeLessThan(1e-4);
+        });
+
+        test("transformVector on Z keeps its sign", () => {
+            const go = spawn("t");
+            go.transform.position = new Vector3(0, 0, 7); // must not enter the result
+            go.transform.localScale = new Vector3(2, 2, 2);
+
+            const v = go.transform.transformVector(new Vector3(0, 0, 1));
+            expect(v.z).toBeCloseTo(2, 4);
+        });
+
+        test("inverseTransformVector undoes it", () => {
+            const go = spawn("t");
+            go.transform.position = new Vector3(0, 0, 7);
+            go.transform.localScale = new Vector3(2, 2, 2);
+
+            const back = go.transform.inverseTransformVector(new Vector3(0, 0, 2));
+            expect(back.z).toBeCloseTo(1, 4);
+        });
+    });
+
     test("hierarchy: a child's world point includes the parent", () => {
         const parent = spawn("parent");
         const child = spawn("child");
