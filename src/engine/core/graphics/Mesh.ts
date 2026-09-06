@@ -779,9 +779,15 @@ export class Mesh extends EngineObject {
                 const u = ix / widthSegments;
                 const theta = u * Math.PI * 2;
 
+                // `-sin(theta)` where THREE.SphereGeometry has `+sin(theta)`: its
+                // parameterisation is written for a right-handed frame, and copied
+                // verbatim into this engine's left-handed one it wraps the texture
+                // the wrong way round. A sphere is the same sphere either way, so
+                // only mapped content shows it — Earth rendered with India west of
+                // Africa and Madagascar off the wrong coast.
                 const x = -radius * Math.cos(theta) * Math.sin(phi);
                 const y = radius * Math.cos(phi);
-                const z = radius * Math.sin(theta) * Math.sin(phi);
+                const z = -radius * Math.sin(theta) * Math.sin(phi);
 
                 vertices.push(new Vector3(x, y, z));
                 normals.push(new Vector3(x, y, z).normalized);
@@ -797,8 +803,11 @@ export class Mesh extends EngineObject {
                 const c = a + 1;
                 const d = b + 1;
 
-                indices.push(a, b, c);
-                indices.push(b, d, c);
+                // Reversed along with the `z` above: mirroring the parameterisation
+                // reverses which way each triangle turns, and the old order would
+                // now face inward.
+                indices.push(a, c, b);
+                indices.push(b, c, d);
             }
         }
 
