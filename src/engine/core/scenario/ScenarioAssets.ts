@@ -419,10 +419,20 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      * - THREE.Group / THREE.Object3D → plain GameObject (transform only)
      * - Local transforms (position, rotation, scale) are copied exactly
      * - Shared geometries and materials are deduplicated via Maps
+     * - One node between the returned root and the model carries the axis
+     *   conversion; see {@link _AXIS_NODE}
      *
      * @param gltf — the parsed GLTF result from Three.js.
      * @param name — display name for the root GameObject.
      */
+    /**
+     * @internal
+     * Name of the node holding the glTF → engine axis conversion, between an
+     * imported model's root and its content. Named so a hierarchy that looks one
+     * level deeper than the source file explains itself.
+     */
+    private static readonly _AXIS_NODE = "glTF axis conversion";
+
     private _convertGLTFScene(gltf: GLTF, name: string): GameObject {
         // Deduplication maps: same Three.js instance → same engine instance
         const meshMap = new Map<THREE.BufferGeometry, Mesh>();
@@ -466,14 +476,36 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
             // was part of the original GLTF scene graph.
             for (const child of threeNode.children) {
                 const childGo = convert(child);
-                childGo.transform.parent = go.transform;
+                // worldPositionStays = false: the child's local transform has just
+                // been copied from the GLTF node and is what must survive. The
+                // default preserves the child's *world* pose instead, which here
+                // means dividing out the parent it is being given — flattening the
+                // hierarchy this method exists to preserve.
+                childGo.transform.setParent(go.transform, false);
             }
 
             return go;
         };
 
-        const root = convert(gltf.scene);
-        root.name = name;
+        // glTF is right-handed with -Z forward; this engine is left-handed with
+        // +Z forward. Without a conversion the model is its own mirror image:
+        // Earth rendered with India west of Africa and Madagascar off the wrong
+        // coast, which for a scenario about the real solar system is a factual
+        // error rather than a cosmetic one.
+        //
+        // The flip is carried by one node rather than baked into the geometry
+        // because a GLB's animation clips drive node positions and rotations in
+        // glTF space; baking would convert the rest of the model out from under
+        // them. It sits *below* the returned root because callers place and scale
+        // that root — `GameObject.normalizeToSize` assigns `localScale` outright,
+        // which would wipe a flip kept there.
+        const root = new GameObject(name);
+        const axis = new GameObject(ScenarioAssets._AXIS_NODE);
+        axis.transform.setParent(root.transform, false);
+        axis.transform.localScale = new Vector3(1, 1, -1);
+
+        const content = convert(gltf.scene);
+        content.transform.setParent(axis.transform, false);
 
         return root;
     }
