@@ -71,7 +71,9 @@ const page = await browser.newPage({
 
 const logs = [];
 page.on("console", m => logs.push(`  [${m.type()}] ${m.text()}`));
-page.on("pageerror", e => logs.push(`  [pageerror] ${e.message}`));
+// With the stack: the message alone ("reading 'elements'") names neither the
+// call nor the file, and these fire once a frame.
+page.on("pageerror", e => logs.push(`  [pageerror] ${e.message}\n${(e.stack ?? "").split("\n").slice(1, 5).join("\n")}`));
 page.on("requestfailed", r =>
     logs.push(`  [requestfailed] ${r.url()} — ${r.failure()?.errorText ?? "?"}`));
 
@@ -116,7 +118,10 @@ for (const step of steps) {
 }
 if (steps.length) console.log(`did ${steps.length} step(s): ${steps.join(" ")}`);
 
-await page.screenshot({ path: out, ...(clip ? { clip } : {}) });
+// Well past Playwright's 30s default: a scene that converts an equirectangular
+// sky to a cubemap keeps the software rasteriser busy for far longer than that,
+// and the shot has to wait for a frame either way.
+await page.screenshot({ path: out, timeout: 180000, ...(clip ? { clip } : {}) });
 console.log(`saved ${out}`);
 
 console.log(logs.length ? "console:" : "console: (silent)");
