@@ -9,6 +9,17 @@ import { GameObject } from "../src/engine/core/GameObject";
  * coordinates verbatim therefore imports the model as its own mirror image, which
  * is what every engine bridging the two conventions flips on import.
  *
+ * The *direction* of the flip, which no test can derive for itself, comes from
+ * the two specifications agreeing on what a camera does. glTF: "the lens looks
+ * towards the local -Z axis", so +Z points at the viewer. Unity, and this engine
+ * after it: a camera looks along its +Z, so +Z points away. A glTF point five
+ * units in front of the camera is at z = −5 and must arrive at z = +5. Hence the
+ * negation, and hence Unity's own glTF importers doing the same.
+ *
+ * Corroborated from the running solar system, where five of the six planets are
+ * `.glb` and Earth is not: had the flip gone the other way, those five would have
+ * turned wrong at the same moment Earth turned right.
+ *
  * It showed as a factual error rather than a cosmetic one: the solar system's
  * Earth — which takes the procedural-sphere path, and had the same fault in
  * `Mesh.createSphere` — rendered with India west of Africa.
