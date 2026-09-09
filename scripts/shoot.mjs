@@ -125,8 +125,11 @@ for (const step of steps) {
             break;
         default: throw new Error(`Unknown step: ${step}`);
     }
-    // The UI repaints on demand, and a click's effect lands on the next frame.
-    if (verb !== "wait") await page.waitForTimeout(250);
+    // Long enough to clear a frame. `Input.getKeyDown` is per-frame, and the
+    // software rasteriser runs at one to two, so a run of taps sent 250ms apart
+    // collapsed into one or two keydowns — five presses moved the camera one
+    // body. The UI's on-demand repaint needs the same slack.
+    if (verb !== "wait") await page.waitForTimeout(900);
 }
 if (steps.length) console.log(`did ${steps.length} step(s): ${steps.join(" ")}`);
 
