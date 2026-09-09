@@ -20,7 +20,8 @@
 // only appears once something is clicked cannot be verified from a still frame
 // of the untouched page:
 //
-//   click:x,y   move:x,y   drag:x1,y1,x2,y2   key:Space   wheel:notches   wait:ms
+//   click:x,y   press:x,y[,holdMs]   move:x,y   drag:x1,y1,x2,y2
+//   key:Space   wheel:notches   wait:ms
 //
 // WebGL in headless Chromium needs ANGLE's software rasteriser; without the
 // flags below the canvas comes back blank and the picture lies.
@@ -99,6 +100,17 @@ for (const step of steps) {
                 await page.mouse.move(n[0] + (n[2] - n[0]) * i / 10, n[1] + (n[3] - n[1]) * i / 10);
                 await page.waitForTimeout(16);
             }
+            await page.mouse.up();
+            break;
+        case "press":
+            // Down and up held apart. A plain click sends both within a
+            // millisecond, and under the software rasteriser that is inside one
+            // frame — the engine's Selectable never sees the pressed state, so
+            // buttons and tabs simply do not fire.
+            await page.mouse.move(n[0], n[1]);
+            await page.waitForTimeout(600);
+            await page.mouse.down();
+            await page.waitForTimeout(n[2] ?? 1500);
             await page.mouse.up();
             break;
         case "key":   await page.keyboard.press(rest); break;
