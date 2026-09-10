@@ -36,9 +36,13 @@ Ten files, 56 passing tests (`tests/UI.test.ts`). Stage 0 landed 2026-08-03.
 | Repaint | `OnDemand` + `_visualHash`, event-driven surface sync, **dirty-rect partial repaint** | layout dirty flags |
 | Draw order | **hierarchy-ordered**, `sortingOrder` first | — |
 
-The subsystem is a **solid HUD toolkit** and a **weak general UI toolkit**. Everything
-needed for "score label + button + joystick over a 3D scene" works well. Everything
-needed for "the editor lets an author compose a panel" is absent.
+This document used to close on a verdict — a solid HUD toolkit and a weak general one, with
+"everything needed for the editor to let an author compose a panel" absent. That has not been
+true since August: layout groups, `ContentSizeFitter`, `CanvasGroup`, `RectMask2D`,
+`Selectable` with focus and navigation, `ScrollRect`, `InputField` and rich text all shipped.
+
+The gap that remains is not in this subsystem. Nothing yet *drives* it from a serialized
+document — §6.6, and the editor's own work. See the status block above for what is open.
 
 ## 1. Constraints and assumptions
 
@@ -287,7 +291,7 @@ layout changes no observer reports.
 Same measurement path as §4.1; on a static HUD this should be visible in CPU frame time on
 its own.
 
-### 4.3 Share the resolved rects with the EventSystem — **P1, S**
+### 4.3 Share the resolved rects with the EventSystem — **DONE (2026-08-03)** ✅
 
 `EventSystem._hitTest` (`EventSystem.ts:200`) calls `getScreenRect` for each graphic it
 tests, having run in the same frame as `Canvas._prepare`, which already computed and cached
@@ -365,7 +369,7 @@ handles). Cheap once §4.4 lands, since corners fall out of the matrix.
 
 Per §3.4, each needs its Y-down semantics documented rather than copied from Unity.
 
-### 4.6 Layout groups — **P1, L**
+### 4.6 Layout groups — **DONE** ✅
 
 `HorizontalLayoutGroup`, `VerticalLayoutGroup`, `GridLayoutGroup`, `ContentSizeFitter`,
 `LayoutElement`, `AspectRatioFitter`. Nothing in the toolkit positions anything
@@ -389,7 +393,7 @@ land*: placement follows the pivot, and pivot `(0,0)` is the top-left here, so a
 top-pivoted element bars at the bottom. `setAspectFromSize(w, h)` covers the "match this
 image" case without the caller dividing by zero on an asset that has not loaded.
 
-### 4.7 `CanvasGroup` — **P1, S**
+### 4.7 `CanvasGroup` — **DONE** ✅
 
 Subtree `alpha`, `interactable`, `blocksRaycasts`. `Canvas.alpha` exists but is
 canvas-wide, so fading one panel means giving it its own canvas — which costs a second
@@ -433,7 +437,7 @@ Ordered by value per unit of effort for the educational-scenario use case.
 | Radial fill (`Radial90/180/360`) | P2 | S | `ImageFillMethod` has only Horizontal/Vertical; cooldown dials need radial |
 | ~~UI tween helpers (fade/color/scale)~~ | **done** | S | `UITween` — see §5.6 |
 
-### 5.1 `Selectable` base + a real event surface — **P1, M**
+### 5.1 `Selectable` base + a real event surface — **DONE** ✅
 
 `Button` (`Button.ts`) is a monolith: it draws its own background *and* its own label, its
 state is poked by `EventSystem` through a public `_state` field, and `onClick` is a single
@@ -667,13 +671,12 @@ Reported through `profilerHooks.uiTintCacheBytes` into
 `BenchmarkResult.memory` — the same treatment §4.8 gave canvas surfaces, and for the same
 reason: this memory is invisible to every texture counter.
 
-### 6.3 `UIText` completeness — **P1 for the first two, S each; P3 for rich text, L**
+### 6.3 `UIText` completeness — **DONE** ✅
 
-- `preferredWidth` / `preferredHeight` — **required** by `ContentSizeFitter` and layout
-  groups (§4.6), so this one is a dependency, not a nicety.
-- Overflow modes: ellipsis and clip. Today lines past the bottom edge simply stop being
-  drawn (`UIText.ts:112`) with no visual indication, and a single word wider than the rect
-  overflows the rect entirely — `_wrapText` (`UIText.ts:178`) never breaks within a word.
+- ~~`preferredWidth` / `preferredHeight`~~ — **done.** Was a dependency rather than a
+  nicety: `ContentSizeFitter` and the layout groups (§4.6) cannot size anything without it.
+- ~~Overflow modes: ellipsis and clip~~ — **done.** `TextOverflow.Clip` / `Ellipsis`, and
+  `_breakWord` splits a word wider than its rect instead of letting it overflow.
 - ~~`bestFit` auto-sizing~~ — **done 2026-08-05.** Binary search over whole font sizes in
   `[bestFitMinSize, bestFitMaxSize]`, cached against text, rect size, wrap, font and the
   font-loading generation, so a static label searches once rather than per frame. Whole
@@ -845,25 +848,34 @@ stage 3 ≈ 4+ weeks.
 Ordered by engine value. (An earlier draft sequenced this behind a measurement campaign;
 that constraint has been lifted — see §1.)
 
-1. ~~**Stage 0** — correctness and the test safety net.~~ **Done 2026-08-03.** Everything
-   after this edits the same call paths, and §2.7's tests are what make those edits safe.
-2. **§4.1 layout dirty flags**, then **§4.3** (share rects with the EventSystem). The
-   largest optimization available, and the caching layer §4.4 rides on. Do it before
-   anything structural, because it changes how every rect is resolved.
-3. **§4.4 rotation + scale** → **§4.5 full RectTransform API**. The invasive pair: `Rect`
-   becomes a 2D affine matrix through layout, draw, hit-test and culling. Nothing else
-   should be in flight while this lands.
-4. **§5.1 `Selectable` + pointer/drag events** → **§4.6 layout groups** (with §6.3a
-   preferred sizes as its prerequisite) → **§4.7 `CanvasGroup`**, **§5.0e `RectMask2D`**.
-   This is the block that turns a HUD toolkit into a UI toolkit and unblocks
-   WebEngineTSEditor's UI authoring.
-5. **§5.0a `Sprite`** → **§5.0b 9-slice** → **§5.0c/d Slider + Toggle**. The component
-   library, once the foundation under it is stable.
-6. Stage 3 (§6) as appetite allows; **§6.4 WorldSpace** is the highest-value item there for
-   the educational domain and the one most worth pulling forward.
+Steps 1 through 6 below are **all done**, in the order given, between 2026-08-03 and
+2026-08-05. Kept as written because the *order* is the reusable part — it records which
+things had to precede which, and why — but nothing here is work waiting to be picked up.
+
+1. ~~**Stage 0** — correctness and the test safety net.~~ Everything after this edits the
+   same call paths, and §2.7's tests are what make those edits safe.
+2. ~~**§4.1 layout dirty flags**, then **§4.3** (share rects with the EventSystem).~~ The
+   caching layer §4.4 rides on, so it had to come before anything structural: it changes how
+   every rect is resolved. §4.3 then fell out of §4.4 for free.
+3. ~~**§4.4 rotation + scale** → **§4.5 full RectTransform API**.~~ The invasive pair: `Rect`
+   became a 2D affine matrix through layout, draw, hit-test and culling. Nothing else was in
+   flight while it landed.
+4. ~~**§5.1 `Selectable` + pointer/drag events** → **§4.6 layout groups** (with §6.3a
+   preferred sizes as its prerequisite) → **§4.7 `CanvasGroup`**, **§5.0e `RectMask2D`**.~~
+   The block that turned a HUD toolkit into a UI toolkit.
+5. ~~**§5.0a `Sprite`** → **§5.0b 9-slice** → **§5.0c/d Slider + Toggle**.~~ The component
+   library, once the foundation under it was stable.
+6. ~~Stage 3 (§6)~~ — including §6.4 WorldSpace, which was pulled forward as the
+   highest-value item there for the educational domain.
 
 **§4.8** (overlay canvas memory in `MemoryProfiler`) was independent of all of the above and
 was slotted in on 2026-08-05.
+
+**What to do next, if this subsystem is picked up again:** §6.6 first — serializing the
+remaining components is what an editor needs to load and save a panel, and it is the only
+open item another repo is waiting on. §3.5, §5.2 and §5.4 are independent and can be taken
+in any order. §4.1's follow-up wants a profile on real content before anyone touches the
+math layer for it.
 
 ## 9. Risks
 
