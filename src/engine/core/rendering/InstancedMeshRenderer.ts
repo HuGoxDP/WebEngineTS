@@ -7,6 +7,8 @@ import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
 import { Color } from "../math/Color.ts";
 import { Matrix4x4 } from "../math/Matrix4x4.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 // ==================== CACHED TEMPORARIES ====================
@@ -52,6 +54,15 @@ const _tmpColor = new THREE.Color();
  * }
  * ```
  */
+// `sharedMaterial`, `receiveShadows` and `shadowCastingMode` come from the
+// Renderer base, whose fields are inherited by any subclass that is itself
+// @Serializable. Only the two this class adds are declared here.
+//
+// Per-instance transforms and colours are deliberately not serialized. There
+// can be thousands, they are written by whatever generates the batch, and the
+// class already documents that an unassigned instance sits at the identity —
+// so a loaded scene is expected to fill them the same way it did the first time.
+@Serializable({ typeName: "InstancedMeshRenderer", category: "Rendering" })
 export class InstancedMeshRenderer extends Renderer {
 
     // ==================== INTERNAL STATE ====================
@@ -90,6 +101,7 @@ export class InstancedMeshRenderer extends Renderer {
      * Setting this (re)assigns the instanced geometry and updates local bounds.
      * All instances render this same geometry.
      */
+    @SerializedField({ type: FieldType.Mesh })
     public get mesh(): Mesh | null {
         return this._mesh;
     }
@@ -114,6 +126,7 @@ export class InstancedMeshRenderer extends Renderer {
      * (existing instance transforms/colors are preserved). Newly exposed
      * instances start at the identity transform until assigned.
      */
+    @SerializedField()
     public get count(): number {
         return this._count;
     }

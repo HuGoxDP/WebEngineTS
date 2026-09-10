@@ -11,6 +11,8 @@ import {
     ParticleSimulationSpace,
     ParticleRenderMode,
 } from "./ParticleTypes";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import type { GameObject } from "../GameObject";
 
 /** A timed burst of particles emitted in a single frame. */
@@ -40,6 +42,22 @@ export class ParticleBurst {
  * fx.play();
  * ```
  */
+// Four authored fields are deliberately left out, because writing them would
+// lose them rather than keep them:
+//
+//   `shape`         readonly, so nothing could assign it back on load.
+//   `bursts`        `ValueSerializer` has no representation for ParticleBurst.
+//   `sizeOverLifetime`, `colorOverLifetime`
+//                   likewise for AnimationCurve and Gradient.
+//   `particleTexture`
+//                   a raw THREE.Texture rather than an engine asset, so there
+//                   is no id to store. That it is Three-typed at all is a
+//                   separate problem — see the note on the field.
+//
+// A round trip therefore restores the main and emission modules and drops the
+// curves. Stated here rather than discovered from a system that comes back
+// emitting the wrong shape.
+@Serializable({ typeName: "ParticleSystem", category: "Effects" })
 export class ParticleSystem extends Behaviour {
 
     // ==================== STATIC REGISTRY ====================
@@ -67,41 +85,53 @@ export class ParticleSystem extends Behaviour {
     // ==================== MAIN MODULE ====================
 
     /** How long emission lasts (seconds). */
+    @SerializedField()
     public duration: number = 5;
 
     /** If true, the system restarts after {@link duration} elapses. */
+    @SerializedField()
     public looping: boolean = true;
 
     /** Delay in seconds before emission begins after {@link play}. */
+    @SerializedField()
     public startDelay: number = 0;
 
     /** Lifetime of each particle in seconds. */
+    @SerializedField()
     public startLifetime: number = 1;
 
     /** Initial speed of each particle along its spawn direction. */
+    @SerializedField()
     public startSpeed: number = 5;
 
     /** Initial size (diameter in world units) of each particle. */
+    @SerializedField()
     public startSize: number = 0.1;
 
     /** Initial color of each particle. */
+    @SerializedField({ type: FieldType.Color })
     public startColor: Color = Color.white.clone();
 
     /** Gravity multiplier (1 = full gravity in -Y). */
+    @SerializedField()
     public gravityModifier: number = 0;
 
     /** Maximum particles alive at once. Determines GPU buffer size. */
+    @SerializedField()
     public maxParticles: number = 1000;
 
     /** Whether particles move with the GameObject or stay in world space. */
+    @SerializedField({ type: FieldType.Enum, enumValues: ParticleSimulationSpace as unknown as Record<string, string> })
     public simulationSpace: ParticleSimulationSpace = ParticleSimulationSpace.Local;
 
     /** Whether {@link play} is called automatically on enable. */
+    @SerializedField()
     public playOnAwake: boolean = true;
 
     // ==================== EMISSION MODULE ====================
 
     /** Constant rate of particles per second. */
+    @SerializedField()
     public emissionRate: number = 10;
 
     /** Bursts that fire at specific times during the system's duration. */
@@ -121,14 +151,24 @@ export class ParticleSystem extends Behaviour {
     public colorOverLifetime: Gradient | null = null;
 
     /** Constant velocity added each frame (world units / second). */
+    @SerializedField({ type: FieldType.Vector3 })
     public velocityOverLifetime: Vector3 | null = null;
 
     // ==================== RENDERER MODULE ====================
 
     /** Render mode. */
+    @SerializedField({ type: FieldType.Enum, enumValues: ParticleRenderMode as unknown as Record<string, string> })
     public renderMode: ParticleRenderMode = ParticleRenderMode.Billboard;
 
-    /** Optional sprite texture applied to each particle. */
+    /**
+     * Optional sprite texture applied to each particle.
+     *
+     * @remarks
+     * **This is a `THREE.Texture` in a public signature**, which the engine's
+     * isolation rule forbids — it should be a `Texture2D`. Left as found rather
+     * than changed in passing: every caller assigning one would break. Not
+     * serialized, because a raw Three texture has no asset id to store.
+     */
     public particleTexture: THREE.Texture | null = null;
 
     // ==================== INTERNAL STATE ====================

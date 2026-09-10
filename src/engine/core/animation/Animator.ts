@@ -1,4 +1,5 @@
 import { Behaviour } from "../Behaviour";
+import { Serializable } from "../reflection/Decorators";
 import { Animation, AnimationWrapMode } from "./Animation";
 import { BlendTree } from "./BlendTree";
 import type { AnimationClip } from "./AnimationClip";
@@ -242,6 +243,13 @@ export class AnimatorState {
  * playback it drives — a state machine the caller has to remember to tick is
  * one that silently stops working.
  */
+// No fields. An Animator's whole configuration is its state machine, and that
+// is built by script through `addState`, `addTransition` and `setParameter` —
+// there is no authored value on the component to save. Serializing the graph
+// itself would need representations `ValueSerializer` does not have for
+// AnimatorState, AnimatorTransition and BlendTree; until it does, the honest
+// thing is to restore the component and let the same script fill it.
+@Serializable({ typeName: "Animator", category: "Animation" })
 export class Animator extends Behaviour {
 
     private static _instances: Animator[] = [];

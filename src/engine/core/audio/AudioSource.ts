@@ -1,4 +1,6 @@
 import { Behaviour } from "../Behaviour";
+import { Serializable, SerializedField, Range } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import { profilerHooks } from "../diagnostics/ProfilerHooks";
 import { AudioClip } from "./AudioClip";
 import { AudioManager } from "./AudioManager";
@@ -31,6 +33,7 @@ export enum AudioRolloffMode {
  * src.play();
  * ```
  */
+@Serializable({ typeName: "AudioSource", category: "Audio" })
 export class AudioSource extends Behaviour {
 
     private static _activeInstances: Set<AudioSource> = new Set();
@@ -130,10 +133,13 @@ export class AudioSource extends Behaviour {
     // ── properties ───────────────────────────────────────────────────
 
     /** The clip to play. Can be changed while stopped. */
+    @SerializedField({ type: FieldType.Asset })
     public get clip(): AudioClip | null { return this._clip; }
     public set clip(value: AudioClip | null) { this._clip = value; }
 
     /** Playback volume (0–1). */
+    @Range(0, 1)
+    @SerializedField()
     public get volume(): number { return this._volume; }
     public set volume(value: number) {
         this._volume = Math.max(0, value);
@@ -143,6 +149,7 @@ export class AudioSource extends Behaviour {
     }
 
     /** Playback pitch/speed multiplier (1 = normal, 0.5 = half speed). */
+    @SerializedField()
     public get pitch(): number { return this._pitch; }
     public set pitch(value: number) {
         this._pitch = value;
@@ -152,6 +159,7 @@ export class AudioSource extends Behaviour {
     }
 
     /** Whether the clip loops automatically. */
+    @SerializedField()
     public get loop(): boolean { return this._loop; }
     public set loop(value: boolean) {
         this._loop = value;
@@ -159,16 +167,20 @@ export class AudioSource extends Behaviour {
     }
 
     /** If true, plays the clip automatically when the component wakes up. */
+    @SerializedField()
     public get playOnAwake(): boolean { return this._playOnAwake; }
     public set playOnAwake(value: boolean) { this._playOnAwake = value; }
 
     /** Blend between 2D (0) and 3D spatial (1) audio. */
+    @Range(0, 1)
+    @SerializedField()
     public get spatialBlend(): number { return this._spatialBlend; }
     public set spatialBlend(value: number) {
         this._spatialBlend = Math.max(0, Math.min(1, value));
     }
 
     /** Distance at which 3D audio starts attenuating. */
+    @SerializedField()
     public get minDistance(): number { return this._minDistance; }
     public set minDistance(value: number) {
         this._minDistance = value;
@@ -176,6 +188,7 @@ export class AudioSource extends Behaviour {
     }
 
     /** Distance beyond which 3D audio is silent. */
+    @SerializedField()
     public get maxDistance(): number { return this._maxDistance; }
     public set maxDistance(value: number) {
         this._maxDistance = value;
@@ -183,6 +196,7 @@ export class AudioSource extends Behaviour {
     }
 
     /** How 3D audio volume attenuates with distance. */
+    @SerializedField({ type: FieldType.Enum, enumValues: AudioRolloffMode as unknown as Record<string, string> })
     public get rolloffMode(): AudioRolloffMode { return this._rolloffMode; }
     public set rolloffMode(value: AudioRolloffMode) {
         this._rolloffMode = value;
@@ -193,6 +207,7 @@ export class AudioSource extends Behaviour {
     }
 
     /** Silences this source without stopping playback. */
+    @SerializedField()
     public get mute(): boolean { return this._mute; }
     public set mute(value: boolean) {
         this._mute = value;

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Behaviour } from "../Behaviour";
+import { Serializable, SerializedField } from "../reflection/Decorators";
 import { profilerHooks } from "../diagnostics/ProfilerHooks";
 import { AnimationClip } from "./AnimationClip";
 import type { GameObject } from "../GameObject";
@@ -35,6 +36,10 @@ export enum AnimationWrapMode {
  * anim.crossFade("Run", 0.3);
  * ```
  */
+// Only `speed` is authored. `clips` arrives with the model rather than from a
+// scene file, and everything else on this class — what is playing, where it is,
+// whether it is blending — describes a running animation, not a saved one.
+@Serializable({ typeName: "Animation", category: "Animation" })
 export class Animation extends Behaviour {
 
     // ==================== STATIC REGISTRY ====================
@@ -114,6 +119,7 @@ export class Animation extends Behaviour {
     public get currentClipName(): string { return this._currentClipName; }
 
     /** Playback speed (1 = normal, 0.5 = half speed, -1 = reverse). */
+    @SerializedField()
     public get speed(): number { return this._speed; }
     public set speed(value: number) {
         this._speed = value;

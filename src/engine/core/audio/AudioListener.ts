@@ -1,4 +1,5 @@
 import { Behaviour } from "../Behaviour";
+import { Serializable } from "../reflection/Decorators";
 import { profilerHooks } from "../diagnostics/ProfilerHooks";
 import { AudioManager } from "./AudioManager";
 import type { GameObject } from "../GameObject";
@@ -13,6 +14,10 @@ import type { GameObject } from "../GameObject";
  *
  * Only one AudioListener should be active at a time.
  */
+// No fields: a listener is a position and an orientation, both of which live
+// on the Transform. The decorator is still needed, or a saved scene loses the
+// component itself and comes back silent.
+@Serializable({ typeName: "AudioListener", category: "Audio" })
 export class AudioListener extends Behaviour {
 
     private static _activeInstances: Set<AudioListener> = new Set();
