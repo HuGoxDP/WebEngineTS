@@ -4,6 +4,9 @@ import { SceneManager } from "../src/engine/core/SceneManager";
 import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
 import { Vector3 } from "../src/engine/core/math/Vector3";
 import { Color } from "../src/engine/core/math/Color";
+import { AnimationCurve, Keyframe } from "../src/engine/core/math/AnimationCurve";
+import { Gradient, GradientColorKey, GradientAlphaKey } from "../src/engine/core/particles/Gradient";
+import { ParticleBurst } from "../src/engine/core/particles/ParticleSystem";
 import { AudioSource, AudioRolloffMode } from "../src/engine/core/audio/AudioSource";
 import { AudioListener } from "../src/engine/core/audio/AudioListener";
 import { ParticleSystem } from "../src/engine/core/particles/ParticleSystem";
@@ -149,18 +152,48 @@ describe("ParticleSystem", () => {
         expect(restored.velocityOverLifetime?.y).toBeCloseTo(3);
     });
 
-    test("leaves the curve modules out rather than writing something unreadable", () => {
-        // `bursts`, `shape` and the over-lifetime curves have no representation in
-        // ValueSerializer. Pinned so that adding one is a deliberate act with a
-        // failing test behind it, not a surprise on the next scene load.
+    test("round-trips the curve modules", () => {
+        const ps = new GameObject("Smoke").addComponent(ParticleSystem);
+        ps.bursts = [new ParticleBurst(0.5, 20), new ParticleBurst(2, 5)];
+        ps.sizeOverLifetime = new AnimationCurve(
+            new Keyframe(0, 0.2), new Keyframe(0.5, 1), new Keyframe(1, 0),
+        );
+        const gradient = new Gradient();
+        gradient.setKeys(
+            [new GradientColorKey(new Color(1, 0, 0, 1), 0),
+             new GradientColorKey(new Color(0, 0, 1, 1), 1)],
+            [new GradientAlphaKey(1, 0), new GradientAlphaKey(0, 1)],
+        );
+        ps.colorOverLifetime = gradient;
+
+        const restored = roundTrip(ps.gameObject).getComponent(ParticleSystem)!;
+
+        expect(restored.bursts).toHaveLength(2);
+        expect(restored.bursts[1].time).toBeCloseTo(2);
+        expect(restored.bursts[1].count).toBe(5);
+
+        const curve = restored.sizeOverLifetime!;
+        expect(curve.keys).toHaveLength(3);
+        expect(curve.keys[1].time).toBeCloseTo(0.5);
+        expect(curve.keys[1].value).toBeCloseTo(1);
+        // The curve has to evaluate the same, not merely carry the same numbers.
+        expect(curve.evaluate(0.5)).toBeCloseTo(ps.sizeOverLifetime!.evaluate(0.5), 4);
+
+        const restoredGradient = restored.colorOverLifetime!;
+        expect(restoredGradient.colorKeys).toHaveLength(2);
+        expect(restoredGradient.colorKeys[1].color.b).toBeCloseTo(1);
+        expect(restoredGradient.alphaKeys[1].alpha).toBeCloseTo(0);
+    });
+
+    test("still leaves out what cannot be written back", () => {
+        // `shape` is readonly, so nothing could assign it on load; a scenario-built
+        // texture has no AssetDatabase entry to reference. Pinned so that adding
+        // either is a deliberate act rather than a surprise at load.
         const ps = new GameObject("Smoke").addComponent(ParticleSystem);
         const json = SceneSerializer.serializeGameObject(ps.gameObject);
         const keys = Object.keys(json.components[0] as unknown as Record<string, unknown>);
 
-        expect(keys).not.toContain("bursts");
         expect(keys).not.toContain("shape");
-        expect(keys).not.toContain("sizeOverLifetime");
-        expect(keys).not.toContain("colorOverLifetime");
         expect(keys).not.toContain("particleTexture");
     });
 });

@@ -9,6 +9,9 @@ import { FieldType } from "../reflection/Types";
 import { AssetDatabase } from "../assets/AssetDatabase";
 import { Sprite } from "../graphics/Sprite";
 import { Mesh } from "../graphics/Mesh";
+import { AnimationCurve, Keyframe } from "../math/AnimationCurve";
+import { Gradient, GradientColorKey, GradientAlphaKey } from "../particles/Gradient";
+import { ParticleBurst } from "../particles/ParticleSystem";
 import type { GameObject } from "../GameObject";
 
 /**
@@ -207,6 +210,42 @@ export class ValueSerializer {
             };
         }
 
+        // Curves, gradients and bursts are authored in place rather than loaded,
+        // so all three go in by value. Until they did, a ParticleSystem saved
+        // half a renderer: its numbers survived and its shape over lifetime did
+        // not.
+        if (type === FieldType.Curve) {
+            const curve = value as AnimationCurve;
+            return {
+                $type: "Curve",
+                pre: curve.preWrapMode,
+                post: curve.postWrapMode,
+                keys: curve.keys.map((k) => ({
+                    t: k.time, v: k.value,
+                    i: k.inTangent, o: k.outTangent,
+                    iw: k.inWeight, ow: k.outWeight,
+                    w: k.weightedMode,
+                })),
+            };
+        }
+
+        if (type === FieldType.Gradient) {
+            const gradient = value as Gradient;
+            return {
+                $type: "Gradient",
+                colors: gradient.colorKeys.map((k) => ({
+                    t: k.time,
+                    r: k.color.r, g: k.color.g, b: k.color.b, a: k.color.a,
+                })),
+                alphas: gradient.alphaKeys.map((k) => ({ t: k.time, a: k.alpha })),
+            };
+        }
+
+        if (type === FieldType.Bursts) {
+            const bursts = value as ParticleBurst[];
+            return { $type: "Bursts", items: bursts.map((b) => ({ t: b.time, n: b.count })) };
+        }
+
         // A mesh is stored as an id when it was loaded from a file, and as the
         // recipe that built it when it came from a factory. Vertex buffers are
         // never written into a scene: a procedural mesh with neither is dropped,
@@ -358,6 +397,36 @@ export class ValueSerializer {
                         return null;
                     }
                     return ValueSerializer._buildSprite(texture, obj);
+                }
+                case "Curve": case FieldType.Curve: {
+                    const raw = Array.isArray(obj.keys) ? obj.keys as Record<string, number>[] : [];
+                    const curve = new AnimationCurve(...raw.map((k) => {
+                        const key = new Keyframe(+(k.t ?? 0), +(k.v ?? 0), +(k.i ?? 0), +(k.o ?? 0));
+                        key.inWeight = +(k.iw ?? 1 / 3);
+                        key.outWeight = +(k.ow ?? 1 / 3);
+                        key.weightedMode = (k.w ?? 0) as never;
+                        return key;
+                    }));
+                    if (obj.pre !== undefined) curve.preWrapMode = obj.pre as never;
+                    if (obj.post !== undefined) curve.postWrapMode = obj.post as never;
+                    return curve;
+                }
+                case "Gradient": case FieldType.Gradient: {
+                    const colors = Array.isArray(obj.colors) ? obj.colors as Record<string, number>[] : [];
+                    const alphas = Array.isArray(obj.alphas) ? obj.alphas as Record<string, number>[] : [];
+                    const gradient = new Gradient();
+                    gradient.setKeys(
+                        colors.map((k) => new GradientColorKey(
+                            new Color(+(k.r ?? 1), +(k.g ?? 1), +(k.b ?? 1), +(k.a ?? 1)),
+                            +(k.t ?? 0),
+                        )),
+                        alphas.map((k) => new GradientAlphaKey(+(k.a ?? 1), +(k.t ?? 0))),
+                    );
+                    return gradient;
+                }
+                case "Bursts": case FieldType.Bursts: {
+                    const items = Array.isArray(obj.items) ? obj.items as Record<string, number>[] : [];
+                    return items.map((b) => new ParticleBurst(+(b.t ?? 0), +(b.n ?? 0)));
                 }
                 case "PrimitiveMesh": {
                     return Mesh.fromPrimitive({

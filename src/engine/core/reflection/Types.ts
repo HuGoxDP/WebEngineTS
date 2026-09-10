@@ -43,6 +43,18 @@ export enum FieldType {
      * that is neither cannot be stored — see `MeshFilter.mesh`.
      */
     Mesh        = "Mesh",
+    /**
+     * An {@link AnimationCurve} — its keyframes and the two wrap modes. Stored
+     * by value: a curve is authored in place, not loaded from a file.
+     */
+    Curve       = "Curve",
+    /** A {@link Gradient} — its colour and alpha keys, likewise by value. */
+    Gradient    = "Gradient",
+    /**
+     * A {@link ParticleBurst} list. Its own type rather than an `Array` of
+     * `Object`, so the shape is checked on the way back in rather than trusted.
+     */
+    Bursts      = "Bursts",
     /** Array of a single element type. `elementType` must be set. */
     Array       = "Array",
     /** Arbitrary JSON-compatible object. */

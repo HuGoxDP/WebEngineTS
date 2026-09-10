@@ -43,20 +43,17 @@ export class ParticleBurst {
  * fx.play();
  * ```
  */
-// Four authored fields are deliberately left out, because writing them would
-// lose them rather than keep them:
+// Two authored fields are still left out, and both for the same reason — writing
+// them would lose them rather than keep them:
 //
-//   `shape`         readonly, so nothing could assign it back on load.
-//   `bursts`        `ValueSerializer` has no representation for ParticleBurst.
-//   `sizeOverLifetime`, `colorOverLifetime`
-//                   likewise for AnimationCurve and Gradient.
-//   `particleTexture`
-//                   the rest of the renderer module is not stored either, so
-//                   storing only this would be half a module.
+//   `shape`           readonly, so nothing could assign it back on load.
+//   `particleTexture` an asset reference, which would round-trip, but only once
+//                     something resolves it back; `AssetDatabase` has no entry
+//                     for a texture a scenario built rather than loaded.
 //
-// A round trip therefore restores the main and emission modules and drops the
-// curves. Stated here rather than discovered from a system that comes back
-// emitting the wrong shape.
+// The curve modules used to be here too. `ValueSerializer` gained `Curve`,
+// `Gradient` and `Bursts` on 2026-09-09, so a system now comes back with the
+// shape it was authored with rather than a bare emitter.
 @Serializable({ typeName: "ParticleSystem", category: "Effects" })
 export class ParticleSystem extends Behaviour {
 
@@ -135,6 +132,7 @@ export class ParticleSystem extends Behaviour {
     public emissionRate: number = 10;
 
     /** Bursts that fire at specific times during the system's duration. */
+    @SerializedField({ type: FieldType.Bursts })
     public bursts: ParticleBurst[] = [];
 
     // ==================== SHAPE MODULE ====================
@@ -145,9 +143,11 @@ export class ParticleSystem extends Behaviour {
     // ==================== OVER-LIFETIME MODULES ====================
 
     /** Size multiplier curve evaluated over each particle's normalized lifetime. */
+    @SerializedField({ type: FieldType.Curve })
     public sizeOverLifetime: AnimationCurve | null = null;
 
     /** Color gradient evaluated over each particle's normalized lifetime. */
+    @SerializedField({ type: FieldType.Gradient })
     public colorOverLifetime: Gradient | null = null;
 
     /** Constant velocity added each frame (world units / second). */
