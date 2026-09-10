@@ -41,8 +41,9 @@ This document used to close on a verdict — a solid HUD toolkit and a weak gene
 true since August: layout groups, `ContentSizeFitter`, `CanvasGroup`, `RectMask2D`,
 `Selectable` with focus and navigation, `ScrollRect`, `InputField` and rich text all shipped.
 
-The gap that remains is not in this subsystem. Nothing yet *drives* it from a serialized
-document — §6.6, and the editor's own work. See the status block above for what is open.
+What is left is not in this subsystem. A scene now survives a round trip whole (§6.6, closed
+2026-09-09), so what remains is that nothing yet *drives* the toolkit from that document —
+the editor's own work. See the status block above.
 
 ## 1. Constraints and assumptions
 
@@ -778,7 +779,7 @@ Reopen this only if a scenario genuinely needs a compressed UI sprite. Nothing d
 and the trade is bad by construction: the format exists to keep pixels off the CPU, and the
 2D context can only draw pixels the CPU holds.
 
-### 6.6 Serialization of UI components — **P2, M** (engine-wide, not UI-specific)
+### 6.6 Serialization of UI components — **DONE (2026-09-09)** ✅ (engine-wide, not UI-specific)
 
 No UI component carries `@Serializable`/`@SerializeField` — but neither does any other
 built-in component; the reflection system (`src/engine/core/reflection/`) is entirely
@@ -832,7 +833,7 @@ not solved locally for UI. Flagged here because the editor will hit it first thr
 | ~~6.2~~ | ~~Shared tint cache~~ (+ LRU bound, profiler visibility) | **done** | M | — |
 | ~~6.4~~ | ~~`WorldSpace` render mode (projected)~~ | **done** | L | 4.4 |
 | ~~6.5~~ | ~~Compressed-texture sprites~~ — resolved as warn + document | **done** | L | 2.6 |
-| 6.6 | Serializable components (engine-wide) | P2 | M | — |
+| ~~6.6~~ | ~~Serializable components (engine-wide)~~ | **done** | M | — |
 | ~~5.0i~~ | ~~`InputField`~~ (hidden DOM `<input>`) | **done** | L | 5.1, 5.3 |
 | ~~5.0j~~ | ~~UI tween helpers~~ (`UITween`) | **done** | S | 4.4 |
 | 5.4 | Accessibility / ARIA mirror | P3 | M | 5.3 |
@@ -871,11 +872,16 @@ things had to precede which, and why — but nothing here is work waiting to be 
 **§4.8** (overlay canvas memory in `MemoryProfiler`) was independent of all of the above and
 was slotted in on 2026-08-05.
 
-**What to do next, if this subsystem is picked up again:** §6.6 first — serializing the
-remaining components is what an editor needs to load and save a panel, and it is the only
-open item another repo is waiting on. §3.5, §5.2 and §5.4 are independent and can be taken
-in any order. §4.1's follow-up wants a profile on real content before anyone touches the
-math layer for it.
+**What to do next, if this subsystem is picked up again:** §6.6 is done as of 2026-09-09 —
+the last six components without metadata now carry it, so a scene survives a round trip
+whole. §3.5, §5.2 and §5.4 are what remain, all independent and takeable in any order.
+§4.1's follow-up wants a profile on real content before anyone touches the math layer for it.
+
+Two things §6.6 surfaced rather than solved, both recorded where they live:
+`ValueSerializer` has no representation for `AnimationCurve`, `Gradient` or
+`ParticleBurst`, which is what keeps a particle system's curve modules out of a saved
+scene; and `ParticleSystem.particleTexture` is a `THREE.Texture` in a public signature,
+against the isolation rule.
 
 ## 9. Risks
 
