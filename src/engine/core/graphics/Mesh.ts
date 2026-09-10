@@ -1326,12 +1326,18 @@ export class Mesh extends EngineObject {
     // ==================== STATIC CONVERTERS ====================
 
     /**
+     * @internal
      * Builds a Mesh from a THREE.BufferGeometry.
-     * Used when importing models through the GLTF and OBJ loaders.
+     *
+     * Engine-internal: the model importers and `Mesh.combine` are its only
+     * callers, and its parameter is a Three type, which no signature a scenario
+     * touches is allowed to be. Named `_`-first to match `Texture._fromThreeTexture`,
+     * the same conversion on the texture side.
+     *
      * @param geometry Three.js BufferGeometry
      * @param name — the mesh's name.
      */
-    public static fromThreeGeometry(geometry: THREE.BufferGeometry, name: string = "Imported Mesh"): Mesh {
+    public static _fromThreeGeometry(geometry: THREE.BufferGeometry, name: string = "Imported Mesh"): Mesh {
         const mesh = new Mesh(name);
 
         // Positions.
@@ -1504,7 +1510,7 @@ export class Mesh extends EngineObject {
 
         // fromThreeGeometry copies all data into engine arrays and keeps no
         // reference to `merged`, so the temporary geometry can be disposed.
-        const result = Mesh.fromThreeGeometry(merged, name);
+        const result = Mesh._fromThreeGeometry(merged, name);
         merged.dispose();
         return result;
     }

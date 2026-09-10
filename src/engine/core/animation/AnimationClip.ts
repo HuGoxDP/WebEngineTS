@@ -12,6 +12,15 @@ export class AnimationClip {
     /** @internal The underlying Three.js animation clip. */
     public readonly _threeClip: THREE.AnimationClip;
 
+    /**
+     * @internal
+     * Wraps a clip that a model importer has already parsed.
+     *
+     * A constructor cannot be renamed out of the public surface the way
+     * `_fromThreeGeometry` was, so the tag is the whole of the fence. Nothing
+     * outside the engine should reach for this: clips arrive with a model, and
+     * `Animation.clips` is how scenario code gets at them.
+     */
     constructor(threeClip: THREE.AnimationClip) {
         this._threeClip = threeClip;
     }

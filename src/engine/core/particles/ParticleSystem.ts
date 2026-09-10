@@ -7,6 +7,7 @@ import { AnimationCurve } from "../math/AnimationCurve";
 import { profilerHooks } from "../diagnostics/ProfilerHooks";
 import { ParticleShape } from "./ParticleShape";
 import { Gradient } from "./Gradient";
+import type { Texture2D } from "../graphics/Texture2D";
 import {
     ParticleSimulationSpace,
     ParticleRenderMode,
@@ -50,9 +51,8 @@ export class ParticleBurst {
 //   `sizeOverLifetime`, `colorOverLifetime`
 //                   likewise for AnimationCurve and Gradient.
 //   `particleTexture`
-//                   a raw THREE.Texture rather than an engine asset, so there
-//                   is no id to store. That it is Three-typed at all is a
-//                   separate problem — see the note on the field.
+//                   the rest of the renderer module is not stored either, so
+//                   storing only this would be half a module.
 //
 // A round trip therefore restores the main and emission modules and drops the
 // curves. Stated here rather than discovered from a system that comes back
@@ -164,12 +164,11 @@ export class ParticleSystem extends Behaviour {
      * Optional sprite texture applied to each particle.
      *
      * @remarks
-     * **This is a `THREE.Texture` in a public signature**, which the engine's
-     * isolation rule forbids — it should be a `Texture2D`. Left as found rather
-     * than changed in passing: every caller assigning one would break. Not
-     * serialized, because a raw Three texture has no asset id to store.
+     * Not serialized. The texture is an asset reference and would round-trip, but
+     * nothing else on this component's renderer module does yet — see the note on
+     * the class.
      */
-    public particleTexture: THREE.Texture | null = null;
+    public particleTexture: Texture2D | null = null;
 
     // ==================== INTERNAL STATE ====================
 
@@ -205,6 +204,17 @@ export class ParticleSystem extends Behaviour {
 
     constructor(gameObject: GameObject) {
         super(gameObject);
+    }
+
+    /**
+     * The Three texture behind {@link particleTexture}, or null.
+     *
+     * The shader uniform needs a `THREE.Texture`; the public field is a
+     * `Texture2D`, because the isolation rule keeps Three out of signatures the
+     * engine's users touch. This is where the two meet.
+     */
+    private _threeParticleTexture(): THREE.Texture | null {
+        return this.particleTexture?._internalThreeTexture ?? null;
     }
 
     // ==================== PROPERTIES ====================
@@ -332,7 +342,7 @@ export class ParticleSystem extends Behaviour {
 
         this._material = new THREE.ShaderMaterial({
             uniforms: {
-                uMap: { value: this.particleTexture },
+                uMap: { value: this._threeParticleTexture() },
                 uUseMap: { value: this.particleTexture ? 1 : 0 },
                 uPixelScale: { value: 300 },
             },
@@ -466,7 +476,7 @@ export class ParticleSystem extends Behaviour {
 
         // Update map uniform if texture changed at runtime
         if (this._material) {
-            this._material.uniforms.uMap.value = this.particleTexture;
+            this._material.uniforms.uMap.value = this._threeParticleTexture();
             this._material.uniforms.uUseMap.value = this.particleTexture ? 1 : 0;
         }
     }

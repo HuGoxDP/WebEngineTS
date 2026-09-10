@@ -524,7 +524,7 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         // --- Geometry (deduplicated) ---
         let engineMesh = meshMap.get(threeMesh.geometry);
         if (!engineMesh) {
-            engineMesh = Mesh.fromThreeGeometry(
+            engineMesh = Mesh._fromThreeGeometry(
                 threeMesh.geometry,
                 threeMesh.name || "ImportedMesh"
             );
@@ -686,7 +686,7 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      *
      * **What is disposed:**
      * - BufferGeometry — vertex/index GPU buffers. Safe because
-     *   {@link Mesh.fromThreeGeometry} copies all data into engine arrays.
+     *   {@link Mesh._fromThreeGeometry} copies all data into engine arrays.
      * - Materials — GPU shader programs. Safe because we created new
      *   {@link StandardMaterial} instances.
      *

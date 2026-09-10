@@ -48,7 +48,7 @@ function geometryWithTwoUvSets(): THREE.BufferGeometry {
 
 describe("importing a mesh keeps its second UV set", () => {
     test("uv1 arrives as the engine's uv2", () => {
-        const mesh = Mesh.fromThreeGeometry(geometryWithTwoUvSets());
+        const mesh = Mesh._fromThreeGeometry(geometryWithTwoUvSets());
 
         expect(mesh.uv2.length).toBe(4);
         expect(mesh.uv2[0].x).toBeCloseTo(0.25, 6);
@@ -58,7 +58,7 @@ describe("importing a mesh keeps its second UV set", () => {
     });
 
     test("the first set is untouched by it", () => {
-        const mesh = Mesh.fromThreeGeometry(geometryWithTwoUvSets());
+        const mesh = Mesh._fromThreeGeometry(geometryWithTwoUvSets());
 
         expect(mesh.uv.length).toBe(4);
         expect(mesh.uv[2].x).toBeCloseTo(1, 6);
@@ -69,7 +69,7 @@ describe("importing a mesh keeps its second UV set", () => {
         const g = geometryWithTwoUvSets();
         g.deleteAttribute("uv1");
 
-        const mesh = Mesh.fromThreeGeometry(g);
+        const mesh = Mesh._fromThreeGeometry(g);
 
         expect(mesh.uv.length).toBe(4);
         expect(mesh.uv2.length).toBe(0);
@@ -78,7 +78,7 @@ describe("importing a mesh keeps its second UV set", () => {
 
 describe("the second UV set reaches the channel that samples it", () => {
     test("the engine's uv2 is written as three's uv1", () => {
-        const mesh = Mesh.fromThreeGeometry(geometryWithTwoUvSets());
+        const mesh = Mesh._fromThreeGeometry(geometryWithTwoUvSets());
 
         const geometry = mesh._internalGeometry;
         const written = geometry.getAttribute("uv1");
@@ -94,7 +94,7 @@ describe("the second UV set reaches the channel that samples it", () => {
     test("nothing is left on channel two", () => {
         // Where it used to go: an attribute three declares but this material
         // never samples, so the map silently read nothing.
-        const mesh = Mesh.fromThreeGeometry(geometryWithTwoUvSets());
+        const mesh = Mesh._fromThreeGeometry(geometryWithTwoUvSets());
 
         expect(mesh._internalGeometry.getAttribute("uv2")).toBeUndefined();
     });
