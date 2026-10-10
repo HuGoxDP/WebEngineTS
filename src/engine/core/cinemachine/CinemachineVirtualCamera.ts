@@ -4,6 +4,8 @@ import { ScriptableBehaviour } from "../ScriptableBehaviour.ts";
 import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
 import { CameraState, CinemachineBody, CinemachineAim } from "./CinemachineCore.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 import type { Transform } from "../Transform.ts";
 
@@ -41,6 +43,7 @@ import type { Transform } from "../Transform.ts";
  * fpsGo.addComponent(CinemachinePOVAim);
  * ```
  */
+@Serializable({ typeName: "CinemachineVirtualCamera", category: "Cinemachine" })
 export class CinemachineVirtualCamera extends ScriptableBehaviour {
 
     // ==================== STATIC REGISTRY ====================
@@ -58,6 +61,7 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
      *
      * @remarks Equivalent to Unity's `CinemachineVirtualCamera.Priority`.
      */
+    @SerializedField()
     public priority: number = 10;
 
     /**
@@ -65,6 +69,7 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
      *
      * @remarks Equivalent to Unity's `CinemachineVirtualCamera.Follow`.
      */
+    @SerializedField({ type: FieldType.Component })
     public follow: Transform | null = null;
 
     /**
@@ -72,11 +77,13 @@ export class CinemachineVirtualCamera extends ScriptableBehaviour {
      *
      * @remarks Equivalent to Unity's `CinemachineVirtualCamera.LookAt`.
      */
+    @SerializedField({ type: FieldType.Component })
     public lookAt: Transform | null = null;
 
     /**
      * Default field of view when no Body overrides it.
      */
+    @SerializedField()
     public fieldOfView: number = 60;
 
     // ==================== INTERNAL STATE ====================

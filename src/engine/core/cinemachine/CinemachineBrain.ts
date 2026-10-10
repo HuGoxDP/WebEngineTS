@@ -4,12 +4,18 @@ import { ScriptableBehaviour } from "../ScriptableBehaviour.ts";
 import { Time } from "../Time.ts";
 import { CameraState, CinemachineBlendStyle } from "./CinemachineCore.ts";
 import { CinemachineVirtualCamera } from "./CinemachineVirtualCamera.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { Camera } from "../components/Camera.ts";
 import type { GameObject } from "../GameObject.ts";
 
+@Serializable({ typeName: "CinemachineBrain", category: "Cinemachine" })
 export class CinemachineBrain extends ScriptableBehaviour {
 
+    @SerializedField({ type: FieldType.Enum, enumValues: CinemachineBlendStyle as unknown as Record<string, number> })
     public defaultBlendStyle: CinemachineBlendStyle = CinemachineBlendStyle.Cut;
+
+    @SerializedField()
     public defaultBlendTime: number = 0.75;
 
     private _activeVCam: CinemachineVirtualCamera | null = null;

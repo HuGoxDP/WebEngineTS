@@ -2,6 +2,8 @@
 
 import { CinemachineBody, CameraState } from "./CinemachineCore.ts";
 import { Vector3 } from "../math/Vector3.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -30,6 +32,7 @@ import type { GameObject } from "../GameObject.ts";
  * vcamGo.addComponent(CinemachineHardLookAtAim);
  * ```
  */
+@Serializable({ typeName: "CinemachineFollowBody", category: "Cinemachine" })
 export class CinemachineFollowBody extends CinemachineBody {
 
     // ==================== PUBLIC SETTINGS ====================
@@ -39,6 +42,7 @@ export class CinemachineFollowBody extends CinemachineBody {
      *
      * `(0, 5, -10)` = 5 units above, 10 units behind.
      */
+    @SerializedField({ type: FieldType.Vector3 })
     public offset: Vector3 = new Vector3(0, 5, -10);
 
     /**
@@ -53,6 +57,7 @@ export class CinemachineFollowBody extends CinemachineBody {
      * exactly where the target says, every frame. Unity reads a damping of zero
      * the same way.
      */
+    @SerializedField()
     public damping: number = 5;
 
     // ==================== INTERNAL STATE ====================

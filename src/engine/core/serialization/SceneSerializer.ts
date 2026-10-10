@@ -783,6 +783,11 @@ export class SceneSerializer {
         typeName: string,
         index: number,
     ): Component | null {
+        // A plain Transform has no registered name — it is never a component of
+        // the saved list — yet a camera that follows one, or a script that holds
+        // one, must still find it again.
+        if (typeName === SceneSerializer._TRANSFORM) return go.transform;
+
         const list = (go as unknown as { _components: Component[] })._components;
         let seen = 0;
         for (const candidate of list) {
@@ -798,10 +803,19 @@ export class SceneSerializer {
      * placeholder — the type it stands in for, so references to it round-trip.
      */
     private static _typeNameOf(component: object): string | null {
-        return component instanceof MissingComponent
-            ? component.originalType
-            : TypeRegistry.getTypeName(component);
+        if (component instanceof MissingComponent) return component.originalType;
+
+        const registered = TypeRegistry.getTypeName(component);
+        if (registered !== null) return registered;
+
+        // The one component every object has and no registry lists: it is saved
+        // as the object's own transform block, so references to it get a name
+        // here instead.
+        return component instanceof Transform ? SceneSerializer._TRANSFORM : null;
     }
+
+    /** What a reference to a plain `Transform` calls its target. */
+    private static readonly _TRANSFORM = "Transform";
 
     /** A deep copy of saved JSON, so a placeholder never shares its data with the file it came from. */
     private static _cloneJson<T>(value: T): T {

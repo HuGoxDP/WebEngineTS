@@ -99,6 +99,7 @@ export { PostProcessing } from "./core/postprocessing/PostProcessing";
 export { PostEffect } from "./core/postprocessing/PostEffect";
 export { BloomEffect } from "./core/postprocessing/BloomEffect";
 export { VignetteEffect } from "./core/postprocessing/VignetteEffect";
+export { PostProcessVolume } from "./core/postprocessing/PostProcessVolume";
 
 // =====================
 // MATH
@@ -392,6 +393,7 @@ import { PostProcessing } from "./core/postprocessing/PostProcessing";
 import { PostEffect } from "./core/postprocessing/PostEffect";
 import { BloomEffect } from "./core/postprocessing/BloomEffect";
 import { VignetteEffect } from "./core/postprocessing/VignetteEffect";
+import { PostProcessVolume } from "./core/postprocessing/PostProcessVolume";
 
 import { Mathf } from "./core/math/Mathf";
 import { AnimationCurve, Keyframe, WrapMode, WeightedMode } from "./core/math/AnimationCurve";
@@ -562,7 +564,7 @@ const WebEngineTS = {
     Plugin, PluginManager,
 
     // Post-processing
-    PostProcessing, PostEffect, BloomEffect, VignetteEffect,
+    PostProcessing, PostEffect, BloomEffect, VignetteEffect, PostProcessVolume,
 
     // Reflection / Serialization
     FieldType, TypeRegistry,

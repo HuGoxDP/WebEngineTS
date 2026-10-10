@@ -1,3 +1,5 @@
+import { SerializedField } from "../reflection/Decorators";
+
 /**
  * Base class for individual post-processing effects.
  *
@@ -7,10 +9,15 @@
  *
  * Subclasses own their underlying Three.js pass and expose engine-friendly
  * parameters (number, Color). The Three.js pass object is kept internal.
+ *
+ * A subclass registered with `@Serializable` and `@SerializedField` can be kept
+ * in a scene by a {@link PostProcessVolume}; it needs a constructor that can be
+ * called with no arguments.
  */
 export abstract class PostEffect {
 
     /** Whether this effect participates in the pipeline this frame. */
+    @SerializedField()
     public enabled: boolean = true;
 
     /**
