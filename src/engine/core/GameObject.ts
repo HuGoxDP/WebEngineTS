@@ -346,6 +346,51 @@ export class GameObject extends EngineObject {
     }
 
     /**
+     * Every component on this GameObject except its Transform, in the order they
+     * were added — which is the order they update in.
+     *
+     * @remarks
+     * Unity spells this `GetComponents<Component>()`. `Component` is abstract here,
+     * so it cannot be passed to {@link getComponents}; this is the way to list them
+     * all. A copy: reordering it changes nothing, use {@link setComponentIndex}.
+     */
+    public getAllComponents(): Component[] {
+        return [...this._components];
+    }
+
+    /**
+     * Where a component sits among this GameObject's components (Transform not
+     * counted), or -1 if it is not one of them.
+     */
+    public getComponentIndex(component: Component): number {
+        return this._components.indexOf(component);
+    }
+
+    /**
+     * Moves a component to `index` among this GameObject's components, clamped to
+     * the list. Components update in this order, so it is also the order their
+     * `update` runs in.
+     *
+     * @returns `false` if the component does not belong to this GameObject.
+     *
+     * @remarks
+     * Unity offers this only to editor code (`ComponentUtility.MoveComponentUp` /
+     * `MoveComponentDown`) — it is what the Inspector's "Move Up" / "Move Down"
+     * call. The Transform is not in the list and always stays first.
+     */
+    public setComponentIndex(component: Component, index: number): boolean {
+        const from = this._components.indexOf(component);
+        if (from === -1) return false;
+
+        const to = Math.max(0, Math.min(index, this._components.length - 1));
+        if (to !== from) {
+            this._components.splice(from, 1);
+            this._components.splice(to, 0, component);
+        }
+        return true;
+    }
+
+    /**
      * Returns the first component of the given type found in this GameObject
      * or any of its children (depth-first search).
      *

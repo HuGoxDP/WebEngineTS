@@ -106,6 +106,12 @@ export interface DeserializeContext {
         guid: string;
         /** Present when the reference was a Sprite: its framing, to rebuild with. */
         sprite?: Record<string, unknown>;
+        /**
+         * Present when the field holds something built *from* the asset rather
+         * than the asset itself — a skybox is a cubemap over a texture. Given
+         * the resolved asset, returns what to assign.
+         */
+        wrap?: (asset: object) => unknown;
     }>;
     /** Current component being deserialized — populated by SceneSerializer. */
     currentComponent: object | null;

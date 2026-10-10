@@ -228,6 +228,33 @@ export class Cubemap extends EngineObject implements ITextureReferent {
     }
 
     /**
+     * Builds an equirectangular cubemap over an already-decoded panorama, at once.
+     *
+     * @remarks
+     * The same cubemap `fromEquirectangular(texture)` resolves to, without the
+     * promise: nothing is decoded here, so there is nothing to wait for. It is
+     * what lets a scene that names its skybox by asset be rebuilt synchronously.
+     * The texture keeps its owner and must outlive the cubemap, as there.
+     *
+     * @param texture — the decoded panorama.
+     */
+    public static fromTexture(texture: Texture2D): Cubemap {
+        return Cubemap._fromEquirectangularTexture(texture);
+    }
+
+    /**
+     * The panorama this cubemap is drawn from, or null when it owns its pixels
+     * (a URL, six faces, a solid color) or has been disposed.
+     *
+     * @remarks
+     * What lets a skybox be saved as a reference to an asset rather than as
+     * pixels: only a cubemap with a source can be written down.
+     */
+    public get sourceTexture(): Texture2D | null {
+        return this._borrowedFrom;
+    }
+
+    /**
      * Builds an equirectangular cubemap over a texture someone else owns.
      *
      * @remarks

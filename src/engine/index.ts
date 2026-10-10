@@ -80,11 +80,13 @@ export {
 export { ValueSerializer } from "./core/serialization/ValueSerializer";
 export type { SerializeContext, DeserializeContext, PendingGORef } from "./core/serialization/ValueSerializer";
 export { SceneSerializer } from "./core/serialization/SceneSerializer";
+export { MissingComponent, MissingValue } from "./core/serialization/MissingComponent";
 export type {
     SerializedGameObject,
     SerializedComponent,
     SerializedScene,
     SerializedAsset,
+    SerializedRenderSettings,
 } from "./core/serialization/SceneSerializer";
 export { Prefab } from "./core/serialization/Prefab";
 export { PrefabDiff } from "./core/serialization/PrefabOverride";
@@ -383,6 +385,7 @@ import {
 } from "./core/reflection/Decorators";
 import { ValueSerializer } from "./core/serialization/ValueSerializer";
 import { SceneSerializer } from "./core/serialization/SceneSerializer";
+import { MissingComponent, MissingValue } from "./core/serialization/MissingComponent";
 import { Prefab } from "./core/serialization/Prefab";
 
 import { PostProcessing } from "./core/postprocessing/PostProcessing";
@@ -565,7 +568,7 @@ const WebEngineTS = {
     FieldType, TypeRegistry,
     Serializable, SerializedField, Range, Header, Tooltip, HideInInspector,
     getClassMeta, getAllFields,
-    ValueSerializer, SceneSerializer, Prefab,
+    ValueSerializer, SceneSerializer, MissingComponent, MissingValue, Prefab,
 
     // Math
     Mathf, AnimationCurve, Keyframe, WrapMode, WeightedMode,
