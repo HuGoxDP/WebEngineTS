@@ -342,7 +342,9 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
             [".glb", ".gltf"],
             async (bytes: Uint8Array, path: string) => {
                 const gltf = await this._parseGLTF(ScenarioAssets._toArrayBuffer(bytes), path);
-                const root = this._convertGLTFScene(gltf, path);
+                // The id this file is about to be bound under, so what is inside
+                // it can be named relative to it.
+                const root = this._convertGLTFScene(gltf, path, AssetDatabase.guidForPath(path));
                 if (gltf.animations.length > 0) {
                     const anim = root.addComponent(Animation);
                     for (const threeClip of gltf.animations) {
@@ -424,6 +426,10 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      *
      * @param gltf — the parsed GLTF result from Three.js.
      * @param name — display name for the root GameObject.
+     * @param fileGuid — the id of the file being converted. When given, every
+     *   mesh, material and texture made from it is bound to an id inside that
+     *   file ({@link AssetDatabase.subGuid}), which is what lets a saved scene
+     *   refer to them instead of losing them.
      */
     /**
      * @internal
@@ -433,10 +439,14 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      */
     private static readonly _AXIS_NODE = "glTF axis conversion";
 
-    private _convertGLTFScene(gltf: GLTF, name: string): GameObject {
+    private _convertGLTFScene(gltf: GLTF, name: string, fileGuid: string | null = null): GameObject {
         // Deduplication maps: same Three.js instance → same engine instance
         const meshMap = new Map<THREE.BufferGeometry, Mesh>();
         const materialMap = new Map<THREE.Material, StandardMaterial>();
+        const subAssets = new SubAssetBinder(
+            fileGuid,
+            (gltf as { parser?: { associations?: Map<object, GltfAssociation> } }).parser?.associations,
+        );
 
         // Recursive converter
         const convert = (threeNode: THREE.Object3D): GameObject => {
@@ -467,7 +477,7 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
             // --- Mesh node → MeshFilter + MeshRenderer ---
             if ((threeNode as THREE.Mesh).isMesh) {
                 const threeMesh = threeNode as THREE.Mesh;
-                this._convertMesh(go, threeMesh, meshMap, materialMap);
+                this._convertMesh(go, threeMesh, meshMap, materialMap, subAssets);
             }
 
             // --- Recurse into children ---
@@ -520,6 +530,7 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         threeMesh: THREE.Mesh,
         meshMap: Map<THREE.BufferGeometry, Mesh>,
         materialMap: Map<THREE.Material, StandardMaterial>,
+        subAssets: SubAssetBinder,
     ): void {
         // --- Geometry (deduplicated) ---
         let engineMesh = meshMap.get(threeMesh.geometry);
@@ -529,6 +540,7 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
                 threeMesh.name || "ImportedMesh"
             );
             meshMap.set(threeMesh.geometry, engineMesh);
+            subAssets.bind("mesh", threeMesh, engineMesh);
         }
 
         const meshFilter = go.addComponent(MeshFilter);
@@ -542,8 +554,9 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
             const materials = threeMesh.material.map(m => {
                 let mat = materialMap.get(m);
                 if (!mat) {
-                    mat = ScenarioAssets._convertThreeMaterial(m);
+                    mat = ScenarioAssets._convertThreeMaterial(m, subAssets);
                     materialMap.set(m, mat);
+                    subAssets.bind("material", m, mat);
                 }
                 return mat;
             });
@@ -552,8 +565,9 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         } else if (threeMesh.material) {
             let mat = materialMap.get(threeMesh.material);
             if (!mat) {
-                mat = ScenarioAssets._convertThreeMaterial(threeMesh.material);
+                mat = ScenarioAssets._convertThreeMaterial(threeMesh.material, subAssets);
                 materialMap.set(threeMesh.material, mat);
+                subAssets.bind("material", threeMesh.material, mat);
             }
             meshRenderer.sharedMaterial = mat;
         }
@@ -570,7 +584,10 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
      *
      * Falls back to a white StandardMaterial for unsupported material types.
      */
-    private static _convertThreeMaterial(threeMat: THREE.Material): StandardMaterial {
+    private static _convertThreeMaterial(
+        threeMat: THREE.Material,
+        subAssets: SubAssetBinder,
+    ): StandardMaterial {
         const material = new StandardMaterial();
         material.name = threeMat.name || "ImportedMaterial";
 
@@ -628,33 +645,33 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
             // GLB files have textures fully decoded in memory at this point.
 
             if (src.map) {
-                material.albedoTexture = Texture2D._fromThreeTexture(src.map);
+                material.albedoTexture = subAssets.textureFor(src.map);
             }
 
             if (src.normalMap) {
-                material.normalTexture = Texture2D._fromThreeTexture(src.normalMap);
+                material.normalTexture = subAssets.textureFor(src.normalMap);
                 if (src.normalScale) {
                     material.normalScale = src.normalScale.x;
                 }
             }
 
             if (src.metalnessMap) {
-                material.metallicTexture = Texture2D._fromThreeTexture(src.metalnessMap);
+                material.metallicTexture = subAssets.textureFor(src.metalnessMap);
             }
 
             if (src.aoMap) {
-                material.occlusionTexture = Texture2D._fromThreeTexture(src.aoMap);
+                material.occlusionTexture = subAssets.textureFor(src.aoMap);
                 if (src.aoMapIntensity !== undefined) {
                     material.occlusionStrength = src.aoMapIntensity;
                 }
             }
 
             if (src.emissiveMap) {
-                material.emissionTexture = Texture2D._fromThreeTexture(src.emissiveMap);
+                material.emissionTexture = subAssets.textureFor(src.emissiveMap);
             }
 
             if (src.displacementMap) {
-                material.heightTexture = Texture2D._fromThreeTexture(src.displacementMap);
+                material.heightTexture = subAssets.textureFor(src.displacementMap);
                 if (src.displacementScale !== undefined) {
                     material.heightScale = src.displacementScale;
                 }
@@ -772,5 +789,78 @@ export class ScenarioAssets implements IAssetProvider, IAssetSource {
         return bytes.buffer.slice(
             bytes.byteOffset, bytes.byteOffset + bytes.byteLength,
         ) as ArrayBuffer;
+    }
+}
+
+/** What GLTFLoader records about where an object came from in the file. */
+interface GltfAssociation {
+    meshes?: number;
+    primitives?: number;
+    materials?: number;
+    textures?: number;
+}
+
+/**
+ * Gives the meshes, materials and textures made from one model file ids that
+ * are stable across loads, so a saved scene can name them.
+ *
+ * @remarks
+ * Without ids, a model placed in a scene saved a MeshFilter with no mesh and a
+ * material copy with no textures: the file was the only place they existed, and
+ * nothing said which part of it a reference meant. An id is the file's own plus
+ * a local one — the glTF's own indices (`mesh:2.0`, `material:5`, `texture:1`)
+ * when the loader recorded them, and the order of discovery otherwise.
+ *
+ * Also hands out **one wrapper per texture**: the same texture used by two
+ * materials used to be wrapped twice, which gave one image two engine objects
+ * and nowhere single to attach an id.
+ */
+class SubAssetBinder {
+    private readonly _used = new Set<string>();
+    private readonly _textures = new Map<THREE.Texture, Texture2D>();
+    private readonly _counts = { mesh: 0, material: 0, texture: 0 };
+
+    constructor(
+        private readonly _fileGuid: string | null,
+        private readonly _associations: Map<object, GltfAssociation> | undefined,
+    ) {}
+
+    /** Names `asset`, which was made from `source`, inside the file. */
+    public bind(kind: "mesh" | "material" | "texture", source: object, asset: object): void {
+        if (this._fileGuid === null) return;
+        AssetDatabase._bindSub(this._fileGuid, this._localId(kind, source), asset);
+    }
+
+    /** The engine texture for a Three.js one, made on first use and then shared. */
+    public textureFor(texture: THREE.Texture): Texture2D {
+        let wrapped = this._textures.get(texture);
+        if (wrapped === undefined) {
+            wrapped = Texture2D._fromThreeTexture(texture);
+            this._textures.set(texture, wrapped);
+            this.bind("texture", texture, wrapped);
+        }
+        return wrapped;
+    }
+
+    private _localId(kind: "mesh" | "material" | "texture", source: object): string {
+        const found = this._associations?.get(source);
+        let id: string;
+        if (kind === "mesh" && found?.meshes !== undefined) {
+            id = `mesh:${found.meshes}.${found.primitives ?? 0}`;
+        } else if (kind === "material" && found?.materials !== undefined) {
+            id = `material:${found.materials}`;
+        } else if (kind === "texture" && found?.textures !== undefined) {
+            id = `texture:${found.textures}`;
+        } else {
+            id = `${kind}~${this._counts[kind]}`;
+        }
+        this._counts[kind]++;
+
+        // Two objects the loader gave the same index — a texture cloned for a
+        // transform, say — must still end up with two ids.
+        let unique = id;
+        for (let n = 1; this._used.has(unique); n++) unique = `${id}~${n}`;
+        this._used.add(unique);
+        return unique;
     }
 }

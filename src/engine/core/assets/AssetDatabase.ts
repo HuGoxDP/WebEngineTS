@@ -9,6 +9,9 @@ export interface AssetEntry {
 /** Characters used by the fallback GUID minter. */
 const HEX = "0123456789abcdef";
 
+/** Between a file's id and the local id of an asset inside it. */
+const SUB_SEPARATOR = "#";
+
 /**
  * Maps stable asset ids to paths and to the loaded instances behind them.
  *
@@ -83,9 +86,63 @@ export class AssetDatabase {
         return guid;
     }
 
-    /** The path an id currently resolves to, or `null` if unknown. */
+    /**
+     * The path an id currently resolves to, or `null` if unknown.
+     *
+     * @remarks
+     * A sub-asset resolves to the path of the file it lives in.
+     */
     public static pathOf(guid: string): string | null {
-        return AssetDatabase._pathByGuid.get(guid) ?? null;
+        return AssetDatabase._pathByGuid.get(AssetDatabase.fileOf(guid)) ?? null;
+    }
+
+    // ==================== SUB-ASSETS ====================
+
+    /**
+     * The id of one asset inside another's file: a mesh, material or texture in a
+     * model.
+     *
+     * @remarks
+     * Written `file#local`. Everything that already stores an id — a scene's
+     * asset references above all — stores this one the same way, and
+     * {@link fileOf} says which file has to be loaded to make it resolve. The
+     * local part is stable for a given file, so a reference keeps pointing at
+     * the same mesh after the file is loaded again.
+     *
+     * @param fileGuid - the id of the file.
+     * @param localId - the asset's id within it, e.g. `mesh:0.1`.
+     */
+    public static subGuid(fileGuid: string, localId: string): string {
+        return `${fileGuid}${SUB_SEPARATOR}${localId}`;
+    }
+
+    /** Whether an id names an asset inside another asset's file. */
+    public static isSub(guid: string): boolean {
+        return guid.includes(SUB_SEPARATOR);
+    }
+
+    /**
+     * The id of the file an id lives in: the id itself unless it is a
+     * sub-asset's.
+     */
+    public static fileOf(guid: string): string {
+        const at = guid.indexOf(SUB_SEPARATOR);
+        return at < 0 ? guid : guid.slice(0, at);
+    }
+
+    /**
+     * @internal
+     * Binds an asset found inside a loaded file to its sub-asset id.
+     *
+     * @param fileGuid - the id of the file it came from.
+     * @param localId - its id within that file.
+     * @param asset - the instance.
+     * @returns the full id.
+     */
+    public static _bindSub(fileGuid: string, localId: string, asset: object): string {
+        const guid = AssetDatabase.subGuid(fileGuid, localId);
+        AssetDatabase._bindGuid(guid, asset);
+        return guid;
     }
 
     /** The id of a loaded asset, or `null` if it was never registered. */
@@ -161,8 +218,19 @@ export class AssetDatabase {
         AssetDatabase._guidByAsset.delete(asset);
         // Only if it is still the current instance — a reload may already have
         // bound a fresh one under the same id.
-        if (AssetDatabase._assetByGuid.get(guid) === asset) {
-            AssetDatabase._assetByGuid.delete(guid);
+        if (AssetDatabase._assetByGuid.get(guid) !== asset) return;
+        AssetDatabase._assetByGuid.delete(guid);
+
+        // What was inside the file goes with it. They are built from the same
+        // parse and are not worth keeping once the file's instance is gone; a
+        // reference to one has to load the file again, which rebinds them.
+        const prefix = guid + SUB_SEPARATOR;
+        for (const [childGuid, child] of AssetDatabase._assetByGuid) {
+            if (!childGuid.startsWith(prefix)) continue;
+            AssetDatabase._assetByGuid.delete(childGuid);
+            if (AssetDatabase._guidByAsset.get(child) === childGuid) {
+                AssetDatabase._guidByAsset.delete(child);
+            }
         }
     }
 

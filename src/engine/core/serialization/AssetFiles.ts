@@ -65,18 +65,32 @@ export const AssetFiles = {
  * scene gets for an asset it cannot find.
  */
 async function loadReferences(json: object): Promise<void> {
+    const attempted = new Set<string>();
+
     for (const guid of SceneSerializer.assetReferences(json)) {
         if (AssetDatabase.isLoaded(guid)) continue;
 
-        const path = AssetDatabase.pathOf(guid);
-        if (path === null) {
-            console.warn(`[AssetFiles] An asset refers to "${guid}", which the project does not list.`);
-            continue;
+        // A mesh or material inside a model is loaded by loading the model, once
+        // however many of its parts are used.
+        const file = AssetDatabase.fileOf(guid);
+        if (!attempted.has(file)) {
+            attempted.add(file);
+
+            const path = AssetDatabase.pathOf(file);
+            if (path === null) {
+                console.warn(`[AssetFiles] An asset refers to "${guid}", which the project does not list.`);
+                continue;
+            }
+            try {
+                await Resources.loadAtPath(path);
+            } catch (error) {
+                console.warn(`[AssetFiles] Could not load "${path}" for an asset that uses it:`, error);
+                continue;
+            }
         }
-        try {
-            await Resources.loadAtPath(path);
-        } catch (error) {
-            console.warn(`[AssetFiles] Could not load "${path}" for an asset that uses it:`, error);
+
+        if (!AssetDatabase.isLoaded(guid)) {
+            console.warn(`[AssetFiles] "${AssetDatabase.pathOf(file)}" has no part called "${guid}".`);
         }
     }
 }
