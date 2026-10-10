@@ -501,6 +501,25 @@ export class Resources {
     }
 
     /**
+     * Loads an asset by path alone, choosing its type from the file's extension.
+     *
+     * @remarks
+     * For a caller that knows a *name* and not a class — above all a saved scene
+     * or material, which refers to what it uses by id, and an id resolves to a
+     * path and nothing more. `.png` is a `Texture2D`, `.mat.json` a material.
+     *
+     * @param path — asset path, as for {@link load}.
+     * @throws if no decoder claims the extension, or the asset cannot be read.
+     */
+    public static async loadAtPath(path: string): Promise<unknown> {
+        const type = Resources._decoderTypeForPath(path);
+        if (type === null) {
+            throw new Error(`[Resources] No decoder is registered for the extension of "${path}".`);
+        }
+        return Resources._load(type, path, false);
+    }
+
+    /**
      * Loads all assets of a given type under a path prefix.
      *
      * @param type — the asset class.
@@ -521,17 +540,13 @@ export class Resources {
         Resources._ensureSource();
 
         const entry = Resources._getDecoder(type);
-        const extSet = new Set(entry.extensions.map(e => e.toLowerCase()));
 
         // Prefix with assets/ for source lookup
         const sourcePrefix = prefix.startsWith("assets/") ? prefix : `assets/${prefix}`;
         const allPaths = Resources._source!.list(sourcePrefix);
 
         // Filter by matching extensions
-        const matching = allPaths.filter(p => {
-            const ext = Resources._extname(p).toLowerCase();
-            return extSet.has(ext);
-        });
+        const matching = allPaths.filter(p => Resources._claimedBy(p, entry.extensions));
 
         return Promise.all(
             matching.map(p => {
@@ -1062,8 +1077,7 @@ export class Resources {
         const basePath = path.startsWith("assets/") ? path : `assets/${path}`;
 
         // If path already has a matching extension, check directly
-        const currentExt = Resources._extname(basePath).toLowerCase();
-        if (extensions.some(e => e.toLowerCase() === currentExt)) {
+        if (Resources._claimedBy(basePath, extensions)) {
             if (Resources._source!.has(basePath)) return basePath;
         }
 
@@ -1093,14 +1107,42 @@ export class Resources {
      * a built-in one.
      */
     private static _decoderTypeForPath(path: string): (new (...args: any[]) => unknown) | null {
-        const ext = Resources._extname(path).toLowerCase();
-        if (ext === "") return null;
+        if (Resources._extname(path) === "") return null;
 
+        // The longest claimed extension wins, so `hull.mat.json` goes to the
+        // material decoder rather than to whoever claims plain `.json`.
         let match: Function | null = null;
+        let matchLength = 0;
         for (const [type, entry] of Resources._decoders) {
-            if (entry.extensions.some(e => e.toLowerCase() === ext)) match = type;
+            for (const ext of entry.extensions) {
+                if (!Resources._endsWithExtension(path, ext)) continue;
+                if (ext.length >= matchLength) {
+                    match = type;
+                    matchLength = ext.length;
+                }
+            }
         }
         return match as (new (...args: any[]) => unknown) | null;
+    }
+
+    /** Whether any of `extensions` is a suffix of `path`, compound ones included. */
+    private static _claimedBy(path: string, extensions: readonly string[]): boolean {
+        return extensions.some(e => Resources._endsWithExtension(path, e));
+    }
+
+    /**
+     * Whether `path` ends in `ext`, which may itself contain a dot (`.mat.json`).
+     *
+     * @remarks
+     * Comparing only the part after the last dot would make every compound
+     * extension collapse into its final segment — and a material file into a
+     * plain JSON one.
+     */
+    private static _endsWithExtension(path: string, ext: string): boolean {
+        const lowerPath = path.toLowerCase();
+        const lowerExt = ext.toLowerCase();
+        if (lowerPath.length <= lowerExt.length) return false;
+        return lowerPath.endsWith(lowerExt);
     }
 
     /** Extracts file extension (including dot). */

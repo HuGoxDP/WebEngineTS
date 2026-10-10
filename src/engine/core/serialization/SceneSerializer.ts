@@ -55,6 +55,27 @@ export interface SerializedAsset {
     fields: Record<string, unknown>;
 }
 
+/** The `format` of a file written by {@link SceneSerializer.serializeAsset}. */
+export const ASSET_FILE_FORMAT = "WebEngineTS.asset";
+
+/**
+ * An asset written as a file of its own, rather than inside a scene.
+ *
+ * @remarks
+ * The same shape a scene's own asset table uses, minus the id: a file's id is
+ * the one the project gives it, so that renaming or moving the file does not
+ * change it.
+ */
+export interface SerializedAssetFile {
+    format: typeof ASSET_FILE_FORMAT;
+    version: 1;
+    /** The registered type name. */
+    type: string;
+    fields: Record<string, unknown>;
+    /** Assets carried inside this one. See {@link SerializedAsset}. */
+    assets?: SerializedAsset[];
+}
+
 /**
  * The scene-wide environment: fog, ambient light and the sky.
  *
@@ -148,15 +169,7 @@ export class SceneSerializer {
             SceneManager.setActiveScene(scene);
         }
         try {
-            const ctx: DeserializeContext = {
-                pendingGORefs: [],
-                pendingComponentRefs: [],
-                pendingAssetRefs: [],
-                currentComponent: null,
-                currentField: null,
-                currentArrayIndex: null,
-                buildNested: (type, fields) => SceneSerializer._buildNested(type, fields, ctx),
-            };
+            const ctx = SceneSerializer._newContext();
             SceneSerializer._materializeAssets(json.assets, ctx);
             const roots = json.roots.map(r => SceneSerializer._deserializeGO(r, ctx));
             // Global, not per scene: only the scene that is (becoming) the active
@@ -194,15 +207,7 @@ export class SceneSerializer {
             SceneManager.setActiveScene(scene);
         }
         try {
-            const ctx: DeserializeContext = {
-                pendingGORefs: [],
-                pendingComponentRefs: [],
-                pendingAssetRefs: [],
-                currentComponent: null,
-                currentField: null,
-                currentArrayIndex: null,
-                buildNested: (type, fields) => SceneSerializer._buildNested(type, fields, ctx),
-            };
+            const ctx = SceneSerializer._newContext();
             SceneSerializer._materializeAssets(json.assets, ctx);
             const root = SceneSerializer._deserializeGO(json, ctx);
             SceneSerializer._resolveRefs(ctx, [root]);
@@ -210,6 +215,119 @@ export class SceneSerializer {
         } finally {
             if (prevActive) SceneManager.setActiveScene(prevActive);
         }
+    }
+
+    // ==================== ASSET FILES ====================
+
+    /**
+     * Writes an asset as a file of its own — a material, a physic material.
+     *
+     * @remarks
+     * What a scene does for an asset that has no file, done once and kept: the
+     * asset is value-serialized, and the textures it uses are referenced by id.
+     * Give the result the path `Resources` will find it at and a scene that uses
+     * the asset refers to it by that id instead of carrying a copy.
+     *
+     * @param asset - an instance of a class registered with `@Serializable`.
+     * @throws if the class is not registered, which would leave nothing to read back.
+     */
+    public static serializeAsset(asset: object): SerializedAssetFile {
+        const type = TypeRegistry.getTypeName(asset);
+        if (type === null) {
+            throw new Error(
+                `[SceneSerializer] ${asset.constructor?.name ?? "This object"} is not registered ` +
+                `with @Serializable, so it cannot be written as an asset file.`,
+            );
+        }
+
+        const ctx = SceneSerializer._buildSerializeCtx([]);
+        const fields: Record<string, unknown> = {};
+        for (const f of getAllFields(asset.constructor as any)) {
+            if (!f.serialize) continue;
+            fields[f.name] = ValueSerializer.serialize(
+                (asset as any)[f.name], f.type, ctx, f.elementType,
+            );
+        }
+
+        const out: SerializedAssetFile = { format: ASSET_FILE_FORMAT, version: 1, type, fields };
+        if (ctx.assetTable.length > 0) out.assets = ctx.assetTable;
+        return out;
+    }
+
+    /**
+     * Rebuilds an asset from {@link serializeAsset}'s output.
+     *
+     * @remarks
+     * Synchronous, so what it refers to must already be loaded — {@link
+     * assetReferences} says what that is. A reference still missing leaves its
+     * field null and is listed in {@link pendingAssetGuids}.
+     *
+     * @returns the asset, or null if its class is not registered.
+     */
+    public static deserializeAsset(file: SerializedAssetFile): object | null {
+        if (file.format !== ASSET_FILE_FORMAT) {
+            throw new Error(`[SceneSerializer] Not an asset file (format "${String(file.format)}").`);
+        }
+
+        const ctx = SceneSerializer._newContext();
+        SceneSerializer._materializeAssets(file.assets, ctx);
+        const asset = SceneSerializer._buildAsset(file.type, file.fields ?? {}, ctx);
+        SceneSerializer._pending.push(...ctx.pendingAssetRefs);
+        return asset;
+    }
+
+    /**
+     * The ids of the assets a saved scene, prefab or asset file refers to and
+     * does not carry.
+     *
+     * @remarks
+     * What a loader has to have in memory before it rebuilds one — and, since
+     * loading is asynchronous and rebuilding is not, the reason this is a
+     * separate question. Assets stored inside the file are not listed.
+     */
+    public static assetReferences(json: object): string[] {
+        const carried = new Set<string>(
+            ((json as { assets?: SerializedAsset[] }).assets ?? []).map(a => a.guid),
+        );
+        const found = new Set<string>();
+
+        const walk = (node: unknown): void => {
+            if (Array.isArray(node)) {
+                for (const item of node) walk(item);
+                return;
+            }
+            if (node === null || typeof node !== "object") return;
+
+            const obj = node as Record<string, unknown>;
+            if (obj["$type"] === "AssetRef" && typeof obj["guid"] === "string") {
+                found.add(obj["guid"]);
+            } else if (obj["$type"] === "Sprite" && typeof obj["texture"] === "string") {
+                found.add(obj["texture"]);
+            }
+            for (const key of Object.keys(obj)) walk(obj[key]);
+        };
+        walk(json);
+
+        // The sky is named by id rather than wrapped in an AssetRef.
+        const sky = (json as { renderSettings?: SerializedRenderSettings }).renderSettings;
+        if (sky?.skybox) found.add(sky.skybox);
+        if (sky?.environmentReflections) found.add(sky.environmentReflections);
+
+        for (const guid of carried) found.delete(guid);
+        return [...found];
+    }
+
+    private static _newContext(): DeserializeContext {
+        const ctx: DeserializeContext = {
+            pendingGORefs: [],
+            pendingComponentRefs: [],
+            pendingAssetRefs: [],
+            currentComponent: null,
+            currentField: null,
+            currentArrayIndex: null,
+            buildNested: (type, fields) => SceneSerializer._buildNested(type, fields, ctx),
+        };
+        return ctx;
     }
 
     // ==================== PRIVATE — SERIALIZE ====================
@@ -510,28 +628,37 @@ export class SceneSerializer {
         for (const entry of table) {
             if (AssetDatabase.isLoaded(entry.guid)) continue;
 
-            const ctor = TypeRegistry.get(entry.type);
-            if (!ctor) {
-                console.warn(`[SceneSerializer] Unknown asset type "${entry.type}" — skipped`);
-                continue;
-            }
-
-            const asset = new ctor() as object;
-            for (const f of getAllFields(ctor)) {
-                if (!f.serialize) continue;
-                if (!(f.name in entry.fields)) continue;
-
-                ctx.currentComponent = asset;
-                ctx.currentField = f.name;
-                const value = ValueSerializer.deserialize(
-                    entry.fields[f.name], f.type, ctx, f.elementType,
-                );
-                ctx.currentComponent = null;
-                ctx.currentField = null;
-                SceneSerializer._assign(asset, f.name, value);
-            }
+            const asset = SceneSerializer._buildAsset(entry.type, entry.fields, ctx);
+            if (asset === null) continue;
             AssetDatabase._bindGuid(entry.guid, asset);
         }
+    }
+
+    /** Builds one asset from its type and fields, or null if the type is unknown. */
+    private static _buildAsset(
+        type: string,
+        fields: Record<string, unknown>,
+        ctx: DeserializeContext,
+    ): object | null {
+        const ctor = TypeRegistry.get(type);
+        if (!ctor) {
+            console.warn(`[SceneSerializer] Unknown asset type "${type}" — skipped`);
+            return null;
+        }
+
+        const asset = new ctor() as object;
+        for (const f of getAllFields(ctor)) {
+            if (!f.serialize) continue;
+            if (!(f.name in fields)) continue;
+
+            ctx.currentComponent = asset;
+            ctx.currentField = f.name;
+            const value = ValueSerializer.deserialize(fields[f.name], f.type, ctx, f.elementType);
+            ctx.currentComponent = null;
+            ctx.currentField = null;
+            SceneSerializer._assign(asset, f.name, value);
+        }
+        return asset;
     }
 
     /**

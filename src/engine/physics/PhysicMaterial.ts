@@ -1,4 +1,5 @@
 import * as CANNON from "cannon-es";
+import { Serializable, SerializedField } from "../core/reflection/Decorators";
 
 /**
  * Describes the friction and bounciness of a physics surface.
@@ -6,7 +7,12 @@ import * as CANNON from "cannon-es";
  * @remarks
  * Equivalent to Unity's `PhysicMaterial`.
  * Attach to a {@link Collider} to control how it interacts with other surfaces.
+ *
+ * Can be kept as a file (`.physicmat.json`, written by
+ * `SceneSerializer.serializeAsset` and read by `Resources`), and a collider
+ * that uses one then refers to it by id instead of carrying a copy.
  */
+@Serializable({ typeName: "PhysicMaterial", category: "Physics" })
 export class PhysicMaterial {
     private _friction: number;
     private _bounciness: number;
@@ -34,6 +40,7 @@ export class PhysicMaterial {
     }
 
     /** Dynamic friction coefficient (0 = no friction, 1 = maximum friction). */
+    @SerializedField()
     public get friction(): number { return this._friction; }
     public set friction(value: number) {
         this._friction = value;
@@ -42,6 +49,7 @@ export class PhysicMaterial {
     }
 
     /** Bounciness (0 = no bounce, 1 = perfect bounce). */
+    @SerializedField()
     public get bounciness(): number { return this._bounciness; }
     public set bounciness(value: number) {
         this._bounciness = value;
