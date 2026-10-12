@@ -597,6 +597,17 @@ is.
 then written expanded, with a warning, instead of being silently normalized. The editor should
 refuse the operation the way Unity does.
 
+*Corrected after review:* an instance written expanded **inside a linked one** was lost. The
+outer prefab keeps it as a link — a shell with nothing under it — so the outer diff recorded a
+whole-link override `{ guid }`, which carries no subtree, and compared no children against the
+empty shell: the nested instance came back empty. `compareChanges` now records such a node as
+**removed and added again under the same id** (`addedChildren` carries the whole expanded
+node), which `applyChanges` rebuilds exactly. Where the node cannot be named by id — inside a
+nested instance the outer prefab itself holds expanded, compared by position — the outer
+instance falls back to expanded as well (`_dropsContents`), with a warning. The same replacement
+is what `getChanges`, `createVariant` and `Prefab.fromGameObject` of an object holding such an
+instance record.
+
 ### 7.4 Two sources of truth for the root
 
 In link mode the shell holds name, active and transform, and `changes` can hold root overrides of

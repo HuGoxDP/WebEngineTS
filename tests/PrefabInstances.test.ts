@@ -606,6 +606,81 @@ describe("a prefab instance saved as its prefab plus changes", () => {
         expect(child(back, 0).isPrefabInstance).toBe(true);
     });
 
+    /** A Turret with two children, so that they can be put in another order. */
+    const twinTurret = (): SerializedGameObject => node("Turret", {
+        id: "t-root",
+        children: [node("Barrel", { id: "t-barrel" }), node("Light", { id: "t-light" })],
+    });
+    const names = (go: GameObject): string[] =>
+        Array.from({ length: go.transform.childCount }, (_, i) => child(go, i).name);
+
+    test("a nested instance saved in full inside a linked one keeps what is under it", () => {
+        bind("guid-turret", twinTurret());
+        const [root] = SceneSerializer.deserializeScene(linkScene(tankLink()));
+        child(root, 1, 1).transform.setSiblingIndex(0);
+
+        const saved = saveLinked();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("reordered"));
+        const changes = saved.roots[0].prefab!.changes!;
+        expect(changes.removedChildren).toEqual(["k-turret"]);
+        expect(changes.addedChildren!.map(a => [a.parent, a.index, a.node.id, a.node.prefab])).toEqual([
+            ["k-root", 1, "k-turret", { guid: "guid-turret" }],
+        ]);
+        expect(changes.addedChildren![0].node.children.map(c => c.name)).toEqual(["Light", "Barrel"]);
+
+        clear();
+        const [back] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        const turret = child(back, 1);
+        expect(names(back)).toEqual(["Hull", "Turret"]);
+        expect(names(turret)).toEqual(["Light", "Barrel"]);
+        expect(turret.isPrefabInstance).toBe(true);
+        expect(turret.prefabNodeId).toBe("k-turret");
+        expect(saveLinked()).toEqual(saved);
+    });
+
+    test("so does one in a prefab made from its instance, and in a variant made from its changes", () => {
+        bind("guid-turret", twinTurret());
+        const [root] = SceneSerializer.deserializeScene(linkScene(tankLink()));
+        child(root, 1, 1).transform.setSiblingIndex(0);
+
+        const holder = new GameObject("Holder");
+        root.transform.setParent(holder.transform, false);
+        const made = Prefab.fromGameObject(holder).instantiate();
+        expect(names(child(made, 0, 1))).toEqual(["Light", "Barrel"]);
+
+        const variant = Prefab.createVariant(tank, tank.getChanges(root)).instantiate();
+        expect(names(child(variant, 1))).toEqual(["Light", "Barrel"]);
+        expect(child(variant, 1).isPrefabInstance).toBe(true);
+    });
+
+    test("an instance whose nested instance can be addressed only by position is saved in full instead", () => {
+        // The Outer prefab holds Mid in full (Mid's own prefab was not loaded
+        // when Outer was made), and a Leaf inside Mid as a link. Nothing
+        // inside Mid has an id the Outer's changes could name.
+        bind("guid-leaf", twinTurret());
+        bind("guid-outer", node("Outer", {
+            id: "o-root",
+            children: [node("Mid", {
+                id: "o-mid",
+                prefab: { guid: "guid-mid" },
+                children: [node("Leaf", { id: "m-leaf", prefab: { guid: "guid-leaf", changes: { overrides: [] } } })],
+            })],
+        }));
+        const [root] = SceneSerializer.deserializeScene(linkScene(
+            node("Outer", { prefab: { guid: "guid-outer", changes: { overrides: [] } } }),
+        ));
+        child(root, 0, 0, 1).transform.setSiblingIndex(0);
+
+        const saved = saveLinked();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("by position"));
+        expect(saved.roots[0].prefab).toEqual({ guid: "guid-outer" });
+        clear();
+        const [back] = SceneSerializer.deserializeScene(saved);
+        expect(names(child(back, 0, 0))).toEqual(["Light", "Barrel"]);
+    });
+
     test("a prefab's own inline material is there when a linked instance is rebuilt", () => {
         const source = new GameObject("Crate");
         const mat = new StandardMaterial();

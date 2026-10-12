@@ -802,6 +802,15 @@ export class SceneSerializer {
 
         const changes = PrefabDiff.compareChanges(tree, expanded, SceneSerializer._prefabTree);
         changes.overrides = changes.overrides.filter(o => !SceneSerializer._isShellOverride(o, tree));
+        if (SceneSerializer._dropsContents(tree, changes)) {
+            console.warn(
+                `[SceneSerializer] "${go.name}" is saved in full rather than as its prefab plus ` +
+                `changes: a prefab instance inside it that its prefab keeps as a link is saved in ` +
+                `full, at a place the changes can only address by position. It stops following ` +
+                `edits to its prefab until it is reverted.`,
+            );
+            return SceneSerializer._serializeExpanded(go, guid, info, outer, under);
+        }
 
         const out = SceneSerializer._serializeShell(go, outer, under);
         out.prefab = { guid, changes };
@@ -854,6 +863,26 @@ export class SceneSerializer {
         for (const entry of local) {
             if (needed.has(entry.guid) && !carried.has(entry.guid) && !present.has(entry.guid)) into.push(entry);
         }
+    }
+
+    /**
+     * Whether applying `changes` to `tree` would lose what is under a nested
+     * instance: an override that replaces a link, whose contents come from its
+     * prefab, with a link that carries none.
+     *
+     * @remarks
+     * A nested instance written in full where the prefab keeps a link is
+     * recorded as removed and added again when it has an id
+     * (`PrefabDiff.compareChanges`). Inside an instance the prefab itself
+     * holds in full, nodes are matched by position and have no id to record
+     * that against; only its link would be, and its children would be lost.
+     */
+    private static _dropsContents(tree: SerializedGameObject, changes: PrefabChanges): boolean {
+        return changes.overrides.some(o => {
+            if (o.component !== null || o.field !== "prefab") return false;
+            if ((o.value as SerializedPrefabLink | null)?.changes !== undefined) return false;
+            return PrefabDiff.nodeOf(tree, o)?.node.prefab?.changes !== undefined;
+        });
     }
 
     /**

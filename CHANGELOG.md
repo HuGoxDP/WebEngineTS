@@ -52,7 +52,8 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   back exactly as it was read, with a warning; load the prefab and open the scene again to
   rebuild it. Changes that address something the prefab no longer has are kept (`unused`) and
   apply again if it comes back. An instance that reordered or reparented its prefab's own
-  objects is saved in full, with a warning. A linked instance does not copy its prefab's inline
+  objects is saved in full, with a warning — inside an instance that is itself saved as a link,
+  as an object its changes add in full. A linked instance does not copy its prefab's inline
   materials into the scene. The default stays `"expand"`, which writes every instance in full.
   **A file holding a link, or a reference that names a prefab node by id, is written as
   `version: 2`; the engine refuses any version above 2.** Every engine that will read such files

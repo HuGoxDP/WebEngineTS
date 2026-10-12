@@ -907,6 +907,11 @@ export class PrefabDiff {
 
             if (at >= 0 && !matched.has(child.id!)) {
                 matched.add(child.id!);
+                if (PrefabDiff._replaces(prefab.children[at], child)) {
+                    (changes.removedChildren ??= []).push(child.id!);
+                    (changes.addedChildren ??= []).push({ parent: node, index, node: child });
+                    return;
+                }
                 PrefabDiff._compareNode(prefab.children[at], child, [...path, at], changes, false, cmp);
                 return;
             }
@@ -918,6 +923,18 @@ export class PrefabDiff {
         for (const child of prefab.children) {
             if (!matched.has(child.id!)) (changes.removedChildren ??= []).push(child.id!);
         }
+    }
+
+    /**
+     * Whether an instance's node has to replace the prefab's outright: the
+     * prefab keeps a nested instance there as a link, which holds nothing but
+     * the link, and the instance has it in full — one that could not be
+     * written as a link, such as a nested instance whose children were
+     * reordered. No override can carry a subtree, so the prefab's node is
+     * recorded as removed and the instance's, under the same id, as added.
+     */
+    private static _replaces(prefab: SerializedGameObject, instance: SerializedGameObject): boolean {
+        return prefab.prefab?.changes !== undefined && instance.prefab?.changes === undefined;
     }
 
     private static _compareComponents(
