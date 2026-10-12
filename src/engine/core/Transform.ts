@@ -463,6 +463,57 @@ export class Transform extends Component {
     }
 
     /**
+     * Where this Transform sits among its siblings — among the scene's root
+     * objects if it has no parent.
+     *
+     * @remarks
+     * Equivalent to Unity's `Transform.GetSiblingIndex()`. This is the order
+     * `getChild` walks, the order the hierarchy lists children in, the order
+     * layout groups arrange them in, and the order a scene is saved in.
+     */
+    public getSiblingIndex(): number {
+        if (this._parent) return this._parent._children.indexOf(this);
+        return this.gameObject.scene._rootIndexOf(this.gameObject);
+    }
+
+    /**
+     * Moves this Transform to `index` among its siblings.
+     *
+     * @param index — the new position. Values past either end are clamped to it.
+     *
+     * @remarks
+     * Equivalent to Unity's `Transform.SetSiblingIndex(index)`. Only the order
+     * changes: no object moves in space. The Three.js mirror is not reordered —
+     * its child order has no effect on what is drawn.
+     */
+    public setSiblingIndex(index: number): void {
+        if (this._parent) {
+            const siblings = this._parent._children;
+            const from = siblings.indexOf(this);
+            const to = Math.max(0, Math.min(index, siblings.length - 1));
+            if (from === -1 || to === from) return;
+            siblings.splice(from, 1);
+            siblings.splice(to, 0, this);
+        } else {
+            this.gameObject.scene._moveRoot(this.gameObject, index);
+        }
+
+        // Anything that cached an answer about the hierarchy — a layout group's
+        // arrangement, a canvas's draw order — is now out of date.
+        Transform._hierarchyEpoch++;
+    }
+
+    /** Moves this Transform to the front of its siblings. Unity's `SetAsFirstSibling()`. */
+    public setAsFirstSibling(): void {
+        this.setSiblingIndex(0);
+    }
+
+    /** Moves this Transform to the back of its siblings. Unity's `SetAsLastSibling()`. */
+    public setAsLastSibling(): void {
+        this.setSiblingIndex(Number.MAX_SAFE_INTEGER);
+    }
+
+    /**
      * The topmost Transform in this hierarchy (may be `this` if root).
      *
      * @remarks

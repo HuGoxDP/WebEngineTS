@@ -4,8 +4,10 @@ import { CinemachineAim, CameraState } from "./CinemachineCore.ts";
 import { CinemachineOrbitalBody } from "./CinemachineOrbitalBody.ts";
 import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
+import { Serializable } from "../reflection/Decorators.ts";
 import type { GameObject } from "../GameObject.ts";
 
+@Serializable({ typeName: "CinemachineOrbitalAim", category: "Cinemachine" })
 export class CinemachineOrbitalAim extends CinemachineAim {
 
     private _orbitalBody: CinemachineOrbitalBody | null = null;

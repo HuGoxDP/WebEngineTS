@@ -3,8 +3,10 @@
 import { CinemachineAim, CameraState } from "./CinemachineCore.ts";
 import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
+import { Serializable } from "../reflection/Decorators.ts";
 import type { GameObject } from "../GameObject.ts";
 
+@Serializable({ typeName: "CinemachineHardLookAtAim", category: "Cinemachine" })
 export class CinemachineHardLookAtAim extends CinemachineAim {
 
     constructor(gameObject: GameObject) {

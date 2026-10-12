@@ -80,12 +80,17 @@ export {
 export { ValueSerializer } from "./core/serialization/ValueSerializer";
 export type { SerializeContext, DeserializeContext, PendingGORef } from "./core/serialization/ValueSerializer";
 export { SceneSerializer } from "./core/serialization/SceneSerializer";
+export { MissingComponent, MissingValue } from "./core/serialization/MissingComponent";
 export type {
     SerializedGameObject,
     SerializedComponent,
     SerializedScene,
     SerializedAsset,
+    SerializedRenderSettings,
+    SerializedAssetFile,
 } from "./core/serialization/SceneSerializer";
+export { ASSET_FILE_FORMAT } from "./core/serialization/SceneSerializer";
+export { AssetFiles } from "./core/serialization/AssetFiles";
 export { Prefab } from "./core/serialization/Prefab";
 export { PrefabDiff } from "./core/serialization/PrefabOverride";
 export type { PrefabOverride } from "./core/serialization/PrefabOverride";
@@ -97,6 +102,7 @@ export { PostProcessing } from "./core/postprocessing/PostProcessing";
 export { PostEffect } from "./core/postprocessing/PostEffect";
 export { BloomEffect } from "./core/postprocessing/BloomEffect";
 export { VignetteEffect } from "./core/postprocessing/VignetteEffect";
+export { PostProcessVolume } from "./core/postprocessing/PostProcessVolume";
 
 // =====================
 // MATH
@@ -383,12 +389,15 @@ import {
 } from "./core/reflection/Decorators";
 import { ValueSerializer } from "./core/serialization/ValueSerializer";
 import { SceneSerializer } from "./core/serialization/SceneSerializer";
+import { MissingComponent, MissingValue } from "./core/serialization/MissingComponent";
 import { Prefab } from "./core/serialization/Prefab";
+import { AssetFiles } from "./core/serialization/AssetFiles";
 
 import { PostProcessing } from "./core/postprocessing/PostProcessing";
 import { PostEffect } from "./core/postprocessing/PostEffect";
 import { BloomEffect } from "./core/postprocessing/BloomEffect";
 import { VignetteEffect } from "./core/postprocessing/VignetteEffect";
+import { PostProcessVolume } from "./core/postprocessing/PostProcessVolume";
 
 import { Mathf } from "./core/math/Mathf";
 import { AnimationCurve, Keyframe, WrapMode, WeightedMode } from "./core/math/AnimationCurve";
@@ -559,13 +568,13 @@ const WebEngineTS = {
     Plugin, PluginManager,
 
     // Post-processing
-    PostProcessing, PostEffect, BloomEffect, VignetteEffect,
+    PostProcessing, PostEffect, BloomEffect, VignetteEffect, PostProcessVolume,
 
     // Reflection / Serialization
     FieldType, TypeRegistry,
     Serializable, SerializedField, Range, Header, Tooltip, HideInInspector,
     getClassMeta, getAllFields,
-    ValueSerializer, SceneSerializer, Prefab,
+    ValueSerializer, SceneSerializer, MissingComponent, MissingValue, Prefab, AssetFiles,
 
     // Math
     Mathf, AnimationCurve, Keyframe, WrapMode, WeightedMode,

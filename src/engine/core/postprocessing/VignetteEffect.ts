@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { PostEffect } from "./PostEffect";
 import { Color } from "../math/Color";
+import { Serializable, SerializedField } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 
 const _VIGNETTE_SHADER = {
     uniforms: {
@@ -40,12 +42,15 @@ const _VIGNETTE_SHADER = {
  * Low-cost shader pass. Useful for focusing attention, horror atmospheres,
  * or simulating lens falloff.
  */
+@Serializable({ typeName: "VignetteEffect", category: "PostProcessing" })
 export class VignetteEffect extends PostEffect {
 
     /** Overall strength (0 = none, 1 = heavy). */
+    @SerializedField()
     public intensity: number = 0.5;
 
     /** Softness of the edge transition (0 = hard, 1 = very soft). */
+    @SerializedField()
     public smoothness: number = 0.5;
 
     /**
@@ -57,6 +62,7 @@ export class VignetteEffect extends PostEffect {
      * Mutate it in place (`vignette.color.set(...)`) or assign a new one; either
      * reaches the shader on the next frame.
      */
+    @SerializedField({ type: FieldType.Color })
     public color: Color = new Color(0, 0, 0, 1);
 
     constructor(opts: { intensity?: number; smoothness?: number; color?: Color } = {}) {

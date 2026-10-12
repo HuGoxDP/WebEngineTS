@@ -4,6 +4,7 @@ import { CinemachineBody, CameraState } from "./CinemachineCore.ts";
 import { Input } from "../Input.ts";
 import { KeyCode } from "../KeyCode.ts";
 import { Vector3 } from "../math/Vector3.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -14,9 +15,13 @@ import type { GameObject } from "../GameObject.ts";
  * The Three.js camera renders -Z, but the euler-based rotation
  * automatically handles the mapping.
  */
+@Serializable({ typeName: "CinemachineFlyBody", category: "Cinemachine" })
 export class CinemachineFlyBody extends CinemachineBody {
 
+    @SerializedField()
     public moveSpeed: number = 10;
+
+    @SerializedField()
     public fastMultiplier: number = 3;
 
     private _position: Vector3 = Vector3.zero;

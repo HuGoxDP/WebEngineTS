@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { PostEffect } from "./PostEffect";
+import { Serializable, SerializedField } from "../reflection/Decorators";
 
 /**
  * Additive light-bleed effect for bright pixels.
@@ -15,15 +16,19 @@ import { PostEffect } from "./PostEffect";
  * PostProcessing.enabled = true;
  * ```
  */
+@Serializable({ typeName: "BloomEffect", category: "PostProcessing" })
 export class BloomEffect extends PostEffect {
 
     /** Strength of the bloom (roughly HDR multiplier). */
+    @SerializedField()
     public intensity: number = 1.0;
 
     /** Brightness above which pixels start to bloom (0–1 in LDR). */
+    @SerializedField()
     public threshold: number = 0.85;
 
     /** Radius of the blur (0–1, soft to large). */
+    @SerializedField()
     public radius: number = 0.4;
 
     constructor(opts: { intensity?: number; threshold?: number; radius?: number } = {}) {

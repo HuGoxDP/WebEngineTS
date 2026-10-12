@@ -23,6 +23,19 @@ export interface SerializeContext {
     /** Map of every GameObject in the scene to its hierarchical path. */
     goToPath: Map<GameObject, number[]>;
     /**
+     * Where a GameObject is, as a reference writes it down: a path, and how many
+     * enclosing scopes up the path is counted from.
+     *
+     * @remarks
+     * A prefab instance saved as *prefab plus changes* is rebuilt on its own, so
+     * a reference inside it to one of its own objects is a path from the
+     * instance root (`scope` 0). A reference to something outside it can only be
+     * a path from the root of the thing around it (`scope` 1), and so on for
+     * instances inside instances. Absent, every reference is a path in
+     * {@link goToPath}, as it was before instances could be saved that way.
+     */
+    locate?(go: GameObject): { path: number[]; scope: number } | null;
+    /**
      * The registered type name of a component, or null if its class carries no
      * `@Serializable`. Supplied by the SceneSerializer, which owns the registry
      * lookup — this module deliberately knows nothing about components.
@@ -69,7 +82,25 @@ export interface PendingGORef {
     path: number[];
 }
 
+/**
+ * Where a reference's path is counted from, when it was read.
+ *
+ * @remarks
+ * `stack` is the prefab instances being rebuilt around it, outermost first;
+ * `scope` is how many of them up it counts from. See
+ * {@link SerializeContext.locate}.
+ */
+export interface RefScope {
+    stack: readonly object[];
+    scope: number;
+}
+
 export interface DeserializeContext {
+    /**
+     * The prefab instances being rebuilt at this point, outermost first. Empty
+     * outside one, where every path is counted from the roots being loaded.
+     */
+    scopeStack: object[];
     /**
      * Refs collected during deserialize. After every GameObject has been
      * re-created the SceneSerializer walks this list and assigns the
@@ -81,6 +112,8 @@ export interface DeserializeContext {
         path: number[];
         /** Slot to write into when the field is an array; null when it is not. */
         arrayIndex: number | null;
+        /** Where the path is counted from. */
+        ref: RefScope;
     }>;
     /**
      * Component references collected during deserialize, resolved in the same
@@ -94,6 +127,8 @@ export interface DeserializeContext {
         index: number;
         /** Slot to write into when the field is an array; null when it is not. */
         arrayIndex: number | null;
+        /** Where the path is counted from. */
+        ref: RefScope;
     }>;
     /**
      * Asset references whose asset was not loaded when the scene was rebuilt.
@@ -106,6 +141,12 @@ export interface DeserializeContext {
         guid: string;
         /** Present when the reference was a Sprite: its framing, to rebuild with. */
         sprite?: Record<string, unknown>;
+        /**
+         * Present when the field holds something built *from* the asset rather
+         * than the asset itself — a skybox is a cubemap over a texture. Given
+         * the resolved asset, returns what to assign.
+         */
+        wrap?: (asset: object) => unknown;
     }>;
     /** Current component being deserialized — populated by SceneSerializer. */
     currentComponent: object | null;
@@ -289,8 +330,8 @@ export class ValueSerializer {
         // so we duck-type: anything with a Transform (and a name + getInstanceID)
         // and that the ctx knows about is a GameObject reference.
         if (ctx && type === FieldType.GameObject && typeof value === "object") {
-            const path = ctx.goToPath.get(value as GameObject);
-            if (path) return { $type: "GameObjectRef", path };
+            const where = ValueSerializer._locate(ctx, value as GameObject);
+            if (where) return ValueSerializer._goRef(where);
             // Reference points to a GO that isn't part of the saved scene — null it.
             return null;
         }
@@ -298,11 +339,11 @@ export class ValueSerializer {
         // the context rather than duck-typed on `.transform`: a Component has
         // one too, and used to be written out as a null GameObject reference.
         if (ctx && typeof value === "object") {
-            const asGameObject = ctx.goToPath.get(value as GameObject);
-            if (asGameObject) return { $type: "GameObjectRef", path: asGameObject };
+            const asGameObject = ValueSerializer._locate(ctx, value as GameObject);
+            if (asGameObject) return ValueSerializer._goRef(asGameObject);
 
             const owner = (value as { gameObject?: GameObject }).gameObject;
-            if (owner && ctx.goToPath.has(owner)) {
+            if (owner && ValueSerializer._locate(ctx, owner)) {
                 return ValueSerializer._componentRef(value as object, owner, ctx);
             }
         }
@@ -464,6 +505,7 @@ export class ValueSerializer {
                             typeName: String(obj.component ?? ""),
                             index: Number(obj.index ?? 0),
                             arrayIndex: ctx.currentArrayIndex,
+                            ref: ValueSerializer._scopeOf(obj, ctx),
                         });
                     }
                     return null;
@@ -483,6 +525,7 @@ export class ValueSerializer {
                             field: ctx.currentField,
                             path: (obj.path as number[]).slice(),
                             arrayIndex: ctx.currentArrayIndex,
+                            ref: ValueSerializer._scopeOf(obj, ctx),
                         });
                     }
                     return null;
@@ -533,16 +576,39 @@ export class ValueSerializer {
         owner: GameObject,
         ctx: SerializeContext,
     ): unknown {
-        const path = ctx.goToPath.get(owner);
+        const where = ValueSerializer._locate(ctx, owner);
         const typeName = ctx.componentTypeName(component);
-        if (!path || typeName === null) return null;
+        if (!where || typeName === null) return null;
 
         return {
             $type: "ComponentRef",
-            path,
+            path: where.path,
+            ...(where.scope > 0 ? { scope: where.scope } : {}),
             component: typeName,
             index: ctx.componentIndex(owner, component),
         };
+    }
+
+    /** Where `go` is, through the context's own idea of it when it has one. */
+    private static _locate(
+        ctx: SerializeContext,
+        go: GameObject,
+    ): { path: number[]; scope: number } | null {
+        if (ctx.locate) return ctx.locate(go);
+        const path = ctx.goToPath.get(go);
+        return path ? { path, scope: 0 } : null;
+    }
+
+    private static _goRef(where: { path: number[]; scope: number }): unknown {
+        return where.scope > 0
+            ? { $type: "GameObjectRef", path: where.path, scope: where.scope }
+            : { $type: "GameObjectRef", path: where.path };
+    }
+
+    /** The scope a reference was written with, which is `0` unless it says otherwise. */
+    private static _scopeOf(obj: Record<string, unknown>, ctx: DeserializeContext): RefScope {
+        const scope = typeof obj.scope === "number" && obj.scope > 0 ? Math.trunc(obj.scope) : 0;
+        return { stack: ctx.scopeStack.slice(), scope };
     }
 
     private constructor() {}

@@ -20,7 +20,7 @@ Unity-like 3D game engine in TypeScript wrapping Three.js as a hidden backend
 
 **This repo holds the engine and its documentation — nothing else.**
 No scenario content, no benchmark harness, no platform UI, no editor. Each of
-those has its own repository. Sibling projects (under `C:\Users\Work\WebstormProjects\`)
+those has its own repository. Sibling projects (under `C:\Users\HuGox\WebstormProjects\`)
 consume the engine; the engine never imports from or depends on any of them.
 
 | Repo | Owns |

@@ -4,6 +4,8 @@ import { CinemachineBody, CameraState } from "./CinemachineCore.ts";
 import { Input } from "../Input.ts";
 import { EventSystem } from "../ui/EventSystem.ts";
 import { Vector3 } from "../math/Vector3.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
@@ -26,47 +28,67 @@ import type { GameObject } from "../GameObject.ts";
  * body.distance = 30;
  * ```
  */
+@Serializable({ typeName: "CinemachineOrbitalBody", category: "Cinemachine" })
 export class CinemachineOrbitalBody extends CinemachineBody {
 
     // ==================== PUBLIC SETTINGS ====================
 
-    /** The world-space point to orbit around. */
-    public orbitCenter: Vector3 = Vector3.zero;
+    /**
+     * The world-space point to orbit around.
+     *
+     * @remarks
+     * Its own instance, not the shared `Vector3.zero`: loading a scene copies
+     * the saved centre into it, and the shared one is frozen.
+     */
+    @SerializedField({ type: FieldType.Vector3 })
+    public orbitCenter: Vector3 = new Vector3(0, 0, 0);
 
     /** Current distance from the orbit center. */
+    @SerializedField()
     public distance: number = 20;
 
     /** Minimum zoom distance. */
+    @SerializedField()
     public minDistance: number = 1;
 
     /** Maximum zoom distance. */
+    @SerializedField()
     public maxDistance: number = 200;
 
     /** Horizontal rotation speed (degrees per pixel). */
+    @SerializedField()
     public orbitSpeed: number = 0.3;
 
     /** Vertical rotation speed (degrees per pixel). */
+    @SerializedField()
     public orbitSpeedY: number = 0.3;
 
     /** Zoom speed multiplier for scroll wheel. */
+    @SerializedField()
     public zoomSpeed: number = 2;
 
     /** Pan speed multiplier for MMB drag. */
+    @SerializedField()
     public panSpeed: number = 0.01;
 
     /** Minimum vertical angle in degrees. */
+    @SerializedField()
     public minPolarAngle: number = -89;
 
     /** Maximum vertical angle in degrees. */
+    @SerializedField()
     public maxPolarAngle: number = 89;
 
     /** Enable scroll-wheel zoom. */
+    @SerializedField()
     public enableZoom: boolean = true;
 
     /** Enable middle-mouse pan. */
+    @SerializedField()
     public enablePan: boolean = true;
 
     /** Damping for smooth interpolation (higher = snappier). */
+    @SerializedField()
     public damping: number = 8;
 
     // ==================== INTERNAL STATE ====================

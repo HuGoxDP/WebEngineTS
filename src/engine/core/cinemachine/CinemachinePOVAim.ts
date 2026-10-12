@@ -4,24 +4,30 @@ import { CinemachineAim, CameraState } from "./CinemachineCore.ts";
 import { Input } from "../Input.ts";
 import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
+import { Serializable, SerializedField } from "../reflection/Decorators.ts";
 import type { GameObject } from "../GameObject.ts";
 
 /**
  * POV aim: mouse-driven yaw/pitch for FPS camera.
  * Equivalent to Unity's `CinemachinePanTilt`.
  */
+@Serializable({ typeName: "CinemachinePOVAim", category: "Cinemachine" })
 export class CinemachinePOVAim extends CinemachineAim {
 
     /** Degrees of rotation per pixel of mouse movement. */
+    @SerializedField()
     public sensitivity: number = 0.15;
 
     /** Minimum pitch angle in degrees (looking down). */
+    @SerializedField()
     public minPitch: number = -89;
 
     /** Maximum pitch angle in degrees (looking up). */
+    @SerializedField()
     public maxPitch: number = 89;
 
     /** Whether pointer lock is required before reading mouse input. */
+    @SerializedField()
     public requirePointerLock: boolean = true;
 
     /**
@@ -36,11 +42,13 @@ export class CinemachinePOVAim extends CinemachineAim {
      * negative base there produces `NaN`, which would leave the camera pointing
      * nowhere for the rest of the session.
      */
+    @SerializedField()
     public damping: number = 0;
     /**
      * Maximum yaw/pitch change per frame in degrees.
      * Prevents browser pointer-lock spikes from causing jumps.
      */
+    @SerializedField()
     public maxDegreesPerFrame: number = 15;
 
     private _yaw: number = 0;

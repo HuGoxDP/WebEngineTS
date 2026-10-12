@@ -64,7 +64,14 @@ export abstract class Collider extends Behaviour {
         }
     }
 
-    /** The physics material applied to this collider. */
+    /**
+     * The physics material applied to this collider.
+     *
+     * @remarks
+     * Saved as a reference when the material is a file, and as a copy carried
+     * by the scene when it is not.
+     */
+    @SerializedField({ type: FieldType.Asset })
     public get sharedMaterial(): PhysicMaterial | null { return this._material; }
     public set sharedMaterial(value: PhysicMaterial | null) {
         this._material = value;

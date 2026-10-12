@@ -11,6 +11,8 @@ import { getExecutionOrder } from "./reflection/Decorators.ts";
 import { TypeRegistry } from "./reflection/TypeRegistry.ts";
 import { Prefab } from "./serialization/Prefab.ts";
 import { SceneSerializer } from "./serialization/SceneSerializer.ts";
+import { AssetDatabase } from "./assets/AssetDatabase.ts";
+import type { PrefabInstanceInfo } from "./serialization/PrefabOverride.ts";
 import type { Scene } from "./Scene.ts";
 import { Bounds } from "./math/Bounds.ts";
 import { Vector3 } from "./math/Vector3.ts";
@@ -82,6 +84,25 @@ export class GameObject extends EngineObject {
     /** The scene this GameObject is registered with. */
     private _scene: Scene;
 
+    /**
+     * @internal
+     * What this object remembers about being the root of a prefab instance, or
+     * null. Read and written by `Prefab` and `SceneSerializer`.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _prefabInfo: PrefabInstanceInfo | null = null;
+
+    /**
+     * @internal
+     * Which node of its prefab this object is, when it came from one. What lets
+     * an instance be compared with, and rebuilt from, the prefab after the
+     * prefab gains or loses siblings.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _prefabNodeId: string | null = null;
+
     // ==================== CONSTRUCTOR ====================
 
     /**
@@ -103,6 +124,78 @@ export class GameObject extends EngineObject {
         // Register with the active scene
         this._scene = SceneManager.activeScene;
         this._scene._registerGameObject(this);
+    }
+
+    // ==================== PREFAB INSTANCE ====================
+
+    /**
+     * Whether this object is the root of an instance of a prefab.
+     *
+     * @remarks
+     * Equivalent to the blue cube in Unity's Hierarchy. True from
+     * {@link Prefab.instantiate} on, and true again after a scene is loaded,
+     * for as long as nothing {@link unpackPrefab unpacks} it.
+     */
+    public get isPrefabInstance(): boolean {
+        return this._prefabInfo !== null;
+    }
+
+    /**
+     * The prefab this object is an instance of, or null.
+     *
+     * @remarks
+     * Null for an object that is not an instance, and also for one whose prefab
+     * is not loaded — the link is still there then ({@link isPrefabInstance}),
+     * and the prefab is found once it is.
+     */
+    public get prefabSource(): Prefab | null {
+        const info = this._prefabInfo;
+        if (info === null) return null;
+        if (info.source instanceof Prefab) return info.source;
+
+        const found = info.guid !== null ? AssetDatabase.get(info.guid) : null;
+        return found instanceof Prefab ? found : null;
+    }
+
+    /**
+     * Which node of its prefab this object is, or null for an object that did
+     * not come from one — or for the root of an instance, whose place in the
+     * prefab is the whole prefab.
+     */
+    public get prefabNodeId(): string | null {
+        return this._prefabNodeId;
+    }
+
+    /**
+     * Cuts this object loose from its prefab, leaving it and its children as
+     * ordinary objects.
+     *
+     * @remarks
+     * Equivalent to Unity's Unpack Prefab. Instances nested inside stay
+     * instances unless `completely` — they are prefabs in their own right.
+     *
+     * @param completely - unpack the nested ones too.
+     */
+    public unpackPrefab(completely: boolean = false): void {
+        if (this._prefabInfo === null && !completely) return;
+        this._prefabInfo = null;
+
+        const walk = (go: GameObject): void => {
+            for (let i = 0; i < go.transform.childCount; i++) {
+                const child = go.transform.getChild(i).gameObject;
+                // Its id names it within the prefab being unpacked, which no
+                // longer holds it.
+                child._prefabNodeId = null;
+                if (child._prefabInfo !== null) {
+                    // A nested instance owns the rest of its subtree's ids.
+                    if (!completely) continue;
+                    child._prefabInfo = null;
+                }
+                walk(child);
+            }
+        };
+        this._prefabNodeId = null;
+        walk(this);
     }
 
     // ==================== ACTIVATION STATE ====================
@@ -343,6 +436,51 @@ export class GameObject extends EngineObject {
             }
         }
         return results;
+    }
+
+    /**
+     * Every component on this GameObject except its Transform, in the order they
+     * were added — which is the order they update in.
+     *
+     * @remarks
+     * Unity spells this `GetComponents<Component>()`. `Component` is abstract here,
+     * so it cannot be passed to {@link getComponents}; this is the way to list them
+     * all. A copy: reordering it changes nothing, use {@link setComponentIndex}.
+     */
+    public getAllComponents(): Component[] {
+        return [...this._components];
+    }
+
+    /**
+     * Where a component sits among this GameObject's components (Transform not
+     * counted), or -1 if it is not one of them.
+     */
+    public getComponentIndex(component: Component): number {
+        return this._components.indexOf(component);
+    }
+
+    /**
+     * Moves a component to `index` among this GameObject's components, clamped to
+     * the list. Components update in this order, so it is also the order their
+     * `update` runs in.
+     *
+     * @returns `false` if the component does not belong to this GameObject.
+     *
+     * @remarks
+     * Unity offers this only to editor code (`ComponentUtility.MoveComponentUp` /
+     * `MoveComponentDown`) — it is what the Inspector's "Move Up" / "Move Down"
+     * call. The Transform is not in the list and always stays first.
+     */
+    public setComponentIndex(component: Component, index: number): boolean {
+        const from = this._components.indexOf(component);
+        if (from === -1) return false;
+
+        const to = Math.max(0, Math.min(index, this._components.length - 1));
+        if (to !== from) {
+            this._components.splice(from, 1);
+            this._components.splice(to, 0, component);
+        }
+        return true;
     }
 
     /**
@@ -699,7 +837,10 @@ export class GameObject extends EngineObject {
             );
         }
 
-        return Prefab.fromGameObject(this).instantiate(this.scene);
+        // Straight through the serializer rather than through a prefab: a copy
+        // of a prefab instance is another instance of the same prefab, and a
+        // prefab made on the way would make it an instance of *that* instead.
+        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(this), this.scene);
     }
 
     /**

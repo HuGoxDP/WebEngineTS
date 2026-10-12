@@ -225,6 +225,29 @@ export class Scene {
         }
     }
 
+    /**
+     * @internal
+     * Where a root GameObject sits among the scene's roots, or -1 if it is not one.
+     * Backs `Transform.getSiblingIndex` for objects without a parent.
+     */
+    public _rootIndexOf(go: GameObject): number {
+        return this._rootGameObjects.indexOf(go);
+    }
+
+    /**
+     * @internal
+     * Moves a root GameObject to `index` among the scene's roots, clamped to the
+     * list. Backs `Transform.setSiblingIndex` for objects without a parent.
+     */
+    public _moveRoot(go: GameObject, index: number): void {
+        const from = this._rootGameObjects.indexOf(go);
+        if (from === -1) return;
+        const to = Math.max(0, Math.min(index, this._rootGameObjects.length - 1));
+        if (to === from) return;
+        this._rootGameObjects.splice(from, 1);
+        this._rootGameObjects.splice(to, 0, go);
+    }
+
     // ==================== GAMEOBJECT SEARCH (UNITY STYLE) ====================
 
     /**
