@@ -135,6 +135,76 @@ Benchmark.downloadCSV(result, "my-scene.csv");
 compression — the JS heap metric alone cannot reveal it. `Benchmark` samples the real frame
 interval via `requestAnimationFrame` (the engine loop must be running) and exports JSON/CSV.
 
+## Releasing
+
+A release is a GitHub Release, published by pushing a version tag. CI
+(`.github/workflows/ci.yml`) already typechecks, tests, builds and packs every push;
+`.github/workflows/release.yml` does the same for the tagged commit and attaches:
+
+| Asset | For |
+| --- | --- |
+| `WebEngineTS-X.Y.Z.tgz` | npm consumers — the packed library, exactly as `npm pack` makes it |
+| `WebEngineTS.standalone.js`, `WebEngineTS.d.ts` | Hosts that load the engine through an import map |
+| `basis_transcoder.js`, `basis_transcoder.wasm` | The KTX2 transcoder matching the `three` this build bundles (see above) |
+
+The release notes are that version's section of `CHANGELOG.md`.
+
+### Cutting a release
+
+1. Set the version with `npm version X.Y.Z --no-git-tag-version`. It updates `package.json`
+   and the root of `package-lock.json` together; editing `package.json` by hand leaves the
+   lockfile behind for the next `npm install` to rewrite. Pick X.Y.Z deliberately, and pick
+   one with no `CHANGELOG.md` section yet: `[0.1.0]` describes only the first local tarballs,
+   so 0.1.0 cannot take the `[Unreleased]` entries. The version stays fixed between releases;
+   `npm run release:local` stamps throwaway `-local.<timestamp>` versions only while packing
+   and never commits them.
+2. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and open a new,
+   empty `## [Unreleased]` above it. Preview the notes, with the checks the workflow will run:
+   `node scripts/changelog-section.mjs --require-empty-unreleased X.Y.Z`.
+3. Commit those three files, push the branch, then tag that commit and push the tag:
+
+   ```bash
+   git add package.json package-lock.json CHANGELOG.md
+   git commit -m "chore(release): vX.Y.Z"
+   git push
+   git tag -a vX.Y.Z -m "WebEngineTS vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+
+The workflow refuses a tag that is not `v` + the `package.json` version, a version with no
+`CHANGELOG.md` section, and a commit whose `[Unreleased]` still has entries — those changes
+would ship in the build without appearing in its notes. All three are checked before anything
+is built, and a refused tag publishes nothing: delete it (`git push --delete origin vX.Y.Z`,
+`git tag -d vX.Y.Z`), fix the commit, and tag again.
+
+**Prereleases.** A hyphenated version (`X.Y.Z-rc.1`) is published as a prerelease, and needs a
+section of its own, `## [X.Y.Z-rc.1]`: versions are matched whole, so `[X.Y.Z]` never stands
+in for it, nor the other way round. Since step 2 moves `[Unreleased]` into the rc's section,
+the final `## [X.Y.Z]` has to repeat or summarise what its rc sections said, plus anything
+since; otherwise the final release's notes leave out everything that first shipped in an rc.
+
+### Depending on a release
+
+Pin the tarball by its release URL:
+
+```json
+"dependencies": {
+  "WebEngineTS": "https://github.com/HuGoxDP/WebEngineTS/releases/download/vX.Y.Z/WebEngineTS-X.Y.Z.tgz"
+}
+```
+
+The repository is public, so npm downloads it anonymously — a Docker build needs no token
+and no `.npmrc`. The consumer's lockfile records the URL and the tarball's integrity hash,
+so `npm ci` installs exactly that release. `three` is still a peer dependency: pin it
+yourself, to the version the release notes say the engine was built and tested against.
+
+Each completed CI run also keeps the tarball it built as a workflow artifact, for trying an
+unreleased change. The artifact is named after the commit the run built; for a pull request
+that is GitHub's merge of the branch into its base, not a commit on the branch. Not every
+commit gets one: a push of several commits builds only the last, and a run overtaken by a
+newer push to the same branch is cancelled and keeps nothing. Artifacts expire; anything
+deployed should pin a tagged release.
+
 ## Project layout
 
 ```

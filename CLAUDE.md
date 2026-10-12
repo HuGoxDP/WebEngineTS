@@ -84,13 +84,21 @@ reach a consumer. It builds, packs, and pushes to all three consumers above in o
 `--no-install` builds/packs/copies without reinstalling (useful to just refresh the tarball).
 One-directional; the engine still imports from no consumer.
 
+**`release:local` is for local development; anything deployed pins a tagged release.**
+Pushing a `vX.Y.Z` tag publishes a GitHub Release (`.github/workflows/release.yml`; steps in
+README "Releasing"), and a deployed consumer should depend on its tarball URL
+(`https://github.com/HuGoxDP/WebEngineTS/releases/download/vX.Y.Z/WebEngineTS-X.Y.Z.tgz`):
+it installs without a token, and it names a version anyone can look up. A copied
+`WebEngineTS-0.1.0.tgz` names nothing — its content changes on every local pack.
+
 **Why not `npm link` / npm workspaces for live linking?** Rejected for this engine
 specifically — see "Local linking vs. packed tarballs" in Key Technical Decisions below.
 
 **`testv/virtual-lab` git hygiene:** `frontend/node_modules` and `frontend/.angular` were
 force-added before `.gitignore` covered them; they've since been untracked (`git rm --cached`,
 working tree untouched). `frontend/WebEngineTS-0.1.0.tgz` **is** intentionally committed there
-(no registry to fetch it from at deploy time) — don't gitignore it.
+(no registry to fetch it from at deploy time) — don't gitignore it. That holds only until
+virtual-lab pins a tagged release URL instead; from then on, delete the committed tarball.
 
 ## Build & Dev
 
