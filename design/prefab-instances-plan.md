@@ -880,6 +880,28 @@ Update `unity-parity-plan.md` Stage 4 item 2.
 
 **Done when:** each has its test, and the editor plan's stage 14 lists no engine gap.
 
+*As implemented (2026-10-12), four refinements:*
+
+- **`revertOverride` works in place for shape changes too**, not by rebuilding the instance: an
+  added child or component is removed, a removed one is built again from the prefab at its
+  place, and a nested instance's whole-link override rebuilds only that nested instance. A
+  rebuild of the whole instance would have dropped every reference from inside it to the rest of
+  the scene, and every reference into it.
+- **`applyInstance` does not apply the root's name, position and rotation**, the same three
+  fields the shell keeps (D-13). Applying an instance moved in the scene would otherwise move
+  the prefab.
+- **`getChanges` leaves out those three root overrides** too, so it lists exactly what a link
+  save records. `getOverrides` still lists every value.
+- **`PrefabDiff.applyChanges` is idempotent.** "Other instances follow on their next link round
+  trip" means: save in link mode *before* the apply, apply, reload that save. The applied
+  instance is then rebuilt from the new prefab plus its own pre-apply changes, which the prefab
+  now holds; an added child whose id the prefab has, or an added component identical to the one
+  at its place, is therefore skipped instead of added twice. Saving the other instances in link
+  mode *after* the apply without reloading would record their old state as overrides; the
+  `applyInstance` JSDoc says so.
+
+The editor plan's own stage-14 row lives in another repository and is not changed from here.
+
 ### Stage 10 — Nested overrides, field by field
 
 Per D-6 and §6.3.

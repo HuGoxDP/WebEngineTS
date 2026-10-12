@@ -165,6 +165,55 @@ export class GameObject extends EngineObject {
     }
 
     /**
+     * The root of the prefab instance this object is part of: itself when it
+     * is one, otherwise the nearest ancestor that is. Null outside any
+     * instance.
+     *
+     * @remarks
+     * Equivalent to Unity's `PrefabUtility.GetNearestPrefabInstanceRoot`. An
+     * object added to an instance is under it and reports it too; whether it
+     * is one of the prefab's own objects is `Prefab.getChanges`'s answer.
+     */
+    public get prefabInstanceRoot(): GameObject | null {
+        for (let go: GameObject | null = this; go !== null; go = go.transform.parent?.gameObject ?? null) {
+            if (go._prefabInfo !== null) return go;
+        }
+        return null;
+    }
+
+    /**
+     * The root of the outermost prefab instance this object is part of,
+     * crossing out of prefabs nested inside prefabs. Null outside any
+     * instance.
+     *
+     * @remarks
+     * Equivalent to Unity's `PrefabUtility.GetOutermostPrefabInstanceRoot`:
+     * the instance the Hierarchy marks, and the only one that can be unpacked.
+     * An instance merely added to another is its own outermost root.
+     */
+    public get outermostPrefabInstanceRoot(): GameObject | null {
+        const nearest = this.prefabInstanceRoot;
+        return nearest === null ? null : nearest._outermostEnclosingRoot();
+    }
+
+    /**
+     * Whether this is the root of a prefab instance whose prefab is not
+     * loaded.
+     *
+     * @remarks
+     * Equivalent to Unity's "Missing Prefab". An instance saved as its prefab
+     * plus changes is then a placeholder with nothing built under it, and stays
+     * one until the scene is opened again with the prefab loaded; one saved in
+     * full is complete, but cannot be compared with its prefab. A reference
+     * into a placeholder's missing objects is lost if the scene is saved in
+     * that state, which is why an editor shows this before it does.
+     */
+    public get isPrefabAssetMissing(): boolean {
+        const info = this._prefabInfo;
+        return info !== null && (info.raw !== null || this.prefabSource === null);
+    }
+
+    /**
      * Which node of its prefab this object is, or null for an object that did
      * not come from one.
      *

@@ -307,10 +307,17 @@ export class SceneSerializer {
      * instance of whatever `go` happened to be; the nested ones are links
      * because that is what makes a prefab inside a prefab follow its own edits.
      *
+     * Every node gets an id. Those it lacks are minted for this call only,
+     * unless `mintLive`, which stores them on the objects — what makes the
+     * objects nodes of the prefab written from them.
+     *
      * **NEVER use in user-facing code.**
      */
-    public static _serializeForPrefab(go: GameObject): SerializedGameObject {
-        const ctx = SceneSerializer._buildSerializeCtx([go], true, null, { mintLive: false, prefabRoot: go });
+    public static _serializeForPrefab(go: GameObject, options: { mintLive?: boolean } = {}): SerializedGameObject {
+        const ctx = SceneSerializer._buildSerializeCtx([go], true, null, {
+            mintLive: options.mintLive ?? false,
+            prefabRoot: go,
+        });
         // Every node gets its id before anything is written, so that the
         // prefab's own references can address them by it.
         SceneSerializer._mintAddedIds(go, ctx);
@@ -1211,6 +1218,132 @@ export class SceneSerializer {
         return asset;
     }
 
+    // ==================== INTERNAL — EDITING AN INSTANCE IN PLACE ====================
+
+    /**
+     * @internal
+     * Builds a saved object as a child of `parent` at sibling `index`, the way
+     * the instance under `root` would have been built with it: references
+     * resolve from `root`, a nested link is rebuilt from its prefab.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _restoreChild(
+        root: GameObject,
+        json: SerializedGameObject,
+        parent: GameObject,
+        index: number,
+        assets: SerializedAsset[] | undefined,
+        chain: string[],
+    ): GameObject {
+        return SceneSerializer._restore(root, assets, chain, ctx => {
+            const child = SceneSerializer._deserializeGO(SceneSerializer._cloneJson(json), ctx);
+            child.transform.setParent(parent.transform, false);
+            child.transform.setSiblingIndex(index);
+            return child;
+        });
+    }
+
+    /**
+     * @internal
+     * Adds a component built from saved JSON to `go`, at `position` among its
+     * components. See {@link _restoreChild}.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _restoreComponent(
+        root: GameObject,
+        json: SerializedComponent,
+        go: GameObject,
+        position: number,
+        assets: SerializedAsset[] | undefined,
+    ): Component | null {
+        return SceneSerializer._restore(root, assets, [], ctx => {
+            const comp = SceneSerializer._deserializeComponent(SceneSerializer._cloneJson(json), go, ctx);
+            if (comp === null) return null;
+            const list = SceneSerializer._componentsOf(go) as Component[];
+            list.splice(list.indexOf(comp), 1);
+            list.splice(Math.max(0, Math.min(position, list.length)), 0, comp);
+            return comp;
+        });
+    }
+
+    /**
+     * @internal
+     * Writes one saved field value onto a component or other serialized
+     * object. See {@link _restoreChild}.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _restoreField(
+        root: GameObject,
+        owner: object,
+        field: string,
+        json: unknown,
+        assets: SerializedAsset[] | undefined,
+    ): void {
+        if (owner instanceof MissingComponent) {
+            owner.originalFields[field] = SceneSerializer._cloneJson(json);
+            return;
+        }
+        const meta = getAllFields(owner.constructor as any).find(f => f.name === field && f.serialize);
+        if (meta === undefined) return;
+        SceneSerializer._restore(root, assets, [], ctx => {
+            ctx.currentComponent = owner;
+            ctx.currentField = field;
+            const value = ValueSerializer.deserialize(SceneSerializer._cloneJson(json), meta.type, ctx, meta.elementType);
+            ctx.currentComponent = null;
+            ctx.currentField = null;
+            SceneSerializer._assign(owner, field, value);
+        });
+    }
+
+    /**
+     * @internal
+     * The `index`-th component of a registered type on `go`, or null.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _componentOf(go: GameObject, typeName: string, index: number): Component | null {
+        return SceneSerializer._findComponent(go, typeName, index);
+    }
+
+    /**
+     * @internal
+     * The name a component is saved under, or null.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _componentTypeName(component: object): string | null {
+        return SceneSerializer._typeNameOf(component);
+    }
+
+    /**
+     * @internal
+     * The descendant of `from` with this prefab node id, not entering a nested
+     * instance — how a saved path is followed.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _findLiveNode(from: GameObject, id: string): GameObject | null {
+        return findNodeById(from, id, SceneSerializer._LIVE);
+    }
+
+    /** Runs `build` in a fresh load context and resolves what it read against `root`. */
+    private static _restore<T>(
+        root: GameObject,
+        assets: SerializedAsset[] | undefined,
+        chain: string[],
+        build: (ctx: LoadCtx) => T,
+    ): T {
+        const ctx = SceneSerializer._newContext(chain);
+        SceneSerializer._materializeAssets(assets, ctx);
+        const result = build(ctx);
+        SceneSerializer._resolveObjectRefs(ctx, [root]);
+        SceneSerializer._pending.push(...ctx.pendingAssetRefs);
+        return result;
+    }
+
     /**
      * @internal
      * Builds an empty GameObject. Installed by `GameObject` when it loads.
@@ -1557,6 +1690,12 @@ export class SceneSerializer {
 
     /** Walks every collected reference and assigns what it resolved to. */
     private static _resolveRefs(ctx: DeserializeContext, roots: ReadonlyArray<GameObject>): void {
+        SceneSerializer._resolveObjectRefs(ctx, roots);
+        SceneSerializer._pending = ctx.pendingAssetRefs.slice();
+    }
+
+    /** Resolves the collected GameObject and component references, leaving asset ones alone. */
+    private static _resolveObjectRefs(ctx: DeserializeContext, roots: ReadonlyArray<GameObject>): void {
         for (const ref of ctx.pendingGORefs) {
             const target = SceneSerializer._lookupScoped(roots, ref);
             SceneSerializer._writeRef(ref.component, ref.field, ref.arrayIndex, target);
@@ -1569,8 +1708,6 @@ export class SceneSerializer {
                 : SceneSerializer._findComponent(owner, ref.typeName, ref.index);
             SceneSerializer._writeRef(ref.component, ref.field, ref.arrayIndex, target);
         }
-
-        SceneSerializer._pending = ctx.pendingAssetRefs.slice();
     }
 
     /**

@@ -56,6 +56,18 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   `version: 2`; the engine refuses any version above 2.** Every engine that will read such files
   — including any that runs exported scenarios — has to be on a build that reads version 2 before
   anything writes them.
+- **What an editor's prefab workflow calls.** `GameObject.prefabInstanceRoot` and
+  `outermostPrefabInstanceRoot` find the instance an object belongs to, crossing nested prefabs
+  for the outermost (the one a Hierarchy marks and the only one that can be unpacked);
+  `isPrefabAssetMissing` says an instance's prefab is not loaded. `Prefab.getChanges(instance)`
+  lists what an instance changed — values, added and removed children and components — as a
+  link save records it, addressed by node ids that `prefabNodeId` maps back to live objects.
+  `Prefab.applyInstance` writes an instance into its prefab (or into a variant's changes),
+  keeping the prefab root's own name, position and rotation, and refuses an instance that holds
+  the prefab itself. `Prefab.revertOverride` undoes one change in place, so untouched objects
+  keep their identity and references to them stay valid. `Prefab.removeUnusedOverrides` drops
+  what no longer applies. `Prefab.fromGameObject(go, name, { connect: true })` makes `go` an
+  instance of the prefab made from it, as Unity's Save As Prefab Asset And Connect does.
 - **A prefab variant keeps its base when it is saved.** `Prefab.toJSON()` writes a variant whose
   base has an id as `{ name, version: 2, base, changes }`, and `Prefab.fromJSON` reads it back as
   a variant that follows later edits to its base; loading it through `Resources` loads the base

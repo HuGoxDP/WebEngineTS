@@ -331,6 +331,11 @@ export class PrefabDiff {
      * deep-copied first, so the prefab is never modified. A change addressed to a
      * node the prefab no longer has is skipped rather than failing: the prefab
      * moved on, and what the instance said about that part no longer applies.
+     *
+     * Applying changes the prefab already holds does nothing: an added child
+     * whose id the prefab has, or an added component identical to the one
+     * already at its place, is skipped. That is what an instance's older saved
+     * changes look like once the instance has been applied to its prefab.
      */
     public static applyChanges(
         prefab: SerializedGameObject,
@@ -376,19 +381,44 @@ export class PrefabDiff {
         for (const a of addedComponents) {
             const node = byId.get(a.node)?.node;
             if (!node) continue;
-            node.components.splice(Math.min(Math.max(a.index, 0), node.components.length), 0,
-                JSON.parse(JSON.stringify(a.component)) as SerializedComponent);
+            const at = Math.min(Math.max(a.index, 0), node.components.length);
+            const there = node.components[at];
+            if (there !== undefined && there.type === a.component.type
+                && PrefabDiff._equal(there.fields, a.component.fields)) continue;
+            node.components.splice(at, 0, JSON.parse(JSON.stringify(a.component)) as SerializedComponent);
         }
 
         const addedChildren = [...(changes.addedChildren ?? [])].sort((a, b) => a.index - b.index);
         for (const a of addedChildren) {
             const parent = byId.get(a.parent)?.node;
             if (!parent) continue;
+            if (a.node.id !== undefined && byId.has(a.node.id)) continue;
             parent.children.splice(Math.min(Math.max(a.index, 0), parent.children.length), 0,
                 JSON.parse(JSON.stringify(a.node)) as SerializedGameObject);
         }
 
         return clone;
+    }
+
+    /**
+     * The node of `tree` a change addresses — by id when it has one, by path
+     * otherwise — with its parent, or null when the tree has no such node.
+     */
+    public static nodeOf(
+        tree: SerializedGameObject,
+        address: { node?: string; path?: readonly number[] },
+    ): { node: SerializedGameObject; parent: SerializedGameObject | null } | null {
+        if (address.node !== undefined) return PrefabDiff._index(tree).get(address.node) ?? null;
+
+        let node = tree;
+        let parent: SerializedGameObject | null = null;
+        for (const index of address.path ?? []) {
+            const next = node.children[index];
+            if (!next) return null;
+            parent = node;
+            node = next;
+        }
+        return { node, parent };
     }
 
     /** Whether `tree`'s own prefab has a node with this id (a nested prefab's interior does not count). */
