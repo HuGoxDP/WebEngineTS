@@ -16,7 +16,10 @@
 // already carries the version as its title. Keep a Changelog ends the file
 // with link reference definitions ("[0.2.0]: https://…"), which therefore
 // trail the oldest section; they resolve the headings the notes leave out, so
-// they are dropped, except any the section's own text refers to.
+// they are dropped from it. A definition the section's own text refers to is
+// appended to its notes instead, wherever in the file it is defined —
+// otherwise a "[docs]" link in the newest section, defined at the end of the
+// file, would reach the release as literal text.
 //
 // Exits non-zero when the section is missing or empty. That is deliberate: in
 // this project a release without a changelog entry is a mistake, not a release
@@ -91,6 +94,9 @@ function headings(match) {
     return found;
 }
 
+/** Every link reference definition in the file: a section may refer to any of them. */
+const DEFINITIONS = [...new Set(lines.filter((line) => LINK_DEFINITION.test(line)))];
+
 /** The lines under the heading at `start`, trimmed as the header describes. */
 function sectionBody(start) {
     let end = lines.length;
@@ -102,17 +108,16 @@ function sectionBody(start) {
     }
 
     const body = lines.slice(start + 1, end);
-    let tail = body.length;
-    while (tail > 0 && (isPadding(body[tail - 1]) || LINK_DEFINITION.test(body[tail - 1]))) tail--;
-    const prose = body.slice(0, tail).join("\n").toLowerCase();
-    const referenced = body.slice(tail).filter((line) => {
-        const m = LINK_DEFINITION.exec(line);
-        return m !== null && prose.includes(`[${m[1].toLowerCase()}]`);
-    });
-    body.splice(tail, body.length - tail, ...(referenced.length > 0 ? ["", ...referenced] : []));
-
+    while (body.length > 0 && (isPadding(body[body.length - 1]) || LINK_DEFINITION.test(body[body.length - 1]))) {
+        body.pop();
+    }
     while (body.length > 0 && isPadding(body[0])) body.shift();
-    while (body.length > 0 && isPadding(body[body.length - 1])) body.pop();
+
+    const prose = body.join("\n").toLowerCase();
+    const referenced = DEFINITIONS.filter(
+        (line) => !body.includes(line) && prose.includes(`[${LINK_DEFINITION.exec(line)[1].toLowerCase()}]`),
+    );
+    if (referenced.length > 0) body.push("", ...referenced);
     return body;
 }
 
@@ -134,9 +139,10 @@ if (requireEmptyUnreleased) {
             fail(
                 `${name} still has entries under "## [Unreleased]" (line ${start + 1}), so v${version} ` +
                 `would ship changes its release notes never mention. If they belong to ${version}, ` +
-                `rename [Unreleased] to "## [${version}] - <date>"; if [${version}] already describes ` +
-                `an earlier build, release a new version instead (npm version X.Y.Z --no-git-tag-version). ` +
-                `Commit that, then tag again.`,
+                `move them into its existing "## [${version}]" section and leave [Unreleased] empty. ` +
+                `If that section describes an earlier build, release a new version instead: ` +
+                `npm version X.Y.Z --no-git-tag-version, rename [Unreleased] to "## [X.Y.Z] - <date>", ` +
+                `commit, and tag vX.Y.Z (README, "Releasing").`,
             );
         }
     }
