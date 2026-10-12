@@ -33,8 +33,11 @@ export interface SerializeContext {
      * a path from the root of the thing around it (`scope` 1), and so on for
      * instances inside instances. Absent, every reference is a path in
      * {@link goToPath}, as it was before instances could be saved that way.
+     *
+     * A path may hold node ids as well as child indices: see
+     * {@link PendingGORef.path}.
      */
-    locate?(go: GameObject): { path: number[]; scope: number } | null;
+    locate?(go: GameObject): { path: Array<number | string>; scope: number } | null;
     /**
      * The registered type name of a component, or null if its class carries no
      * `@Serializable`. Supplied by the SceneSerializer, which owns the registry
@@ -78,8 +81,14 @@ export interface SerializeContext {
 
 /** Marker emitted in deserialize for a `GameObjectRef` field. */
 export interface PendingGORef {
-    /** The path the JSON pointed at. */
-    path: number[];
+    /**
+     * The path the JSON pointed at. The first segment is an index into the
+     * roots it is counted from; after that a number is a child index and a
+     * string is a prefab node id, looked for among the descendants without
+     * entering a nested prefab instance. Ids appear only in files that save
+     * prefab instances as links.
+     */
+    path: Array<number | string>;
 }
 
 /**
@@ -114,7 +123,8 @@ export interface DeserializeContext {
     pendingGORefs: Array<{
         component: object;
         field: string;
-        path: number[];
+        /** See {@link PendingGORef.path}. */
+        path: Array<number | string>;
         /** Slot to write into when the field is an array; null when it is not. */
         arrayIndex: number | null;
         /** Where the path is counted from. */
@@ -127,7 +137,8 @@ export interface DeserializeContext {
     pendingComponentRefs: Array<{
         component: object;
         field: string;
-        path: number[];
+        /** See {@link PendingGORef.path}. */
+        path: Array<number | string>;
         typeName: string;
         index: number;
         /** Slot to write into when the field is an array; null when it is not. */
@@ -509,7 +520,7 @@ export class ValueSerializer {
                         ctx.pendingComponentRefs.push({
                             component: ctx.currentComponent,
                             field: ctx.currentField,
-                            path: (obj.path as number[]).slice(),
+                            path: (obj.path as Array<number | string>).slice(),
                             typeName: String(obj.component ?? ""),
                             index: Number(obj.index ?? 0),
                             arrayIndex: ctx.currentArrayIndex,
@@ -531,7 +542,7 @@ export class ValueSerializer {
                         ctx.pendingGORefs.push({
                             component: ctx.currentComponent,
                             field: ctx.currentField,
-                            path: (obj.path as number[]).slice(),
+                            path: (obj.path as Array<number | string>).slice(),
                             arrayIndex: ctx.currentArrayIndex,
                             ref: ValueSerializer._scopeOf(obj, ctx),
                         });
@@ -610,13 +621,13 @@ export class ValueSerializer {
     private static _locate(
         ctx: SerializeContext,
         go: GameObject,
-    ): { path: number[]; scope: number } | null {
+    ): { path: Array<number | string>; scope: number } | null {
         if (ctx.locate) return ctx.locate(go);
         const path = ctx.goToPath.get(go);
         return path ? { path, scope: 0 } : null;
     }
 
-    private static _goRef(where: { path: number[]; scope: number }): unknown {
+    private static _goRef(where: { path: Array<number | string>; scope: number }): unknown {
         return where.scope > 0
             ? { $type: "GameObjectRef", path: where.path, scope: where.scope }
             : { $type: "GameObjectRef", path: where.path };

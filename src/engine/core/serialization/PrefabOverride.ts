@@ -139,6 +139,96 @@ export interface PrefabInstanceInfo {
     unused: PrefabChanges | null;
 }
 
+/**
+ * @internal
+ * How {@link encodeNodePath} and {@link findNodeById} see a tree: live
+ * GameObjects when a scene is written or read, saved JSON for a prefab file.
+ */
+export interface NodeAccess<N> {
+    /** The node's id, or null if it has none. */
+    id(node: N): string | null;
+    children(node: N): readonly N[];
+    /**
+     * Whether the node is the root of a nested prefab instance: its own id
+     * belongs to the tree around it, its interior to another prefab.
+     */
+    isInstance(node: N): boolean;
+}
+
+/**
+ * @internal
+ * The descendant of `from` with this node id, looked for depth first in child
+ * order without entering a nested instance (whose own root is checked).
+ *
+ * @remarks
+ * The interior of a nested instance is another prefab's namespace, where the
+ * same ids may repeat — two copies of one prefab nested side by side have
+ * identical interiors — so it is never searched.
+ */
+export function findNodeById<N>(from: N, id: string, access: NodeAccess<N>): N | null {
+    for (const child of access.children(from)) {
+        if (access.id(child) === id) return child;
+        if (access.isInstance(child)) continue;
+        const found = findNodeById(child, id, access);
+        if (found !== null) return found;
+    }
+    return null;
+}
+
+/**
+ * @internal
+ * A reference path rewritten to address nodes by id where it can.
+ *
+ * @remarks
+ * `chain` is the nodes the positional `path` walks through, its first element
+ * the root `path[0]` indexes. From the first node at or past `idsFrom`, each
+ * step jumps to the furthest node further down the chain that
+ * {@link findNodeById} finds by its id; a node it cannot reach that way is
+ * stepped to by child index. So the path is a number for every hop up to and
+ * including the first instance root, then one id per prefab namespace it
+ * crosses. A reference written this way survives the prefab gaining or losing
+ * siblings in front of its target, which a positional one silently does not.
+ *
+ * @param idsFrom - the index in `chain` of the first node below which ids are
+ *   written at all: the first instance root, or the root of a prefab.
+ */
+export function encodeNodePath<N>(
+    chain: readonly N[],
+    path: readonly number[],
+    idsFrom: number,
+    access: NodeAccess<N>,
+): Array<number | string> {
+    const out: Array<number | string> = [path[0]];
+    let at = 0;
+    while (at < chain.length - 1) {
+        let jump = -1;
+        if (at >= idsFrom) {
+            for (let j = chain.length - 1; j > at; j--) {
+                const id = access.id(chain[j]);
+                if (id !== null && findNodeById(chain[at], id, access) === chain[j]) {
+                    jump = j;
+                    break;
+                }
+            }
+        }
+        if (jump < 0) {
+            out.push(path[at + 1]);
+            at++;
+        } else {
+            out.push(access.id(chain[jump])!);
+            at = jump;
+        }
+    }
+    return out;
+}
+
+/** How a saved tree is walked: a node carrying `prefab` is a nested instance. */
+const JSON_ACCESS: NodeAccess<SerializedGameObject> = {
+    id: node => node.id ?? null,
+    children: node => node.children,
+    isInstance: node => node.prefab !== undefined,
+};
+
 /** Transform fields compared at the GameObject level. */
 const TRANSFORM_FIELDS = ["position", "rotation", "scale"] as const;
 
@@ -412,6 +502,12 @@ export class PrefabDiff {
      * prefab, whose ids may repeat (two copies of one prefab nested side by
      * side have the same ones).
      *
+     * A file from before ids is given them by position, and its references —
+     * written as positions, since nothing else existed — are rewritten to
+     * address the same nodes by those ids, as a prefab written now would.
+     * Otherwise an untouched reference would differ from the same reference in
+     * an instance, and read as an override.
+     *
      * @param snapshot - the tree, modified in place.
      * @param legacy - derive ids from the node's position rather than minting
      *   them, so a file that never had ids gets the *same* ones every time it is
@@ -419,6 +515,7 @@ export class PrefabDiff {
      *   against the first would find nothing on the second.
      */
     public static ensureIds(snapshot: SerializedGameObject, legacy = false): SerializedGameObject {
+        const upgrade = legacy && snapshot.id === undefined;
         const walk = (node: SerializedGameObject, path: number[]): void => {
             if (node.id === undefined) {
                 node.id = legacy ? `~${path.join(".")}` : mintNodeId();
@@ -427,10 +524,56 @@ export class PrefabDiff {
             node.children.forEach((child, i) => walk(child, [...path, i]));
         };
         walk(snapshot, []);
+        if (upgrade) PrefabDiff._rewritePositionalRefs(snapshot);
         return snapshot;
     }
 
     // ── private ──────────────────────────────────────────────────────
+
+    /**
+     * Rewrites every unscoped reference in a prefab tree whose path is all
+     * positions — in component fields, nested values and the data a
+     * `MissingComponent` keeps — to address its target by node id.
+     */
+    private static _rewritePositionalRefs(root: SerializedGameObject): void {
+        const visit = (value: unknown): void => {
+            if (Array.isArray(value)) {
+                value.forEach(visit);
+                return;
+            }
+            if (value === null || typeof value !== "object") return;
+
+            const obj = value as Record<string, unknown>;
+            const isRef = obj["$type"] === "GameObjectRef" || obj["$type"] === "ComponentRef";
+            const scoped = typeof obj["scope"] === "number" && obj["scope"] > 0;
+            if (isRef && !scoped && Array.isArray(obj["path"])
+                && (obj["path"] as unknown[]).every(s => typeof s === "number")) {
+                const encoded = PrefabDiff._encodeJsonPath(root, obj["path"] as number[]);
+                if (encoded !== null) obj["path"] = encoded;
+                return;
+            }
+            for (const key of Object.keys(obj)) visit(obj[key]);
+        };
+
+        const walk = (node: SerializedGameObject): void => {
+            for (const comp of node.components) visit(comp.fields);
+            if (node !== root && node.prefab !== undefined) return;
+            node.children.forEach(walk);
+        };
+        walk(root);
+    }
+
+    /** A positional path within one prefab tree, by node id; null if it leads nowhere. */
+    private static _encodeJsonPath(root: SerializedGameObject, path: readonly number[]): Array<number | string> | null {
+        if (path.length === 0 || path[0] !== 0) return null;
+        const chain: SerializedGameObject[] = [root];
+        for (let i = 1; i < path.length; i++) {
+            const next = chain[chain.length - 1].children[path[i]];
+            if (!next) return null;
+            chain.push(next);
+        }
+        return encodeNodePath(chain, path, 0, JSON_ACCESS);
+    }
 
     /**
      * @param foreign - whether the node lies inside a nested instance written in

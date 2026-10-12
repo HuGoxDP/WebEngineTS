@@ -278,11 +278,14 @@ function turretTree(): SerializedGameObject {
     });
 }
 
-/** Tank: aims at its own Hull, and holds a Turret as a link. */
+/**
+ * Tank: aims at its own Hull, and holds a Turret as a link. Its reference is
+ * by node id, as a prefab written today stores it.
+ */
 function tankTree(): SerializedGameObject {
     return node("Tank", {
         id: "k-root",
-        components: [{ type: "PrefabSpec.Aim", fields: { target: { $type: "GameObjectRef", path: [0, 0] } } }],
+        components: [{ type: "PrefabSpec.Aim", fields: { target: { $type: "GameObjectRef", path: [0, "k-hull"] } } }],
         children: [
             node("Hull", {
                 id: "k-hull",

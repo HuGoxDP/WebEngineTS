@@ -66,6 +66,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Changed
 
+- **A reference path may hold prefab node ids.** `PendingGORef.path`, the `path` of
+  `DeserializeContext.pendingGORefs` and `pendingComponentRefs`, and `SerializeContext.locate`
+  are now `Array<number | string>`. Inside a prefab instance a reference names its target by node
+  id rather than by child position, so it still finds it after the prefab gains or loses a child
+  in front of it, and removing a sibling inside an instance no longer turns every later
+  reference into an override. Code that reads these paths must accept a string segment: a node
+  id, looked for among the descendants without entering a nested instance. Ids are written only
+  where prefab instances are saved as links and in prefab files; the default save writes the same
+  all-number paths as before. A prefab file from before node ids has its references read as ids
+  on load.
 - **`Texture2D.fromKTX2ArrayBuffer` warns once per run** when `maxSize` is set, because the cap
   does not reach it. Behaviour is unchanged — one console line where there was silence.
 

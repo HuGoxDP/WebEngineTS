@@ -14,6 +14,9 @@ import { MissingComponent, MissingValue } from "./MissingComponent";
 import {
     PrefabDiff,
     mintNodeId,
+    encodeNodePath,
+    findNodeById,
+    type NodeAccess,
     type PrefabChanges,
     type PrefabOverride,
     type PrefabSource,
@@ -36,7 +39,17 @@ import {
  * leaves the instance can be located by walking out through {@link outer}.
  */
 interface SceneCtx extends SerializeContext {
-    /** Whether a prefab instance is written as prefab plus changes. */
+    /** What paths in this pass are counted from. */
+    readonly roots: ReadonlyArray<GameObject>;
+    /**
+     * The object a prefab is being made from, which counts as an instance root
+     * for its own nodes' ids although it is not one; null otherwise.
+     */
+    readonly prefabRoot: GameObject | null;
+    /**
+     * Whether a prefab instance is written as prefab plus changes. Paths in
+     * such a pass address nodes inside an instance by id.
+     */
     readonly link: boolean;
     /** The pass this one is nested in, or null for the outermost. */
     readonly outer: SceneCtx | null;
@@ -51,7 +64,7 @@ interface SceneCtx extends SerializeContext {
     readonly mintLive: boolean;
     /** Shared with {@link outer}. */
     assetTable: SerializedAsset[];
-    locate(go: GameObject): { path: number[]; scope: number } | null;
+    locate(go: GameObject): { path: Array<number | string>; scope: number } | null;
 }
 
 /** The reader's context for one load. Module-private: not part of the API. */
@@ -289,7 +302,10 @@ export class SceneSerializer {
      * **NEVER use in user-facing code.**
      */
     public static _serializeForPrefab(go: GameObject): SerializedGameObject {
-        const ctx = SceneSerializer._buildSerializeCtx([go], true, null, false);
+        const ctx = SceneSerializer._buildSerializeCtx([go], true, null, false, go);
+        // Every node gets its id before anything is written, so that the
+        // prefab's own references can address them by it.
+        SceneSerializer._mintAddedIds(go, ctx);
         const root = SceneSerializer._serializeNode(go, ctx, false, true);
         if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
         return root;
@@ -458,12 +474,14 @@ export class SceneSerializer {
      *   leaves the instance is counted from the pass around it.
      * @param mintLive - whether ids minted for added nodes are stored on the
      *   live objects. Inherited from `outer` when there is one.
+     * @param prefabRoot - see {@link SceneCtx.prefabRoot}.
      */
     private static _buildSerializeCtx(
         roots: ReadonlyArray<GameObject>,
         link: boolean,
         outer: SceneCtx | null,
         mintLive: boolean = true,
+        prefabRoot: GameObject | null = null,
     ): SceneCtx {
         const goToPath = new Map<GameObject, number[]>();
         const walk = (go: GameObject, path: number[]): void => {
@@ -483,6 +501,8 @@ export class SceneSerializer {
 
         const ctx: SceneCtx = {
             goToPath,
+            roots,
+            prefabRoot,
             link,
             outer,
             inlined,
@@ -492,7 +512,7 @@ export class SceneSerializer {
                 let level = 0;
                 for (let c: SceneCtx | null = ctxRef.value; c !== null; c = c.outer, level++) {
                     const path = c.goToPath.get(go);
-                    if (path) return { path, scope: level };
+                    if (path) return { path: c.link ? SceneSerializer._encodePath(c, path) : path, scope: level };
                 }
                 return null;
             },
@@ -608,9 +628,10 @@ export class SceneSerializer {
             return out;
         }
 
-        // A prefab nothing can name cannot be linked to; it stays a plain tree.
+        // A prefab nothing can name cannot be linked to; it stays a plain tree,
+        // and nothing reading it sees an instance there.
         const guid = SceneSerializer._prefabGuid(info);
-        if (guid === null) return SceneSerializer._serializeNode(go, ctx, under, true);
+        if (guid === null) return SceneSerializer._serializeNode(go, ctx, under, false);
 
         const source = ctx.link ? SceneSerializer._prefabSourceOf(info) : null;
         if (source === null) return SceneSerializer._serializeExpanded(go, guid, info, ctx, under);
@@ -713,10 +734,48 @@ export class SceneSerializer {
                     if (ctx.mintLive) child._prefabNodeId = id;
                     else ctx.minted.set(child, id);
                 }
-                if (child._prefabInfo === null) walk(child);
+                if (!SceneSerializer._isWrittenInstance(child)) walk(child);
             }
         };
         walk(root);
+    }
+
+    /**
+     * Whether an object is written as a prefab instance — with a link — and so
+     * bounds a namespace of node ids. An instance of a prefab with no guid is
+     * written as a plain tree and does not.
+     */
+    private static _isWrittenInstance(go: GameObject): boolean {
+        const info = go._prefabInfo;
+        return info !== null && (info.raw !== null || SceneSerializer._prefabGuid(info) !== null);
+    }
+
+    /**
+     * A positional path in `ctx` rewritten to address nodes inside an
+     * instance by id (see `encodeNodePath`). Ids start below the first object
+     * on the path that is written as an instance, or below the root of a
+     * prefab being made.
+     */
+    private static _encodePath(ctx: SceneCtx, path: number[]): Array<number | string> {
+        const chain: GameObject[] = [ctx.roots[path[0]]];
+        for (let i = 1; i < path.length; i++) {
+            chain.push(chain[i - 1].transform.getChild(path[i]).gameObject);
+        }
+        const idsFrom = chain.findIndex(go => go === ctx.prefabRoot || SceneSerializer._isWrittenInstance(go));
+        if (idsFrom < 0) return path;
+
+        return encodeNodePath(chain, path, idsFrom, {
+            id: go => SceneSerializer._nodeIdOf(go, ctx),
+            children: SceneSerializer._childrenOf,
+            isInstance: go => SceneSerializer._isWrittenInstance(go),
+        });
+    }
+
+    /** A GameObject's children, in order. */
+    private static _childrenOf(go: GameObject): GameObject[] {
+        const out: GameObject[] = [];
+        for (let i = 0; i < go.transform.childCount; i++) out.push(go.transform.getChild(i).gameObject);
+        return out;
     }
 
     /** An object's node id, as this pass writes it. */
@@ -1398,7 +1457,7 @@ export class SceneSerializer {
      */
     private static _lookupScoped(
         roots: ReadonlyArray<GameObject>,
-        ref: { component: object; field: string; path: number[]; ref?: RefScope },
+        ref: { component: object; field: string; path: Array<number | string>; ref?: RefScope },
     ): GameObject | null {
         const { stack, scope } = ref.ref ?? { stack: [], scope: 0 };
         let base: ReadonlyArray<GameObject>;
@@ -1418,12 +1477,11 @@ export class SceneSerializer {
      */
     private static _warnIfIntoPlaceholder(
         roots: ReadonlyArray<GameObject>,
-        ref: { component: object; field: string; path: number[] },
+        ref: { component: object; field: string; path: Array<number | string> },
     ): void {
         const path = ref.path;
-        if (path.length === 0 || path[0] < 0 || path[0] >= roots.length) return;
-        let cur = roots[path[0]];
-        for (let i = 1; i < path.length; i++) {
+        let cur = SceneSerializer._root(roots, path);
+        for (let i = 1; cur !== null && i < path.length; i++) {
             if (cur._prefabInfo?.raw) {
                 console.warn(
                     `[SceneSerializer] ${ref.component.constructor.name}.${ref.field} points into ` +
@@ -1432,9 +1490,7 @@ export class SceneSerializer {
                 );
                 return;
             }
-            const idx = path[i];
-            if (idx < 0 || idx >= cur.transform.childCount) return;
-            cur = cur.transform.getChild(idx).gameObject;
+            cur = SceneSerializer._step(cur, path[i]);
         }
     }
 
@@ -1506,20 +1562,44 @@ export class SceneSerializer {
         return JSON.parse(JSON.stringify(value)) as T;
     }
 
-    /** Walks a path of sibling indices and returns the target GameObject (or null). */
-    private static _lookupByPath(roots: ReadonlyArray<GameObject>, path: number[]): GameObject | null {
-        if (path.length === 0) return null;
-        const rootIdx = path[0];
-        if (rootIdx < 0 || rootIdx >= roots.length) return null;
-        let cur: GameObject = roots[rootIdx];
-        for (let i = 1; i < path.length; i++) {
-            const t = cur.transform;
-            const idx = path[i];
-            if (idx < 0 || idx >= t.childCount) return null;
-            cur = t.getChild(idx).gameObject;
+    /**
+     * Walks a reference path and returns the target GameObject, or null.
+     *
+     * @remarks
+     * The first segment indexes `roots`. After it a number is a child index and
+     * a string a prefab node id, found among the current object's descendants
+     * without entering a nested prefab instance — the same search the writer
+     * checked the id against.
+     */
+    private static _lookupByPath(roots: ReadonlyArray<GameObject>, path: Array<number | string>): GameObject | null {
+        let cur = SceneSerializer._root(roots, path);
+        for (let i = 1; cur !== null && i < path.length; i++) {
+            cur = SceneSerializer._step(cur, path[i]);
         }
         return cur;
     }
+
+    /** The root a path starts from, or null. */
+    private static _root(roots: ReadonlyArray<GameObject>, path: Array<number | string>): GameObject | null {
+        const first = path[0];
+        if (typeof first !== "number" || first < 0 || first >= roots.length) return null;
+        return roots[first] ?? null;
+    }
+
+    /** One step of a path: a child by index, or a descendant by node id. */
+    private static _step(from: GameObject, segment: number | string): GameObject | null {
+        if (typeof segment === "string") return findNodeById(from, segment, SceneSerializer._LIVE);
+        const t = from.transform;
+        if (!Number.isInteger(segment) || segment < 0 || segment >= t.childCount) return null;
+        return t.getChild(segment).gameObject;
+    }
+
+    /** How a loaded scene is searched for a node id. */
+    private static readonly _LIVE: NodeAccess<GameObject> = {
+        id: go => go._prefabNodeId,
+        children: go => SceneSerializer._childrenOf(go),
+        isInstance: go => go._prefabInfo !== null,
+    };
 
     private constructor() {}
 }
