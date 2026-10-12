@@ -400,7 +400,12 @@ it. So:
    - **Mint ids.** Each node in the instance's own namespace that has no `_prefabNodeId` gets
      one on the *live* object. These are the added nodes. *Decided:* without this, every save
      mints fresh random ids for added children (`compareChanges` mints on its snapshot and
-     throws them away), so autosave and version control churn.
+     throws them away), so autosave and version control churn. *Corrected after review:* the
+     ids are minted in one pass over every root, into every instance that will be written as a
+     link, **before anything is written** (`_mintAll`). Minted when the walk reached the
+     instance, they came too late for a reference written earlier — an earlier root, or an
+     earlier sibling — which then fell back to a child index: saving twice wrote two different
+     files, and a later prefab edit could misdirect the first.
    - **Check the shape.** If the instance did something `PrefabChanges` cannot express (a
      reorder, a reparent, or a duplicated id, §7.3), warn and fall back to step 4 for this one
      instance. Nothing is lost; the instance just stops following prefab edits until it is
@@ -428,7 +433,8 @@ the target:
 - a hop to a node with no id is written as its child index.
 
 `_serializeForPrefab` pre-mints ids for the new prefab's nodes in a side map, without touching
-the source object, so the prefab file's own internal references are written by id too. The
+the source object, so the prefab file's own internal references are written by id too. The same
+pass mints the added nodes of every instance nested inside it. The
 prefab file and the instance's own context must encode references the same way. Otherwise every
 untouched reference would read as an override.
 

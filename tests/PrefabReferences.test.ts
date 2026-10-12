@@ -201,6 +201,53 @@ describe("references into a prefab instance", () => {
         expect(instance.getComponent(Aim)!.target!.name).toBe("Real");
     });
 
+    test("a reference written before the object it names was reached still names it by id", () => {
+        // The Player is written before the Tank, and so before the walk gets
+        // to the Flag added under the Tank.
+        const [player, tank] = SceneSerializer.deserializeScene(scene(node("Player"), tankLink()));
+        const flag = new GameObject("Flag");
+        flag.transform.setParent(tank.transform, false);
+        player.addComponent(Aim).target = flag;
+
+        const saved = saveLinked();
+
+        expect(saved.roots[0].components[0].fields["target"])
+            .toEqual({ $type: "GameObjectRef", path: [1, flag.prefabNodeId] });
+        clear();
+        SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        expect(saveLinked()).toEqual(saved);
+        clear();
+
+        const shrunk = tankTree();
+        shrunk.children.splice(0, 1);
+        shrunk.components = [];
+        bind("guid-tank", shrunk);
+        const [player2] = SceneSerializer.deserializeScene(saved);
+        expect(player2.getComponent(Aim)!.target!.name).toBe("Flag");
+    });
+
+    test("inside a prefab, a reference to an object added to a nested instance is by id", () => {
+        // The Hull is written before the Turret, and so before the walk gets
+        // to the Scope added under it.
+        const [tank] = SceneSerializer.deserializeScene(scene(tankLink()));
+        const scope = new GameObject("Scope");
+        scope.transform.setParent(child(tank, 1).transform, false);
+        child(tank, 0).addComponent(Aim).target = scope;
+
+        const made = Prefab.fromGameObject(tank);
+        const turretLink = made._resolvedTree().children[1].prefab!;
+        const scopeId = turretLink.changes!.addedChildren![0].node.id;
+        expect(paths(made._resolvedTree().children[0])).toEqual([[0, "k-turret", scopeId]]);
+
+        // Position 1 under the Turret is nothing once its Barrel is gone.
+        const shrunk = turretTree();
+        shrunk.children = [];
+        bind("guid-turret", shrunk);
+        const instance = made.instantiate();
+        expect(child(instance, 1).transform.childCount).toBe(1);
+        expect(child(instance, 0).getComponent(Aim)!.target!.name).toBe("Scope");
+    });
+
     test("expand mode never writes an id into a path", () => {
         const [player, tank] = SceneSerializer.deserializeScene(scene(node("Player"), tankLink()));
         player.addComponent(Aim).target = child(tank, 1, 0);

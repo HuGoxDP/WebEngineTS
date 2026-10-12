@@ -245,6 +245,7 @@ export class SceneSerializer {
         const ctx = SceneSerializer._buildSerializeCtx(
             scene.getRootGameObjects(), options.prefabs === "link", null,
         );
+        if (ctx.link) for (const root of scene.getRootGameObjects()) SceneSerializer._mintAll(root, ctx);
         const roots = scene.getRootGameObjects().map(r => SceneSerializer._serializeGO(r, ctx, false));
 
         // Written after the walk: the table is filled as components are visited.
@@ -292,6 +293,7 @@ export class SceneSerializer {
     /** Serializes a single GameObject and all its descendants. */
     public static serializeGameObject(go: GameObject, options: SerializeOptions = {}): SerializedGameObject {
         const ctx = SceneSerializer._buildSerializeCtx([go], options.prefabs === "link", null);
+        if (ctx.link) SceneSerializer._mintAll(go, ctx);
         const root = SceneSerializer._serializeGO(go, ctx, false);
         if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
         return root;
@@ -320,7 +322,7 @@ export class SceneSerializer {
         });
         // Every node gets its id before anything is written, so that the
         // prefab's own references can address them by it.
-        SceneSerializer._mintAddedIds(go, ctx);
+        SceneSerializer._mintAll(go, ctx);
         const root = SceneSerializer._serializeNode(go, ctx, false, true);
         if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
         return root;
@@ -751,10 +753,10 @@ export class SceneSerializer {
      * its own objects is the same path in both. References that leave it are the
      * one thing that cannot be, and say how far out they count from.
      *
-     * Objects added to the instance are given node ids first, so that saving
-     * twice writes the same file. An instance that did something the changes
-     * cannot record — moved one of the prefab's own nodes — is written in full
-     * instead, and says why.
+     * Objects added to the instance were given node ids before the walk
+     * began ({@link _mintAll}), so that saving twice writes the same file. An
+     * instance that did something the changes cannot record — moved one of
+     * the prefab's own nodes — is written in full instead, and says why.
      */
     private static _serializeInstance(
         go: GameObject,
@@ -771,7 +773,6 @@ export class SceneSerializer {
             return SceneSerializer._serializeExpanded(go, guid, info, outer, under);
         }
 
-        SceneSerializer._mintAddedIds(go, outer);
         const local = SceneSerializer._buildSerializeCtx([go], true, outer, { ownAssets: true });
         const expanded = SceneSerializer._serializeNode(go, local, false, true);
 
@@ -849,6 +850,34 @@ export class SceneSerializer {
     private static _isShellOverride(o: PrefabOverride, tree: SerializedGameObject): boolean {
         const atRoot = o.node !== undefined ? o.node === tree.id : o.path.length === 0;
         return atRoot && o.component === null && SHELL_FIELDS.has(o.field);
+    }
+
+    /**
+     * Gives node ids to what was added to every instance under `go` that is
+     * written as a link, and to the nodes of a prefab being made, before
+     * anything is written.
+     *
+     * @remarks
+     * A reference is encoded when its holder is written, which can be before
+     * the object it points at. An id minted only once the walk reached that
+     * object's instance left the earlier reference a child index: one that a
+     * later prefab edit could misdirect, and that the next save wrote as an id.
+     * What stands in for a missing prefab writes nothing under it, so it is
+     * not entered.
+     */
+    private static _mintAll(go: GameObject, ctx: SceneCtx): void {
+        if (go._prefabInfo?.raw) return;
+        if (go === ctx.prefabRoot || SceneSerializer._writtenAsLink(go, ctx)) {
+            SceneSerializer._mintAddedIds(go, ctx);
+        }
+        for (const child of SceneSerializer._childrenOf(go)) SceneSerializer._mintAll(child, ctx);
+    }
+
+    /** Whether {@link _serializeGO} writes `go` as its prefab plus changes. */
+    private static _writtenAsLink(go: GameObject, ctx: SceneCtx): boolean {
+        const info = go._prefabInfo;
+        if (info === null || info.raw !== null || !ctx.link) return false;
+        return SceneSerializer._prefabGuid(info) !== null && SceneSerializer._prefabSourceOf(info) !== null;
     }
 
     /**
