@@ -208,7 +208,7 @@ export class PrefabDiff {
         instance: SerializedGameObject,
     ): PrefabChanges {
         const changes: PrefabChanges = { overrides: [] };
-        PrefabDiff._compareNode(prefab, instance, [], changes);
+        PrefabDiff._compareNode(prefab, instance, [], changes, false);
 
         const out: PrefabChanges = { overrides: changes.overrides };
         if (changes.addedChildren?.length) out.addedChildren = changes.addedChildren;
@@ -302,7 +302,110 @@ export class PrefabDiff {
     }
 
     /**
+     * The changes that address a node `tree` does not have.
+     *
+     * @remarks
+     * What {@link applyChanges} skips, kept so that it can be written back and
+     * tried again — Unity's "unused overrides". Overrides, added children and
+     * added components are kept; a removal of a node or component that no
+     * longer exists is moot and is dropped.
+     *
+     * @returns the unused changes, or null when everything applies.
+     */
+    public static unused(tree: SerializedGameObject, changes: PrefabChanges): PrefabChanges | null {
+        const byId = PrefabDiff._index(tree);
+        const out: PrefabChanges = {
+            overrides: changes.overrides.filter(o => o.node !== undefined && !byId.has(o.node)),
+        };
+        const addedChildren = (changes.addedChildren ?? []).filter(a => !byId.has(a.parent));
+        const addedComponents = (changes.addedComponents ?? []).filter(a => !byId.has(a.node));
+        if (addedChildren.length > 0) out.addedChildren = addedChildren;
+        if (addedComponents.length > 0) out.addedComponents = addedComponents;
+
+        const empty = out.overrides.length === 0 && addedChildren.length === 0 && addedComponents.length === 0;
+        return empty ? null : out;
+    }
+
+    /**
+     * Why `instance` cannot be written as `tree` plus changes, or null if it can.
+     *
+     * @remarks
+     * {@link PrefabChanges} addresses nodes by id and inserts what was added at
+     * its index, so it has no way to say that one of the prefab's own nodes
+     * moved: to a different parent, or to a different place among its
+     * siblings. Components are the same. An instance that did one of those is
+     * not representable, and is saved in full instead of being silently put
+     * back in the prefab's order. A node id seen twice is refused too, since
+     * neither occurrence could be told from the other.
+     *
+     * A prefab whose nodes have no ids reports nothing: it is compared by
+     * position, where a move is indistinguishable from an edit.
+     */
+    public static inexpressible(tree: SerializedGameObject, instance: SerializedGameObject): string | null {
+        const byId = PrefabDiff._index(tree);
+        const seen = new Set<string>();
+        const sameParent = (inPrefab: SerializedGameObject | null, inInstance: SerializedGameObject): boolean => {
+            if (inPrefab === null) return false;
+            if (inPrefab === tree || inInstance === instance) return inPrefab === tree && inInstance === instance;
+            return inPrefab.id !== undefined && inPrefab.id === inInstance.id;
+        };
+
+        const walk = (
+            node: SerializedGameObject,
+            parent: SerializedGameObject | null,
+            match: SerializedGameObject | null,
+        ): string | null => {
+            if (parent !== null && node.id !== undefined) {
+                if (seen.has(node.id)) return `the node id "${node.id}" appears twice`;
+                seen.add(node.id);
+
+                const there = byId.get(node.id);
+                if (there !== undefined && !sameParent(there.parent, parent)) {
+                    return `"${node.name}" was moved to another parent`;
+                }
+            }
+
+            if (match !== null) {
+                const childOrder = node.children
+                    .map(c => c.id === undefined ? -1 : match.children.findIndex(p => p.id === c.id))
+                    .filter(at => at >= 0);
+                if (!PrefabDiff._ascending(childOrder)) return `the children of "${node.name}" were reordered`;
+
+                const counts = new Map<string, number>();
+                const componentOrder = node.components
+                    .map(c => {
+                        const index = counts.get(c.type) ?? 0;
+                        counts.set(c.type, index + 1);
+                        return PrefabDiff._componentPosition(match, c.type, index);
+                    })
+                    .filter(at => at >= 0);
+                if (!PrefabDiff._ascending(componentOrder)) return `the components of "${node.name}" were reordered`;
+            }
+
+            // A nested instance's interior is another prefab's namespace.
+            if (parent !== null && node.prefab !== undefined) return null;
+            for (const child of node.children) {
+                const childMatch = match === null || child.id === undefined
+                    ? null
+                    : match.children.find(p => p.id === child.id) ?? null;
+                const reason = walk(child, node, childMatch);
+                if (reason !== null) return reason;
+            }
+            return null;
+        };
+
+        if (tree.id === undefined) return null;
+        return walk(instance, null, tree);
+    }
+
+    /**
      * Gives every node in a snapshot an id, keeping the ones it has.
+     *
+     * @remarks
+     * A node that is a nested prefab instance gets an id — it is a node of
+     * this prefab — but nothing below it does: its interior belongs to its own
+     * prefab, whose ids may repeat (two copies of one prefab nested side by
+     * side have the same ones).
      *
      * @param snapshot - the tree, modified in place.
      * @param legacy - derive ids from the node's position rather than minting
@@ -315,6 +418,7 @@ export class PrefabDiff {
             if (node.id === undefined) {
                 node.id = legacy ? `~${path.join(".")}` : mintNodeId();
             }
+            if (path.length > 0 && node.prefab !== undefined) return;
             node.children.forEach((child, i) => walk(child, [...path, i]));
         };
         walk(snapshot, []);
@@ -323,13 +427,19 @@ export class PrefabDiff {
 
     // ── private ──────────────────────────────────────────────────────
 
+    /**
+     * @param foreign - whether the node lies inside a nested instance written in
+     *   full, whose ids belong to another prefab. Such a node is addressed by
+     *   path alone, and its shape changes cannot be recorded.
+     */
     private static _compareNode(
         prefab: SerializedGameObject,
         instance: SerializedGameObject,
         path: number[],
         changes: PrefabChanges,
+        foreign: boolean,
     ): void {
-        const node = prefab.id;
+        const node = foreign ? undefined : prefab.id;
         const at = (rest: Omit<PrefabOverride, "path" | "node">): PrefabOverride =>
             node === undefined ? { path, ...rest } : { path, node, ...rest };
 
@@ -360,8 +470,10 @@ export class PrefabDiff {
             }));
         }
 
-        PrefabDiff._compareComponents(prefab, instance, at, changes);
-        PrefabDiff._compareChildren(prefab, instance, path, changes);
+        PrefabDiff._compareComponents(prefab, instance, at, changes, node);
+
+        const nested = path.length > 0 && (prefab.prefab !== undefined || instance.prefab !== undefined);
+        PrefabDiff._compareChildren(prefab, instance, path, changes, foreign || nested, node);
     }
 
     private static _compareChildren(
@@ -369,15 +481,17 @@ export class PrefabDiff {
         instance: SerializedGameObject,
         path: number[],
         changes: PrefabChanges,
+        foreign: boolean,
+        node: string | undefined,
     ): void {
         const byId = prefab.children.every(c => c.id !== undefined);
 
         // No ids to go by: only the subtree both sides share, by position. A
         // child present on one side alone cannot be told from a moved one.
-        if (!byId || prefab.id === undefined) {
+        if (foreign || !byId || node === undefined) {
             const shared = Math.min(prefab.children.length, instance.children.length);
             for (let i = 0; i < shared; i++) {
-                PrefabDiff._compareNode(prefab.children[i], instance.children[i], [...path, i], changes);
+                PrefabDiff._compareNode(prefab.children[i], instance.children[i], [...path, i], changes, foreign);
             }
             return;
         }
@@ -390,12 +504,12 @@ export class PrefabDiff {
 
             if (at >= 0 && !matched.has(child.id!)) {
                 matched.add(child.id!);
-                PrefabDiff._compareNode(prefab.children[at], child, [...path, at], changes);
+                PrefabDiff._compareNode(prefab.children[at], child, [...path, at], changes, false);
                 return;
             }
 
             PrefabDiff.ensureIds(child);
-            (changes.addedChildren ??= []).push({ parent: prefab.id!, index, node: child });
+            (changes.addedChildren ??= []).push({ parent: node, index, node: child });
         });
 
         for (const child of prefab.children) {
@@ -408,6 +522,7 @@ export class PrefabDiff {
         instance: SerializedGameObject,
         at: (rest: Omit<PrefabOverride, "path" | "node">) => PrefabOverride,
         changes: PrefabChanges,
+        node: string | undefined,
     ): void {
         const seen = new Map<string, number>();
         const kept = new Map<string, number>();
@@ -420,9 +535,9 @@ export class PrefabDiff {
             if (!original) {
                 // A component the prefab does not have is a shape change — which
                 // can only be recorded against a node that has an id.
-                if (prefab.id !== undefined) {
+                if (node !== undefined) {
                     (changes.addedComponents ??= []).push({
-                        node: prefab.id, index: position, component: comp,
+                        node, index: position, component: comp,
                     });
                 }
                 return;
@@ -440,14 +555,14 @@ export class PrefabDiff {
             }
         });
 
-        if (prefab.id === undefined) return;
+        if (node === undefined) return;
         const had = new Map<string, number>();
         for (const comp of prefab.components) {
             const index = had.get(comp.type) ?? 0;
             had.set(comp.type, index + 1);
             if (index >= (kept.get(comp.type) ?? 0)) {
                 (changes.removedComponents ??= []).push({
-                    node: prefab.id, component: comp.type, componentIndex: index,
+                    node, component: comp.type, componentIndex: index,
                 });
             }
         }
@@ -468,12 +583,18 @@ export class PrefabDiff {
         }
     }
 
+    /**
+     * Every node of `root`'s own prefab by id, with its parent. A nested
+     * instance's root is included — it is this prefab's node — but not its
+     * interior, whose ids belong to another prefab and may repeat.
+     */
     private static _index(
         root: SerializedGameObject,
     ): Map<string, { node: SerializedGameObject; parent: SerializedGameObject | null }> {
         const out = new Map<string, { node: SerializedGameObject; parent: SerializedGameObject | null }>();
         const walk = (node: SerializedGameObject, parent: SerializedGameObject | null): void => {
             if (node.id !== undefined) out.set(node.id, { node, parent });
+            if (parent !== null && node.prefab !== undefined) return;
             for (const child of node.children) walk(child, node);
         };
         walk(root, null);
@@ -502,6 +623,14 @@ export class PrefabDiff {
             seen++;
         }
         return null;
+    }
+
+    /** Whether every number is larger than the one before it. */
+    private static _ascending(values: readonly number[]): boolean {
+        for (let i = 1; i < values.length; i++) {
+            if (values[i] <= values[i - 1]) return false;
+        }
+        return true;
     }
 
     /** Position in `node.components` of the `index`-th component of `type`, or -1. */

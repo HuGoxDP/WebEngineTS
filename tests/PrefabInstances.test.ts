@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { GameObject } from "../src/engine/core/GameObject";
 import { EngineObject } from "../src/engine/core/EngineObject";
 import { Behaviour } from "../src/engine/core/Behaviour";
@@ -259,5 +259,367 @@ describe("a prefab instance saved in full", () => {
         const saved = save();
 
         expect(JSON.stringify(saved)).toBe(text);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Stage 4 — link mode: the prefab plus its changes, with scoped references
+// ---------------------------------------------------------------------------
+
+/** Turret: a root and a Barrel that aims at nothing. */
+function turretTree(): SerializedGameObject {
+    return node("Turret", {
+        id: "t-root",
+        children: [node("Barrel", {
+            id: "t-barrel",
+            transform: pose(0, 0, 2),
+            components: [{ type: "PrefabSpec.Aim", fields: { target: null } }],
+        })],
+    });
+}
+
+/** Tank: aims at its own Hull, and holds a Turret as a link. */
+function tankTree(): SerializedGameObject {
+    return node("Tank", {
+        id: "k-root",
+        components: [{ type: "PrefabSpec.Aim", fields: { target: { $type: "GameObjectRef", path: [0, 0] } } }],
+        children: [
+            node("Hull", {
+                id: "k-hull",
+                components: [{ type: "PrefabSpec.Tag", fields: { label: "hull" } }],
+            }),
+            node("Turret", {
+                id: "k-turret",
+                transform: pose(0, 1, 0),
+                prefab: { guid: "guid-turret", changes: { overrides: [] } },
+            }),
+        ],
+    });
+}
+
+function bind(guid: string, tree: SerializedGameObject): Prefab {
+    const prefab = new Prefab(tree);
+    AssetDatabase._bindGuid(guid, prefab);
+    return prefab;
+}
+
+function linkScene(...roots: SerializedGameObject[]): SerializedScene {
+    return { name: SceneManager.activeScene.name, version: 1, roots };
+}
+
+const tankLink = (changes: object = { overrides: [] }, rest: Partial<SerializedGameObject> = {}) =>
+    node("Tank", { transform: pose(1, 2, 3), ...rest, prefab: { guid: "guid-tank", changes } as never });
+
+const saveLinked = (): SerializedScene =>
+    SceneSerializer.serializeScene(SceneManager.activeScene, { prefabs: "link" });
+
+const child = (go: GameObject, ...path: number[]): GameObject =>
+    path.reduce((cur, i) => cur.transform.getChild(i).gameObject, go);
+
+const labels = (go: GameObject): string[] => go.getComponents(Tag).map(t => t.label);
+
+describe("a prefab instance saved as its prefab plus changes", () => {
+    let warn: ReturnType<typeof vi.spyOn>;
+    let tank: Prefab;
+
+    beforeEach(() => {
+        warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        bind("guid-turret", turretTree());
+        tank = bind("guid-tank", tankTree());
+    });
+    afterEach(() => warn.mockRestore());
+
+    /** Every kind of change, in the order the writer produces them. */
+    const CHANGES = {
+        overrides: [
+            { path: [0], node: "k-hull", component: "PrefabSpec.Tag", componentIndex: 0, field: "label", value: "patched" },
+        ],
+        addedChildren: [
+            { parent: "k-root", index: 2, node: node("Flag", {
+                components: [{ type: "PrefabSpec.Tag", fields: { label: "flag" } }],
+                id: "a-flag",
+            }) },
+        ],
+        addedComponents: [
+            { node: "k-hull", index: 1, component: { type: "PrefabSpec.Tag", fields: { label: "extra" } } },
+        ],
+    };
+
+    test("a linked instance is rebuilt from its prefab plus its changes", () => {
+        const [, root] = SceneSerializer.deserializeScene(linkScene(node("Player"), tankLink(CHANGES)));
+
+        expect(root.isPrefabInstance).toBe(true);
+        expect(root.prefabSource).toBe(tank);
+        expect(root.transform.localPosition.z).toBeCloseTo(3);
+        expect([0, 1, 2].map(i => child(root, i).name)).toEqual(["Hull", "Turret", "Flag"]);
+        expect(labels(child(root, 0))).toEqual(["patched", "extra"]);
+        expect(child(root, 2).prefabNodeId).toBe("a-flag");
+
+        const turret = child(root, 1);
+        expect(turret.isPrefabInstance).toBe(true);
+        expect(turret.prefabNodeId).toBe("k-turret");
+        expect(child(turret, 0).name).toBe("Barrel");
+        expect(child(turret, 0).prefabNodeId).toBe("t-barrel");
+        expect(root.getComponent(Aim)!.target).toBe(child(root, 0));
+    });
+
+    test("saving a rebuilt instance in link mode writes back the same changes", () => {
+        const json = linkScene(node("Player"), tankLink(CHANGES));
+        SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(json)));
+
+        expect(JSON.stringify(saveLinked().roots)).toBe(JSON.stringify(json.roots));
+    });
+
+    test("an edit to the prefab reaches a linked instance on its next load; its own overrides stay", () => {
+        SceneSerializer.deserializeScene(linkScene(tankLink(CHANGES)));
+        const saved = saveLinked();
+        clear();
+
+        const edited = tankTree();
+        edited.children[0].transform = pose(0, -1, 0);
+        edited.children[0].components[0].fields["label"] = "renamed in the prefab";
+        bind("guid-tank", edited);
+        const [root] = SceneSerializer.deserializeScene(saved);
+
+        expect(child(root, 0).transform.localPosition.y).toBeCloseTo(-1);
+        expect(labels(child(root, 0))).toEqual(["patched", "extra"]);
+    });
+
+    test("a reference inside an instance to its own object resolves inside that instance", () => {
+        const [a, b] = SceneSerializer.deserializeScene(linkScene(tankLink(), tankLink()));
+
+        expect(a.getComponent(Aim)!.target).toBe(child(a, 0));
+        expect(b.getComponent(Aim)!.target).toBe(child(b, 0));
+    });
+
+    test("a reference out of a nested instance counts its scope outward", () => {
+        const [player, root] = SceneSerializer.deserializeScene(linkScene(node("Player"), tankLink()));
+        child(root, 1, 0).getComponent(Aim)!.target = player;
+
+        const saved = saveLinked();
+        const turret = (saved.roots[1].prefab!.changes!.overrides as Array<{ field: string; value: any }>)
+            .find(o => o.field === "prefab")!.value;
+        expect(turret.changes.overrides[0].value).toEqual({ $type: "GameObjectRef", path: [0], scope: 2 });
+
+        clear();
+        const [player2, root2] = SceneSerializer.deserializeScene(saved);
+        expect(child(root2, 1, 0).getComponent(Aim)!.target).toBe(player2);
+    });
+
+    test("a reference from outside into a nested instance finds it", () => {
+        const [player, root] = SceneSerializer.deserializeScene(linkScene(node("Player"), tankLink()));
+        player.addComponent(Aim).target = child(root, 1, 0);
+
+        const saved = saveLinked();
+        clear();
+        const [player2, root2] = SceneSerializer.deserializeScene(saved);
+
+        expect(player2.getComponent(Aim)!.target).toBe(child(root2, 1, 0));
+    });
+
+    test("a link inside an expanded instance counts its scope past it", () => {
+        const [player, root] = SceneSerializer.deserializeScene(linkScene(
+            node("Player"),
+            node("Tank", {
+                children: [node("Turret", {
+                    id: "k-turret",
+                    prefab: { guid: "guid-turret", changes: { overrides: [] } },
+                })],
+                // A prefab this session does not have: the instance can only be
+                // written in full, while the Turret inside it is still a link.
+                prefab: { guid: "guid-not-loaded" },
+            }),
+        ));
+        child(root, 0, 0).getComponent(Aim)!.target = player;
+
+        const saved = saveLinked();
+        expect(saved.roots[1].prefab).toEqual({ guid: "guid-not-loaded" });
+        const turret = saved.roots[1].children[0].prefab!;
+        expect(turret.changes!.overrides[0].value).toEqual({ $type: "GameObjectRef", path: [0], scope: 1 });
+
+        clear();
+        const [player2, root2] = SceneSerializer.deserializeScene(saved);
+        expect(child(root2, 0, 0).getComponent(Aim)!.target).toBe(player2);
+    });
+
+    test("a reference scoped deeper than its stack resolves to null", () => {
+        const [holder] = SceneSerializer.deserializeScene(linkScene(node("Holder", {
+            components: [{ type: "PrefabSpec.Aim", fields: { target: { $type: "GameObjectRef", path: [0], scope: 3 } } }],
+        })));
+
+        expect(holder.getComponent(Aim)!.target).toBeNull();
+    });
+
+    test("added and removed children and components round-trip through a scene", () => {
+        const [root] = SceneSerializer.deserializeScene(linkScene(tankLink()));
+        child(root, 0).destroyImmediate();
+        root.removeComponent(root.getComponent(Aim)!);
+        new GameObject("Flag").transform.setParent(root.transform, false);
+        root.addComponent(Tag).label = "tagged";
+
+        const first = saveLinked();
+        const changes = first.roots[0].prefab!.changes!;
+        expect(changes.removedChildren).toEqual(["k-hull"]);
+        expect(changes.removedComponents).toEqual([{ node: "k-root", component: "PrefabSpec.Aim", componentIndex: 0 }]);
+        expect(changes.addedChildren!.map(a => a.node.name)).toEqual(["Flag"]);
+        expect(changes.addedComponents!.map(a => a.component.fields["label"])).toEqual(["tagged"]);
+
+        clear();
+        const [back] = SceneSerializer.deserializeScene(first);
+        expect([0, 1].map(i => child(back, i).name)).toEqual(["Turret", "Flag"]);
+        expect(back.getComponent(Aim)).toBeNull();
+        expect(labels(back)).toEqual(["tagged"]);
+        // The added child kept the id it was given, so the file does not churn.
+        expect(saveLinked()).toEqual(first);
+    });
+
+    test("an instance whose prefab is missing becomes a placeholder and is written back verbatim", () => {
+        const json = linkScene(node("Lost", {
+            transform: pose(4, 0, 0),
+            prefab: { guid: "guid-missing", changes: CHANGES } as never,
+        }));
+
+        const [lost] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(json)));
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("not loaded"));
+        expect(lost.isPrefabInstance).toBe(true);
+        expect(lost.prefabSource).toBeNull();
+        expect(lost.transform.childCount).toBe(0);
+        expect(lost.transform.localPosition.x).toBeCloseTo(4);
+        expect(JSON.stringify(saveLinked().roots)).toBe(JSON.stringify(json.roots));
+        expect(JSON.stringify(save().roots)).toBe(JSON.stringify(json.roots));
+    });
+
+    test("objects added under a placeholder are reported when it is saved", () => {
+        const json = linkScene(node("Lost", { prefab: { guid: "guid-missing", changes: { overrides: [] } } }));
+        const [lost] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(json)));
+        new GameObject("Added").transform.setParent(lost.transform, false);
+        warn.mockClear();
+
+        const saved = saveLinked();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("stands in for a prefab"));
+        expect(saved.roots).toEqual(json.roots);
+    });
+
+    test("a change addressed to a node the prefab no longer has is kept, and applies again when the node returns", () => {
+        const changes = {
+            overrides: CHANGES.overrides,
+            addedChildren: [{ parent: "k-hull", index: 0, node: node("Decal", { id: "a-decal" }) }],
+        };
+        const withoutHull = tankTree();
+        withoutHull.children.splice(0, 1);
+        withoutHull.components = [];
+        bind("guid-tank", withoutHull);
+
+        const [root] = SceneSerializer.deserializeScene(linkScene(tankLink(changes)));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("no longer has"));
+        expect(root.transform.childCount).toBe(1);
+
+        const saved = saveLinked();
+        expect(saved.roots[0].prefab!.changes).toEqual({ overrides: [] });
+        expect(saved.roots[0].prefab!.unused).toEqual(changes);
+
+        clear();
+        bind("guid-tank", tankTree());
+        const [back] = SceneSerializer.deserializeScene(saved);
+        expect(labels(child(back, 0))).toEqual(["patched"]);
+        expect(child(back, 0, 0).name).toBe("Decal");
+
+        const again = saveLinked().roots[0].prefab!;
+        expect(again.unused).toBeUndefined();
+        expect(again.changes!.overrides).toEqual(changes.overrides);
+        expect(again.changes!.addedChildren).toEqual(changes.addedChildren);
+    });
+
+    test("a prefab that contains itself becomes a placeholder instead of recursing", () => {
+        bind("guid-loop", node("Loop", {
+            id: "l-root",
+            children: [node("Inner", { id: "l-inner", prefab: { guid: "guid-loop", changes: { overrides: [] } } })],
+        }));
+        const json = linkScene(node("Loop", { prefab: { guid: "guid-loop", changes: { overrides: [] } } }));
+
+        const [loop] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(json)));
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("contains itself"));
+        const inner = child(loop, 0);
+        expect(inner.isPrefabInstance).toBe(true);
+        expect(inner.transform.childCount).toBe(0);
+        expect(JSON.stringify(saveLinked().roots)).toBe(JSON.stringify(json.roots));
+    });
+
+    test("the shell's name, position and rotation win; scale and active follow the prefab", () => {
+        const scaled = (s: number): SerializedGameObject["transform"] => ({
+            position: { x: 9, y: 9, z: 9 },
+            rotation: { x: 0, y: 0, z: 0, w: 1 },
+            scale: { x: s, y: s, z: s },
+        });
+        bind("guid-crate", node("Crate", { id: "c-root", transform: scaled(2) }));
+        const turned = { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 };
+        const shell = (changes: object) => node("Box 1", {
+            active: false,
+            transform: { position: { x: 1, y: 0, z: 0 }, rotation: turned, scale: { x: 5, y: 5, z: 5 } },
+            prefab: { guid: "guid-crate", changes } as never,
+        });
+
+        const [plain, overridden] = SceneSerializer.deserializeScene(linkScene(
+            shell({ overrides: [] }),
+            shell({ overrides: [
+                { path: [], node: "c-root", component: null, componentIndex: 0, field: "active", value: false },
+                { path: [], node: "c-root", component: null, componentIndex: 0, field: "transform.scale", value: { x: 3, y: 3, z: 3 } },
+            ] }),
+        ));
+
+        expect(plain.name).toBe("Box 1");
+        expect(plain.transform.localPosition.x).toBeCloseTo(1);
+        expect(plain.transform.localRotation.y).toBeCloseTo(Math.SQRT1_2);
+        expect(plain.transform.localScale.x).toBeCloseTo(2);
+        expect(plain.activeSelf).toBe(true);
+        expect(overridden.transform.localScale.x).toBeCloseTo(3);
+        expect(overridden.activeSelf).toBe(false);
+
+        // Name, position and rotation differ from the prefab, yet are never
+        // written as overrides: the shell carries them.
+        const fields = (i: number) => saveLinked().roots[i].prefab!.changes!.overrides.map(o => o.field);
+        expect(fields(0)).toEqual([]);
+        expect(fields(1)).toEqual(["active", "transform.scale"]);
+    });
+
+    test("reordering prefab children inside an instance saves that instance in full", () => {
+        const [root] = SceneSerializer.deserializeScene(linkScene(tankLink()));
+        child(root, 0).transform.setSiblingIndex(1);
+
+        const saved = saveLinked();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("reordered"));
+        expect(saved.roots[0].prefab).toEqual({ guid: "guid-tank" });
+        expect(saved.roots[0].children.map(c => c.name)).toEqual(["Turret", "Hull"]);
+
+        clear();
+        const [back] = SceneSerializer.deserializeScene(saved);
+        expect(back.isPrefabInstance).toBe(true);
+        expect([0, 1].map(i => child(back, i).name)).toEqual(["Turret", "Hull"]);
+        expect(child(back, 0).isPrefabInstance).toBe(true);
+    });
+
+    test("a prefab's own inline material is there when a linked instance is rebuilt", () => {
+        const source = new GameObject("Crate");
+        const mat = new StandardMaterial();
+        mat.metallic = 0.3;
+        source.addComponent(MeshRenderer).sharedMaterial = mat;
+        const tree = SceneSerializer.serializeGameObject(source);
+        tree.id = "c-root";
+        source.destroyImmediate();
+        bind("guid-crate", tree);
+
+        const [crate] = SceneSerializer.deserializeScene(linkScene(
+            node("Crate", { prefab: { guid: "guid-crate", changes: { overrides: [] } } }),
+        ));
+
+        const back = crate.getComponent(MeshRenderer)!.sharedMaterial as StandardMaterial;
+        expect(back).toBeInstanceOf(StandardMaterial);
+        expect(back).not.toBe(mat);
+        expect(back.metallic).toBeCloseTo(0.3);
+        expect(SceneSerializer.pendingAssetGuids).toEqual([]);
     });
 });

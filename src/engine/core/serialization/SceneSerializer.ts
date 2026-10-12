@@ -13,6 +13,9 @@ import { Color } from "../math/Color";
 import { MissingComponent, MissingValue } from "./MissingComponent";
 import {
     PrefabDiff,
+    mintNodeId,
+    type PrefabChanges,
+    type PrefabOverride,
     type PrefabSource,
     type PrefabInstanceInfo,
     type SerializedPrefabLink,
@@ -21,6 +24,7 @@ import {
     ValueSerializer,
     type SerializeContext,
     type DeserializeContext,
+    type RefScope,
 } from "./ValueSerializer";
 
 /**
@@ -38,10 +42,31 @@ interface SceneCtx extends SerializeContext {
     readonly outer: SceneCtx | null;
     /** Inline assets already written, shared with {@link outer}. */
     readonly inlined: Map<object, string>;
+    /**
+     * Node ids given to objects that had none, for a pass that must leave the
+     * live objects as they are. Shared with {@link outer}.
+     */
+    readonly minted: Map<GameObject, string>;
+    /** Whether an id minted for an added node is stored on the live object. */
+    readonly mintLive: boolean;
     /** Shared with {@link outer}. */
     assetTable: SerializedAsset[];
     locate(go: GameObject): { path: number[]; scope: number } | null;
 }
+
+/** The reader's context for one load. Module-private: not part of the API. */
+interface LoadCtx extends DeserializeContext {
+    scopeStack: object[];
+    /**
+     * Guids of the prefabs being rebuilt as links, outermost first, plus the
+     * prefab being instantiated when there is one: what a prefab that
+     * contains itself is caught against.
+     */
+    chain: string[];
+}
+
+/** Root fields a link-mode shell carries itself, so they are never also overrides. */
+const SHELL_FIELDS: ReadonlySet<string> = new Set(["name", "transform.position", "transform.rotation"]);
 
 /** Serialized snapshot of a single GameObject (recursive). */
 export interface SerializedGameObject {
@@ -264,7 +289,7 @@ export class SceneSerializer {
      * **NEVER use in user-facing code.**
      */
     public static _serializeForPrefab(go: GameObject): SerializedGameObject {
-        const ctx = SceneSerializer._buildSerializeCtx([go], true, null);
+        const ctx = SceneSerializer._buildSerializeCtx([go], true, null, false);
         const root = SceneSerializer._serializeNode(go, ctx, false, true);
         if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
         return root;
@@ -392,9 +417,10 @@ export class SceneSerializer {
         return [...found];
     }
 
-    private static _newContext(): DeserializeContext {
-        const ctx: DeserializeContext = {
+    private static _newContext(chain: readonly string[] = []): LoadCtx {
+        const ctx: LoadCtx = {
             scopeStack: [],
+            chain: [...chain],
             pendingGORefs: [],
             pendingComponentRefs: [],
             pendingAssetRefs: [],
@@ -414,11 +440,14 @@ export class SceneSerializer {
      * @param outer - the pass this one is nested in, when it writes a single
      *   instance on its own: it shares the asset table, and a reference that
      *   leaves the instance is counted from the pass around it.
+     * @param mintLive - whether ids minted for added nodes are stored on the
+     *   live objects. Inherited from `outer` when there is one.
      */
     private static _buildSerializeCtx(
         roots: ReadonlyArray<GameObject>,
         link: boolean,
         outer: SceneCtx | null,
+        mintLive: boolean = true,
     ): SceneCtx {
         const goToPath = new Map<GameObject, number[]>();
         const walk = (go: GameObject, path: number[]): void => {
@@ -441,6 +470,8 @@ export class SceneSerializer {
             link,
             outer,
             inlined,
+            minted: outer ? outer.minted : new Map<GameObject, string>(),
+            mintLive: outer ? outer.mintLive : mintLive,
             locate: (go) => {
                 let level = 0;
                 for (let c: SceneCtx | null = ctxRef.value; c !== null; c = c.outer, level++) {
@@ -549,7 +580,14 @@ export class SceneSerializer {
         // An instance whose prefab could not be found: nothing was built from it,
         // so there is nothing to write but what it was read as.
         if (info.raw !== null) {
-            const out = SceneSerializer._serializeShell(go, under);
+            if (go.transform.childCount > 0 || SceneSerializer._componentsOf(go).length > 0) {
+                console.warn(
+                    `[SceneSerializer] "${go.name}" stands in for a prefab that is not loaded, ` +
+                    `so what was added under it has nothing to be recorded against and is not saved. ` +
+                    `Load the prefab and open the scene again before changing it.`,
+                );
+            }
+            const out = SceneSerializer._serializeShell(go, ctx, under);
             out.prefab = SceneSerializer._cloneJson(info.raw);
             return out;
         }
@@ -559,12 +597,21 @@ export class SceneSerializer {
         if (guid === null) return SceneSerializer._serializeNode(go, ctx, under, true);
 
         const source = ctx.link ? SceneSerializer._prefabSourceOf(info) : null;
-        if (source === null) {
-            const full = SceneSerializer._serializeNode(go, ctx, under, true);
-            full.prefab = SceneSerializer._expandedLink(guid, info);
-            return full;
-        }
-        return SceneSerializer._serializeInstance(go, guid, source, ctx, under);
+        if (source === null) return SceneSerializer._serializeExpanded(go, guid, info, ctx, under);
+        return SceneSerializer._serializeInstance(go, guid, source, info, ctx, under);
+    }
+
+    /** An instance written in full, with a note of its prefab. */
+    private static _serializeExpanded(
+        go: GameObject,
+        guid: string,
+        info: PrefabInstanceInfo,
+        ctx: SceneCtx,
+        under: boolean,
+    ): SerializedGameObject {
+        const full = SceneSerializer._serializeNode(go, ctx, under, true);
+        full.prefab = SceneSerializer._expandedLink(guid, info);
+        return full;
     }
 
     /** The link an instance written in full carries: its prefab, and what no longer applies. */
@@ -582,28 +629,95 @@ export class SceneSerializer {
      * be compared with the prefab on equal terms — a reference between two of
      * its own objects is the same path in both. References that leave it are the
      * one thing that cannot be, and say how far out they count from.
+     *
+     * Objects added to the instance are given node ids first, so that saving
+     * twice writes the same file. An instance that did something the changes
+     * cannot record — moved one of the prefab's own nodes — is written in full
+     * instead, and says why.
      */
     private static _serializeInstance(
         go: GameObject,
         guid: string,
         source: PrefabSource,
+        info: PrefabInstanceInfo,
         outer: SceneCtx,
         under: boolean,
     ): SerializedGameObject {
+        let tree: SerializedGameObject;
+        try {
+            tree = source._resolvedTree();
+        } catch {
+            return SceneSerializer._serializeExpanded(go, guid, info, outer, under);
+        }
+
+        SceneSerializer._mintAddedIds(go, outer);
         const local = SceneSerializer._buildSerializeCtx([go], true, outer);
         const expanded = SceneSerializer._serializeNode(go, local, false, true);
-        const changes = PrefabDiff.compareChanges(source._resolvedTree(), expanded);
 
-        const out = SceneSerializer._serializeShell(go, under);
+        const reason = PrefabDiff.inexpressible(tree, expanded);
+        if (reason !== null) {
+            console.warn(
+                `[SceneSerializer] "${go.name}" is saved in full rather than as its prefab plus ` +
+                `changes: ${reason}, which a prefab instance cannot record. It stops following ` +
+                `edits to its prefab until it is reverted.`,
+            );
+            return SceneSerializer._serializeExpanded(go, guid, info, outer, under);
+        }
+
+        const changes = PrefabDiff.compareChanges(tree, expanded);
+        changes.overrides = changes.overrides.filter(o => !SceneSerializer._isShellOverride(o, tree));
+
+        const out = SceneSerializer._serializeShell(go, outer, under);
         out.prefab = { guid, changes };
+        if (info.unused !== null) out.prefab.unused = SceneSerializer._cloneJson(info.unused);
         return out;
+    }
+
+    /**
+     * Whether an override is one of the root fields the shell already carries:
+     * name, position and rotation, which an instance never takes from its
+     * prefab (Unity's default overrides).
+     */
+    private static _isShellOverride(o: PrefabOverride, tree: SerializedGameObject): boolean {
+        const atRoot = o.node !== undefined ? o.node === tree.id : o.path.length === 0;
+        return atRoot && o.component === null && SHELL_FIELDS.has(o.field);
+    }
+
+    /**
+     * Gives every object of an instance's own that has no node id one: the
+     * objects added to it. A nested instance's root is one of them; its
+     * interior is not, since it belongs to the nested prefab.
+     */
+    private static _mintAddedIds(root: GameObject, ctx: SceneCtx): void {
+        const walk = (parent: GameObject): void => {
+            for (let i = 0; i < parent.transform.childCount; i++) {
+                const child = parent.transform.getChild(i).gameObject;
+                if (SceneSerializer._nodeIdOf(child, ctx) === null) {
+                    const id = mintNodeId();
+                    if (ctx.mintLive) child._prefabNodeId = id;
+                    else ctx.minted.set(child, id);
+                }
+                if (child._prefabInfo === null) walk(child);
+            }
+        };
+        walk(root);
+    }
+
+    /** An object's node id, as this pass writes it. */
+    private static _nodeIdOf(go: GameObject, ctx: SceneCtx): string | null {
+        return go._prefabNodeId ?? ctx.minted.get(go) ?? null;
+    }
+
+    /** The components a GameObject carries besides its Transform. */
+    private static _componentsOf(go: GameObject): readonly Component[] {
+        return (go as unknown as { _components: Component[] })._components;
     }
 
     /**
      * An object's own state, with nothing under it: name, activity, transform,
      * and its node id when `withId`.
      */
-    private static _serializeShell(go: GameObject, withId: boolean): SerializedGameObject {
+    private static _serializeShell(go: GameObject, ctx: SceneCtx, withId: boolean): SerializedGameObject {
         const t = go.transform;
         const out: SerializedGameObject = {
             name: go.name,
@@ -619,7 +733,8 @@ export class SceneSerializer {
             components: [],
             children: [],
         };
-        if (withId && go._prefabNodeId !== null) out.id = go._prefabNodeId;
+        const id = withId ? SceneSerializer._nodeIdOf(go, ctx) : null;
+        if (id !== null) out.id = id;
         return out;
     }
 
@@ -638,7 +753,7 @@ export class SceneSerializer {
         instanceRoot: boolean,
     ): SerializedGameObject {
         const t = go.transform;
-        const out = SceneSerializer._serializeShell(go, under);
+        const out = SceneSerializer._serializeShell(go, ctx, under);
         for (let i = 0; i < t.childCount; i++) {
             out.children.push(SceneSerializer._serializeGO(t.getChild(i).gameObject, ctx, under || instanceRoot));
         }
@@ -652,10 +767,14 @@ export class SceneSerializer {
         return info.source === null ? null : AssetDatabase.guidOf(info.source);
     }
 
-    /** The prefab an instance came from, if this session has it. */
+    /**
+     * The prefab an instance came from, if this session has it. The one loaded
+     * under its id now wins over the one it was built from, so a prefab file
+     * loaded again is the one its instances follow.
+     */
     private static _prefabSourceOf(info: PrefabInstanceInfo): PrefabSource | null {
-        if (info.source !== null) return info.source;
-        return info.guid === null ? null : SceneSerializer._prefabById(info.guid);
+        const current = info.guid === null ? null : SceneSerializer._prefabById(info.guid);
+        return current ?? info.source;
     }
 
     private static _prefabById(guid: string): PrefabSource | null {
@@ -917,7 +1036,7 @@ export class SceneSerializer {
      */
     public static _createGameObject: ((name: string) => GameObject) | null = null;
 
-    private static _deserializeGO(json: SerializedGameObject, ctx: DeserializeContext): GameObject {
+    private static _deserializeGO(json: SerializedGameObject, ctx: LoadCtx): GameObject {
         const create = SceneSerializer._createGameObject;
         if (!create) {
             // Only reachable if this module was used without GameObject ever
@@ -928,27 +1047,14 @@ export class SceneSerializer {
             );
         }
 
-        // Link mode is read in a later stage; until then a link is kept, not
-        // read hollow, exactly as a link to a missing prefab is.
         if (json.prefab?.changes !== undefined) {
-            return SceneSerializer._placeholder(json, create);
+            return SceneSerializer._deserializeLink(json, ctx, create);
         }
 
         const go = create(json.name);
         go.setActive(json.active);
-
-        const t = go.transform;
         SceneSerializer._applyPose(go, json.transform);
-
-        for (const compJson of json.components) {
-            SceneSerializer._deserializeComponent(compJson, go, ctx);
-        }
-        for (const childJson of json.children) {
-            const child = SceneSerializer._deserializeGO(childJson, ctx);
-            // The saved pose is already local; keeping the world pose instead
-            // would subtract the parent's from it.
-            child.transform.setParent(t, false);
-        }
+        SceneSerializer._buildContents(go, json, ctx);
 
         go._prefabNodeId = typeof json.id === "string" ? json.id : null;
         if (json.prefab && typeof json.prefab.guid === "string") {
@@ -960,6 +1066,115 @@ export class SceneSerializer {
             };
         }
         return go;
+    }
+
+    /** Builds an object's components, then its children, from saved JSON. */
+    private static _buildContents(go: GameObject, json: SerializedGameObject, ctx: LoadCtx): void {
+        for (const compJson of json.components) {
+            SceneSerializer._deserializeComponent(compJson, go, ctx);
+        }
+        for (const childJson of json.children) {
+            const child = SceneSerializer._deserializeGO(childJson, ctx);
+            // The saved pose is already local; keeping the world pose instead
+            // would subtract the parent's from it.
+            child.transform.setParent(go.transform, false);
+        }
+    }
+
+    /**
+     * Rebuilds an instance saved as its prefab plus changes.
+     *
+     * @remarks
+     * The shell supplies name, position and rotation, which an instance never
+     * takes from its prefab; active and scale come from the prefab with the
+     * changes applied, so an edit to the prefab's scale reaches an instance
+     * that did not override it. While its contents are built the instance is
+     * on the scope stack, which is what a scoped reference inside it is counted
+     * against.
+     */
+    private static _deserializeLink(
+        json: SerializedGameObject,
+        ctx: LoadCtx,
+        create: (name: string) => GameObject,
+    ): GameObject {
+        const link = json.prefab!;
+        const guid = link.guid;
+
+        if (ctx.chain.includes(guid)) {
+            console.warn(
+                `[SceneSerializer] "${json.name}" is an instance of a prefab that contains itself ` +
+                `(${guid}). It is kept as a placeholder instead of being rebuilt without end.`,
+            );
+            return SceneSerializer._placeholder(json, create);
+        }
+
+        const source = SceneSerializer._prefabById(guid);
+        let base: SerializedGameObject | null = null;
+        if (source === null) {
+            console.warn(
+                `[SceneSerializer] "${json.name}" is an instance of prefab ${guid}, which is not ` +
+                `loaded. It is kept as a placeholder and saved back as it was read; load the ` +
+                `prefab and open the scene again to rebuild it.`,
+            );
+        } else {
+            try {
+                base = source._resolvedTree();
+            } catch (error) {
+                console.warn(
+                    `[SceneSerializer] "${json.name}": prefab ${guid} could not be resolved, so the ` +
+                    `instance is kept as a placeholder.`, error,
+                );
+            }
+        }
+        if (source === null || base === null) return SceneSerializer._placeholder(json, create);
+
+        const all = SceneSerializer._mergeChanges(link.changes!, link.unused);
+        const tree = PrefabDiff.applyChanges(base, all);
+        const unused = PrefabDiff.unused(base, all);
+        if (unused !== null) {
+            const count = unused.overrides.length
+                + (unused.addedChildren?.length ?? 0) + (unused.addedComponents?.length ?? 0);
+            console.warn(
+                `[SceneSerializer] "${json.name}": ${count} change(s) address objects its prefab ` +
+                `no longer has. They are kept, and apply again if the prefab gets them back.`,
+            );
+        }
+
+        SceneSerializer._materializeAssets(tree.assets, ctx);
+
+        const go = create(json.name);
+        go.setActive(tree.active);
+        SceneSerializer._applyPose(go, {
+            position: json.transform.position,
+            rotation: json.transform.rotation,
+            scale: tree.transform.scale,
+        });
+        go._prefabNodeId = typeof json.id === "string" ? json.id : null;
+        // Set before the contents are built, so the instance is on the chain
+        // for anything nested inside it.
+        go._prefabInfo = { source, guid, raw: null, unused };
+
+        ctx.scopeStack.push(go);
+        ctx.chain.push(guid);
+        try {
+            SceneSerializer._buildContents(go, tree, ctx);
+        } finally {
+            ctx.scopeStack.pop();
+            ctx.chain.pop();
+        }
+        return go;
+    }
+
+    /** An instance's changes together with the ones that did not apply last time. */
+    private static _mergeChanges(changes: PrefabChanges, unused: PrefabChanges | undefined): PrefabChanges {
+        if (!unused) return changes;
+        return {
+            overrides: [...changes.overrides, ...unused.overrides],
+            addedChildren: [...(changes.addedChildren ?? []), ...(unused.addedChildren ?? [])],
+            removedChildren: changes.removedChildren,
+            addedComponents: [...(changes.addedComponents ?? []), ...(unused.addedComponents ?? [])],
+            removedComponents: changes.removedComponents,
+        };
     }
 
     /**
@@ -1144,12 +1359,12 @@ export class SceneSerializer {
     /** Walks every collected reference and assigns what it resolved to. */
     private static _resolveRefs(ctx: DeserializeContext, roots: ReadonlyArray<GameObject>): void {
         for (const ref of ctx.pendingGORefs) {
-            const target = SceneSerializer._lookupByPath(roots, ref.path);
+            const target = SceneSerializer._lookupScoped(roots, ref);
             SceneSerializer._writeRef(ref.component, ref.field, ref.arrayIndex, target);
         }
 
         for (const ref of ctx.pendingComponentRefs) {
-            const owner = SceneSerializer._lookupByPath(roots, ref.path);
+            const owner = SceneSerializer._lookupScoped(roots, ref);
             const target = owner === null
                 ? null
                 : SceneSerializer._findComponent(owner, ref.typeName, ref.index);
@@ -1157,6 +1372,54 @@ export class SceneSerializer {
         }
 
         SceneSerializer._pending = ctx.pendingAssetRefs.slice();
+    }
+
+    /**
+     * Resolves a pending reference against the roots its scope names: the
+     * instance `scope` levels out from where it was read, or the roots being
+     * loaded when it counts out past every instance. A scope deeper than that
+     * is a malformed file and resolves to null.
+     */
+    private static _lookupScoped(
+        roots: ReadonlyArray<GameObject>,
+        ref: { component: object; field: string; path: number[]; ref?: RefScope },
+    ): GameObject | null {
+        const { stack, scope } = ref.ref ?? { stack: [], scope: 0 };
+        let base: ReadonlyArray<GameObject>;
+        if (scope < stack.length) base = [stack[stack.length - 1 - scope] as GameObject];
+        else if (scope === stack.length) base = roots;
+        else return null;
+
+        const target = SceneSerializer._lookupByPath(base, ref.path);
+        if (target === null) SceneSerializer._warnIfIntoPlaceholder(base, ref);
+        return target;
+    }
+
+    /**
+     * Says so when a reference came out null because it points into an
+     * instance whose prefab is missing: it is lost if the scene is saved in
+     * that state, and nobody would otherwise know why.
+     */
+    private static _warnIfIntoPlaceholder(
+        roots: ReadonlyArray<GameObject>,
+        ref: { component: object; field: string; path: number[] },
+    ): void {
+        const path = ref.path;
+        if (path.length === 0 || path[0] < 0 || path[0] >= roots.length) return;
+        let cur = roots[path[0]];
+        for (let i = 1; i < path.length; i++) {
+            if (cur._prefabInfo?.raw) {
+                console.warn(
+                    `[SceneSerializer] ${ref.component.constructor.name}.${ref.field} points into ` +
+                    `"${cur.name}", whose prefab is not loaded. It is null for now, and is lost if ` +
+                    `the scene is saved before the prefab is loaded.`,
+                );
+                return;
+            }
+            const idx = path[i];
+            if (idx < 0 || idx >= cur.transform.childCount) return;
+            cur = cur.transform.getChild(idx).gameObject;
+        }
     }
 
     /**
