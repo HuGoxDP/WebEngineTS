@@ -1,0 +1,144 @@
+name: Release
+
+# Pushing a tag vX.Y.Z publishes that commit as a GitHub Release. How to cut
+# one is in README.md, "Releasing".
+#
+# Where it is published, and why there:
+#
+#   The packed tarball is attached to the GitHub Release, and consumers depend
+#   on its download URL:
+#     "WebEngineTS": "https://github.com/HuGoxDP/WebEngineTS/releases/download/vX.Y.Z/WebEngineTS-X.Y.Z.tgz"
+#   npm fetches a tarball URL anonymously, and this repo is public, so a
+#   consumer's Docker build installs it with no credentials at all.
+#
+#   GitHub Packages (npm.pkg.github.com) is NOT used, although it looks like
+#   the natural home for an npm package. Its npm registry requires an auth
+#   token for every install, even of a public package. Every consumer would then
+#   need an .npmrc with a token and a secret mounted into its Docker build — a
+#   credential to create, rotate and keep out of image layers, for repositories
+#   that are all public and need none.
+#
+#   The public npm registry is not used either: publishing there needs an
+#   account and a token held in this repo, and it rejects new package names
+#   containing capitals, so "WebEngineTS" could not go there under its own name.
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+# Enough to create the release and upload its assets; nothing else.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      # persist-credentials: false keeps this job's contents:write token out of
+      # .git/config. The install, test and build steps below run third-party
+      # code (dependency install scripts, test code, Rollup plugins), and
+      # nothing here pushes with git: gh authenticates with GH_TOKEN, which
+      # only the Publish step is given.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # No `cache: npm` here, unlike ci.yml: a release runs rarely, and one
+      # built from nothing but the registry and the lockfile is simpler to
+      # trust than one that also depends on what earlier runs left in a cache.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The two checks below run before anything is installed: each one
+      # catches a tag that should not have been pushed, and neither needs
+      # node_modules, so a bad tag fails in seconds rather than after the build.
+      #
+      # The version is what BuildInfo stamps into the bundle and what npm
+      # writes into the tarball's name, so a tag that disagrees with it would
+      # publish "v0.3.0" whose contents call themselves 0.2.0.
+      - name: Tag matches package.json
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version (expected tag v$version). Set the version in a commit (npm version X.Y.Z --no-git-tag-version; README, Releasing) and tag that commit, or delete this tag: git push --delete origin $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      # Fails when CHANGELOG.md has no section for this version, and, with
+      # --require-empty-unreleased, when [Unreleased] still has entries: cutting
+      # a release empties it, so leftovers mean the notes would leave out
+      # changes the build contains. That is also what refuses a tag for a
+      # version whose section was written for an earlier build: [0.1.0] exists,
+      # but describes only the first local tarballs, so v0.1.0 on a later commit
+      # would publish everything since under notes that mention none of it.
+      # The script's header has the reasoning for both.
+      - name: Release notes from CHANGELOG.md
+        run: node scripts/changelog-section.mjs --require-empty-unreleased "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+
+      # Not `npm ci`, for the reason given on the Install step in ci.yml.
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # WEBENGINE_BUILD_VERSION must stay unset: it exists so release-local.mjs
+      # can stamp a throwaway local version, and here the bundle has to report
+      # the real package version — the one the tag was just checked against.
+      - name: Build
+        run: npm run build
+
+      - name: Pack
+        id: pack
+        run: |
+          tgz=$(npm pack --json | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8"))[0].filename)')
+          echo "tgz=$tgz" >> "$GITHUB_OUTPUT"
+
+      # The attached files beyond the tarball are for hosts that do not
+      # install the package:
+      #
+      #   * WebEngineTS.standalone.js + WebEngineTS.d.ts — the import-map
+      #     bundle (three included) and its types, which is all the benchmark
+      #     suite takes.
+      #   * basis_transcoder.js + .wasm — the KTX2 transcoder every host must
+      #     serve itself (README, "KTX2 / Basis textures"). It is versioned
+      #     with three, and the standalone bundle carries this build's three
+      #     inside it, so the matching transcoder is the one from this build's
+      #     node_modules, not whatever three a host happens to have. Shipping
+      #     the pair with the release keeps the two in step.
+      #
+      # The footer names that three version, because the transcoder is only
+      # correct for it.
+      #
+      # A hyphenated version (v0.3.0-rc.1) is published as a prerelease so it
+      # never shows as the latest release.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
+        run: |
+          basis=node_modules/three/examples/jsm/libs/basis
+          three=$(node -p 'require("./node_modules/three/package.json").version')
+          # shellcheck disable=SC2016 # the backticks are Markdown code spans, not substitutions
+          printf '\n---\n\nBuilt and tested against three %s. `WebEngineTS.standalone.js` bundles that version, and the attached `basis_transcoder.*` pair comes from it.\n' "$three" >> "$RUNNER_TEMP/release-notes.md"
+
+          prerelease=()
+          case "$GITHUB_REF_NAME" in *-*) prerelease=(--prerelease) ;; esac
+
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "WebEngineTS $GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "${prerelease[@]}" \
+            "$TGZ" \
+            dist/WebEngineTS.standalone.js \
+            dist/WebEngineTS.d.ts \
+            "$basis/basis_transcoder.js" \
+            "$basis/basis_transcoder.wasm"

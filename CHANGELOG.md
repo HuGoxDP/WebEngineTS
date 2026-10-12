@@ -109,6 +109,14 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   packed tarball as a workflow artifact named after the commit it built. An unreleased change
   can be installed and tried from there without building the engine locally; the artifacts
   expire, so nothing deployed should depend on one.
+- **Releases are published as GitHub Releases.** Pushing a `vX.Y.Z` tag runs the same checks
+  on that commit and attaches the tarball, the standalone bundle with its `.d.ts`, and the
+  Basis transcoder pair that matches the bundled three. A consumer can now pin
+  `https://github.com/HuGoxDP/WebEngineTS/releases/download/vX.Y.Z/WebEngineTS-X.Y.Z.tgz`
+  instead of committing a copied tarball; npm fetches it without a token, so a Docker build
+  needs no credentials. The release notes are this file's section for that version. A tag that
+  disagrees with `package.json`, has no section here, or leaves entries under `[Unreleased]`
+  publishes nothing, so a release's notes always cover what its build contains.
 
 ### Known issues
 
