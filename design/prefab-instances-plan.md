@@ -518,6 +518,16 @@ with `_serializeForPrefab(instance)`, never with `serializeGameObject(instance)`
 `_serializeForPrefab` writes the root expanded and the nested instances as links, which is the
 shape the prefab itself has.
 
+*Corrected after review:* an object whose own nodes have **no ids at all** — one loaded from a
+file written before ids, a copy `Instantiate` made before them, or the object a prefab was made
+from without `connect` — is compared **by position**, as every object was at `bde23fc`. Minting
+fresh ids for it, as the first implementation did, matched none of the prefab's: every child
+read as added, every internal reference as an override, and a variant built from
+`getOverrides` lost both. `_serializeForPrefab(go, { match })` therefore gives such an object the
+prefab's ids at the same places before writing it (stored on the objects only by `getChanges`,
+which maps ids to live objects), and `compareChanges`, given an id-less snapshot directly, does
+the same to a copy of it and rewrites its positional references to those ids.
+
 ### 6.4 With `MissingComponent` (E6)
 
 Unknown data is carried as data. Prefabs do not change that.

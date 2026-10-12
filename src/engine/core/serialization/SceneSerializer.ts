@@ -313,13 +313,27 @@ export class SceneSerializer {
      * unless `mintLive`, which stores them on the objects — what makes the
      * objects nodes of the prefab written from them.
      *
+     * `match` is the prefab `go` is about to be compared with. When none of
+     * `go`'s own objects has an id — a copy made before ids existed, or the
+     * object a prefab was made from without connecting it — each takes the id
+     * of the prefab node at its place instead of a fresh one, so the two are
+     * compared node for node by position, as they were before ids, rather
+     * than as an instance whose every child was added and whose every
+     * reference names nodes the prefab does not have.
+     *
      * **NEVER use in user-facing code.**
      */
-    public static _serializeForPrefab(go: GameObject, options: { mintLive?: boolean } = {}): SerializedGameObject {
+    public static _serializeForPrefab(
+        go: GameObject,
+        options: { mintLive?: boolean; match?: SerializedGameObject } = {},
+    ): SerializedGameObject {
         const ctx = SceneSerializer._buildSerializeCtx([go], true, null, {
             mintLive: options.mintLive ?? false,
             prefabRoot: go,
         });
+        if (options.match !== undefined && !SceneSerializer._hasOwnIds(go, ctx)) {
+            SceneSerializer._borrowIds(go, options.match, ctx);
+        }
         // Every node gets its id before anything is written, so that the
         // prefab's own references can address them by it.
         SceneSerializer._mintAll(go, ctx);
@@ -880,6 +894,37 @@ export class SceneSerializer {
         return SceneSerializer._prefabGuid(info) !== null && SceneSerializer._prefabSourceOf(info) !== null;
     }
 
+    /** Whether any object of `root`'s own below it has a node id. */
+    private static _hasOwnIds(root: GameObject, ctx: SceneCtx): boolean {
+        for (const child of SceneSerializer._childrenOf(root)) {
+            if (SceneSerializer._nodeIdOf(child, ctx) !== null) return true;
+            if (!SceneSerializer._isWrittenInstance(child) && SceneSerializer._hasOwnIds(child, ctx)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Gives each object of `root`'s own the id of the node at the same place
+     * in `match`. One with no counterpart there is left for
+     * {@link _mintAddedIds}, as an added object.
+     */
+    private static _borrowIds(root: GameObject, match: SerializedGameObject, ctx: SceneCtx): void {
+        SceneSerializer._childrenOf(root).forEach((child, i) => {
+            const twin = match.children[i];
+            if (twin === undefined) return;
+            if (twin.id !== undefined) SceneSerializer._giveId(child, twin.id, ctx);
+            if (!SceneSerializer._isWrittenInstance(child) && twin.prefab === undefined) {
+                SceneSerializer._borrowIds(child, twin, ctx);
+            }
+        });
+    }
+
+    /** Stores a node id on the object, or beside it when the pass must leave objects alone. */
+    private static _giveId(go: GameObject, id: string, ctx: SceneCtx): void {
+        if (ctx.mintLive) go._prefabNodeId = id;
+        else ctx.minted.set(go, id);
+    }
+
     /**
      * Gives every object of an instance's own that has no node id one: the
      * objects added to it. A nested instance's root is one of them; its
@@ -890,9 +935,7 @@ export class SceneSerializer {
             for (let i = 0; i < parent.transform.childCount; i++) {
                 const child = parent.transform.getChild(i).gameObject;
                 if (SceneSerializer._nodeIdOf(child, ctx) === null) {
-                    const id = mintNodeId();
-                    if (ctx.mintLive) child._prefabNodeId = id;
-                    else ctx.minted.set(child, id);
+                    SceneSerializer._giveId(child, mintNodeId(), ctx);
                 }
                 if (!SceneSerializer._isWrittenInstance(child)) walk(child);
             }

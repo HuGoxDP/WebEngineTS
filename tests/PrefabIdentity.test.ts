@@ -4,6 +4,7 @@ import { EngineObject } from "../src/engine/core/EngineObject";
 import { Behaviour } from "../src/engine/core/Behaviour";
 import { SceneManager } from "../src/engine/core/SceneManager";
 import { Serializable, SerializedField } from "../src/engine/core/reflection/Decorators";
+import { FieldType } from "../src/engine/core/reflection/Types";
 import { SceneSerializer, type SerializedGameObject } from "../src/engine/core/serialization/SceneSerializer";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
 import { PrefabDiff } from "../src/engine/core/serialization/PrefabOverride";
@@ -19,6 +20,15 @@ import { AssetDatabase } from "../src/engine/core/assets/AssetDatabase";
 class Tag extends Behaviour {
     @SerializedField()
     public label: string = "";
+}
+
+@Serializable({ typeName: "IdentitySpec.Rig" })
+class Rig extends Behaviour {
+    @SerializedField({ type: FieldType.GameObject })
+    public target: GameObject | null = null;
+
+    @SerializedField({ type: FieldType.Component })
+    public part: object | null = null;
 }
 
 function clear(): void {
@@ -262,5 +272,80 @@ describe("a prefab and its instances", () => {
         expect(added.prefabNodeId).not.toBeNull();
         expect(() => added.unpackPrefab()).not.toThrow();
         expect(added.isPrefabInstance).toBe(false);
+    });
+});
+
+describe("objects without node ids", () => {
+    /** A Tank whose Rig points at its Barrel and at the Hull's Tag, with no node ids anywhere. */
+    function plainTank(): GameObject {
+        const hull = make("Hull", "hull");
+        const barrel = make("Barrel", "barrel");
+        const tank = make("Tank", "tank", hull, make("Turret", "turret", barrel));
+        const rig = tank.addComponent(Rig);
+        rig.target = barrel;
+        rig.part = hull.getComponent(Tag);
+        return tank;
+    }
+
+    const described = (prefab: Prefab, go: GameObject): string[] =>
+        prefab.getOverrides(go).map(o => `${JSON.stringify(o.path)} ${o.field}=${JSON.stringify(o.value)}`);
+
+    test("the object a prefab was made from without connecting is compared with it by position", () => {
+        const source = plainTank();
+        const prefab = Prefab.fromGameObject(source);
+
+        expect(prefab.getOverrides(source)).toEqual([]);
+
+        child(source, 0).name = "Hull 2";
+        child(source, 1, 0).getComponent(Tag)!.label = "long";
+        expect(described(prefab, source)).toEqual(['[0] name="Hull 2"', '[1,0] label="long"']);
+        expect(child(source, 0).prefabNodeId).toBeNull();
+    });
+
+    test("a variant made from those overrides keeps the edits and every reference", () => {
+        const source = plainTank();
+        const prefab = Prefab.fromGameObject(source);
+        child(source, 0).name = "Hull 2";
+        child(source, 1, 0).getComponent(Tag)!.label = "long";
+
+        const variant = Prefab.createVariant(prefab, prefab.getOverrides(source)).instantiate();
+
+        expect(child(variant, 0).name).toBe("Hull 2");
+        expect(child(variant, 1, 0).getComponent(Tag)!.label).toBe("long");
+        expect(variant.getComponent(Rig)!.target).toBe(child(variant, 1, 0));
+        expect(variant.getComponent(Rig)!.part).toBe(child(variant, 0).getComponent(Tag));
+    });
+
+    test("an object loaded from a scene saved before ids is compared by position", () => {
+        const prefab = Prefab.fromGameObject(plainTank());
+        const old = SceneSerializer.serializeScene(SceneManager.activeScene);
+        expect(JSON.stringify(old)).not.toMatch(/"id":/);
+        clear();
+        const [loaded] = SceneSerializer.deserializeScene(old);
+        child(loaded, 1, 0).getComponent(Tag)!.label = "long";
+
+        expect(described(prefab, loaded)).toEqual(['[1,0] label="long"']);
+        const changes = prefab.getChanges(loaded);
+        expect(changes.overrides.map(o => o.field)).toEqual(["label"]);
+        expect(changes.addedChildren).toBeUndefined();
+        expect(changes.removedChildren).toBeUndefined();
+        // Its objects now map to the prefab nodes they were matched with.
+        expect(child(loaded, 1, 0).prefabNodeId).toBe(prefab._resolvedTree().children[1].children[0].id);
+    });
+
+    test("PrefabDiff reads a snapshot with no ids by position, and leaves it as it was", () => {
+        const source = plainTank();
+        const prefab = Prefab.fromGameObject(source);
+        child(source, 1, 0).getComponent(Tag)!.label = "long";
+        new GameObject("Flag").transform.setParent(source.transform, false);
+        const snapshot = SceneSerializer.serializeGameObject(source);
+        const before = JSON.stringify(snapshot);
+
+        const changes = PrefabDiff.compareChanges(prefab._resolvedTree(), snapshot);
+
+        expect(changes.overrides.map(o => `${JSON.stringify(o.path)} ${o.field}`)).toEqual(["[1,0] label"]);
+        expect(changes.addedChildren!.map(a => a.node.name)).toEqual(["Flag"]);
+        expect(changes.removedChildren).toBeUndefined();
+        expect(JSON.stringify(snapshot)).toBe(before);
     });
 });

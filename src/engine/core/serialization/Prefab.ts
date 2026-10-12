@@ -304,11 +304,18 @@ export class Prefab {
      * full, a prefab nested inside it as a link — so an untouched instance has
      * no overrides, nested instances included.
      *
+     * An object whose nodes have no ids — a copy made before they existed, or
+     * the object this prefab was made from without `connect` — is compared
+     * node for node by position, as every object was before ids.
+     *
      * @param instance - a live GameObject, usually one {@link instantiate} made.
      * @returns the differences, in tree order. Empty when it matches.
      */
     public getOverrides(instance: GameObject): PrefabOverride[] {
-        return PrefabDiff.compare(this._resolvedTree(), SceneSerializer._serializeForPrefab(instance), SceneSerializer._prefabTree);
+        const tree = this._resolvedTree();
+        return PrefabDiff.compare(
+            tree, SceneSerializer._serializeForPrefab(instance, { match: tree }), SceneSerializer._prefabTree,
+        );
     }
 
     /**
@@ -380,11 +387,16 @@ export class Prefab {
      * The root's name, position and rotation are not listed: they are the
      * instance's own and never follow the prefab (Unity's default overrides).
      * {@link getOverrides} lists every value, those included.
+     *
+     * An object whose nodes have no ids is compared by position, as
+     * {@link getOverrides} says, and its objects are given the ids of the
+     * prefab nodes they were matched with.
      */
     public getChanges(instance: GameObject): PrefabChanges {
         const tree = this._resolvedTree();
         const changes = PrefabDiff.compareChanges(
-            tree, SceneSerializer._serializeForPrefab(instance, { mintLive: true }), SceneSerializer._prefabTree,
+            tree, SceneSerializer._serializeForPrefab(instance, { mintLive: true, match: tree }),
+            SceneSerializer._prefabTree,
         );
         changes.overrides = changes.overrides.filter(o => !Prefab._isDefaultOverride(o, tree));
         return changes;
@@ -412,7 +424,7 @@ export class Prefab {
     public applyInstance(instance: GameObject): void {
         this._requireInstance(instance);
         const tree = this._resolvedTree();
-        const snapshot = SceneSerializer._serializeForPrefab(instance, { mintLive: true });
+        const snapshot = SceneSerializer._serializeForPrefab(instance, { mintLive: true, match: tree });
 
         const guid = AssetDatabase.guidOf(this);
         if (guid !== null && Prefab._holdsPrefab(snapshot, guid, new Set())) {

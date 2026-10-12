@@ -26,6 +26,8 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   compared with its prefab node by node: `Prefab.getOverrides` no longer misreads a removed
   sibling as edits to the next one, and `PrefabDiff.compareChanges` reports added and removed
   children and components alongside the values (`PrefabChanges` and its parts are exported).
+  An object that has no ids — one saved or copied before they existed, or the object a prefab
+  was made from without `connect` — is still compared with the prefab by position, as before.
   `Prefab.instantiate`, `instantiateWithOverrides` and `revert` return instances; `revert` keeps
   the old one's place among its siblings. An instance keeps its link through undo, Play restore,
   copy and paste and `EngineObject.Instantiate`; a copy of an object from *inside* an instance

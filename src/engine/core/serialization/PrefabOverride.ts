@@ -333,13 +333,23 @@ export class PrefabDiff {
      * outer prefab makes to a *different* field of the same nested instance
      * still reaches this one. Otherwise — no resolver, the prefab not loaded,
      * a different prefab — the nested instance's whole link is one value.
+     *
+     * An instance whose nodes have no ids at all while the prefab's do — a
+     * snapshot of an object saved or copied before ids existed — is compared
+     * node for node by position, as before ids: a copy of it takes the
+     * prefab's ids at the same places, and its references, written as
+     * positions, are rewritten to them. `instance` itself is not modified in
+     * that case.
      */
     public static compareChanges(
         prefab: SerializedGameObject,
         instance: SerializedGameObject,
         resolve?: PrefabTreeResolver,
     ): PrefabChanges {
-        return PrefabDiff._compareTrees(prefab, instance, { resolve: resolve ?? null, chain: [] });
+        const matched = PrefabDiff._hasOwnIds(prefab) && !PrefabDiff._hasOwnIds(instance)
+            ? PrefabDiff._matchByPosition(prefab, instance)
+            : instance;
+        return PrefabDiff._compareTrees(prefab, matched, { resolve: resolve ?? null, chain: [] });
     }
 
     private static _compareTrees(
@@ -661,6 +671,33 @@ export class PrefabDiff {
     }
 
     // ── private ──────────────────────────────────────────────────────
+
+    /** Whether any node of `root`'s own prefab below it has an id. */
+    private static _hasOwnIds(root: SerializedGameObject): boolean {
+        for (const entry of PrefabDiff._index(root).values()) {
+            if (entry.parent !== null) return true;
+        }
+        return false;
+    }
+
+    /**
+     * A copy of `instance` whose nodes carry the ids of the prefab nodes at
+     * the same places, with its positional references rewritten to them.
+     */
+    private static _matchByPosition(prefab: SerializedGameObject, instance: SerializedGameObject): SerializedGameObject {
+        const copy = JSON.parse(JSON.stringify(instance)) as SerializedGameObject;
+        const walk = (node: SerializedGameObject, twin: SerializedGameObject): void => {
+            node.children.forEach((child, i) => {
+                const match = twin.children[i];
+                if (match === undefined) return;
+                if (match.id !== undefined) child.id = match.id;
+                if (child.prefab === undefined && match.prefab === undefined) walk(child, match);
+            });
+        };
+        walk(copy, prefab);
+        PrefabDiff._rewritePositionalRefs(copy);
+        return copy;
+    }
 
     /**
      * Rewrites every unscoped reference in a prefab tree whose path is all
