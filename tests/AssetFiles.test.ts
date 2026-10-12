@@ -52,6 +52,13 @@ class Spawner extends Behaviour {
     public prefab: Prefab | null = null;
 }
 
+/** An asset with a field of no declared shape — what any project setting looks like. */
+@Serializable({ typeName: "AssetFilesSpec.Tuning" })
+class Tuning {
+    @SerializedField({ type: FieldType.Object })
+    public options: unknown = { gain: 2, bands: [1, 2] };
+}
+
 let files: Map<string, string | Uint8Array>;
 const textureLoads: string[] = [];
 
@@ -351,6 +358,16 @@ describe("a prefab as a file", () => {
 
         expect(AssetDatabase.isLoaded("mat-hull")).toBe(true);
         expect(prefab.instantiate().getComponent(MeshRenderer)!.sharedMaterial).toBe(AssetDatabase.get("mat-hull"));
+    });
+});
+
+describe("an asset with no material in it", () => {
+    test("an asset file with an untyped object field is written", () => {
+        const file = SceneSerializer.serializeAsset(new Tuning());
+
+        expect(file.type).toBe("AssetFilesSpec.Tuning");
+        expect(file.fields["options"]).toEqual({ gain: 2, bands: [1, 2] });
+        expect((SceneSerializer.deserializeAsset(file) as Tuning).options).toEqual({ gain: 2, bands: [1, 2] });
     });
 });
 

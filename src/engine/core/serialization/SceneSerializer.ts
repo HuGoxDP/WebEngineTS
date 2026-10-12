@@ -23,6 +23,26 @@ import {
     type DeserializeContext,
 } from "./ValueSerializer";
 
+/**
+ * The writer's context for one pass. Module-private: not part of the API.
+ *
+ * @remarks
+ * A pass opened for a linked instance nests inside the pass that found it,
+ * sharing its asset table and its record of inline assets, so a reference that
+ * leaves the instance can be located by walking out through {@link outer}.
+ */
+interface SceneCtx extends SerializeContext {
+    /** Whether a prefab instance is written as prefab plus changes. */
+    readonly link: boolean;
+    /** The pass this one is nested in, or null for the outermost. */
+    readonly outer: SceneCtx | null;
+    /** Inline assets already written, shared with {@link outer}. */
+    readonly inlined: Map<object, string>;
+    /** Shared with {@link outer}. */
+    assetTable: SerializedAsset[];
+    locate(go: GameObject): { path: number[]; scope: number } | null;
+}
+
 /** Serialized snapshot of a single GameObject (recursive). */
 export interface SerializedGameObject {
     name: string;
@@ -295,7 +315,7 @@ export class SceneSerializer {
             );
         }
 
-        const ctx = SceneSerializer._buildSerializeCtx([]);
+        const ctx = SceneSerializer._buildSerializeCtx([], false, null);
         const fields: Record<string, unknown> = {};
         for (const f of getAllFields(asset.constructor as any)) {
             if (!f.serialize) continue;
@@ -374,6 +394,7 @@ export class SceneSerializer {
 
     private static _newContext(): DeserializeContext {
         const ctx: DeserializeContext = {
+            scopeStack: [],
             pendingGORefs: [],
             pendingComponentRefs: [],
             pendingAssetRefs: [],
@@ -835,8 +856,8 @@ export class SceneSerializer {
      * would have turned the warning into an `undefined` at load.
      *
      * The direction is deliberate. `GameObject` still reaches this module (its
-     * `_clone` round-trips through `Prefab`), so it is always the module loaded
-     * first, and installing from there means the hook is in place before
+     * `_clone` round-trips through it directly), so it is always the module
+     * loaded first, and installing from there means the hook is in place before
      * anything can call it. Installing the other way round is what does not
      * work: nothing guarantees `Prefab` is loaded at all, and a build that
      * dropped it would leave `Instantiate` broken.

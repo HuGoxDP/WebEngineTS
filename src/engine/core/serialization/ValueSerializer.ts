@@ -99,8 +99,13 @@ export interface DeserializeContext {
     /**
      * The prefab instances being rebuilt at this point, outermost first. Empty
      * outside one, where every path is counted from the roots being loaded.
+     *
+     * @remarks
+     * Optional, and absent means empty: a context built by a caller that
+     * predates prefab instances reads every reference from the roots, which is
+     * what it did before.
      */
-    scopeStack: object[];
+    scopeStack?: object[];
     /**
      * Refs collected during deserialize. After every GameObject has been
      * re-created the SceneSerializer walks this list and assigns the
@@ -608,7 +613,7 @@ export class ValueSerializer {
     /** The scope a reference was written with, which is `0` unless it says otherwise. */
     private static _scopeOf(obj: Record<string, unknown>, ctx: DeserializeContext): RefScope {
         const scope = typeof obj.scope === "number" && obj.scope > 0 ? Math.trunc(obj.scope) : 0;
-        return { stack: ctx.scopeStack.slice(), scope };
+        return { stack: ctx.scopeStack ? ctx.scopeStack.slice() : [], scope };
     }
 
     private constructor() {}

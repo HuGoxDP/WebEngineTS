@@ -31,7 +31,8 @@ import {
 import { ScriptableBehaviour } from "../src/engine/core/ScriptableBehaviour";
 import { ScriptableObject } from "../src/engine/core/ScriptableObject";
 import { FieldType } from "../src/engine/core/reflection/Types";
-import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
+import { SceneSerializer, type SerializedScene } from "../src/engine/core/serialization/SceneSerializer";
+import { ValueSerializer, type DeserializeContext } from "../src/engine/core/serialization/ValueSerializer";
 import { AssetDatabase } from "../src/engine/core/assets/AssetDatabase";
 import {
     UIImage, ImageType, ImageFillMethod, ImageFillOrigin,
@@ -355,6 +356,136 @@ describe("SceneSerializer — GameObject cross-references (Phase 11b)", () => {
 
         const restored = SceneSerializer.deserializeGameObject(playerJson);
         expect(restored.getComponent(FollowTarget)!.target).toBe(null);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Prefab support must not change a file that has no prefab in it
+// (design/prefab-instances-plan.md §5.1)
+// ---------------------------------------------------------------------------
+
+@Serializable({ typeName: "FormatSpec.Mark" })
+class FormatMark extends Behaviour {
+    @SerializedField()
+    public label: string = "";
+}
+
+@Serializable({ typeName: "FormatSpec.Leg" })
+class FormatLeg {
+    @SerializedField({ type: FieldType.GameObject })
+    public to: GameObject | null = null;
+
+    @SerializedField()
+    public weight: number = 1;
+}
+
+@Serializable({ typeName: "FormatSpec.Route" })
+class FormatRoute extends Behaviour {
+    @SerializedField({ type: FieldType.GameObject })
+    public target: GameObject | null = null;
+
+    @SerializedField({ type: FieldType.Component })
+    public partner: object | null = null;
+
+    @SerializedField({ type: FieldType.Object })
+    public leg: unknown = null;
+}
+
+describe("SceneSerializer — format unchanged by prefab support", () => {
+    beforeEach(() => destroyScene());
+
+    const pose = (x: number, y: number, z: number) => ({
+        position: { x, y, z },
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
+        scale: { x: 1, y: 1, z: 1 },
+    });
+
+    /** A scene in the format every build before prefab links wrote. */
+    const OLD_SCENE: SerializedScene = {
+        name: "Golden",
+        version: 1,
+        roots: [
+            {
+                name: "Anchor",
+                active: true,
+                transform: pose(0, 0, 0),
+                components: [{ type: "FormatSpec.Mark", fields: { label: "home" } }],
+                children: [{
+                    name: "Tip",
+                    active: false,
+                    transform: pose(0, 0.5, 0),
+                    components: [],
+                    children: [],
+                }],
+            },
+            {
+                name: "Router",
+                active: true,
+                transform: pose(-4, 0, 0),
+                components: [{
+                    type: "FormatSpec.Route",
+                    fields: {
+                        target: { $type: "GameObjectRef", path: [0, 0] },
+                        partner: { $type: "ComponentRef", path: [0], component: "FormatSpec.Mark", index: 0 },
+                        leg: {
+                            $type: "Nested",
+                            type: "FormatSpec.Leg",
+                            fields: { to: { $type: "GameObjectRef", path: [0] }, weight: 2 },
+                        },
+                    },
+                }],
+                children: [],
+            },
+        ],
+    };
+
+    test("a scene with no prefab instance is written exactly as before", () => {
+        const [anchor, router] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(OLD_SCENE)));
+        const route = router.getComponent(FormatRoute)!;
+        expect(route.target).toBe(anchor.transform.getChild(0).gameObject);
+        expect(route.partner).toBe(anchor.getComponent(FormatMark));
+        expect((route.leg as FormatLeg).to).toBe(anchor);
+
+        const saved = SceneSerializer.serializeScene(SceneManager.activeScene);
+
+        // Compared as text, so key order is pinned as well as the values.
+        expect(Object.keys(saved)).toEqual(["name", "version", "roots", "renderSettings"]);
+        expect(saved.version).toBe(1);
+        expect(JSON.stringify(saved.roots)).toBe(JSON.stringify(OLD_SCENE.roots));
+        expect(JSON.stringify(saved)).not.toMatch(/"(id|prefab|scope)":/);
+    });
+
+    test("a reference read through a context with no scope stack resolves from the roots", () => {
+        const anchor = new GameObject("Anchor");
+        const tip = new GameObject("Tip");
+        tip.transform.parent = anchor.transform;
+        anchor.addComponent(FormatMark);
+        const holder = new GameObject("Holder").addComponent(FormatRoute);
+
+        // Built the way a caller that predates prefab instances builds one.
+        const ctx: DeserializeContext = {
+            pendingGORefs: [],
+            pendingComponentRefs: [],
+            pendingAssetRefs: [],
+            currentComponent: holder,
+            currentField: "target",
+            currentArrayIndex: null,
+            buildNested: () => null,
+        };
+        ValueSerializer.deserialize({ $type: "GameObjectRef", path: [0, 0] }, FieldType.GameObject, ctx);
+        ctx.currentField = "partner";
+        ValueSerializer.deserialize(
+            { $type: "ComponentRef", path: [0], component: "FormatSpec.Mark", index: 0 },
+            FieldType.Component, ctx,
+        );
+
+        expect(ctx.pendingGORefs[0].ref).toEqual({ stack: [], scope: 0 });
+        (SceneSerializer as unknown as {
+            _resolveRefs(c: DeserializeContext, roots: GameObject[]): void;
+        })._resolveRefs(ctx, [anchor]);
+
+        expect(holder.target).toBe(tip);
+        expect(holder.partner).toBe(anchor.getComponent(FormatMark));
     });
 });
 
