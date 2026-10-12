@@ -1,0 +1,32 @@
+\section{Related Work}
+
+\subsection{Browser-based 3D engines and frameworks}
+The browser 3D ecosystem has evolved through three generations. The first comprises low-level libraries such as Three.js and Babylon.js, which wrap WebGL with a structured but minimal abstraction~\cite{Evans2014}: small bundles and excellent performance, but lifecycle management, component composition, asset pipelines and scene serialization are left to the developer, which for an educational platform team means an in-house investment in engine infrastructure that is not typically available. The second consists of native engine exports: Unity, Unreal and Godot compile their full runtime to WebAssembly, providing mature authoring at the price of large bundles and multi-second loads unsuitable for classroom contexts. Work on engine architecture~\cite{Ullmann2025} documents the internal complexity such bundles must carry into the browser, and Aung et al.~\cite{Aung2022} show engine-level geometric optimization remains non-trivial even for simple AR scenes. The third comprises TypeScript-native frameworks over Three.js: some, such as React Three Fiber and A-Frame, offer targeted developer-experience improvements without a full engine model, while others do supply one but are commercially licensed or coupled to a specific editor, which constrains institutional self-hosting. Pipeline-level studies~\cite{Zhou2018,IMadeSuryaKumara2024} show Three.js combined with domain-specific formats, each reimplementing engine scaffolding for its domain.
+
+
+\subsection{Gap analysis}
+
+Table~\ref{tab:gap-analysis} positions the proposed engine relative to the common approaches to browser-based 3D development discussed above. Runtime performance is deliberately excluded, since no direct cross-engine benchmark was conducted.
+
+\begin{table}[H]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Positioning of browser-based 3D development approaches for educational deployment.}
+\label{tab:gap-analysis}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{2.2cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X@{}}
+\toprule
+Approach & Authoring model & Distribution model & Institutional consideration \\
+\midrule
+Three.js / Babylon.js & Code-based; engine infrastructure built by the development team & Open-source JavaScript libraries & Lightweight deployment, but additional engine infrastructure must be developed and maintained \\
+Unity Web export & Unity editor and engine workflow & Browser runtime exported with the application & Mature authoring environment, but a comparatively larger runtime is delivered to the browser \\
+Proposed engine & Code-based through an npm library; ZIP-packaged educational scenarios & Self-hosted browser runtime integrated into the virtual learning environment & High-level engine abstractions with independent scenario delivery and platform integration \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Educational 3D platforms and rendering optimization}
+
+Browser-based 3D visualization has demonstrated educational effectiveness across chemistry~\cite{Rodrguez2021}, LMS-integrated collaboration~\cite{Hensen2023}, medical imaging~\cite{Li2021}, atomic physics~\cite{Kraitem2025} and extended-reality physics~\cite{ZatarainCabada2022}, and two meta-analyses quantify the effect: Wang et al.~\cite{Wang2024} confirm significant test-score improvements in human anatomy, and Yang et al.~\cite{Yang2024} report a moderate positive effect on practical skills across 37 studies (Hedges's $g = 0.477$). These works establish the value of the medium but treat the rendering substrate as a black box, analysing neither engine architecture nor runtime behaviour on student hardware.
+
+Applicable optimization techniques have been developed separately: an end-to-end pipeline for progressively rendered web 3D scenes with mesh compression~\cite{Evans2017}; model-animation data separation and on-demand loading for mobile Web 3D, reducing rendering latency by up to 24.7\% against baseline Three.js~\cite{Li2020}; multi-resolution LOD streaming for Web AR, up to 46\% faster than optimized glTF~\cite{Boutsi2023}; and Draco with KTX2 compression in mobile AR, sustaining $\approx$32.6 FPS on mid-range smartphones with high usability (SUS = 81.4)~\cite{Suwandi2026}. This work integrates a relevant subset into an educational engine and evaluates it in that context.

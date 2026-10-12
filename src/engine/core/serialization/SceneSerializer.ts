@@ -12,6 +12,12 @@ import { Texture2D } from "../graphics/Texture2D";
 import { Color } from "../math/Color";
 import { MissingComponent, MissingValue } from "./MissingComponent";
 import {
+    PrefabDiff,
+    type PrefabSource,
+    type PrefabInstanceInfo,
+    type SerializedPrefabLink,
+} from "./PrefabOverride";
+import {
     ValueSerializer,
     type SerializeContext,
     type DeserializeContext,
@@ -33,6 +39,34 @@ export interface SerializedGameObject {
      * `serializeGameObject` result, never on a child.
      */
     assets?: SerializedAsset[];
+    /**
+     * Which node of its prefab this is. Written for objects that came from one,
+     * so an instance can be compared with the prefab node by node.
+     */
+    id?: string;
+    /**
+     * Present on the root of a prefab instance. Without `changes` the tree
+     * above is complete and this only records where it came from; with them the
+     * instance is saved as the prefab plus its differences, and `components`
+     * and `children` are empty.
+     */
+    prefab?: SerializedPrefabLink;
+}
+
+/** How to write a snapshot. */
+export interface SerializeOptions {
+    /**
+     * How an object that is an instance of a prefab is written.
+     *
+     * - `"expand"` (default) — the whole tree, with a note of the prefab it came
+     *   from. Nothing needs the prefab to read it back, and nothing follows an
+     *   edit to the prefab either.
+     * - `"link"` — only the prefab and what differs from it, which is what lets
+     *   an edit to the prefab reach every scene that uses it. Reading it back
+     *   needs the prefab loaded first; {@link SceneSerializer.assetReferences}
+     *   says which.
+     */
+    prefabs?: "expand" | "link";
 }
 
 /** Serialized snapshot of a single component. */
@@ -142,8 +176,10 @@ export class SceneSerializer {
     // ==================== SCENE ====================
 
     /** Serializes every root GameObject in the scene to a JSON tree. */
-    public static serializeScene(scene: Scene): SerializedScene {
-        const ctx = SceneSerializer._buildSerializeCtx(scene.getRootGameObjects());
+    public static serializeScene(scene: Scene, options: SerializeOptions = {}): SerializedScene {
+        const ctx = SceneSerializer._buildSerializeCtx(
+            scene.getRootGameObjects(), options.prefabs === "link", null,
+        );
         const roots = scene.getRootGameObjects().map(r => SceneSerializer._serializeGO(r, ctx));
 
         // Written after the walk: the table is filled as components are visited.
@@ -188,9 +224,28 @@ export class SceneSerializer {
     // ==================== GAMEOBJECT ====================
 
     /** Serializes a single GameObject and all its descendants. */
-    public static serializeGameObject(go: GameObject): SerializedGameObject {
-        const ctx = SceneSerializer._buildSerializeCtx([go]);
+    public static serializeGameObject(go: GameObject, options: SerializeOptions = {}): SerializedGameObject {
+        const ctx = SceneSerializer._buildSerializeCtx([go], options.prefabs === "link", null);
         const root = SceneSerializer._serializeGO(go, ctx);
+        if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
+        return root;
+    }
+
+    /**
+     * @internal
+     * The tree a prefab is made from: `go` written out in full whatever it is,
+     * with any instance *inside* it kept as a link to its own prefab.
+     *
+     * @remarks
+     * The root is expanded because the prefab being made is a new thing, not an
+     * instance of whatever `go` happened to be; the nested ones are links
+     * because that is what makes a prefab inside a prefab follow its own edits.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _serializeForPrefab(go: GameObject): SerializedGameObject {
+        const ctx = SceneSerializer._buildSerializeCtx([go], true, null);
+        const root = SceneSerializer._serializeGO(go, ctx, true);
         if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
         return root;
     }
@@ -332,7 +387,18 @@ export class SceneSerializer {
 
     // ==================== PRIVATE — SERIALIZE ====================
 
-    private static _buildSerializeCtx(roots: ReadonlyArray<GameObject>): SerializeContext {
+    /**
+     * @param roots - what paths are counted from.
+     * @param link - whether a prefab instance is written as prefab plus changes.
+     * @param outer - the pass this one is nested in, when it writes a single
+     *   instance on its own: it shares the asset table, and a reference that
+     *   leaves the instance is counted from the pass around it.
+     */
+    private static _buildSerializeCtx(
+        roots: ReadonlyArray<GameObject>,
+        link: boolean,
+        outer: SceneCtx | null,
+    ): SceneCtx {
         const goToPath = new Map<GameObject, number[]>();
         const walk = (go: GameObject, path: number[]): void => {
             goToPath.set(go, path);
@@ -343,14 +409,25 @@ export class SceneSerializer {
         };
         for (let i = 0; i < roots.length; i++) walk(roots[i], [i]);
 
-        const assetTable: SerializedAsset[] = [];
-        const inlined = new Map<object, string>();
+        const assetTable: SerializedAsset[] = outer ? outer.assetTable : [];
+        const inlined = outer ? outer.inlined : new Map<object, string>();
         // The inline-asset closure serializes fields, which needs the very
         // context being built — held in a box so it can refer to itself.
-        const ctxRef: { value: SerializeContext | null } = { value: null };
+        const ctxRef: { value: SceneCtx | null } = { value: null };
 
-        const ctx: SerializeContext = {
+        const ctx: SceneCtx = {
             goToPath,
+            link,
+            outer,
+            inlined,
+            locate: (go) => {
+                let level = 0;
+                for (let c: SceneCtx | null = ctxRef.value; c !== null; c = c.outer, level++) {
+                    const path = c.goToPath.get(go);
+                    if (path) return { path, scope: level };
+                }
+                return null;
+            },
             assetTable,
             componentTypeName: (component) => SceneSerializer._typeNameOf(component),
             componentIndex: (owner, component) => {
@@ -411,13 +488,65 @@ export class SceneSerializer {
         return ctx;
     }
 
-    private static _serializeGO(go: GameObject, ctx: SerializeContext): SerializedGameObject {
-        const t = go.transform;
-        const children: SerializedGameObject[] = [];
-        for (let i = 0; i < t.childCount; i++) {
-            children.push(SceneSerializer._serializeGO(t.getChild(i).gameObject, ctx));
+    /**
+     * Writes one object, deciding how a prefab instance is written.
+     *
+     * @param expandRoot - write `go` in full even if it is an instance. Only
+     *   `go` itself: the instances below it are still decided one by one.
+     */
+    private static _serializeGO(go: GameObject, ctx: SceneCtx, expandRoot: boolean = false): SerializedGameObject {
+        const info = go._prefabInfo;
+        if (info === null || expandRoot) return SceneSerializer._serializeNode(go, ctx);
+
+        // An instance whose prefab could not be found: nothing was built from it,
+        // so there is nothing to write but what it was read as.
+        if (info.raw !== null) {
+            const out = SceneSerializer._serializeShell(go);
+            out.prefab = SceneSerializer._cloneJson(info.raw);
+            return out;
         }
-        return {
+
+        // A prefab nothing can name cannot be linked to; it stays a plain tree.
+        const guid = SceneSerializer._prefabGuid(info);
+        if (guid === null) return SceneSerializer._serializeNode(go, ctx);
+
+        const source = ctx.link ? SceneSerializer._prefabSourceOf(info) : null;
+        if (source === null) {
+            const full = SceneSerializer._serializeNode(go, ctx);
+            full.prefab = { guid };
+            return full;
+        }
+        return SceneSerializer._serializeInstance(go, guid, source, ctx);
+    }
+
+    /**
+     * An instance as *prefab plus changes*.
+     *
+     * @remarks
+     * Written by itself, as if it were the only thing in the file, so that it can
+     * be compared with the prefab on equal terms — a reference between two of
+     * its own objects is the same path in both. References that leave it are the
+     * one thing that cannot be, and say how far out they count from.
+     */
+    private static _serializeInstance(
+        go: GameObject,
+        guid: string,
+        source: PrefabSource,
+        outer: SceneCtx,
+    ): SerializedGameObject {
+        const local = SceneSerializer._buildSerializeCtx([go], true, outer);
+        const expanded = SceneSerializer._serializeNode(go, local);
+        const changes = PrefabDiff.compareChanges(source._resolvedTree(), expanded);
+
+        const out = SceneSerializer._serializeShell(go);
+        out.prefab = { guid, changes };
+        return out;
+    }
+
+    /** An object's own state, with nothing under it: name, activity, transform, id. */
+    private static _serializeShell(go: GameObject): SerializedGameObject {
+        const t = go.transform;
+        const out: SerializedGameObject = {
             name: go.name,
             active: go.activeSelf,
             transform: {
@@ -428,9 +557,40 @@ export class SceneSerializer {
                 },
                 scale:    { x: t.localScale.x, y: t.localScale.y, z: t.localScale.z },
             },
-            components: SceneSerializer._serializeComponents(go, ctx),
-            children,
+            components: [],
+            children: [],
         };
+        if (go._prefabNodeId !== null) out.id = go._prefabNodeId;
+        return out;
+    }
+
+    private static _serializeNode(go: GameObject, ctx: SceneCtx): SerializedGameObject {
+        const t = go.transform;
+        const out = SceneSerializer._serializeShell(go);
+        for (let i = 0; i < t.childCount; i++) {
+            out.children.push(SceneSerializer._serializeGO(t.getChild(i).gameObject, ctx));
+        }
+        out.components = SceneSerializer._serializeComponents(go, ctx);
+        return out;
+    }
+
+    /** The id a prefab instance's prefab is saved under, or null if it has none. */
+    private static _prefabGuid(info: PrefabInstanceInfo): string | null {
+        if (info.guid !== null) return info.guid;
+        return info.source === null ? null : AssetDatabase.guidOf(info.source);
+    }
+
+    /** The prefab an instance came from, if this session has it. */
+    private static _prefabSourceOf(info: PrefabInstanceInfo): PrefabSource | null {
+        if (info.source !== null) return info.source;
+        return info.guid === null ? null : SceneSerializer._prefabById(info.guid);
+    }
+
+    private static _prefabById(guid: string): PrefabSource | null {
+        const found = AssetDatabase.get(guid) as Partial<PrefabSource> | null;
+        return found !== null && typeof found._resolvedTree === "function"
+            ? found as PrefabSource
+            : null;
     }
 
     private static _serializeComponents(go: GameObject, ctx: SerializeContext): SerializedComponent[] {

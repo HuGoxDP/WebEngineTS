@@ -1,0 +1,22 @@
+\section{Optimization Strategies}
+
+\subsection{GPU-compressed textures via KTX2/Basis Universal}
+A high-resolution texture -- say a 4096$\times$2048 planet albedo -- is decoded into CPU memory and uploaded to the GPU as uncompressed RGBA8, consuming $\sim$32 MB of VRAM. A scene with 8--10 such textures plus a skybox therefore consumes hundreds of megabytes, problematic on the 1--2 GB of dedicated VRAM typical of educational hardware or on integrated graphics sharing system memory, and the same decode-and-upload path is paid in wall-clock time before the first frame appears.
+
+The engine integrates KTX2/Basis Universal, shown to benefit memory-constrained consumer hardware in mobile AR~\cite{Suwandi2026} and Web AR~\cite{Boutsi2023}. Textures are encoded offline with \texttt{gltf-transform}, ETC1S for albedo and emissive maps and UASTC for normal maps; at load time Three.js's \texttt{KTX2Loader} with the Basis WASM transcoder decodes the universal intermediate into the GPU's native compressed format (BC7 on desktops, ASTC on mobile, ETC2 on older Android), which stays compressed in VRAM. \texttt{Texture2D.fromKTX2ArrayBuffer(data)} is the public entry point and the \texttt{Resources} decoder recognizes the \texttt{.ktx2} extension automatically.
+
+\textbf{Trade-off.} Encoding is an offline pipeline step and the Basis transcoder is an additional WebAssembly module adding to the JavaScript heap; both costs are paid once per scenario, and the trade-off favours GPU memory and startup latency.
+
+\subsection{Shader pre-compilation}
+WebGL shader compilation occurs on the driver's first use of a program, so the first frame in which each material becomes visible incurs a synchronous stall of milliseconds to hundreds of milliseconds -- seen by the user as the scene appearing, freezing, then resuming.
+
+\texttt{Application.warmupShaders()} calls Three.js's \texttt{WebGLRenderer.\allowbreak compile(\allowbreak scene, camera)} to compile every program the scene requires before the first rendered frame; where \texttt{KHR\_parallel\_shader\_compile} is supported, compilation proceeds on background driver threads. Scenario code calls it from \texttt{awake()}, after the scene is constructed but before the first frame, concentrating compilation in the loading phase where stalls are tolerated.
+
+\textbf{Trade-off.} Warmup adds compilation time to startup and recovers it only in proportion to how much of the first frame was compilation to begin with.
+
+\subsection{Dirty-flag transform propagation}
+\texttt{Transform} is the most frequently mutated object at runtime. Propagating each mutation to the underlying Three.js \texttt{Object3D} immediately involves a vector or quaternion copy and downstream world-matrix recomputation; for a scene of thousands of objects of which few move, the dominant cost is the recursive \texttt{updateMatrixWorld} traversal over the whole graph. Work on mobile Web 3D has established that decoupling animated transform data from static topology is among the most effective levers for per-frame latency on constrained browsers~\cite{Li2020}.
+
+With dirty-flag mode enabled, mutations no longer propagate immediately; the affected \texttt{Transform} joins a global dirty set, a Boolean flag preventing duplicate insertion. Once per frame, immediately before rendering, \texttt{Application.\allowbreak\_render()} calls \texttt{Transform.\allowbreak\_syncAllDirty()}, synchronizing each transform in one batch copying position, rotation and scale together. World-space getters invoke \texttt{\_syncToThree()} on demand when local state is dirty, so logic reading transform values back within the same frame remains correct.
+
+\textbf{Trade-off.} The mechanism is a write-coalescer, not an elimination: it replaces per-property propagation with per-transform bookkeeping plus one batched flush, so it breaks even only above roughly three to four property writes per transform per frame.
