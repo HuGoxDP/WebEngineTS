@@ -105,6 +105,10 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   hook `GameObject` installs.
 - Cross-layer hooks audited. Three of four are sound by construction; the fourth is pinned by
   `tests/ModuleHookInstallation.test.ts`.
+- **Every push is typechecked, tested, built and packed in CI**, and each completed run keeps the
+  packed tarball as a workflow artifact named after the commit it built. An unreleased change
+  can be installed and tried from there without building the engine locally; the artifacts
+  expire, so nothing deployed should depend on one.
 
 ### Known issues
 

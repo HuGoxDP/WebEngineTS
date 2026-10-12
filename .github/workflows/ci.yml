@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  # Every branch, but not tags: `branches` alone excludes tag pushes, and a
+  # version tag is fully verified by release.yml before it publishes anything,
+  # so running this as well would only build the same commit twice.
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch (or PR) cancels the run still going for the
+# older one, so only the latest state of each ref is built and kept.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only, stated rather than inherited: on a push the token otherwise gets
+# the repository's default permissions, which may include write. Nothing here
+# writes to the repo; the artifact upload uses the Actions runtime token, not
+# this one.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Typecheck, test, build, pack
+    runs-on: ubuntu-latest
+
+    steps:
+      # persist-credentials: false keeps the token out of .git/config while
+      # `npm install`, the tests and the build run third-party code. Nothing
+      # in this job uses git after the checkout.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Not `npm ci`: the lockfile is generated on Windows, and vitest 4 pulls
+      # in rolldown, whose optional wasm32 binding depends on
+      # @napi-rs/wasm-runtime. Its @emnapi/* peers were never recorded at the
+      # top level of the lockfile, so `npm ci` on Linux refuses it as "out of
+      # sync" (npm 10 and 11 alike). Linux x64 never installs that binding —
+      # it takes @rolldown/binding-linux-x64-gnu — so `npm install` only adds
+      # the missing optional entries and keeps every locked version. Same
+      # reason testv/virtual-lab's CI and Dockerfile.frontend use it.
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # WEBENGINE_BUILD_VERSION is left unset, so BuildInfo reports the
+      # package.json version. That is 0.1.0 on every commit between releases;
+      # BuildInfo.builtAt is what tells two of these builds apart.
+      - name: Build
+        run: npm run build
+
+      # The name is read from npm's own report rather than rebuilt from
+      # package.json, so it cannot drift from what npm actually wrote.
+      - name: Pack
+        id: pack
+        run: |
+          tgz=$(npm pack --json | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8"))[0].filename)')
+          echo "tgz=$tgz" >> "$GITHUB_OUTPUT"
+
+      # The tarball this run built, installable as-is: download, unzip,
+      # `npm install ./WebEngineTS-<version>.tgz`. The file name repeats across
+      # commits (the version is pinned between releases), so the artifact is
+      # named after the commit that was built: github.sha, which for a
+      # pull_request run is GitHub's merge of the branch into its base, not
+      # the branch head. That is deliberate; naming it after the head would
+      # label a build with a commit whose content it does not match, and a
+      # branch in this repo already gets head-named artifacts from its push
+      # runs. Not every commit gets one: a push builds only its last commit,
+      # and a cancelled run (see concurrency) keeps nothing. For anything
+      # deployed, pin a tagged release rather than one of these; they expire.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WebEngineTS-${{ github.sha }}
+          path: ${{ steps.pack.outputs.tgz }}
+          if-no-files-found: error
