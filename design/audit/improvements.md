@@ -80,7 +80,7 @@ an uncompressed fallback would give. That works, the gap is ~8×, but it is a pr
 
 **Idea.** Carry the resolved format per texture, or a tally (`{ BC7: 3, ETC2: 8, RGBA8: 1 }`).
 
-**Why it is more than a nicety.** It turns the paper's KTX2 claim from an inferred measurement
+**Why it is more than a nicety.** It turns the KTX2 VRAM claim from an inferred measurement
 into an observed one, and it is the only tool a host has for verifying a pipeline whose failure
 mode is silent. That makes it the strongest candidate on this page.
 

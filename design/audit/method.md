@@ -373,7 +373,7 @@ naively. A false finding was one minute of confidence away. A new test has never
 the code under it has run thousands of times. Weight the suspicion accordingly.
 
 **Check the ruler, not only what it measures.** `Profiler` and `Benchmark` compute every number
-the thesis reports and were the last classes in the walk to be tested at all — 1485 tests covered
+the benchmark reports and were the last classes in the walk to be tested at all — 1485 tests covered
 the engine being measured and none covered the instrument. Any project with a measurement story
 has this asymmetry, because the instrument feels like infrastructure rather than behaviour.
 

@@ -84,7 +84,7 @@ Ideas that are not defects go in [`improvements.md`](improvements.md).
 | F70 | 10 | ScriptableObject's protected constructor made the class unusable | fixed `5ebce33` |
 | F71 | 10 | A cone emitter ignored the radius it documented | fixed `8f6fac0` |
 | F72 | 10 | Box shell emission picked faces without regard to their area | fixed `8f6fac0` |
-| F73 | 10 | The instruments producing the paper's numbers had no tests | covered `b8c62ce` |
+| F73 | 10 | The instruments producing the benchmark numbers had no tests | covered `b8c62ce` |
 | F74 | 10 | Two of Profiler's own claims about itself were false | fixed `b8c62ce` |
 
 ---
@@ -1349,7 +1349,7 @@ out. Nothing in the engine called `clear()`; the only route to it was the public
 **Why it matters beyond the bytes.** The VRAM budget added earlier in this series makes eviction
 routine. An evicted texture is supposed to free memory *now*; freeing its GPU copy while its
 CPU-side tinted copies stay is half a job, and the profiler then reports UI memory belonging to
-a scenario that has ended — which is exactly the number the paper's Section 5 quotes.
+a scenario that has ended — which is exactly the number the benchmark reports.
 
 **Fix.** `Texture` announces its own destruction through a static hook and `UIImage` installs
 the subscriber at module load. The direction is the point: the UI knows about graphics, graphics
@@ -2033,8 +2033,8 @@ measured better.
 **Fix.** Both now state what they count and why they disagree. The renderer counts what it has
 uploaded and *includes* render targets; the engine counts what is alive and *excludes* them. A
 scene holding textures it has not drawn reads high on the estimate and low on the counter; a
-scene with shadows reads the other way. Neither is wrong, and a measurement that gets quoted in
-a paper should not require the reader to work that out.
+scene with shadows reads the other way. Neither is wrong, and a reported measurement should not
+require the reader to work that out.
 
 ### F61. `clear` kept the passes it had just disposed — fixed `21c7ea7`
 
@@ -2351,14 +2351,14 @@ with is the one where the bug is invisible.
 **Negative controls, one defect at a time.** Reverting the cone fails the three cone-position
 tests and nothing else; reverting the box fails the two distribution tests and nothing else.
 
-### F73. The instruments producing the paper's numbers had no tests — covered `b8c62ce`
+### F73. The instruments producing the benchmark numbers had no tests — covered `b8c62ce`
 
 Not a defect in the code. A defect in what was being checked, and the last two classes of the
 walk were where it was worst.
 
-**What was wanted.** Confidence in the figures the thesis reports.
+**What was wanted.** Confidence in the figures the benchmark suite reports.
 
-**What was there.** `Profiler` computes every frame-time statistic in Section 5 — mean, median,
+**What was there.** `Profiler` computes every frame-time statistic the benchmark reports — mean, median,
 p95, p99, min, max, standard deviation — and `Benchmark` runs the measurement and writes the CSV
 those figures are read from. Between them, **no test file existed**. 1485 tests covered the
 engine being measured and nothing covered the ruler.
