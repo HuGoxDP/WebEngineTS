@@ -151,8 +151,11 @@ export class Prefab {
      * node's position (`~`, `~0`, `~1.0`, ...), so the same file gets the same
      * ids every time it is loaded and an instance saved against one load still
      * matches the next.
+     *
+     * @throws if the file is of a format version this build cannot read.
      */
-    public static fromJSON(json: { name?: string; snapshot: SerializedGameObject }): Prefab {
+    public static fromJSON(json: { name?: string; version?: number; snapshot: SerializedGameObject }): Prefab {
+        SceneSerializer._refuseUnknownVersion(json.version, "prefab");
         const snapshot = JSON.parse(JSON.stringify(json.snapshot)) as SerializedGameObject;
         return new Prefab(PrefabDiff.ensureIds(snapshot, true), json.name);
     }
@@ -266,8 +269,13 @@ export class Prefab {
      * or save the base and the overrides separately, until prefab identity
      * exists (unity-parity Stage 2/3).
      */
-    public toJSON(): { name: string; snapshot: SerializedGameObject } {
-        return { name: this.name, snapshot: this._resolvedTree() };
+    public toJSON(): { name: string; version?: 2; snapshot: SerializedGameObject } {
+        const snapshot = this._resolvedTree();
+        // Version 2 only when an older reader would misread the file: a nested
+        // prefab kept as a link, or a reference that names a node by id.
+        return SceneSerializer._needsLinkReader(snapshot)
+            ? { name: this.name, version: 2, snapshot }
+            : { name: this.name, snapshot };
     }
 
     /** @internal The resolved tree (read-only). */

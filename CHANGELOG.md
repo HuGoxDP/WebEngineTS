@@ -36,6 +36,26 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   instance in it is written byte for byte as before, and a reader that predates the keys ignores
   them. A prefab file written before ids existed is given ids derived from node positions, the
   same ones on every load.
+- **Scenes and prefab files can save prefab instances as links:**
+  `SceneSerializer.serializeScene(scene, { prefabs: "link" })` (and `serializeGameObject`) writes
+  an instance as its prefab plus what differs — values, added and removed children and
+  components — so an edit to the prefab reaches every scene that uses it on its next load, while
+  each instance keeps its own changes. The instance's name, position and rotation always stay its
+  own; its scale and active state follow the prefab unless overridden. A reference counts its
+  path from the instance it is written in, or says how many instances out it counts from
+  (`scope`). Reading such a file needs the prefabs loaded first:
+  `SceneSerializer.assetReferences` lists them, and loading a prefab file through `Resources`
+  loads the prefabs nested inside it, without hanging on two that contain each other. An
+  instance whose prefab is not loaded becomes a **placeholder** that keeps its link and is saved
+  back exactly as it was read, with a warning; load the prefab and open the scene again to
+  rebuild it. Changes that address something the prefab no longer has are kept (`unused`) and
+  apply again if it comes back. An instance that reordered or reparented its prefab's own
+  objects is saved in full, with a warning. A linked instance does not copy its prefab's inline
+  materials into the scene. The default stays `"expand"`, which writes every instance in full.
+  **A file holding a link, or a reference that names a prefab node by id, is written as
+  `version: 2`; the engine refuses any version above 2.** Every engine that will read such files
+  — including any that runs exported scenarios — has to be on a build that reads version 2 before
+  anything writes them.
 
 - **`Texture.flipVertically`** — states whether an image is flipped as it is uploaded. Two
   conventions meet in the engine: the image path uploads `flipY = true` (V=0 at the bottom, as
@@ -66,6 +86,9 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Changed
 
+- **`SerializedScene.version` is `1 | 2`.** Version 2 marks a file only a reader that knows prefab
+  links can read (see *Added*); `deserializeScene` and `Prefab.fromJSON` now throw for a version
+  above 2 instead of loading it hollow. Every scene saved in the default mode is still version 1.
 - **A reference path may hold prefab node ids.** `PendingGORef.path`, the `path` of
   `DeserializeContext.pendingGORefs` and `pendingComponentRefs`, and `SerializeContext.locate`
   are now `Array<number | string>`. Inside a prefab instance a reference names its target by node

@@ -626,3 +626,94 @@ describe("a prefab instance saved as its prefab plus changes", () => {
         expect(SceneSerializer.pendingAssetGuids).toEqual([]);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Stage 7 — what a link-mode file needs: references, version, assets
+// ---------------------------------------------------------------------------
+
+describe("what a file with prefab links needs", () => {
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+        warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        bind("guid-turret", turretTree());
+        bind("guid-tank", tankTree());
+    });
+    afterEach(() => warn.mockRestore());
+
+    test("a scene with a linked instance lists its prefab as something to load first", () => {
+        SceneSerializer.deserializeScene(linkScene(node("Player"), tankLink()));
+
+        // The Turret inside it is the Tank prefab's business, not the scene's.
+        expect(SceneSerializer.assetReferences(saveLinked())).toEqual(["guid-tank"]);
+    });
+
+    test("an expanded instance's prefab is not listed", () => {
+        SceneSerializer.deserializeScene(linkScene(node("Player"), tankLink()));
+
+        const saved = save();
+
+        expect(saved.roots[1].prefab).toEqual({ guid: "guid-tank" });
+        expect(SceneSerializer.assetReferences(saved)).toEqual([]);
+    });
+
+    test("a scene with a link is written as version 2; one without stays version 1", () => {
+        SceneSerializer.deserializeScene(linkScene(node("Player"), tankLink()));
+
+        expect(saveLinked().version).toBe(2);
+        expect(save().version).toBe(1);
+
+        clear();
+        SceneSerializer.deserializeScene(linkScene(node("Player")));
+        expect(saveLinked().version).toBe(1);
+
+        // A prefab file follows the same rule.
+        expect(Prefab.fromGameObject(new GameObject("Plain")).toJSON()).not.toHaveProperty("version");
+        expect(new Prefab(tankTree()).toJSON().version).toBe(2);
+    });
+
+    test("a file of a version the engine does not know is refused", () => {
+        const future = { ...linkScene(node("Player")), version: 3 } as unknown as SerializedScene;
+
+        expect(() => SceneSerializer.deserializeScene(future)).toThrow(/version 3/);
+        expect(() => Prefab.fromJSON({ name: "Future", version: 3, snapshot: node("Future") })).toThrow(/version 3/);
+        expect(SceneManager.activeScene.getRootGameObjects()).toHaveLength(0);
+
+        // The two this build writes are both read.
+        expect(SceneSerializer.deserializeScene({ ...linkScene(tankLink()), version: 2 })).toHaveLength(1);
+    });
+
+    test("a linked instance does not copy its prefab's inline material into the scene", () => {
+        const source = new GameObject("Crate");
+        const mat = new StandardMaterial();
+        mat.metallic = 0.3;
+        source.addComponent(MeshRenderer).sharedMaterial = mat;
+        const tree = SceneSerializer.serializeGameObject(source);
+        tree.id = "c-root";
+        source.destroyImmediate();
+        bind("guid-crate", tree);
+        const [crate, other] = SceneSerializer.deserializeScene(linkScene(
+            node("Crate", { prefab: { guid: "guid-crate", changes: { overrides: [] } } }),
+            node("Other", { prefab: { guid: "guid-crate", changes: { overrides: [] } } }),
+        ));
+
+        const untouched = saveLinked();
+        expect(untouched.assets).toBeUndefined();
+
+        // A material the instance was given is its own, and the scene carries it.
+        const own = new StandardMaterial();
+        own.metallic = 0.9;
+        other.getComponent(MeshRenderer)!.sharedMaterial = own;
+        const changed = saveLinked();
+        expect(changed.assets).toHaveLength(1);
+        expect(changed.assets![0].fields["metallic"]).toBeCloseTo(0.9);
+
+        clear();
+        AssetDatabase.clearLoaded();
+        bind("guid-crate", tree);
+        const [crate2, other2] = SceneSerializer.deserializeScene(changed);
+        expect((crate2.getComponent(MeshRenderer)!.sharedMaterial as StandardMaterial).metallic).toBeCloseTo(0.3);
+        expect((other2.getComponent(MeshRenderer)!.sharedMaterial as StandardMaterial).metallic).toBeCloseTo(0.9);
+        expect(crate).not.toBe(crate2);
+    });
+});

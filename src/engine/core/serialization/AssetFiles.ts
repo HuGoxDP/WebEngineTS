@@ -70,6 +70,17 @@ async function loadReferences(json: object): Promise<void> {
     for (const guid of SceneSerializer.assetReferences(json)) {
         if (AssetDatabase.isLoaded(guid)) continue;
 
+        // A prefab still being decoded further up this chain: waiting for it
+        // would wait for this file, which is waiting for it.
+        if (decodingPrefabs.has(guid)) {
+            console.warn(
+                `[AssetFiles] Prefab "${AssetDatabase.pathOf(guid) ?? guid}" contains, through the prefabs ` +
+                `inside it, a prefab that contains it. It is not loaded twice; an instance of it nested ` +
+                `in itself is kept as a placeholder.`,
+            );
+            continue;
+        }
+
         // A mesh or material inside a model is loaded by loading the model, once
         // however many of its parts are used.
         const file = AssetDatabase.fileOf(guid);
@@ -126,9 +137,22 @@ async function decodePhysicMaterial(bytes: Uint8Array): Promise<PhysicMaterial> 
     return asset;
 }
 
-async function decodePrefab(bytes: Uint8Array): Promise<Prefab> {
-    const json = parse(bytes) as { name?: string; snapshot: { assets?: unknown } };
-    await loadReferences(json.snapshot as object);
+/** Guids of the prefab files being decoded right now, so a cycle between them is not awaited. */
+const decodingPrefabs = new Set<string>();
+
+/**
+ * Reads a prefab file, after loading what it refers to — the prefabs nested
+ * inside it included, so that instantiating it rebuilds them in full.
+ */
+async function decodePrefab(bytes: Uint8Array, path: string): Promise<Prefab> {
+    const json = parse(bytes) as { name?: string; version?: number; snapshot: { assets?: unknown } };
+    const self = AssetDatabase.guidForPath(path);
+    decodingPrefabs.add(self);
+    try {
+        await loadReferences(json.snapshot as object);
+    } finally {
+        decodingPrefabs.delete(self);
+    }
     return Prefab.fromJSON(json as Parameters<typeof Prefab.fromJSON>[0]);
 }
 

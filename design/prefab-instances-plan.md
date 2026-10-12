@@ -88,8 +88,9 @@ children-before-components walk (which fixes the asset-table order) are unchange
 
 - Every node has an id. The nested Turret is a **link**, not a copy: a prefab inside a prefab
   follows its own edits.
-- `version: 2` because the file contains a link (§5.4). A prefab file without one keeps the
-  `{ name, snapshot }` shape it has today.
+- `version: 2` because the file contains a link (§5.4), and — from Stage 6 — because the Aim's
+  path holds a node id. A prefab file with neither keeps the `{ name, snapshot }` shape it has
+  today.
 - A file written before ids existed is read with **legacy ids** derived from position: `~` for
   the root, `~0`, `~1.0` and so on (`PrefabDiff.ensureIds(snapshot, true)`). The same file gets
   the same ids on every load, so an instance saved against one load still matches the next.
@@ -320,8 +321,16 @@ A link-mode file read by an engine without the link reader loads hollow and is s
 - `scope` is ignored, so references resolve from the wrong root;
 - string path segments are read as child indices.
 
-**Decision: a scene or prefab file that contains at least one link is written with `version: 2`;
-one without a link keeps `version: 1` and its exact bytes.**
+**Decision: a scene or prefab file that contains at least one link, or at least one reference
+path with a node id in it, is written with `version: 2`; one with neither keeps `version: 1` and
+its exact bytes.**
+
+*Refined while implementing Stage 7.* The plan first said "a link" alone. Stage 6 makes every
+prefab file's internal references id paths, and a link-mode scene whose instances all fell back
+to expand can still hold id paths into them. Neither contains a link, yet both are misread by an
+older reader exactly as the third bullet above says. The marker therefore follows what an older
+reader would misread, not only links. A scene saved in the default mode has neither, so the
+byte-for-byte promise for ordinary scenes is unchanged.
 
 - The reader accepts 1 and 2 (absent means 1) and refuses anything higher with an error that
   names the version.
@@ -640,7 +649,7 @@ These resolve the open questions both analyses raised. Each says why.
 | # | Question | Decision | Why |
 |---|---|---|---|
 | D-1 | Who writes link mode? | **Opt-in, forever.** Only the editor's file save passes `{ prefabs: "link" }`. Undo, Play, autosave, clipboard and `Instantiate` stay on expand, and the engine default stays expand. | Expand is self-contained and synchronous to read, which every in-memory caller needs. A link is a property of a file on disk, so the caller that writes files opts in. |
-| D-2 | Mark link files? | **`version: 2`** on scene and prefab files that contain a link. Readers accept 1 and 2 and refuse higher. Files without links stay `version: 1`, byte for byte. | A hollow load is silent data loss. The marker makes at least the editor, and every future engine, refuse instead. (§5.4) |
+| D-2 | Mark link files? | **`version: 2`** on scene and prefab files that contain a link or a node-id reference path. Readers accept 1 and 2 and refuse higher. Files with neither stay `version: 1`, byte for byte. | A hollow load, or a reference followed to the wrong object, is silent data loss. The marker makes at least the editor, and every future engine, refuse instead. (§5.4; refined in Stage 7 to cover id paths.) |
 | D-3 | Missing prefab | Placeholder from the shell, `raw` kept and written back verbatim, a warning, and `isPrefabAssetMissing` (Stage 9). No late rebuild. | The E6 contract one level up (§7.1). |
 | D-4 | What does `assetReferences` list? | Prefabs **needed to rebuild**: links with `changes`, link values in `field: "prefab"` overrides, a variant's `base`. Not expand-mode `{ guid }` markers. | Its JSDoc defines the answer as "what a loader has to have in memory before it rebuilds one". An expand instance is complete, and `prefabSource` resolves lazily once the prefab arrives. |
 | D-5 | Id-based addressing? | **Yes, before link mode is announced.** String path segments, written in link contexts only (§2.5, §6.1). | Positional paths turn shape changes into spurious overrides and silently retarget after prefab edits (§7.7). Doing it before the format is frozen costs nothing in compatibility; doing it after means two encodings forever. |

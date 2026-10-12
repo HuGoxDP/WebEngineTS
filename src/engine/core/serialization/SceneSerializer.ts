@@ -195,7 +195,14 @@ export interface SerializedRenderSettings {
 /** Serialized snapshot of a whole scene. */
 export interface SerializedScene {
     name: string;
-    version: 1;
+    /**
+     * The format. `2` when the file holds something a reader that predates
+     * prefab links would misread rather than refuse: an instance saved as its
+     * prefab plus changes, or a reference that names a prefab node by id.
+     * Anything else is written as `1`, byte for byte as before. A reader
+     * refuses a version it does not know.
+     */
+    version: 1 | 2;
     roots: SerializedGameObject[];
     /** Assets carried inside the scene. See {@link SerializedAsset}. */
     assets?: SerializedAsset[];
@@ -243,7 +250,7 @@ export class SceneSerializer {
         // Written after the walk: the table is filled as components are visited.
         const out: SerializedScene = {
             name: scene.name,
-            version: 1,
+            version: SceneSerializer._needsLinkReader(roots) ? 2 : 1,
             roots,
             renderSettings: SceneSerializer._serializeRenderSettings(),
         };
@@ -257,6 +264,7 @@ export class SceneSerializer {
      * clean load should destroy existing objects themselves.
      */
     public static deserializeScene(json: SerializedScene, scene?: Scene): GameObject[] {
+        SceneSerializer._refuseUnknownVersion(json.version, "scene");
         let prevActive: Scene | null = null;
         if (scene && scene !== SceneManager.activeScene) {
             prevActive = SceneManager.activeScene;
@@ -302,7 +310,7 @@ export class SceneSerializer {
      * **NEVER use in user-facing code.**
      */
     public static _serializeForPrefab(go: GameObject): SerializedGameObject {
-        const ctx = SceneSerializer._buildSerializeCtx([go], true, null, false, go);
+        const ctx = SceneSerializer._buildSerializeCtx([go], true, null, { mintLive: false, prefabRoot: go });
         // Every node gets its id before anything is written, so that the
         // prefab's own references can address them by it.
         SceneSerializer._mintAddedIds(go, ctx);
@@ -416,6 +424,11 @@ export class SceneSerializer {
      * What a loader has to have in memory before it rebuilds one — and, since
      * loading is asynchronous and rebuilding is not, the reason this is a
      * separate question. Assets stored inside the file are not listed.
+     *
+     * Prefabs are listed when something has to be rebuilt from them: an
+     * instance saved as its prefab plus changes. An instance saved in full
+     * names its prefab too, but reading it needs nothing, and its link is found
+     * once the prefab is loaded.
      */
     public static assetReferences(json: object): string[] {
         const carried = new Set<string>(
@@ -436,6 +449,11 @@ export class SceneSerializer {
             } else if (obj["$type"] === "Sprite" && typeof obj["texture"] === "string") {
                 found.add(obj["texture"]);
             }
+            // A prefab an instance is rebuilt from. One written in full only
+            // notes where it came from, and needs nothing to be read.
+            const link = SceneSerializer._linkGuid(obj["prefab"])
+                ?? (obj["field"] === "prefab" ? SceneSerializer._linkGuid(obj["value"]) : null);
+            if (link !== null) found.add(link);
             for (const key of Object.keys(obj)) walk(obj[key]);
         };
         walk(json);
@@ -447,6 +465,53 @@ export class SceneSerializer {
 
         for (const guid of carried) found.delete(guid);
         return [...found];
+    }
+
+    /** The guid of a prefab link that has to be rebuilt from its prefab, or null. */
+    private static _linkGuid(value: unknown): string | null {
+        if (value === null || typeof value !== "object") return null;
+        const link = value as Partial<SerializedPrefabLink>;
+        return typeof link.guid === "string" && link.changes !== null && typeof link.changes === "object"
+            ? link.guid
+            : null;
+    }
+
+    /**
+     * @internal
+     * Whether saved JSON holds what only a reader that knows prefab links can
+     * read: a link to rebuild, or a reference path with a node id in it. Such
+     * a file is written as version 2, so that an older reader refuses it
+     * instead of loading instances hollow or following ids as child indices.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _needsLinkReader(json: unknown): boolean {
+        if (Array.isArray(json)) return json.some(item => SceneSerializer._needsLinkReader(item));
+        if (json === null || typeof json !== "object") return false;
+
+        const obj = json as Record<string, unknown>;
+        if (SceneSerializer._linkGuid(obj["prefab"]) !== null) return true;
+        const isRef = obj["$type"] === "GameObjectRef" || obj["$type"] === "ComponentRef";
+        if (isRef && Array.isArray(obj["path"]) && (obj["path"] as unknown[]).some(s => typeof s === "string")) {
+            return true;
+        }
+        return Object.keys(obj).some(key => SceneSerializer._needsLinkReader(obj[key]));
+    }
+
+    /**
+     * @internal
+     * Throws for a file format version this build does not know. Absent means
+     * 1; 1 and 2 are read.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _refuseUnknownVersion(version: unknown, what: string): void {
+        if (typeof version === "number" && version > 2) {
+            throw new Error(
+                `[SceneSerializer] This ${what} was written in format version ${version}, which this ` +
+                `build of the engine cannot read (it reads versions 1 and 2). Update the engine.`,
+            );
+        }
     }
 
     private static _newContext(chain: readonly string[] = []): LoadCtx {
@@ -472,17 +537,23 @@ export class SceneSerializer {
      * @param outer - the pass this one is nested in, when it writes a single
      *   instance on its own: it shares the asset table, and a reference that
      *   leaves the instance is counted from the pass around it.
-     * @param mintLive - whether ids minted for added nodes are stored on the
-     *   live objects. Inherited from `outer` when there is one.
-     * @param prefabRoot - see {@link SceneCtx.prefabRoot}.
+     * @param options.mintLive - whether ids minted for added nodes are stored
+     *   on the live objects. Default true; inherited from `outer` when there
+     *   is one.
+     * @param options.prefabRoot - see {@link SceneCtx.prefabRoot}.
+     * @param options.ownAssets - keep an asset table of its own instead of
+     *   sharing `outer`'s, so that a linked instance can pass on only what its
+     *   changes need.
      */
     private static _buildSerializeCtx(
         roots: ReadonlyArray<GameObject>,
         link: boolean,
         outer: SceneCtx | null,
-        mintLive: boolean = true,
-        prefabRoot: GameObject | null = null,
+        options: { mintLive?: boolean; prefabRoot?: GameObject; ownAssets?: boolean } = {},
     ): SceneCtx {
+        const mintLive = options.mintLive ?? true;
+        const prefabRoot = options.prefabRoot ?? null;
+        const shared = outer !== null && options.ownAssets !== true;
         const goToPath = new Map<GameObject, number[]>();
         const walk = (go: GameObject, path: number[]): void => {
             goToPath.set(go, path);
@@ -493,8 +564,8 @@ export class SceneSerializer {
         };
         for (let i = 0; i < roots.length; i++) walk(roots[i], [i]);
 
-        const assetTable: SerializedAsset[] = outer ? outer.assetTable : [];
-        const inlined = outer ? outer.inlined : new Map<object, string>();
+        const assetTable: SerializedAsset[] = shared ? outer.assetTable : [];
+        const inlined = shared ? outer.inlined : new Map<object, string>();
         // The inline-asset closure serializes fields, which needs the very
         // context being built — held in a box so it can refer to itself.
         const ctxRef: { value: SceneCtx | null } = { value: null };
@@ -557,6 +628,8 @@ export class SceneSerializer {
                 // somehow refers back to itself cannot recurse forever.
                 const guid = SceneSerializer._inlineGuidOf(asset);
                 inlined.set(asset, guid);
+                // Already passed up from a linked instance's own table.
+                if (assetTable.some(entry => entry.guid === guid)) return guid;
 
                 const fields: Record<string, unknown> = {};
                 assetTable.push({ guid, type: typeName, fields });
@@ -688,7 +761,7 @@ export class SceneSerializer {
         }
 
         SceneSerializer._mintAddedIds(go, outer);
-        const local = SceneSerializer._buildSerializeCtx([go], true, outer);
+        const local = SceneSerializer._buildSerializeCtx([go], true, outer, { ownAssets: true });
         const expanded = SceneSerializer._serializeNode(go, local, false, true);
 
         const reason = PrefabDiff.inexpressible(tree, expanded);
@@ -707,7 +780,54 @@ export class SceneSerializer {
         const out = SceneSerializer._serializeShell(go, outer, under);
         out.prefab = { guid, changes };
         if (info.unused !== null) out.prefab.unused = SceneSerializer._cloneJson(info.unused);
+        SceneSerializer._carryAssets(local.assetTable, tree, out.prefab, outer.assetTable);
         return out;
+    }
+
+    /**
+     * Passes up the inline assets a linked instance's changes need.
+     *
+     * @remarks
+     * The instance was written with a table of its own, which holds every
+     * inline asset it uses — mostly the prefab's own, which the prefab carries
+     * and which would otherwise be copied into every scene that uses it. Worse,
+     * the first copy of an id to load is the one kept, so a stale scene copy
+     * could shadow an edited prefab. Only what the changes refer to, directly
+     * or through another such asset, and the prefab does not carry, goes up.
+     */
+    private static _carryAssets(
+        local: readonly SerializedAsset[],
+        tree: SerializedGameObject,
+        link: SerializedPrefabLink,
+        into: SerializedAsset[],
+    ): void {
+        if (local.length === 0) return;
+        const byGuid = new Map(local.map(entry => [entry.guid, entry]));
+        const needed = new Set<string>();
+        const visit = (value: unknown): void => {
+            if (Array.isArray(value)) {
+                value.forEach(visit);
+                return;
+            }
+            if (value === null || typeof value !== "object") return;
+            const obj = value as Record<string, unknown>;
+            if (obj["$type"] === "AssetRef" && typeof obj["guid"] === "string") {
+                const entry = byGuid.get(obj["guid"]);
+                if (entry !== undefined && !needed.has(entry.guid)) {
+                    needed.add(entry.guid);
+                    visit(entry.fields);
+                }
+            }
+            for (const key of Object.keys(obj)) visit(obj[key]);
+        };
+        visit(link.changes);
+        visit(link.unused);
+
+        const carried = new Set((tree.assets ?? []).map(entry => entry.guid));
+        const present = new Set(into.map(entry => entry.guid));
+        for (const entry of local) {
+            if (needed.has(entry.guid) && !carried.has(entry.guid) && !present.has(entry.guid)) into.push(entry);
+        }
     }
 
     /**

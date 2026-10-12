@@ -75,6 +75,10 @@ function install(entries: Record<string, string>): void {
         { guid: "mat-glow", path: "assets/materials/glow.mat.json" },
         { guid: "phys-ice", path: "assets/physics/ice.physicmat.json" },
         { guid: "prefab-crate", path: "assets/prefabs/crate.prefab.json" },
+        { guid: "prefab-turret", path: "assets/prefabs/turret.prefab.json" },
+        { guid: "prefab-tank", path: "assets/prefabs/tank.prefab.json" },
+        { guid: "prefab-a", path: "assets/prefabs/a.prefab.json" },
+        { guid: "prefab-b", path: "assets/prefabs/b.prefab.json" },
     ]);
 }
 
@@ -415,6 +419,71 @@ describe("an asset with no material in it", () => {
         expect(file.type).toBe("AssetFilesSpec.Tuning");
         expect(file.fields["options"]).toEqual({ gain: 2, bands: [1, 2] });
         expect((SceneSerializer.deserializeAsset(file) as Tuning).options).toEqual({ gain: 2, bands: [1, 2] });
+    });
+});
+
+describe("a prefab file with prefabs inside it", () => {
+    test("a prefab file lists the prefabs nested in it, and loading it loads them", async () => {
+        const turretSource = new GameObject("Turret");
+        new GameObject("Barrel").transform.setParent(turretSource.transform, false);
+        const turret = Prefab.fromGameObject(turretSource);
+        turretSource.destroyImmediate();
+        AssetDatabase._bindGuid("prefab-turret", turret);
+
+        const tankSource = new GameObject("Tank");
+        turret.instantiate().transform.setParent(tankSource.transform, false);
+        const tank = Prefab.fromGameObject(tankSource);
+        tankSource.destroyImmediate();
+        const turretText = written(turret);
+        const tankText = written(tank);
+
+        expect(SceneSerializer.assetReferences(JSON.parse(tankText).snapshot)).toEqual(["prefab-turret"]);
+
+        AssetDatabase.clearLoaded();
+        install({
+            "assets/prefabs/turret.prefab.json": turretText,
+            "assets/prefabs/tank.prefab.json": tankText,
+        });
+        const loaded = await Resources.load(Prefab, "prefabs/tank");
+
+        expect(AssetDatabase.isLoaded("prefab-turret")).toBe(true);
+        const instance = loaded.instantiate();
+        const nested = instance.transform.getChild(0).gameObject;
+        expect(nested.isPrefabInstance).toBe(true);
+        expect(nested.transform.getChild(0).gameObject.name).toBe("Barrel");
+    });
+
+    test("two prefab files that contain each other load without hanging", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const pose = {
+            position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 },
+        };
+        const file = (name: string, other: string): string => JSON.stringify({
+            name,
+            version: 2,
+            snapshot: {
+                name, active: true, transform: pose, components: [], id: `${name}-root`,
+                children: [{
+                    name: `${name}-holds`, active: true, transform: pose, components: [], children: [],
+                    id: `${name}-link`, prefab: { guid: other, changes: { overrides: [] } },
+                }],
+            },
+        });
+        install({
+            "assets/prefabs/a.prefab.json": file("a", "prefab-b"),
+            "assets/prefabs/b.prefab.json": file("b", "prefab-a"),
+        });
+
+        const a = await Resources.load(Prefab, "prefabs/a");
+
+        expect(AssetDatabase.isLoaded("prefab-b")).toBe(true);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("contains it"));
+        // a holds b, which holds a again: that one is a placeholder.
+        const instance = a.instantiate();
+        const b = instance.transform.getChild(0).gameObject;
+        expect(b.isPrefabInstance).toBe(true);
+        expect(b.transform.getChild(0).gameObject.transform.childCount).toBe(0);
+        warn.mockRestore();
     });
 });
 
