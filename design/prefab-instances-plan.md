@@ -243,8 +243,8 @@ Read in full at `9ffd1d1`. The WIP is coherent; it is unfinished, not wrong.
    texts are now stale: `unity-parity-plan.md` Stage 4 ("structural changes are not overrides",
    "prefabs have no ids yet") and the `_createGameObject` JSDoc ("`_clone` round-trips through
    `Prefab`").
-6. **Three defects that exist without this feature**, all verified at HEAD with the Stage 1
-   fixes applied, and all in this feature's path:
+6. **Four defects that exist without this feature**, all verified at HEAD with the Stage 1
+   fixes applied, and all in this feature's path (D3 was found while Stage 1 was written):
    - **D1 — a destroyed child stays in its parent's child list, and is saved.**
      `GameObject.onDestroy` ends in `Transform.onDestroy`, which removes only the Three.js object.
      `Transform._children` still holds the dead transform. After `child.destroyImmediate()`,
@@ -264,6 +264,14 @@ Read in full at `9ffd1d1`. The WIP is coherent; it is unfinished, not wrong.
      `path: "inline:StandardMaterial:0:0.65…"`, a pseudo-path minted by `guidForPath`, while the
      prefab tree has none. Every linked instance would store that override and stop following
      the prefab's material.
+   - **D3 — a child loads displaced when its parent is away from the origin.** `_deserializeGO`
+     set a child's local pose while it was still a root, then parented it with
+     `transform.parent = t`, which keeps the *world* pose. The parent's pose was subtracted from
+     the child's: a child at local `(0, 0.5, 0)` under a parent at `(1, 2, 3)` loaded at
+     `(-1, -1.5, -3)`. Every load, undo and `Instantiate` of such a hierarchy did this, as far back
+     as `bde23fc`. For E11 it is fatal: a link-mode shell sets the instance root's pose before its
+     children are built. Found by the Stage 1 golden test, which had to keep its parent at the
+     origin until the fix.
 
 ## 5. Backward compatibility
 
@@ -639,7 +647,7 @@ These resolve the open questions both analyses raised. Each says why.
 | D-6 | Per-field overrides through nesting | **Yes, as Stage 10**, after link mode ships. The whole-link override stays readable. | The whole-link form rebuilds correctly. It only stops an outer prefab's later edits to a nested instance from reaching an outer instance that touched it. The change is additive, so it does not hold the format. |
 | D-7 | An instance root's `_prefabNodeId` | **null at top level; its id in the enclosing prefab when nested; never the prefab's own root id.** | The same prefab nested twice would otherwise put two equal ids into one namespace (§7.5). |
 | D-8 | Variant format | **`{ name, version: 2, base, changes }`** with full `PrefabChanges`, written when the base has a guid. A variant whose base has none is flattened, as today. | E5 gave prefabs guids, which is what the deferral in `unity-parity-plan.md` Stage 4 waited for. Shape changes are as much a variant's business as an instance's. |
-| D-9 | The pre-existing defects | **Fixed first**, one patch each: D1 (a destroyed child) and D2 (inline asset identity, which also removes D2b). | Each one corrupts what this feature reads or writes. One concern per patch keeps them reviewable and revertible. |
+| D-9 | The pre-existing defects | **Fixed first**, one patch each: D1 (a destroyed child), D2 (inline asset identity, which also removes D2b) and D3 (a child's local pose on load). | Each one corrupts what this feature reads or writes. One concern per patch keeps them reviewable and revertible. |
 | D-10 | Copies of nodes inside an instance | **They drop the ids of every namespace not wholly inside the copy** (§6.1). A copy of an instance root keeps the link and its interior ids. | Unity: a duplicate of an inner node is an added object. It also makes duplicate ids impossible by construction rather than by checking. |
 | D-11 | Does `Instantiate` keep the link? | **Yes**, as the WIP does. | Duplicate and paste in the editor use the same snapshot path and must keep it. A runtime that never asks loses nothing. Unity's player has no prefab connection at all, so there is nothing to diverge from at run time. |
 | D-12 | `DeserializeContext.scopeStack` | **Optional**, defaulting to empty. | The exported type must not break callers, and a missing stack *is* the old behaviour. |
@@ -709,7 +717,8 @@ makes an instance yet, and an optional field on an exported type breaks nobody.
 
 ### Stage 2 — The defects the feature stands on
 
-Two commits, D1 and D2 (§4.6).
+Three commits, D1, D2 and D3 (§4.6). D3 was not in the original plan; it was found by the
+Stage 1 golden test and is fixed the same way, on its own.
 
 - **D1.** `GameObject` destruction removes the transform from its parent's `_children`, so
   `childCount`, `getChild`, sibling indices and the serializer all stop seeing it. This matches
@@ -720,12 +729,14 @@ Two commits, D1 and D2 (§4.6).
   - `inlineAsset` reuses `AssetDatabase.guidOf(asset)` instead of minting a new one each save.
   - An inline `AssetRef` never carries `path`.
   - This fixes D2 and D2b together; they are one cause.
+- **D3.** `_deserializeGO` parents each child with `setParent(t, false)`, keeping the local pose
+  it read. The Stage 1 golden moves its parent off the origin again.
 
 **Done when:**
 
-- D1 and D2 have their tests (§10);
+- D1, D2 and D3 have their tests (§10);
 - the whole suite is green;
-- the CHANGELOG has two *Fixed* entries. D1's must say that the editor's deleted children
+- the CHANGELOG has three *Fixed* entries. D1's must say that the editor's deleted children
   reappeared on save.
 
 ### Stage 3 — Instance-ness survives a round trip (expand mode)
@@ -898,6 +909,8 @@ Each test is named as it will appear. New files are `tests/PrefabInstances.test.
   - **"an inline asset reference carries no path."**
 - `Serialization.test.ts`, *Prefab — per-instance overrides*:
   - **"an untouched instance of a prefab with an inline material has no overrides"** (D2b).
+- `Serialization.test.ts`, *SceneSerializer — GameObject round trip*:
+  - **"a child keeps its local pose when its parent is away from the origin"** (D3).
 
 ### Stage 3
 

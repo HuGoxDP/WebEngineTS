@@ -67,6 +67,12 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   material saved twice without being reloaded keeps its id too, so an unchanged scene saves
   byte-identically. The same cause made an untouched instance of a prefab with such a material
   report `MeshRenderer.sharedMaterial` as an override; it no longer does.
+- **A child keeps its local position, rotation and scale when a scene is loaded.** The loader
+  set a child's saved pose and then attached it to its parent keeping its *world* pose, which
+  subtracted the parent's: a child at `(0, 0.5, 0)` under a parent at `(1, 2, 3)` came back at
+  `(-1, -1.5, -3)`. Every load, undo and `EngineObject.Instantiate` of a hierarchy whose parents
+  were not at the origin with no rotation and unit scale was affected. **Scenes that were saved
+  after such a load hold the displaced values** and keep them; only the loader is fixed.
 - **Four `Mesh.create*` primitives were wound inside out.** `createPlane`, `createCylinder`
   (its side wall), `createCapsule` and `createTorus` emitted triangle indices opposite to the
   normals they stored, so `side: FrontSide` culled them: a plane vanished entirely, a torus was a

@@ -918,7 +918,9 @@ export class SceneSerializer {
         }
         for (const childJson of json.children) {
             const child = SceneSerializer._deserializeGO(childJson, ctx);
-            child.transform.parent = t;
+            // The saved pose is already local; keeping the world pose instead
+            // would subtract the parent's from it.
+            child.transform.setParent(t, false);
         }
         return go;
     }

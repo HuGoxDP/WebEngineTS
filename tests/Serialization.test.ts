@@ -3,6 +3,7 @@ import { GameObject } from "../src/engine/core/GameObject";
 import { Behaviour } from "../src/engine/core/Behaviour";
 import { SceneManager } from "../src/engine/core/SceneManager";
 import { Vector3 } from "../src/engine/core/math/Vector3";
+import { Quaternion } from "../src/engine/core/math/Quaternion";
 import { Color } from "../src/engine/core/math/Color";
 import { Rect } from "../src/engine/core/math/Rect";
 import { Bounds } from "../src/engine/core/math/Bounds";
@@ -174,6 +175,31 @@ describe("SceneSerializer — GameObject round trip", () => {
 
         const json = SceneSerializer.serializeGameObject(go);
         expect(json.components).toEqual([]);
+    });
+
+    test("a child keeps its local pose when its parent is away from the origin", () => {
+        const parent = new GameObject("Arm");
+        parent.transform.localPosition = new Vector3(10, 2, -3);
+        parent.transform.localRotation = Quaternion.euler(0, 90, 0);
+        parent.transform.localScale = new Vector3(2, 2, 2);
+        const child = new GameObject("Hand");
+        child.transform.parent = parent.transform;
+        child.transform.localPosition = new Vector3(1, 0, 0);
+        child.transform.localRotation = Quaternion.euler(30, 0, 0);
+        child.transform.localScale = new Vector3(0.5, 0.5, 0.5);
+
+        const json = SceneSerializer.serializeGameObject(parent);
+        destroyScene();
+        const hand = SceneSerializer.deserializeGameObject(json).transform.getChild(0);
+
+        expect(hand.localPosition.x).toBeCloseTo(1);
+        expect(hand.localPosition.y).toBeCloseTo(0);
+        expect(hand.localPosition.z).toBeCloseTo(0);
+        expect(hand.localRotation.x).toBeCloseTo(json.children[0].transform.rotation.x);
+        expect(hand.localRotation.w).toBeCloseTo(json.children[0].transform.rotation.w);
+        expect(hand.localScale.x).toBeCloseTo(0.5);
+        expect(SceneSerializer.serializeGameObject(hand.gameObject).transform)
+            .toEqual(json.children[0].transform);
     });
 
     test("recursively serializes a parent / child hierarchy", () => {
@@ -408,7 +434,7 @@ describe("SceneSerializer — format unchanged by prefab support", () => {
             {
                 name: "Anchor",
                 active: true,
-                transform: pose(0, 0, 0),
+                transform: pose(1, 2, 3),
                 components: [{ type: "FormatSpec.Mark", fields: { label: "home" } }],
                 children: [{
                     name: "Tip",
