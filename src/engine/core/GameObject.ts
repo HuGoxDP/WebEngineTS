@@ -134,7 +134,12 @@ export class GameObject extends EngineObject {
      * @remarks
      * Equivalent to the blue cube in Unity's Hierarchy. True from
      * {@link Prefab.instantiate} on, and true again after a scene is loaded,
-     * for as long as nothing {@link unpackPrefab unpacks} it.
+     * for as long as nothing {@link unpackPrefab unpacks} it. Only the root
+     * says so: the objects below it belong to the instance, and each knows
+     * which node of the prefab it is ({@link prefabNodeId}).
+     *
+     * A prefab instance nested inside another is the root of its own
+     * instance, so this is true for it as well.
      */
     public get isPrefabInstance(): boolean {
         return this._prefabInfo !== null;
@@ -159,8 +164,14 @@ export class GameObject extends EngineObject {
 
     /**
      * Which node of its prefab this object is, or null for an object that did
-     * not come from one — or for the root of an instance, whose place in the
-     * prefab is the whole prefab.
+     * not come from one.
+     *
+     * @remarks
+     * The root of an instance has no node in the prefab it is an instance of —
+     * it *is* that prefab — so its id is null at the top level of a scene.
+     * When the instance is nested inside another prefab, its id is its node in
+     * that outer prefab. It is never the prefab's own root id: the same prefab
+     * nested twice would otherwise put two equal ids into one prefab.
      */
     public get prefabNodeId(): string | null {
         return this._prefabNodeId;

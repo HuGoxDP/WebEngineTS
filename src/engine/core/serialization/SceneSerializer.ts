@@ -200,7 +200,7 @@ export class SceneSerializer {
         const ctx = SceneSerializer._buildSerializeCtx(
             scene.getRootGameObjects(), options.prefabs === "link", null,
         );
-        const roots = scene.getRootGameObjects().map(r => SceneSerializer._serializeGO(r, ctx));
+        const roots = scene.getRootGameObjects().map(r => SceneSerializer._serializeGO(r, ctx, false));
 
         // Written after the walk: the table is filled as components are visited.
         const out: SerializedScene = {
@@ -246,7 +246,7 @@ export class SceneSerializer {
     /** Serializes a single GameObject and all its descendants. */
     public static serializeGameObject(go: GameObject, options: SerializeOptions = {}): SerializedGameObject {
         const ctx = SceneSerializer._buildSerializeCtx([go], options.prefabs === "link", null);
-        const root = SceneSerializer._serializeGO(go, ctx);
+        const root = SceneSerializer._serializeGO(go, ctx, false);
         if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
         return root;
     }
@@ -265,7 +265,7 @@ export class SceneSerializer {
      */
     public static _serializeForPrefab(go: GameObject): SerializedGameObject {
         const ctx = SceneSerializer._buildSerializeCtx([go], true, null);
-        const root = SceneSerializer._serializeGO(go, ctx, true);
+        const root = SceneSerializer._serializeNode(go, ctx, false, true);
         if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
         return root;
     }
@@ -537,32 +537,41 @@ export class SceneSerializer {
     /**
      * Writes one object, deciding how a prefab instance is written.
      *
-     * @param expandRoot - write `go` in full even if it is an instance. Only
-     *   `go` itself: the instances below it are still decided one by one.
+     * @param under - whether an instance root lies strictly above `go` in the
+     *   tree being written, which is what decides whether `go` keeps its node
+     *   id. A copy of a node from inside an instance therefore carries none and
+     *   becomes an ordinary object, as a duplicate of one does in Unity.
      */
-    private static _serializeGO(go: GameObject, ctx: SceneCtx, expandRoot: boolean = false): SerializedGameObject {
+    private static _serializeGO(go: GameObject, ctx: SceneCtx, under: boolean): SerializedGameObject {
         const info = go._prefabInfo;
-        if (info === null || expandRoot) return SceneSerializer._serializeNode(go, ctx);
+        if (info === null) return SceneSerializer._serializeNode(go, ctx, under, false);
 
         // An instance whose prefab could not be found: nothing was built from it,
         // so there is nothing to write but what it was read as.
         if (info.raw !== null) {
-            const out = SceneSerializer._serializeShell(go);
+            const out = SceneSerializer._serializeShell(go, under);
             out.prefab = SceneSerializer._cloneJson(info.raw);
             return out;
         }
 
         // A prefab nothing can name cannot be linked to; it stays a plain tree.
         const guid = SceneSerializer._prefabGuid(info);
-        if (guid === null) return SceneSerializer._serializeNode(go, ctx);
+        if (guid === null) return SceneSerializer._serializeNode(go, ctx, under, true);
 
         const source = ctx.link ? SceneSerializer._prefabSourceOf(info) : null;
         if (source === null) {
-            const full = SceneSerializer._serializeNode(go, ctx);
-            full.prefab = { guid };
+            const full = SceneSerializer._serializeNode(go, ctx, under, true);
+            full.prefab = SceneSerializer._expandedLink(guid, info);
             return full;
         }
-        return SceneSerializer._serializeInstance(go, guid, source, ctx);
+        return SceneSerializer._serializeInstance(go, guid, source, ctx, under);
+    }
+
+    /** The link an instance written in full carries: its prefab, and what no longer applies. */
+    private static _expandedLink(guid: string, info: PrefabInstanceInfo): SerializedPrefabLink {
+        const link: SerializedPrefabLink = { guid };
+        if (info.unused !== null) link.unused = SceneSerializer._cloneJson(info.unused);
+        return link;
     }
 
     /**
@@ -579,18 +588,22 @@ export class SceneSerializer {
         guid: string,
         source: PrefabSource,
         outer: SceneCtx,
+        under: boolean,
     ): SerializedGameObject {
         const local = SceneSerializer._buildSerializeCtx([go], true, outer);
-        const expanded = SceneSerializer._serializeNode(go, local);
+        const expanded = SceneSerializer._serializeNode(go, local, false, true);
         const changes = PrefabDiff.compareChanges(source._resolvedTree(), expanded);
 
-        const out = SceneSerializer._serializeShell(go);
+        const out = SceneSerializer._serializeShell(go, under);
         out.prefab = { guid, changes };
         return out;
     }
 
-    /** An object's own state, with nothing under it: name, activity, transform, id. */
-    private static _serializeShell(go: GameObject): SerializedGameObject {
+    /**
+     * An object's own state, with nothing under it: name, activity, transform,
+     * and its node id when `withId`.
+     */
+    private static _serializeShell(go: GameObject, withId: boolean): SerializedGameObject {
         const t = go.transform;
         const out: SerializedGameObject = {
             name: go.name,
@@ -606,15 +619,28 @@ export class SceneSerializer {
             components: [],
             children: [],
         };
-        if (go._prefabNodeId !== null) out.id = go._prefabNodeId;
+        if (withId && go._prefabNodeId !== null) out.id = go._prefabNodeId;
         return out;
     }
 
-    private static _serializeNode(go: GameObject, ctx: SceneCtx): SerializedGameObject {
+    /**
+     * An object written in full, children before components (which fixes the
+     * order of the asset table).
+     *
+     * @param under - see {@link _serializeGO}.
+     * @param instanceRoot - whether `go` counts as an instance root for its
+     *   children's ids. The root of a prefab being made always does.
+     */
+    private static _serializeNode(
+        go: GameObject,
+        ctx: SceneCtx,
+        under: boolean,
+        instanceRoot: boolean,
+    ): SerializedGameObject {
         const t = go.transform;
-        const out = SceneSerializer._serializeShell(go);
+        const out = SceneSerializer._serializeShell(go, under);
         for (let i = 0; i < t.childCount; i++) {
-            out.children.push(SceneSerializer._serializeGO(t.getChild(i).gameObject, ctx));
+            out.children.push(SceneSerializer._serializeGO(t.getChild(i).gameObject, ctx, under || instanceRoot));
         }
         out.components = SceneSerializer._serializeComponents(go, ctx);
         return out;
@@ -902,16 +928,17 @@ export class SceneSerializer {
             );
         }
 
+        // Link mode is read in a later stage; until then a link is kept, not
+        // read hollow, exactly as a link to a missing prefab is.
+        if (json.prefab?.changes !== undefined) {
+            return SceneSerializer._placeholder(json, create);
+        }
+
         const go = create(json.name);
         go.setActive(json.active);
 
         const t = go.transform;
-        const p = json.transform.position;
-        const r = json.transform.rotation;
-        const s = json.transform.scale;
-        t.localPosition = t.localPosition.set(p.x, p.y, p.z);
-        t.localRotation = t.localRotation.set(r.x, r.y, r.z, r.w);
-        t.localScale    = t.localScale.set(s.x, s.y, s.z);
+        SceneSerializer._applyPose(go, json.transform);
 
         for (const compJson of json.components) {
             SceneSerializer._deserializeComponent(compJson, go, ctx);
@@ -922,7 +949,50 @@ export class SceneSerializer {
             // would subtract the parent's from it.
             child.transform.setParent(t, false);
         }
+
+        go._prefabNodeId = typeof json.id === "string" ? json.id : null;
+        if (json.prefab && typeof json.prefab.guid === "string") {
+            go._prefabInfo = {
+                source: SceneSerializer._prefabById(json.prefab.guid),
+                guid: json.prefab.guid,
+                raw: null,
+                unused: json.prefab.unused ? SceneSerializer._cloneJson(json.prefab.unused) : null,
+            };
+        }
         return go;
+    }
+
+    /**
+     * An instance that cannot be rebuilt, made from its saved shell: name,
+     * activity, transform and id, with the link kept verbatim so that saving
+     * writes it back unchanged.
+     */
+    private static _placeholder(
+        json: SerializedGameObject,
+        create: (name: string) => GameObject,
+    ): GameObject {
+        const go = create(json.name);
+        go.setActive(json.active);
+        SceneSerializer._applyPose(go, json.transform);
+        go._prefabNodeId = typeof json.id === "string" ? json.id : null;
+        go._prefabInfo = {
+            source: null,
+            guid: json.prefab!.guid,
+            raw: SceneSerializer._cloneJson(json.prefab!),
+            unused: null,
+        };
+        return go;
+    }
+
+    /** Sets an object's local position, rotation and scale from saved values. */
+    private static _applyPose(go: GameObject, transform: SerializedGameObject["transform"]): void {
+        const t = go.transform;
+        const p = transform.position;
+        const r = transform.rotation;
+        const s = transform.scale;
+        t.localPosition = t.localPosition.set(p.x, p.y, p.z);
+        t.localRotation = t.localRotation.set(r.x, r.y, r.z, r.w);
+        t.localScale    = t.localScale.set(s.x, s.y, s.z);
     }
 
     private static _deserializeComponent(

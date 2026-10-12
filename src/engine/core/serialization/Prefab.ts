@@ -101,19 +101,25 @@ export class Prefab {
     }
 
     /**
+     * @internal
      * The tree this prefab describes, resolving a variant against its base.
      *
      * @remarks
      * Recomputed on each call rather than cached, which is what makes an edit
      * to a base show up in its variants. A prefab tree is small next to the
      * scene it populates, and this runs when instantiating, not per frame.
+     *
+     * Public only so that the serializer can rebuild an instance from it
+     * without importing this class (`PrefabSource`).
+     *
+     * **NEVER use in user-facing code.**
      */
-    private _resolved(): SerializedGameObject {
+    public _resolvedTree(): SerializedGameObject {
         if (this._snapshot !== null) return this._snapshot;
         if (this._base === null) {
             throw new Error("[Prefab] A prefab must have either a snapshot or a base");
         }
-        return PrefabDiff.apply(this._base._resolved(), this._variantOverrides);
+        return PrefabDiff.apply(this._base._resolvedTree(), this._variantOverrides);
     }
 
     /** Captures a live GameObject (and its children) as a Prefab. */
@@ -133,7 +139,7 @@ export class Prefab {
      */
     public instantiate(scene?: Scene): GameObject {
         const target = scene ?? SceneManager.activeScene;
-        return SceneSerializer.deserializeGameObject(this._resolved(), target);
+        return SceneSerializer.deserializeGameObject(this._resolvedTree(), target);
     }
 
     /**
@@ -153,7 +159,7 @@ export class Prefab {
      * @returns the differences, in tree order. Empty when it matches.
      */
     public getOverrides(instance: GameObject): PrefabOverride[] {
-        return PrefabDiff.compare(this._resolved(), SceneSerializer.serializeGameObject(instance));
+        return PrefabDiff.compare(this._resolvedTree(), SceneSerializer.serializeGameObject(instance));
     }
 
     /**
@@ -173,7 +179,7 @@ export class Prefab {
     ): GameObject {
         const target = scene ?? SceneManager.activeScene;
         return SceneSerializer.deserializeGameObject(
-            PrefabDiff.apply(this._resolved(), overrides),
+            PrefabDiff.apply(this._resolvedTree(), overrides),
             target,
         );
     }
@@ -211,9 +217,9 @@ export class Prefab {
      * exists (unity-parity Stage 2/3).
      */
     public toJSON(): { name: string; snapshot: SerializedGameObject } {
-        return { name: this.name, snapshot: this._resolved() };
+        return { name: this.name, snapshot: this._resolvedTree() };
     }
 
     /** @internal The resolved tree (read-only). */
-    public get _internalSnapshot(): SerializedGameObject { return this._resolved(); }
+    public get _internalSnapshot(): SerializedGameObject { return this._resolvedTree(); }
 }

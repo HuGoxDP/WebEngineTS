@@ -97,6 +97,12 @@ export interface SerializedPrefabLink {
      * the tree is saved in full and the link only records where it came from.
      */
     changes?: PrefabChanges;
+    /**
+     * Changes addressed to nodes the prefab no longer has, kept rather than
+     * dropped. They are tried again on every load, so they apply once more if
+     * the prefab gets the node back — Unity's "unused overrides".
+     */
+    unused?: PrefabChanges;
 }
 
 /**
@@ -123,12 +129,14 @@ export interface PrefabSource {
  * instance read from a scene whose prefab is not loaded yet still keeps the
  * link. `raw` holds the saved link verbatim when the prefab could not be
  * found: such an object is a placeholder, and writing the link back untouched
- * is what keeps opening and saving from deleting what it stood for.
+ * is what keeps opening and saving from deleting what it stood for. `unused`
+ * holds the changes that no longer apply (see {@link SerializedPrefabLink.unused}).
  */
 export interface PrefabInstanceInfo {
     source: PrefabSource | null;
     guid: string | null;
     raw: SerializedPrefabLink | null;
+    unused: PrefabChanges | null;
 }
 
 /** Transform fields compared at the GameObject level. */
