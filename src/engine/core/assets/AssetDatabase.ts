@@ -257,6 +257,20 @@ export class AssetDatabase {
         return true;
     }
 
+    /**
+     * @internal
+     * A fresh id, mapped to no path and bound to nothing.
+     *
+     * @remarks
+     * For an asset a scene carries inside itself and that has never had an id:
+     * it needs one to be referred to by, and must not appear to have a file.
+     * {@link guidForPath} would record a path for it, which is what made such
+     * an asset look file-backed on the next save.
+     */
+    public static _newGuid(): string {
+        return AssetDatabase._mintGuid();
+    }
+
     /** Every known identity, in insertion order. */
     public static get entries(): readonly AssetEntry[] {
         const out: AssetEntry[] = [];

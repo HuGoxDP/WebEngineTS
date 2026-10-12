@@ -488,9 +488,7 @@ export class SceneSerializer {
 
                 // Registered before the fields are walked, so an asset that
                 // somehow refers back to itself cannot recurse forever.
-                const guid = AssetDatabase.guidForPath(
-                    `inline:${typeName}:${assetTable.length}:${Math.random()}`,
-                );
+                const guid = SceneSerializer._inlineGuidOf(asset);
                 inlined.set(asset, guid);
 
                 const fields: Record<string, unknown> = {};
@@ -508,6 +506,33 @@ export class SceneSerializer {
         ctxRef.value = ctx;
         return ctx;
     }
+
+    /**
+     * The id an asset with no file is written under.
+     *
+     * @remarks
+     * The id it already has, when a scene's asset table gave it one; otherwise
+     * the one minted the last time it was saved, so saving twice writes the
+     * same file. A minted id is dropped once something else has been loaded
+     * under it — a copy rebuilt from the saved table — since one id cannot name
+     * two assets. Minted ids are kept beside the asset, not bound to it: binding
+     * would make the next load reuse this instance instead of building the
+     * values it saved.
+     */
+    private static _inlineGuidOf(asset: object): string {
+        const bound = AssetDatabase.guidOf(asset);
+        if (bound !== null) return bound;
+
+        const minted = SceneSerializer._inlineGuids.get(asset);
+        if (minted !== undefined && !AssetDatabase.isLoaded(minted)) return minted;
+
+        const fresh = AssetDatabase._newGuid();
+        SceneSerializer._inlineGuids.set(asset, fresh);
+        return fresh;
+    }
+
+    /** Ids minted for assets with no file, by {@link _inlineGuidOf}. */
+    private static readonly _inlineGuids = new WeakMap<object, string>();
 
     /**
      * Writes one object, deciding how a prefab instance is written.

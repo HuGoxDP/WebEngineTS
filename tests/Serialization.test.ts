@@ -2799,6 +2799,15 @@ describe("Prefab — per-instance overrides", () => {
         expect(restored.isVariant).toBe(false);
     });
 
+    test("an untouched instance of a prefab with an inline material has no overrides", () => {
+        const root = new GameObject("Crate");
+        root.addComponent(MeshRenderer).sharedMaterial = new StandardMaterial();
+        const prefab = Prefab.fromGameObject(root);
+        root.destroy();
+
+        expect(prefab.getOverrides(prefab.instantiate())).toEqual([]);
+    });
+
     test("a compound value counts as one override, not several", () => {
         const prefab = makePrefab();
         const instance = prefab.instantiate();

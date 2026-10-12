@@ -58,6 +58,15 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   this way, so **a deleted child came back, with no components, on the next save or undo.** It
   now leaves the list when it is destroyed: at once for `destroyImmediate`, at the end of the
   frame for `destroy`, as in Unity.
+- **A material with no file stays in the scene on every save, under one id.** A scene carries a
+  material built in code in its `assets` table. Loading the scene gave the material that id, and
+  the next save then took the id for a file: it wrote a bare reference and dropped the table
+  entry, so the scene reopened in a new session with the material missing for good. Editor
+  autosave hit this on the second save. An asset with no file behind it is now written into the
+  table every time, under the id it already has, and its reference never carries a `path`. A
+  material saved twice without being reloaded keeps its id too, so an unchanged scene saves
+  byte-identically. The same cause made an untouched instance of a prefab with such a material
+  report `MeshRenderer.sharedMaterial` as an override; it no longer does.
 - **Four `Mesh.create*` primitives were wound inside out.** `createPlane`, `createCylinder`
   (its side wall), `createCapsule` and `createTorus` emitted triangle indices opposite to the
   normals they stored, so `side: FrontSide` culled them: a plane vanished entirely, a torus was a

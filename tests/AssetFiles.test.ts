@@ -253,6 +253,53 @@ describe("a scene that uses a material file", () => {
         expect(SceneSerializer.assetReferences(withMaterial)).toEqual(["mat-hull"]);
     });
 
+    test("a scene saved twice still carries its inline material", () => {
+        const mat = new StandardMaterial();
+        mat.metallic = 0.42;
+        sceneWithMaterial(mat);
+        const first = SceneSerializer.serializeScene(SceneManager.activeScene);
+        clear();
+        SceneSerializer.deserializeScene(first);
+
+        const second = SceneSerializer.serializeScene(SceneManager.activeScene);
+        expect(second.assets).toHaveLength(1);
+
+        // A fresh session: nothing from this one is in memory.
+        clear();
+        AssetDatabase.clearLoaded();
+        const [box] = SceneSerializer.deserializeScene(second);
+
+        const back = box.getComponent(MeshRenderer)!.sharedMaterial as StandardMaterial;
+        expect(back).toBeInstanceOf(StandardMaterial);
+        expect(back.metallic).toBeCloseTo(0.42);
+        expect(SceneSerializer.pendingAssetGuids).toEqual([]);
+    });
+
+    test("an inline material keeps its id from one save to the next", () => {
+        sceneWithMaterial(new StandardMaterial());
+        const first = SceneSerializer.serializeScene(SceneManager.activeScene);
+        const again = SceneSerializer.serializeScene(SceneManager.activeScene);
+        clear();
+        SceneSerializer.deserializeScene(first);
+        const reloaded = SceneSerializer.serializeScene(SceneManager.activeScene);
+
+        expect(again.assets![0].guid).toBe(first.assets![0].guid);
+        expect(reloaded.assets![0].guid).toBe(first.assets![0].guid);
+    });
+
+    test("an inline asset reference carries no path", () => {
+        sceneWithMaterial(new StandardMaterial());
+        const first = SceneSerializer.serializeScene(SceneManager.activeScene);
+        clear();
+        SceneSerializer.deserializeScene(first);
+
+        const saved = SceneSerializer.serializeScene(SceneManager.activeScene);
+        const ref = saved.roots[0].components.find(c => c.type === "MeshRenderer")!.fields["sharedMaterial"];
+
+        expect(ref).toEqual({ $type: "AssetRef", guid: first.assets![0].guid });
+        expect(Object.keys(ref as object)).toEqual(["$type", "guid"]);
+    });
+
     test("an asset carried inside the scene is not listed as something to load", () => {
         sceneWithMaterial(new StandardMaterial());
 

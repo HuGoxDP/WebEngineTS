@@ -312,13 +312,16 @@ export class ValueSerializer {
         // along for diagnostics only; nothing resolves through it.
         if (type === FieldType.Asset) {
             const guid = AssetDatabase.guidOf(value as object);
-            if (guid !== null) {
-                return { $type: "AssetRef", guid, path: AssetDatabase.pathOf(guid) ?? undefined };
+            if (guid !== null && ValueSerializer._hasFile(guid)) {
+                const path = AssetDatabase.pathOf(guid);
+                return path === null ? { $type: "AssetRef", guid } : { $type: "AssetRef", guid, path };
             }
 
-            // No file behind it — carried inside the scene instead.
+            // No file behind it — carried inside the scene instead, under the id
+            // it already has when a scene gave it one.
             const inlined = ctx ? ctx.inlineAsset(value as object) : null;
-            return inlined === null ? null : { $type: "AssetRef", guid: inlined };
+            if (inlined !== null) return { $type: "AssetRef", guid: inlined };
+            return guid === null ? null : { $type: "AssetRef", guid };
         }
 
         // Component reference — the owning GameObject's path plus which
@@ -592,6 +595,15 @@ export class ValueSerializer {
             component: typeName,
             index: ctx.componentIndex(owner, component),
         };
+    }
+
+    /**
+     * Whether an id names something with a file behind it: a path the project
+     * knows, or a part of a file. An id a scene's asset table gave an asset has
+     * neither, and that asset is written into the table again on every save.
+     */
+    private static _hasFile(guid: string): boolean {
+        return AssetDatabase.isSub(guid) || AssetDatabase.pathOf(guid) !== null;
     }
 
     /** Where `go` is, through the context's own idea of it when it has one. */
