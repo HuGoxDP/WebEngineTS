@@ -1,10 +1,15 @@
 # Plan: prefab instances saved as prefab plus changes (E11)
 
-**Status:** planned 2026-10-12, **not started — and HEAD does not build.** Commit `7073cfe`
-(titled "Remove trash") landed the *save* side of this feature and the pure diff module, but none
-of the *load* side. At `9ffd1d1`, `tsc -p tsconfig.build.json` reports 16 errors, all in
-`SceneSerializer.ts`, and 14 tests fail across three files. Stage 1 restores green without
-throwing the work away.
+**Status:** **implemented 2026-10-12, Stages 1–10**, one commit per stage (Stage 2 is three, one
+per defect). Where the implementation departs from what is written below, the departure is
+recorded where it applies: D3, a fourth pre-existing defect (§4.6, Stage 2); the version-2 marker
+also covering node-id paths (§5.4, D-2); the Stage 9 refinements; and one limit found in Stage 8
+(§11). The open questions in §11 are still the owner's.
+
+*As planned:* commit `7073cfe` (titled "Remove trash") landed the *save* side of this feature and
+the pure diff module, but none of the *load* side. At `9ffd1d1`, `tsc -p tsconfig.build.json`
+reports 16 errors, all in `SceneSerializer.ts`, and 14 tests fail across three files. Stage 1
+restores green without throwing the work away.
 
 This is **E11** in the editor's engine asks (`.claude-shared/PLAN.md` §1.5 item 6;
 `WebEngineTSEditor/docs/unity-editor-plan.md` §4), the engine half of the editor's **stage 14**
@@ -905,6 +910,17 @@ The editor plan's own stage-14 row lives in another repository and is not change
 ### Stage 10 — Nested overrides, field by field
 
 Per D-6 and §6.3.
+
+*As implemented:* `compareChanges(prefab, instance, resolve?)` takes a resolver from guid to
+prefab tree; the engine passes one everywhere it compares (the link writer, `getOverrides`,
+`getChanges`, a variant's `applyInstance`). Two links to the same loaded prefab with the same
+`unused` are expanded and compared as trees, the result's ids prefixed with the nested
+instance's id. Anything else — no resolver, a prefab not loaded, a different prefab, an override
+inside an expanded nested instance that only a path can address — stays one whole-link
+override. A nested root's active state and scale come from its tree (D-13), so for a nested
+instance compared field by field they are recorded inside it, not on its shell. `revertOverride`
+follows a nested id into the nested instance and reverts there, against the nested tree as the
+outer prefab defines it.
 
 **Done when:**
 

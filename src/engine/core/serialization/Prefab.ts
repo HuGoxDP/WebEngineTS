@@ -5,6 +5,7 @@ import { AssetDatabase } from "../assets/AssetDatabase";
 import { SceneSerializer, type SerializedGameObject } from "./SceneSerializer";
 import {
     PrefabDiff,
+    splitNested,
     type PrefabAddedChild,
     type PrefabAddedComponent,
     type PrefabChanges,
@@ -307,7 +308,7 @@ export class Prefab {
      * @returns the differences, in tree order. Empty when it matches.
      */
     public getOverrides(instance: GameObject): PrefabOverride[] {
-        return PrefabDiff.compare(this._resolvedTree(), SceneSerializer._serializeForPrefab(instance));
+        return PrefabDiff.compare(this._resolvedTree(), SceneSerializer._serializeForPrefab(instance), SceneSerializer._prefabTree);
     }
 
     /**
@@ -382,7 +383,9 @@ export class Prefab {
      */
     public getChanges(instance: GameObject): PrefabChanges {
         const tree = this._resolvedTree();
-        const changes = PrefabDiff.compareChanges(tree, SceneSerializer._serializeForPrefab(instance, { mintLive: true }));
+        const changes = PrefabDiff.compareChanges(
+            tree, SceneSerializer._serializeForPrefab(instance, { mintLive: true }), SceneSerializer._prefabTree,
+        );
         changes.overrides = changes.overrides.filter(o => !Prefab._isDefaultOverride(o, tree));
         return changes;
     }
@@ -426,7 +429,7 @@ export class Prefab {
         PrefabDiff.ensureIds(snapshot);
 
         if (this._snapshot === null) {
-            this._changes = PrefabDiff.compareChanges(this.base!._resolvedTree(), snapshot);
+            this._changes = PrefabDiff.compareChanges(this.base!._resolvedTree(), snapshot, SceneSerializer._prefabTree);
         } else {
             this._snapshot = snapshot;
         }
@@ -452,26 +455,35 @@ export class Prefab {
         change: PrefabOverride | PrefabAddedChild | PrefabAddedComponent | PrefabRemovedComponent | string,
     ): void {
         this._requireInstance(instance);
-        const tree = this._resolvedTree();
+
+        // A change addressed through nested instances is reverted inside the
+        // innermost one, against that instance's tree as this prefab has it.
+        const address = typeof change === "string" ? change
+            : "field" in change ? change.node
+            : "parent" in change ? change.parent
+            : change.node;
+        const at = this._descend(instance, address);
+        if (at === null) return;
+        const { live: root, tree, scopes, chain } = at;
         const assets = tree.assets;
 
         if (typeof change === "string") {
-            const found = PrefabDiff.nodeOf(tree, { node: change });
+            const found = PrefabDiff.nodeOf(tree, { node: at.id! });
             if (found === null || found.parent === null) return;
-            const parent = this._liveNode(instance, tree, { node: found.parent.id, path: [] });
+            const parent = this._liveNode(root, tree, { node: found.parent.id, path: [] });
             if (parent === null) return;
             const index = Prefab._liveIndex(parent, found.parent, found.parent.children.indexOf(found.node));
-            SceneSerializer._restoreChild(instance, found.node, parent, index, assets, this._chain());
+            SceneSerializer._restoreChild(scopes, found.node, parent, index, assets, chain);
             return;
         }
 
         if ("field" in change) {
-            this._revertValue(instance, tree, change);
+            this._revertValue(root, tree, { ...change, node: at.id ?? undefined }, scopes, chain);
             return;
         }
 
         if ("parent" in change) {
-            const parent = this._liveNode(instance, tree, { node: change.parent, path: [] });
+            const parent = this._liveNode(root, tree, { node: at.id!, path: [] });
             const added = parent === null || change.node.id === undefined
                 ? null
                 : Prefab._childWithId(parent, change.node.id);
@@ -479,7 +491,7 @@ export class Prefab {
             return;
         }
 
-        const live = this._liveNode(instance, tree, { node: change.node, path: [] });
+        const live = this._liveNode(root, tree, { node: at.id!, path: [] });
         if (live === null) return;
 
         if ("index" in change) {
@@ -495,13 +507,50 @@ export class Prefab {
             return;
         }
 
-        const removed = change;
-        const node = PrefabDiff.nodeOf(tree, { node: removed.node });
+        const node = PrefabDiff.nodeOf(tree, { node: at.id! });
         if (node === null) return;
         let seen = 0;
-        const position = node.node.components.findIndex(c => c.type === removed.component && seen++ === removed.componentIndex);
+        const position = node.node.components.findIndex(c => c.type === change.component && seen++ === change.componentIndex);
         if (position < 0) return;
-        SceneSerializer._restoreComponent(instance, node.node.components[position], live, position, assets);
+        SceneSerializer._restoreComponent(scopes, node.node.components[position], live, position, assets);
+    }
+
+    /**
+     * Follows a change's address into the nested instances it passes through.
+     *
+     * @returns the innermost live instance root, its tree as this prefab
+     *   defines it (the nested prefab with the outer prefab's changes to it),
+     *   the id left once the nesting is stripped, the instance roots a
+     *   reference may count from, and the prefab chain for a cycle check. Null
+     *   when a level is missing or its prefab is not loaded.
+     */
+    private _descend(instance: GameObject, address: string | undefined): {
+        live: GameObject;
+        tree: SerializedGameObject;
+        id: string | null;
+        scopes: GameObject[];
+        chain: string[];
+    } | null {
+        let live = instance;
+        let tree = this._resolvedTree();
+        const scopes = [instance];
+        const chain = this._chain();
+        let rest = address ?? null;
+
+        for (let nested = rest === null ? null : splitNested(rest); nested !== null;
+            nested = splitNested(rest!)) {
+            const link = PrefabDiff.nodeOf(tree, { node: nested.head })?.node.prefab;
+            const base = link?.changes ? SceneSerializer._prefabTree(link.guid) : null;
+            const inner = SceneSerializer._findLiveNode(live, nested.head);
+            if (!link?.changes || base === null || inner === null) return null;
+
+            tree = PrefabDiff.applyChanges(base, link.changes);
+            live = inner;
+            scopes.push(inner);
+            chain.push(link.guid);
+            rest = nested.rest;
+        }
+        return { live, tree, id: rest, scopes, chain };
     }
 
     /**
@@ -531,8 +580,19 @@ export class Prefab {
         }
     }
 
-    /** Reverts one value in place. A nested prefab's whole link is rebuilt from this prefab. */
-    private _revertValue(instance: GameObject, tree: SerializedGameObject, o: PrefabOverride): void {
+    /**
+     * Reverts one value in place. A nested prefab's whole link is rebuilt from
+     * this prefab.
+     *
+     * @param instance - the root the override's address starts from.
+     */
+    private _revertValue(
+        instance: GameObject,
+        tree: SerializedGameObject,
+        o: PrefabOverride,
+        scopes: readonly GameObject[],
+        chain: string[],
+    ): void {
         const found = PrefabDiff.nodeOf(tree, o);
         const live = this._liveNode(instance, tree, o);
         if (found === null || live === null) return;
@@ -542,7 +602,7 @@ export class Prefab {
             const original = json.components.filter(c => c.type === o.component)[o.componentIndex];
             const target = SceneSerializer._componentOf(live, o.component, o.componentIndex);
             if (!original || target === null) return;
-            SceneSerializer._restoreField(instance, target, o.field, original.fields[o.field] ?? null, tree.assets);
+            SceneSerializer._restoreField(scopes, target, o.field, original.fields[o.field] ?? null, tree.assets);
             return;
         }
 
@@ -570,7 +630,7 @@ export class Prefab {
                 if (parent === null || found.parent === null) return;
                 const index = t.getSiblingIndex();
                 live.destroyImmediate();
-                SceneSerializer._restoreChild(instance, json, parent, index, tree.assets, this._chain());
+                SceneSerializer._restoreChild(scopes, json, parent, index, tree.assets, chain);
                 return;
             }
         }

@@ -275,3 +275,94 @@ describe("reading, applying and reverting an instance's changes", () => {
         warn.mockRestore();
     });
 });
+
+describe("changes inside a nested prefab instance", () => {
+    /** A Tank whose Turret's Barrel the Tank prefab itself relabels. */
+    function tankWithOverride(): { inner: Prefab; outer: Prefab } {
+        const inner = turret();
+        const outer = prefabOf(() => {
+            const nested = inner.instantiate();
+            child(nested, 0).getComponent(Tag)!.label = "outer default";
+            return make("Tank", "tank", make("Hull", "hull"), nested);
+        }, "guid-tank");
+        return { inner, outer };
+    }
+
+    test("a change inside a nested instance is recorded field by field", () => {
+        const { outer } = tankWithOverride();
+        const instance = outer.instantiate();
+        const nested = child(instance, 1);
+        child(nested, 0).getComponent(Tag)!.count = 5;
+
+        const changes = outer.getChanges(instance);
+
+        expect(changes.overrides).toEqual([{
+            path: [1, 0],
+            node: `${nested.prefabNodeId}/${child(nested, 0).prefabNodeId}`,
+            component: "EditingSpec.Tag",
+            componentIndex: 0,
+            field: "count",
+            value: 5,
+        }]);
+        expect(JSON.stringify(saveLinked())).not.toContain('"field":"prefab"');
+    });
+
+    test("an edit to the outer prefab's nested override reaches an instance that changed another field of it", () => {
+        const { outer } = tankWithOverride();
+        const instance = outer.instantiate();
+        child(instance, 1, 0).getComponent(Tag)!.count = 5;
+        const saved = saveLinked();
+        clear();
+
+        // The Tank prefab changes what it sets on its Turret's Barrel.
+        const link = outer._resolvedTree().children[1].prefab!;
+        link.changes!.overrides.find(o => o.field === "label")!.value = "outer edited";
+        const [back] = SceneSerializer.deserializeScene(saved);
+
+        const tag = child(back, 1, 0).getComponent(Tag)!;
+        expect(tag.label).toBe("outer edited");
+        expect(tag.count).toBe(5);
+    });
+
+    test("a whole-link override from an earlier file is still read", () => {
+        const { inner, outer } = tankWithOverride();
+        const turretId = outer._resolvedTree().children[1].id!;
+        const barrelId = inner._resolvedTree().children[0].id!;
+        const pose = {
+            position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 },
+        };
+
+        const [back] = SceneSerializer.deserializeScene({
+            name: SceneManager.activeScene.name, version: 2, roots: [{
+                name: "Tank", active: true, transform: pose, components: [], children: [],
+                prefab: { guid: "guid-tank", changes: { overrides: [{
+                    path: [1], node: turretId, component: null, componentIndex: 0, field: "prefab",
+                    value: { guid: "guid-turret", changes: { overrides: [{
+                        path: [0], node: barrelId, component: "EditingSpec.Tag", componentIndex: 0,
+                        field: "label", value: "whole link",
+                    }] } },
+                }] } },
+            }],
+        });
+
+        expect(child(back, 1, 0).getComponent(Tag)!.label).toBe("whole link");
+    });
+
+    test("a change inside a nested instance is reverted in place", () => {
+        const { outer } = tankWithOverride();
+        const instance = outer.instantiate();
+        const barrel = child(instance, 1, 0);
+        const tag = barrel.getComponent(Tag)!;
+        tag.label = "mine";
+        tag.count = 3;
+
+        const label = outer.getChanges(instance).overrides.find(o => o.field === "label")!;
+        outer.revertOverride(instance, label);
+
+        expect(child(instance, 1, 0)).toBe(barrel);
+        // Back to what the Tank prefab sets, not to the Turret prefab's own.
+        expect(tag.label).toBe("outer default");
+        expect(tag.count).toBe(3);
+        expect(outer.getChanges(instance).overrides.map(o => o.field)).toEqual(["count"]);
+    });
+});

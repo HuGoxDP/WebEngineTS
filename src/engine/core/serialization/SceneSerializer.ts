@@ -785,7 +785,7 @@ export class SceneSerializer {
             return SceneSerializer._serializeExpanded(go, guid, info, outer, under);
         }
 
-        const changes = PrefabDiff.compareChanges(tree, expanded);
+        const changes = PrefabDiff.compareChanges(tree, expanded, SceneSerializer._prefabTree);
         changes.overrides = changes.overrides.filter(o => !SceneSerializer._isShellOverride(o, tree));
 
         const out = SceneSerializer._serializeShell(go, outer, under);
@@ -981,6 +981,24 @@ export class SceneSerializer {
     private static _prefabSourceOf(info: PrefabInstanceInfo): PrefabSource | null {
         const current = info.guid === null ? null : SceneSerializer._prefabById(info.guid);
         return current ?? info.source;
+    }
+
+    /**
+     * @internal
+     * The tree of the prefab loaded under `guid`, or null when it is not
+     * loaded or cannot be resolved. What lets nested instances be compared one
+     * field at a time.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _prefabTree(this: void, guid: string): SerializedGameObject | null {
+        const source = SceneSerializer._prefabById(guid);
+        if (source === null) return null;
+        try {
+            return source._resolvedTree();
+        } catch {
+            return null;
+        }
     }
 
     private static _prefabById(guid: string): PrefabSource | null {
@@ -1223,20 +1241,23 @@ export class SceneSerializer {
     /**
      * @internal
      * Builds a saved object as a child of `parent` at sibling `index`, the way
-     * the instance under `root` would have been built with it: references
-     * resolve from `root`, a nested link is rebuilt from its prefab.
+     * the instance would have been built with it: references resolve from the
+     * instance, a nested link is rebuilt from its prefab.
+     *
+     * @param scopes - the instance roots a reference may count from, outermost
+     *   first: the instance, then each nested instance the object lies in.
      *
      * **NEVER use in user-facing code.**
      */
     public static _restoreChild(
-        root: GameObject,
+        scopes: readonly GameObject[],
         json: SerializedGameObject,
         parent: GameObject,
         index: number,
         assets: SerializedAsset[] | undefined,
         chain: string[],
     ): GameObject {
-        return SceneSerializer._restore(root, assets, chain, ctx => {
+        return SceneSerializer._restore(scopes, assets, chain, ctx => {
             const child = SceneSerializer._deserializeGO(SceneSerializer._cloneJson(json), ctx);
             child.transform.setParent(parent.transform, false);
             child.transform.setSiblingIndex(index);
@@ -1252,13 +1273,13 @@ export class SceneSerializer {
      * **NEVER use in user-facing code.**
      */
     public static _restoreComponent(
-        root: GameObject,
+        scopes: readonly GameObject[],
         json: SerializedComponent,
         go: GameObject,
         position: number,
         assets: SerializedAsset[] | undefined,
     ): Component | null {
-        return SceneSerializer._restore(root, assets, [], ctx => {
+        return SceneSerializer._restore(scopes, assets, [], ctx => {
             const comp = SceneSerializer._deserializeComponent(SceneSerializer._cloneJson(json), go, ctx);
             if (comp === null) return null;
             const list = SceneSerializer._componentsOf(go) as Component[];
@@ -1276,7 +1297,7 @@ export class SceneSerializer {
      * **NEVER use in user-facing code.**
      */
     public static _restoreField(
-        root: GameObject,
+        scopes: readonly GameObject[],
         owner: object,
         field: string,
         json: unknown,
@@ -1288,7 +1309,7 @@ export class SceneSerializer {
         }
         const meta = getAllFields(owner.constructor as any).find(f => f.name === field && f.serialize);
         if (meta === undefined) return;
-        SceneSerializer._restore(root, assets, [], ctx => {
+        SceneSerializer._restore(scopes, assets, [], ctx => {
             ctx.currentComponent = owner;
             ctx.currentField = field;
             const value = ValueSerializer.deserialize(SceneSerializer._cloneJson(json), meta.type, ctx, meta.elementType);
@@ -1329,17 +1350,22 @@ export class SceneSerializer {
         return findNodeById(from, id, SceneSerializer._LIVE);
     }
 
-    /** Runs `build` in a fresh load context and resolves what it read against `root`. */
+    /**
+     * Runs `build` in a fresh load context and resolves what it read: the
+     * nested instances in `scopes` are on the stack, so a scoped reference
+     * counts out through them to the outermost, which is the root.
+     */
     private static _restore<T>(
-        root: GameObject,
+        scopes: readonly GameObject[],
         assets: SerializedAsset[] | undefined,
         chain: string[],
         build: (ctx: LoadCtx) => T,
     ): T {
         const ctx = SceneSerializer._newContext(chain);
+        ctx.scopeStack.push(...scopes.slice(1));
         SceneSerializer._materializeAssets(assets, ctx);
         const result = build(ctx);
-        SceneSerializer._resolveObjectRefs(ctx, [root]);
+        SceneSerializer._resolveObjectRefs(ctx, [scopes[0]]);
         SceneSerializer._pending.push(...ctx.pendingAssetRefs);
         return result;
     }

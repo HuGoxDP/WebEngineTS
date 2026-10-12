@@ -400,9 +400,10 @@ describe("a prefab instance saved as its prefab plus changes", () => {
         child(root, 1, 0).getComponent(Aim)!.target = player;
 
         const saved = saveLinked();
-        const turret = (saved.roots[1].prefab!.changes!.overrides as Array<{ field: string; value: any }>)
-            .find(o => o.field === "prefab")!.value;
-        expect(turret.changes.overrides[0].value).toEqual({ $type: "GameObjectRef", path: [0], scope: 2 });
+        // Addressed through the nesting: the Turret in the Tank, then its Barrel.
+        const barrel = saved.roots[1].prefab!.changes!.overrides.find(o => o.node === "k-turret/t-barrel")!;
+        expect(barrel.field).toBe("target");
+        expect(barrel.value).toEqual({ $type: "GameObjectRef", path: [0], scope: 2 });
 
         clear();
         const [player2, root2] = SceneSerializer.deserializeScene(saved);

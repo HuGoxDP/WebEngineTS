@@ -23,6 +23,12 @@ export interface PrefabOverride {
     /**
      * Id of the owning node within the prefab, when its nodes have ids — which
      * every prefab made by {@link Prefab.fromGameObject} does.
+     *
+     * Ids joined by `/` address a node inside a nested prefab instance: the
+     * nested instance's id in this prefab, then the node's id in the nested
+     * prefab (`"0uak7004/4xe08002"`). Such a change is applied by adding it to
+     * the nested instance's own changes, so the nested instance records one
+     * field at a time rather than as a whole.
      */
     node?: string;
     /**
@@ -222,6 +228,33 @@ export function encodeNodePath<N>(
     return out;
 }
 
+/**
+ * Finds the tree of a prefab by its id, or null when it is not loaded. Given to
+ * {@link PrefabDiff.compareChanges} so that two links to the same prefab can be
+ * compared one field at a time.
+ */
+export type PrefabTreeResolver = (guid: string) => SerializedGameObject | null;
+
+/** What a comparison carries down the tree. */
+interface CompareContext {
+    readonly resolve: PrefabTreeResolver | null;
+    /** Guids of the nested prefabs being compared inside each other, outermost first. */
+    readonly chain: readonly string[];
+}
+
+/** Separates the levels of an id that addresses a node inside a nested instance. */
+const NEST = "/";
+
+/**
+ * @internal
+ * The first level of an id that addresses a node inside a nested instance,
+ * and the rest; null for a plain id.
+ */
+export function splitNested(id: string): { head: string; rest: string } | null {
+    const at = id.indexOf(NEST);
+    return at < 0 ? null : { head: id.slice(0, at), rest: id.slice(at + 1) };
+}
+
 /** How a saved tree is walked: a node carrying `prefab` is a nested instance. */
 const JSON_ACCESS: NodeAccess<SerializedGameObject> = {
     id: node => node.id ?? null,
@@ -280,8 +313,9 @@ export class PrefabDiff {
     public static compare(
         prefab: SerializedGameObject,
         instance: SerializedGameObject,
+        resolve?: PrefabTreeResolver,
     ): PrefabOverride[] {
-        return PrefabDiff.compareChanges(prefab, instance).overrides;
+        return PrefabDiff.compareChanges(prefab, instance, resolve).overrides;
     }
 
     /**
@@ -292,13 +326,29 @@ export class PrefabDiff {
      * whatever is built from the result — a variant, say — can be compared in
      * its turn. That is done to `instance`, which is expected to be a snapshot
      * taken for this purpose.
+     *
+     * A prefab nested inside is compared one field at a time when `resolve`
+     * finds its tree and both sides link the same prefab: a change inside it is
+     * then addressed through the nesting (`"outer/inner"`), so an edit the
+     * outer prefab makes to a *different* field of the same nested instance
+     * still reaches this one. Otherwise — no resolver, the prefab not loaded,
+     * a different prefab — the nested instance's whole link is one value.
      */
     public static compareChanges(
         prefab: SerializedGameObject,
         instance: SerializedGameObject,
+        resolve?: PrefabTreeResolver,
+    ): PrefabChanges {
+        return PrefabDiff._compareTrees(prefab, instance, { resolve: resolve ?? null, chain: [] });
+    }
+
+    private static _compareTrees(
+        prefab: SerializedGameObject,
+        instance: SerializedGameObject,
+        cmp: CompareContext,
     ): PrefabChanges {
         const changes: PrefabChanges = { overrides: [] };
-        PrefabDiff._compareNode(prefab, instance, [], changes, false);
+        PrefabDiff._compareNode(prefab, instance, [], changes, false, cmp);
 
         const out: PrefabChanges = { overrides: changes.overrides };
         if (changes.addedChildren?.length) out.addedChildren = changes.addedChildren;
@@ -343,8 +393,20 @@ export class PrefabDiff {
     ): SerializedGameObject {
         const clone = JSON.parse(JSON.stringify(prefab)) as SerializedGameObject;
         const byId = PrefabDiff._index(clone);
+        // The link a change addressed through a nested instance goes into.
+        const nestedLink = (head: string): PrefabChanges | null => {
+            const link = byId.get(head)?.node.prefab;
+            return link?.changes ?? null;
+        };
 
         for (const override of changes.overrides) {
+            const nested = override.node !== undefined ? splitNested(override.node) : null;
+            if (nested !== null) {
+                const into = nestedLink(nested.head);
+                if (into !== null) PrefabDiff._mergeOverride(into, { ...override, node: nested.rest });
+                continue;
+            }
+
             const node = override.node !== undefined
                 ? byId.get(override.node)?.node
                 : PrefabDiff._nodeAt(clone, override.path);
@@ -357,6 +419,39 @@ export class PrefabDiff {
 
             const target = PrefabDiff._componentAt(node, override.component, override.componentIndex);
             if (target) target.fields[override.field] = override.value;
+        }
+
+        // Shape changes inside a nested instance join its own changes.
+        for (const r of changes.removedComponents ?? []) {
+            const nested = splitNested(r.node);
+            const into = nested === null ? null : nestedLink(nested.head);
+            if (nested === null || into === null) continue;
+            const entry = { ...r, node: nested.rest };
+            if (!(into.removedComponents ?? []).some(e => PrefabDiff._equal(e, entry))) {
+                (into.removedComponents ??= []).push(entry);
+            }
+        }
+        for (const id of changes.removedChildren ?? []) {
+            const nested = splitNested(id);
+            const into = nested === null ? null : nestedLink(nested.head);
+            if (nested === null || into === null) continue;
+            if (!(into.removedChildren ?? []).includes(nested.rest)) (into.removedChildren ??= []).push(nested.rest);
+        }
+        for (const a of changes.addedComponents ?? []) {
+            const nested = splitNested(a.node);
+            const into = nested === null ? null : nestedLink(nested.head);
+            if (nested === null || into === null) continue;
+            const entry = { ...a, node: nested.rest };
+            if (!(into.addedComponents ?? []).some(e => PrefabDiff._equal(e, entry))) {
+                (into.addedComponents ??= []).push(entry);
+            }
+        }
+        for (const a of changes.addedChildren ?? []) {
+            const nested = splitNested(a.parent);
+            const into = nested === null ? null : nestedLink(nested.head);
+            if (nested === null || into === null) continue;
+            const already = (into.addedChildren ?? []).some(e => e.node.id !== undefined && e.node.id === a.node.id);
+            if (!already) (into.addedChildren ??= []).push({ ...a, parent: nested.rest });
         }
 
         // Highest index first, so removing one does not renumber the next.
@@ -375,6 +470,9 @@ export class PrefabDiff {
             entry.parent.children.splice(entry.parent.children.indexOf(entry.node), 1);
         }
 
+        // What is still there once the removals are done, for the added children.
+        const present = PrefabDiff._index(clone);
+
         // Lowest index first: each insert is at a position that already counts
         // everything inserted before it.
         const addedComponents = [...(changes.addedComponents ?? [])].sort((a, b) => a.index - b.index);
@@ -392,7 +490,7 @@ export class PrefabDiff {
         for (const a of addedChildren) {
             const parent = byId.get(a.parent)?.node;
             if (!parent) continue;
-            if (a.node.id !== undefined && byId.has(a.node.id)) continue;
+            if (a.node.id !== undefined && present.has(a.node.id)) continue;
             parent.children.splice(Math.min(Math.max(a.index, 0), parent.children.length), 0,
                 JSON.parse(JSON.stringify(a.node)) as SerializedGameObject);
         }
@@ -439,11 +537,15 @@ export class PrefabDiff {
      */
     public static unused(tree: SerializedGameObject, changes: PrefabChanges): PrefabChanges | null {
         const byId = PrefabDiff._index(tree);
+        // A change through a nested instance applies when that instance is
+        // there; whether the nested prefab has its node is the nested
+        // instance's own question.
+        const has = (id: string): boolean => byId.has(splitNested(id)?.head ?? id);
         const out: PrefabChanges = {
-            overrides: changes.overrides.filter(o => o.node !== undefined && !byId.has(o.node)),
+            overrides: changes.overrides.filter(o => o.node !== undefined && !has(o.node)),
         };
-        const addedChildren = (changes.addedChildren ?? []).filter(a => !byId.has(a.parent));
-        const addedComponents = (changes.addedComponents ?? []).filter(a => !byId.has(a.node));
+        const addedChildren = (changes.addedChildren ?? []).filter(a => !has(a.parent));
+        const addedComponents = (changes.addedComponents ?? []).filter(a => !has(a.node));
         if (addedChildren.length > 0) out.addedChildren = addedChildren;
         if (addedComponents.length > 0) out.addedComponents = addedComponents;
 
@@ -616,19 +718,29 @@ export class PrefabDiff {
         path: number[],
         changes: PrefabChanges,
         foreign: boolean,
+        cmp: CompareContext,
     ): void {
         const node = foreign ? undefined : prefab.id;
         const at = (rest: Omit<PrefabOverride, "path" | "node">): PrefabOverride =>
             node === undefined ? { path, ...rest } : { path, node, ...rest };
 
+        // A nested instance whose link differs: field by field when its prefab
+        // can be read, which makes its active state and scale — taken from its
+        // tree, not its shell — inner changes too.
+        const linkDiffers = !PrefabDiff._equal(prefab.prefab, instance.prefab);
+        const inner = linkDiffers && path.length > 0 && node !== undefined
+            ? PrefabDiff._compareNested(prefab, instance, path, node, cmp)
+            : null;
+
         if (prefab.name !== instance.name) {
             changes.overrides.push(at({ component: null, componentIndex: 0, field: "name", value: instance.name }));
         }
-        if (prefab.active !== instance.active) {
+        if (inner === null && prefab.active !== instance.active) {
             changes.overrides.push(at({ component: null, componentIndex: 0, field: "active", value: instance.active }));
         }
 
         for (const key of TRANSFORM_FIELDS) {
+            if (inner !== null && key === "scale") continue;
             const before = (prefab.transform as any)[key];
             const after = (instance.transform as any)[key];
             if (!PrefabDiff._equal(before, after)) {
@@ -639,9 +751,11 @@ export class PrefabDiff {
             }
         }
 
-        // A nested prefab instance is compared as one value: its link, with its
-        // own changes inside. Reading those apart is the nested prefab's job.
-        if (!PrefabDiff._equal(prefab.prefab, instance.prefab)) {
+        if (inner !== null) {
+            PrefabDiff._mergeChanges(changes, inner);
+        } else if (linkDiffers) {
+            // Its whole link, as one value: a different prefab, or one that
+            // cannot be read to compare inside.
             changes.overrides.push(at({
                 component: null, componentIndex: 0,
                 field: "prefab", value: instance.prefab ?? null,
@@ -651,7 +765,80 @@ export class PrefabDiff {
         PrefabDiff._compareComponents(prefab, instance, at, changes, node);
 
         const nested = path.length > 0 && (prefab.prefab !== undefined || instance.prefab !== undefined);
-        PrefabDiff._compareChildren(prefab, instance, path, changes, foreign || nested, node);
+        PrefabDiff._compareChildren(prefab, instance, path, changes, foreign || nested, node, cmp);
+    }
+
+    /**
+     * The differences inside a nested instance, addressed through it, or null
+     * when it has to be compared as one value.
+     *
+     * @remarks
+     * Both sides are expanded from the nested prefab with their own changes
+     * and compared as trees; every id in the result is then prefixed with the
+     * nested instance's id in the outer prefab. A prefab already being
+     * compared further out is not entered again, so one that contains itself
+     * cannot recurse.
+     */
+    private static _compareNested(
+        prefab: SerializedGameObject,
+        instance: SerializedGameObject,
+        path: number[],
+        node: string,
+        cmp: CompareContext,
+    ): PrefabChanges | null {
+        const a = prefab.prefab;
+        const b = instance.prefab;
+        if (cmp.resolve === null || !a || !b || a.guid !== b.guid || !a.changes || !b.changes) return null;
+        if (!PrefabDiff._equal(a.unused, b.unused) || cmp.chain.includes(a.guid)) return null;
+
+        const base = cmp.resolve(a.guid);
+        if (base === null) return null;
+
+        const inner = PrefabDiff._compareTrees(
+            PrefabDiff.applyChanges(base, a.changes),
+            PrefabDiff.applyChanges(base, b.changes),
+            { resolve: cmp.resolve, chain: [...cmp.chain, a.guid] },
+        );
+
+        // Name, position and rotation of the nested root are its shell's, and
+        // were compared there; anything addressed by position alone cannot be
+        // carried through the nesting.
+        const rootId = base.id;
+        inner.overrides = inner.overrides.filter(o =>
+            !(o.node === rootId && o.component === null
+                && (o.field === "name" || o.field === "transform.position" || o.field === "transform.rotation")));
+        if (inner.overrides.some(o => o.node === undefined)) return null;
+
+        const nest = (id: string): string => `${node}${NEST}${id}`;
+        return {
+            overrides: inner.overrides.map(o => ({ ...o, path: [...path, ...o.path], node: nest(o.node!) })),
+            addedChildren: inner.addedChildren?.map(e => ({ ...e, parent: nest(e.parent) })),
+            removedChildren: inner.removedChildren?.map(nest),
+            addedComponents: inner.addedComponents?.map(e => ({ ...e, node: nest(e.node) })),
+            removedComponents: inner.removedComponents?.map(e => ({ ...e, node: nest(e.node) })),
+        };
+    }
+
+    /** Appends one set of changes to another. */
+    private static _mergeChanges(into: PrefabChanges, from: PrefabChanges): void {
+        into.overrides.push(...from.overrides);
+        if (from.addedChildren?.length) (into.addedChildren ??= []).push(...from.addedChildren);
+        if (from.removedChildren?.length) (into.removedChildren ??= []).push(...from.removedChildren);
+        if (from.addedComponents?.length) (into.addedComponents ??= []).push(...from.addedComponents);
+        if (from.removedComponents?.length) (into.removedComponents ??= []).push(...from.removedComponents);
+    }
+
+    /**
+     * Adds an override to a nested instance's changes, replacing one the
+     * changes already hold for the same field.
+     */
+    private static _mergeOverride(into: PrefabChanges, override: PrefabOverride): void {
+        const same = (o: PrefabOverride): boolean => o.node === override.node && o.component === override.component
+            && o.componentIndex === override.componentIndex && o.field === override.field
+            && (o.node !== undefined || PrefabDiff._equal(o.path, override.path));
+        const at = into.overrides.findIndex(same);
+        if (at >= 0) into.overrides[at] = override;
+        else into.overrides.push(override);
     }
 
     private static _compareChildren(
@@ -661,6 +848,7 @@ export class PrefabDiff {
         changes: PrefabChanges,
         foreign: boolean,
         node: string | undefined,
+        cmp: CompareContext,
     ): void {
         const byId = prefab.children.every(c => c.id !== undefined);
 
@@ -669,7 +857,7 @@ export class PrefabDiff {
         if (foreign || !byId || node === undefined) {
             const shared = Math.min(prefab.children.length, instance.children.length);
             for (let i = 0; i < shared; i++) {
-                PrefabDiff._compareNode(prefab.children[i], instance.children[i], [...path, i], changes, foreign);
+                PrefabDiff._compareNode(prefab.children[i], instance.children[i], [...path, i], changes, foreign, cmp);
             }
             return;
         }
@@ -682,7 +870,7 @@ export class PrefabDiff {
 
             if (at >= 0 && !matched.has(child.id!)) {
                 matched.add(child.id!);
-                PrefabDiff._compareNode(prefab.children[at], child, [...path, at], changes, false);
+                PrefabDiff._compareNode(prefab.children[at], child, [...path, at], changes, false, cmp);
                 return;
             }
 

@@ -175,7 +175,7 @@ describe("a prefab and its instances", () => {
         child(right, 0).getComponent(Tag)!.label = "right only";
         const overrides = tank.getOverrides(instance);
         expect(overrides).toHaveLength(1);
-        expect(overrides[0].node).toBe(right.prefabNodeId);
+        expect(overrides[0].node).toBe(`${right.prefabNodeId}/${child(right, 0).prefabNodeId}`);
 
         const saved = SceneSerializer.serializeGameObject(instance, { prefabs: "link" });
         clear();

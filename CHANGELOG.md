@@ -56,6 +56,15 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   `version: 2`; the engine refuses any version above 2.** Every engine that will read such files
   — including any that runs exported scenarios — has to be on a build that reads version 2 before
   anything writes them.
+- **A change inside a prefab nested in another is recorded one field at a time.** An override
+  is addressed through the nesting — `PrefabOverride.node` may be `"outer/inner"`, the nested
+  instance's id and then the node's id in the nested prefab — and is applied by adding it to the
+  nested instance's own changes. So when the outer prefab later edits a *different* field of the
+  same nested instance, the edit reaches every instance of it. Before, an instance that touched
+  anything inside a nested prefab stored that prefab's whole link and stopped following all of
+  it; files written that way are still read. `PrefabDiff.compareChanges` takes an optional
+  resolver for the nested prefabs' trees; without one, or without the prefab loaded, it falls
+  back to the whole link.
 - **What an editor's prefab workflow calls.** `GameObject.prefabInstanceRoot` and
   `outermostPrefabInstanceRoot` find the instance an object belongs to, crossing nested prefabs
   for the outermost (the one a Hierarchy marks and the only one that can be unpacked);
