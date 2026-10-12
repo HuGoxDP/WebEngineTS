@@ -1147,10 +1147,23 @@ export class Transform extends Component {
 
     /**
      * @internal
-     * Cleans up Three.js objects on destruction.
+     * Leaves the parent's child list and cleans up Three.js objects on
+     * destruction.
+     *
+     * @remarks
+     * Leaving the list is what makes a destroyed child gone from the
+     * hierarchy, as it is in Unity: `childCount`, `getChild`, sibling indices
+     * and the serializer all walk it, and a dead entry there was saved back
+     * into the scene as an object with no components.
      */
     protected override onDestroy(): void {
         _dirtySet.delete(this);
+        if (this._parent !== null) {
+            const siblings = this._parent._children;
+            const at = siblings.indexOf(this);
+            if (at !== -1) siblings.splice(at, 1);
+            Transform._hierarchyEpoch++;
+        }
         this._object3D.clear();
         this._object3D.removeFromParent();
     }

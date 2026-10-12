@@ -52,6 +52,12 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Fixed
 
+- **A destroyed child is gone from its parent.** Destroying a GameObject removed its Three.js
+  object but left its `Transform` in the parent's child list, so `childCount`, `getChild` and
+  sibling indices still counted it, and the serializer still wrote it. The editor deletes objects
+  this way, so **a deleted child came back, with no components, on the next save or undo.** It
+  now leaves the list when it is destroyed: at once for `destroyImmediate`, at the end of the
+  frame for `destroy`, as in Unity.
 - **Four `Mesh.create*` primitives were wound inside out.** `createPlane`, `createCylinder`
   (its side wall), `createCapsule` and `createTorus` emitted triangle indices opposite to the
   normals they stored, so `side: FrontSide` culled them: a plane vanished entirely, a torus was a

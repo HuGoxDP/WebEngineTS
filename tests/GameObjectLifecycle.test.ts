@@ -1,6 +1,7 @@
 import { describe, test, expect } from "vitest";
 import { GameObject } from "../src/engine/core/GameObject";
 import { ScriptableBehaviour } from "../src/engine/core/ScriptableBehaviour";
+import { SceneSerializer } from "../src/engine/core/serialization/SceneSerializer";
 
 /**
  * GameObject activity and the enable/disable transitions, against Unity's
@@ -171,6 +172,40 @@ describe("GameObject — destruction", () => {
         go.destroyImmediate();
 
         expect(probe.exists()).toBe(false);
+    });
+
+    test("a destroyed child leaves its parent's children", async () => {
+        const root = new GameObject("root");
+        const [a, b, c, d] = ["a", "b", "c", "d"].map(name => {
+            const child = new GameObject(name);
+            child.transform.parent = root.transform;
+            return child;
+        });
+
+        b.destroyImmediate();
+
+        expect(root.transform.childCount).toBe(3);
+        expect(root.transform.getChild(1).gameObject).toBe(c);
+        expect(c.transform.getSiblingIndex()).toBe(1);
+
+        // Deferred destruction keeps it until the end of the frame, as Unity's
+        // Destroy does, and then it is gone the same way.
+        d.destroy();
+        expect(root.transform.childCount).toBe(3);
+        await Promise.resolve();
+        expect(root.transform.childCount).toBe(2);
+        expect([0, 1].map(i => root.transform.getChild(i).gameObject)).toEqual([a, c]);
+    });
+
+    test("a destroyed child is not written into a saved scene", () => {
+        const root = new GameObject("root");
+        for (const name of ["kept", "deleted"]) {
+            new GameObject(name).transform.parent = root.transform;
+        }
+
+        root.transform.getChild(1).gameObject.destroyImmediate();
+
+        expect(SceneSerializer.serializeGameObject(root).children.map(c => c.name)).toEqual(["kept"]);
     });
 
     test("an already-disabled component does not fire onDisable again", () => {
