@@ -18,6 +18,25 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Added
 
+- **Prefab instances know their prefab, and keep knowing it through a save.**
+  `GameObject.isPrefabInstance`, `prefabSource` and `prefabNodeId` say whether an object is the
+  root of a prefab instance, which prefab, and which node of it each object is;
+  `unpackPrefab(completely)` cuts the link, and refuses a prefab nested inside another instance,
+  naming the instance to unpack instead. Every node of a prefab now has an id, so an instance is
+  compared with its prefab node by node: `Prefab.getOverrides` no longer misreads a removed
+  sibling as edits to the next one, and `PrefabDiff.compareChanges` reports added and removed
+  children and components alongside the values (`PrefabChanges` and its parts are exported).
+  `Prefab.instantiate`, `instantiateWithOverrides` and `revert` return instances; `revert` keeps
+  the old one's place among its siblings. An instance keeps its link through undo, Play restore,
+  copy and paste and `EngineObject.Instantiate`; a copy of an object from *inside* an instance
+  is a plain object, as a duplicate of one is in Unity. A prefab made from an object that holds
+  another prefab's instance keeps it as a link, so it follows that prefab — and is no longer
+  instantiated as an empty shell. **Saved files gain two optional keys**: `id` on the nodes of a
+  prefab and of an instance, and `prefab: { guid }` on an instance root. A scene with no prefab
+  instance in it is written byte for byte as before, and a reader that predates the keys ignores
+  them. A prefab file written before ids existed is given ids derived from node positions, the
+  same ones on every load.
+
 - **`Texture.flipVertically`** — states whether an image is flipped as it is uploaded. Two
   conventions meet in the engine: the image path uploads `flipY = true` (V=0 at the bottom, as
   Unity and the engine's own primitives expect), while glTF uploads `false` and a KTX2 texture is

@@ -301,6 +301,11 @@ export class PrefabDiff {
         return clone;
     }
 
+    /** Whether `tree`'s own prefab has a node with this id (a nested prefab's interior does not count). */
+    public static hasNode(tree: SerializedGameObject, id: string): boolean {
+        return PrefabDiff._index(tree).has(id);
+    }
+
     /**
      * The changes that address a node `tree` does not have.
      *

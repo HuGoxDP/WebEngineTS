@@ -12,7 +12,7 @@ import { TypeRegistry } from "./reflection/TypeRegistry.ts";
 import { Prefab } from "./serialization/Prefab.ts";
 import { SceneSerializer } from "./serialization/SceneSerializer.ts";
 import { AssetDatabase } from "./assets/AssetDatabase.ts";
-import type { PrefabInstanceInfo } from "./serialization/PrefabOverride.ts";
+import { PrefabDiff, type PrefabInstanceInfo } from "./serialization/PrefabOverride.ts";
 import type { Scene } from "./Scene.ts";
 import { Bounds } from "./math/Bounds.ts";
 import { Vector3 } from "./math/Vector3.ts";
@@ -156,10 +156,12 @@ export class GameObject extends EngineObject {
     public get prefabSource(): Prefab | null {
         const info = this._prefabInfo;
         if (info === null) return null;
-        if (info.source instanceof Prefab) return info.source;
 
+        // The prefab loaded under its id now, so a prefab file loaded again is
+        // the one reported; the one it was built from otherwise.
         const found = info.guid !== null ? AssetDatabase.get(info.guid) : null;
-        return found instanceof Prefab ? found : null;
+        if (found instanceof Prefab) return found;
+        return info.source instanceof Prefab ? info.source : null;
     }
 
     /**
@@ -185,9 +187,23 @@ export class GameObject extends EngineObject {
      * Equivalent to Unity's Unpack Prefab. Instances nested inside stay
      * instances unless `completely` — they are prefabs in their own right.
      *
+     * Only an instance that is not itself part of another can be unpacked, as
+     * in Unity: a prefab nested inside an instance is one of that instance's
+     * nodes, and unpacking it alone would make the instance around it read as
+     * one object removed and another added.
+     *
      * @param completely - unpack the nested ones too.
+     * @throws if this is a prefab nested inside another instance. The message
+     *   names the instance to unpack instead.
      */
     public unpackPrefab(completely: boolean = false): void {
+        if (this._isNestedInstanceRoot()) {
+            const outermost = this._outermostEnclosingRoot();
+            throw new Error(
+                `[GameObject] "${this.name}" is part of the prefab instance "${outermost.name}" and ` +
+                `cannot be unpacked on its own. Unpack "${outermost.name}" instead.`,
+            );
+        }
         if (this._prefabInfo === null && !completely) return;
         this._prefabInfo = null;
 
@@ -207,6 +223,41 @@ export class GameObject extends EngineObject {
         };
         this._prefabNodeId = null;
         walk(this);
+    }
+
+    /** The nearest ancestor that is the root of a prefab instance, or null. */
+    private _enclosingInstanceRoot(): GameObject | null {
+        for (let t = this.transform.parent; t !== null; t = t.parent) {
+            if (t.gameObject._prefabInfo !== null) return t.gameObject;
+        }
+        return null;
+    }
+
+    /**
+     * Whether this is an instance root that is a node of the instance around
+     * it — a prefab nested in a prefab — rather than an instance added to it.
+     * When the enclosing prefab is not loaded, a node id is taken to mean the
+     * former.
+     */
+    private _isNestedInstanceRoot(): boolean {
+        if (this._prefabInfo === null || this._prefabNodeId === null) return false;
+        const outer = this._enclosingInstanceRoot();
+        if (outer === null) return false;
+
+        const source = outer.prefabSource;
+        if (source === null) return true;
+        try {
+            return PrefabDiff.hasNode(source._resolvedTree(), this._prefabNodeId);
+        } catch {
+            return true;
+        }
+    }
+
+    /** The outermost instance this nested instance root is part of. */
+    private _outermostEnclosingRoot(): GameObject {
+        let current: GameObject = this;
+        while (current._isNestedInstanceRoot()) current = current._enclosingInstanceRoot()!;
+        return current;
     }
 
     // ==================== ACTIVATION STATE ====================

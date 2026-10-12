@@ -635,6 +635,13 @@ unchanged asset costs nothing.
    destroy-and-recreate**, because a field-by-field revert would leave a component the prefab
    does not have still attached, which is not what reverting means.
 
+   **Updated 2026-10-12 (E11, `design/prefab-instances-plan.md`).** Structural changes are now
+   *recorded*, as `PrefabChanges` beside the overrides — added and removed children and
+   components, addressed by node id — which prefabs have now. They are still not *overrides*:
+   `getOverrides` lists values only, and `PrefabDiff.compareChanges` has both. An instance knows
+   its prefab (`GameObject.isPrefabInstance`), a scene can save it as prefab plus changes, and a
+   prefab inside a prefab is a link.
+
    The diff module is pure (two snapshots in, differences out), so the editor can reuse it
    for "modified" markers without touching live objects.
 2. **Prefab variants — done 2026-08-05.** `Prefab.createVariant(base, overrides)` builds a

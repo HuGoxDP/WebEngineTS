@@ -8,6 +8,7 @@ import { FieldType } from "../src/engine/core/reflection/Types";
 import { SceneSerializer, type SerializedScene } from "../src/engine/core/serialization/SceneSerializer";
 import { MissingComponent, MissingValue } from "../src/engine/core/serialization/MissingComponent";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
+import { AssetDatabase } from "../src/engine/core/assets/AssetDatabase";
 import { Camera } from "../src/engine/core/components/Camera";
 import { Rigidbody } from "../src/engine/physics/Rigidbody";
 
@@ -181,6 +182,20 @@ describe("a component whose class is not registered", () => {
         const copy = Prefab.fromGameObject(root).instantiate();
 
         expect(SceneSerializer.serializeGameObject(copy).components).toEqual([GHOST]);
+    });
+
+    test("a prefab instance keeps an unknown component of its prefab without reporting an override", () => {
+        const [root] = SceneSerializer.deserializeScene(sceneWith(GHOST));
+        const prefab = Prefab.fromGameObject(root);
+        AssetDatabase._bindGuid("missing-spec-prefab", prefab);
+
+        const instance = prefab.instantiate();
+
+        expect(instance.getComponent(MissingComponent)!.originalType).toBe("MissingSpec.Ghost");
+        expect(prefab.getOverrides(instance)).toEqual([]);
+        const link = SceneSerializer.serializeGameObject(instance, { prefabs: "link" }).prefab!;
+        expect(link.changes).toEqual({ overrides: [] });
+        AssetDatabase.clear();
     });
 });
 

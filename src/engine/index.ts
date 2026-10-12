@@ -88,12 +88,20 @@ export type {
     SerializedAsset,
     SerializedRenderSettings,
     SerializedAssetFile,
+    SerializeOptions,
 } from "./core/serialization/SceneSerializer";
 export { ASSET_FILE_FORMAT } from "./core/serialization/SceneSerializer";
 export { AssetFiles } from "./core/serialization/AssetFiles";
 export { Prefab } from "./core/serialization/Prefab";
 export { PrefabDiff } from "./core/serialization/PrefabOverride";
-export type { PrefabOverride } from "./core/serialization/PrefabOverride";
+export type {
+    PrefabOverride,
+    PrefabChanges,
+    PrefabAddedChild,
+    PrefabAddedComponent,
+    PrefabRemovedComponent,
+    SerializedPrefabLink,
+} from "./core/serialization/PrefabOverride";
 
 // =====================
 // POST-PROCESSING

@@ -301,13 +301,29 @@ export class SceneSerializer {
      * GameObjects register there; the previous active scene is restored.
      */
     public static deserializeGameObject(json: SerializedGameObject, scene?: Scene): GameObject {
+        return SceneSerializer._deserializeTree(json, scene, []);
+    }
+
+    /**
+     * @internal
+     * Builds a prefab's tree as an instance of it. The prefab's own guid seeds
+     * the chain a nested link is checked against, so a prefab that contains
+     * itself stops at the first level instead of the second.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _instantiatePrefab(json: SerializedGameObject, scene: Scene | undefined, guid: string | null): GameObject {
+        return SceneSerializer._deserializeTree(json, scene, guid === null ? [] : [guid]);
+    }
+
+    private static _deserializeTree(json: SerializedGameObject, scene: Scene | undefined, chain: string[]): GameObject {
         let prevActive: Scene | null = null;
         if (scene && scene !== SceneManager.activeScene) {
             prevActive = SceneManager.activeScene;
             SceneManager.setActiveScene(scene);
         }
         try {
-            const ctx = SceneSerializer._newContext();
+            const ctx = SceneSerializer._newContext(chain);
             SceneSerializer._materializeAssets(json.assets, ctx);
             const root = SceneSerializer._deserializeGO(json, ctx);
             SceneSerializer._resolveRefs(ctx, [root]);
