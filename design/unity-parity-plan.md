@@ -658,6 +658,13 @@ unchanged asset costs nothing.
    is lost. That is also exactly what **nested prefabs** need — a snapshot that references
    another prefab rather than embedding it — so both wait on prefab identity, which belongs
    with Stage 2/3's asset ids rather than here.
+
+   **Updated 2026-10-12 (E11, `design/prefab-instances-plan.md` Stage 8).** A variant whose base
+   has an id is now saved as `{ name, version: 2, base, changes }` and reloads as a variant that
+   follows its base; loading it through `Resources` loads the base first. `createVariant` takes
+   full `PrefabChanges`, so a variant can add and remove children and components. Only a variant
+   whose base has no id — never saved or loaded — is still flattened. Nested prefabs are links
+   (Stage 5 of that plan).
 3. **Inspector generated from serialization metadata**, with custom-drawer escape hatches.
 4. **Undo** as serialized-state diffs.
 5. Play mode: serialize → run → restore.

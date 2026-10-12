@@ -1060,6 +1060,14 @@ New in `MissingComponent.test.ts`:
   revert are wrong for that case. Unity gives components fileIDs too. Adding ids changes the
   format of every scene, not just of prefabs, so it is a separate decision. It is best taken
   before the editor's stage 16 (diff-based undo), which would build on it.
+- **A variant cannot carry an inline asset it introduces** (found in Stage 8, verified).
+  `getOverrides` returns values without the instance's asset table, so an override that gives an
+  instance a code-built material is an `AssetRef` to an id nothing binds: through
+  `instantiateWithOverrides` or a variant it comes back `null`, and a variant file has no `assets`
+  to put it in. A linked instance in a scene does not have the problem — Stage 7 carries the
+  assets its changes need into the scene's table. Fixing it for variants means giving a variant
+  file an `assets` table and `createVariant` a way to receive one; it is a format addition, so it
+  is left to the owner. Until then, give a variant's materials files of their own.
 - **Bookkeeping.** E11 has no row in `.claude-shared/ENGINE-GAPS.md` yet. The editor plan says
   rows are added when the stage reaches them, so the row goes in when Stage 1 starts. D1 is an
   engine defect found by the engine; it belongs in this repo's CHANGELOG, not in the gap index.

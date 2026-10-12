@@ -56,6 +56,13 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   `version: 2`; the engine refuses any version above 2.** Every engine that will read such files
   — including any that runs exported scenarios — has to be on a build that reads version 2 before
   anything writes them.
+- **A prefab variant keeps its base when it is saved.** `Prefab.toJSON()` writes a variant whose
+  base has an id as `{ name, version: 2, base, changes }`, and `Prefab.fromJSON` reads it back as
+  a variant that follows later edits to its base; loading it through `Resources` loads the base
+  first. Instantiating a variant whose base is not loaded throws an error naming the base, and a
+  scene instance of one becomes a placeholder. `Prefab.createVariant` also accepts
+  `PrefabChanges`, so a variant can add and remove children and components, and
+  `Prefab.variantChanges` returns them. A variant whose base has no id is flattened, as before.
 
 - **`Texture.flipVertically`** — states whether an image is flipped as it is uploaded. Two
   conventions meet in the engine: the image path uploads `flipY = true` (V=0 at the bottom, as
@@ -86,6 +93,9 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Changed
 
+- **`Prefab.toJSON()` returns the exported `SerializedPrefab`**, whose `snapshot` is optional: a
+  variant saved with its base has `base` and `changes` instead. Code that reads `snapshot` from
+  the result directly has to allow for that.
 - **`SerializedScene.version` is `1 | 2`.** Version 2 marks a file only a reader that knows prefab
   links can read (see *Added*); `deserializeScene` and `Prefab.fromJSON` now throw for a version
   above 2 instead of loading it hollow. Every scene saved in the default mode is still version 1.

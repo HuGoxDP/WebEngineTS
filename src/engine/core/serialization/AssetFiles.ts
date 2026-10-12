@@ -4,7 +4,7 @@ import { Material } from "../graphics/Material";
 import { StandardMaterial } from "../graphics/StandardMaterial";
 import { UnlitMaterial } from "../graphics/UnlitMaterial";
 import { PhysicMaterial } from "../../physics/PhysicMaterial";
-import { Prefab } from "./Prefab";
+import { Prefab, type SerializedPrefab } from "./Prefab";
 import { SceneSerializer, type SerializedAssetFile } from "./SceneSerializer";
 
 /**
@@ -145,11 +145,13 @@ const decodingPrefabs = new Set<string>();
  * inside it included, so that instantiating it rebuilds them in full.
  */
 async function decodePrefab(bytes: Uint8Array, path: string): Promise<Prefab> {
-    const json = parse(bytes) as { name?: string; version?: number; snapshot: { assets?: unknown } };
+    const json = parse(bytes) as SerializedPrefab;
     const self = AssetDatabase.guidForPath(path);
     decodingPrefabs.add(self);
     try {
-        await loadReferences(json.snapshot as object);
+        // A tree carries its inline assets at its root; a variant carries its
+        // base's id and its changes, and both are what it refers to.
+        await loadReferences((json.snapshot ?? json) as object);
     } finally {
         decodingPrefabs.delete(self);
     }

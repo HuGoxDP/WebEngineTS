@@ -79,6 +79,7 @@ function install(entries: Record<string, string>): void {
         { guid: "prefab-tank", path: "assets/prefabs/tank.prefab.json" },
         { guid: "prefab-a", path: "assets/prefabs/a.prefab.json" },
         { guid: "prefab-b", path: "assets/prefabs/b.prefab.json" },
+        { guid: "prefab-elite", path: "assets/prefabs/elite.prefab.json" },
     ]);
 }
 
@@ -484,6 +485,59 @@ describe("a prefab file with prefabs inside it", () => {
         expect(b.isPrefabInstance).toBe(true);
         expect(b.transform.getChild(0).gameObject.transform.childCount).toBe(0);
         warn.mockRestore();
+    });
+});
+
+describe("a prefab variant as a file", () => {
+    /** A crate prefab saved as a file, and a variant of it with a tweaked collider. */
+    function files(): Record<string, string> {
+        const go = new GameObject("Crate");
+        go.addComponent(BoxCollider).sharedMaterial = null;
+        const crate = Prefab.fromGameObject(go);
+        go.destroyImmediate();
+        AssetDatabase._bindGuid("prefab-crate", crate);
+
+        const tweaked = crate.instantiate();
+        tweaked.name = "Elite crate";
+        tweaked.getComponent(BoxCollider)!.isTrigger = true;
+        const elite = Prefab.createVariant(crate, crate.getOverrides(tweaked), "Elite");
+        tweaked.destroyImmediate();
+
+        return {
+            "assets/prefabs/crate.prefab.json": written(crate),
+            "assets/prefabs/elite.prefab.json": written(elite),
+        };
+    }
+
+    test("loading a variant loads its base first", async () => {
+        const text = files();
+        AssetDatabase.clearLoaded();
+        install(text);
+
+        const elite = await Resources.load(Prefab, "prefabs/elite");
+
+        expect(JSON.parse(text["assets/prefabs/elite.prefab.json"]).base).toBe("prefab-crate");
+        expect(AssetDatabase.isLoaded("prefab-crate")).toBe(true);
+        expect(elite.isVariant).toBe(true);
+        expect(elite.base).toBe(AssetDatabase.get("prefab-crate"));
+        expect(elite.instantiate().getComponent(BoxCollider)!.isTrigger).toBe(true);
+    });
+
+    test("an edit to the base reaches a variant loaded from a file", async () => {
+        const text = files();
+        AssetDatabase.clearLoaded();
+        install(text);
+        const elite = await Resources.load(Prefab, "prefabs/elite");
+
+        // The base file is edited and loaded again.
+        const base = Prefab.fromJSON(JSON.parse(text["assets/prefabs/crate.prefab.json"]));
+        (base as unknown as { _snapshot: { transform: { scale: { x: number } } } })._snapshot.transform.scale.x = 4;
+        AssetDatabase._bindGuid("prefab-crate", base);
+
+        const spawned = elite.instantiate();
+        expect(spawned.transform.localScale.x).toBeCloseTo(4);
+        expect(spawned.name).toBe("Elite crate");
+        expect(spawned.getComponent(BoxCollider)!.isTrigger).toBe(true);
     });
 });
 

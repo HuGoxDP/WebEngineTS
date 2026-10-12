@@ -66,6 +66,7 @@ import type { Texture2D } from "../src/engine/core/graphics/Texture2D";
 import { Mesh } from "../src/engine/core/graphics/Mesh";
 import { Vector2 } from "../src/engine/core/math/Vector2";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
+import { PrefabDiff } from "../src/engine/core/serialization/PrefabOverride";
 
 @Serializable()
 class TestScript extends Behaviour {
@@ -2810,7 +2811,7 @@ describe("Prefab — per-instance overrides", () => {
         expect(overrides[0].value).toBe(30);
     });
 
-    test("saving a variant flattens it, which is why the link is documented", () => {
+    test("a variant whose base has no id is still flattened", () => {
         const base = makePrefab();
         const tweaked = base.instantiate();
         tweaked.getComponent(TestScript)!.speed = 20;
@@ -2819,10 +2820,67 @@ describe("Prefab — per-instance overrides", () => {
 
         const restored = Prefab.fromJSON(elite.toJSON());
 
-        // Values survive; the connection to the base does not, since prefabs
-        // have no ids to name it by yet.
+        // Values survive; the connection to the base does not, since this base
+        // has no id — it was never saved or loaded — to name it by.
         expect(restored.instantiate().getComponent(TestScript)!.speed).toBe(20);
         expect(restored.isVariant).toBe(false);
+    });
+
+    test("saving a variant of a prefab with an id keeps its base", () => {
+        const base = makePrefab();
+        AssetDatabase._bindGuid("variant-spec-base", base);
+        const tweaked = base.instantiate();
+        tweaked.getComponent(TestScript)!.speed = 20;
+        const elite = Prefab.createVariant(base, base.getOverrides(tweaked), "Elite");
+        tweaked.destroy();
+
+        const json = elite.toJSON();
+        const restored = Prefab.fromJSON(JSON.parse(JSON.stringify(json)));
+
+        expect(json).toEqual({
+            name: "Elite", version: 2, base: "variant-spec-base",
+            changes: { overrides: base.getOverrides(elite.instantiate()) },
+        });
+        expect(json.snapshot).toBeUndefined();
+        expect(restored.isVariant).toBe(true);
+        expect(restored.base).toBe(base);
+        expect(restored.instantiate().getComponent(TestScript)!.speed).toBe(20);
+
+        // And it follows its base.
+        (base as any)._snapshot.components[0].fields.label = "from the base";
+        expect(restored.instantiate().getComponent(TestScript)!.label).toBe("from the base");
+        AssetDatabase.clear();
+    });
+
+    test("a variant can add and remove children", () => {
+        const base = makePrefab();
+        AssetDatabase._bindGuid("variant-spec-base", base);
+        const tweaked = base.instantiate();
+        tweaked.transform.getChild(0).gameObject.destroyImmediate();
+        new GameObject("Shield").transform.setParent(tweaked.transform, false);
+        const changes = PrefabDiff.compareChanges(base._resolvedTree(), SceneSerializer._serializeForPrefab(tweaked));
+        const variant = Prefab.createVariant(base, changes, "Shielded");
+
+        const restored = Prefab.fromJSON(JSON.parse(JSON.stringify(variant.toJSON())));
+        const spawned = restored.instantiate();
+
+        expect(restored.variantChanges.removedChildren).toHaveLength(1);
+        expect(spawned.transform.childCount).toBe(1);
+        expect(spawned.transform.getChild(0).gameObject.name).toBe("Shield");
+        expect(restored.getOverrides(spawned)).toEqual([]);
+        AssetDatabase.clear();
+    });
+
+    test("instantiating a variant whose base is not loaded names the base", () => {
+        AssetDatabase.setManifest([{ guid: "variant-spec-gone", path: "prefabs/gone.prefab.json" }]);
+        const orphan = Prefab.fromJSON({
+            name: "Orphan", version: 2, base: "variant-spec-gone", changes: { overrides: [] },
+        });
+
+        expect(orphan.isVariant).toBe(true);
+        expect(orphan.base).toBeNull();
+        expect(() => orphan.instantiate()).toThrow(/variant-spec-gone.*gone\.prefab\.json/);
+        AssetDatabase.clear();
     });
 
     test("an untouched instance of a prefab with an inline material has no overrides", () => {

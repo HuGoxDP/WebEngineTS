@@ -458,6 +458,10 @@ export class SceneSerializer {
         };
         walk(json);
 
+        // A prefab variant's file names its base by id: rebuilding it needs it.
+        const base = (json as { base?: unknown }).base;
+        if (typeof base === "string") found.add(base);
+
         // The sky is named by id rather than wrapped in an AssetRef.
         const sky = (json as { renderSettings?: SerializedRenderSettings }).renderSettings;
         if (sky?.skybox) found.add(sky.skybox);
