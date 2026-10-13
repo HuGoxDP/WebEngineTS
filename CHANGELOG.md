@@ -135,6 +135,12 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   writes back, as it read them, a placeholder's link or data whose paths name nodes by id — an
   unknown component's from a prefab file, or changes kept as unused. A reader that refuses
   version 2 therefore cannot always reopen a default-mode save either.
+- **`PrefabDiff.compare` and `compareChanges` compare trees in the form a prefab is stored
+  in**: nested prefab instances as links, references naming prefab nodes by id. That is the form
+  `Prefab.getOverrides` and `Prefab.getChanges` read a live instance in, and they are what to call
+  for one. A snapshot from `SceneSerializer.serializeGameObject(instance)` — what `getOverrides`
+  itself used to compare — is not: its nested instances and its references inside the instance
+  read as changes. An object with no node ids at all is still compared by position.
 - **A reference path may hold prefab node ids.** `PendingGORef.path`, the `path` of
   `DeserializeContext.pendingGORefs` and `pendingComponentRefs`, and `SerializeContext.locate`
   are now `Array<number | string>`. Inside a prefab instance a reference names its target by node

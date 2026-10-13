@@ -307,7 +307,7 @@ export class PrefabDiff {
      *
      * @remarks
      * Shape changes are not here — they are not values. {@link compareChanges}
-     * has both.
+     * has both, and says what form the two snapshots must be in.
      *
      * @param prefab - the snapshot the instance was created from.
      * @param instance - the instance's current snapshot.
@@ -325,10 +325,17 @@ export class PrefabDiff {
      * Every difference between `instance` and `prefab`, values and shape.
      *
      * @remarks
-     * Nodes the instance added are given ids here if they have none, so that
-     * whatever is built from the result — a variant, say — can be compared in
-     * its turn. That is done to `instance`, which is expected to be a snapshot
-     * taken for this purpose.
+     * Both are trees in the form a prefab is stored in: the root written in
+     * full, a prefab instance inside it as a link, and references inside it
+     * naming nodes by id — the form `Prefab.getOverrides` and
+     * `Prefab.getChanges` read a live instance in, and the ones to use for
+     * one. A snapshot from `SceneSerializer.serializeGameObject` is not in
+     * that form when it has node ids: its nested instances are written in
+     * full and its references by position, so they read as changes.
+     *
+     * Nodes the instance added are given ids in the result if they have none,
+     * so that whatever is built from it — a variant, say — can be compared in
+     * its turn. `instance` itself is not modified.
      *
      * A prefab nested inside is compared one field at a time when both sides
      * link the same prefab: a change inside it is then addressed through the
@@ -345,8 +352,7 @@ export class PrefabDiff {
      * snapshot of an object saved or copied before ids existed — is compared
      * node for node by position, as before ids: a copy of it takes the
      * prefab's ids at the same places, and its references, written as
-     * positions, are rewritten to them. `instance` itself is not modified in
-     * that case.
+     * positions, are rewritten to them.
      */
     public static compareChanges(
         prefab: SerializedGameObject,
@@ -355,7 +361,7 @@ export class PrefabDiff {
     ): PrefabChanges {
         const matched = PrefabDiff._hasOwnIds(prefab) && !PrefabDiff._hasOwnIds(instance)
             ? PrefabDiff._matchByPosition(prefab, instance)
-            : instance;
+            : JSON.parse(JSON.stringify(instance)) as SerializedGameObject;
         return PrefabDiff._compareTrees(prefab, matched, { resolve: resolve ?? null, chain: [] });
     }
 

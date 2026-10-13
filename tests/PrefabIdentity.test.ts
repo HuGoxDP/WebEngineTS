@@ -348,4 +348,19 @@ describe("objects without node ids", () => {
         expect(changes.removedChildren).toBeUndefined();
         expect(JSON.stringify(snapshot)).toBe(before);
     });
+
+    test("PrefabDiff leaves a snapshot with ids as it was, and still gives what it added an id", () => {
+        const prefab = turret();
+        const instance = prefab.instantiate();
+        new GameObject("Flag").transform.setParent(instance.transform, false);
+        const snapshot = SceneSerializer.serializeGameObject(instance);
+        delete snapshot.prefab;
+        const before = JSON.stringify(snapshot);
+
+        const changes = PrefabDiff.compareChanges(prefab._resolvedTree(), snapshot);
+
+        expect(changes.addedChildren!.map(a => a.node.name)).toEqual(["Flag"]);
+        expect(changes.addedChildren![0].node.id).toEqual(expect.any(String));
+        expect(JSON.stringify(snapshot)).toBe(before);
+    });
 });

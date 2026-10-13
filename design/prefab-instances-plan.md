@@ -557,6 +557,13 @@ prefab's ids at the same places before writing it (stored on the objects only by
 which maps ids to live objects), and `compareChanges`, given an id-less snapshot directly, does
 the same to a copy of it and rewrites its positional references to those ids.
 
+*Corrected after review:* the diff was not pure. `_compareChildren` gave the instance's added
+nodes their ids in place, so `compareChanges` modified the snapshot a caller passed in; it now
+works on a copy. And a caller that passes `serializeGameObject(instance)` — the form `getOverrides`
+used before ids — gets its nested instances (written in full against the prefab's links) and its
+internal references (positions against the prefab's ids) back as changes. That input is not
+supported; the JSDoc and the CHANGELOG say which form is.
+
 ### 6.4 With `MissingComponent` (E6)
 
 Unknown data is carried as data. Prefabs do not change that.
