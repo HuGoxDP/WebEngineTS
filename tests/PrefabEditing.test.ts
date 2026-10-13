@@ -61,6 +61,15 @@ const tank = (inner: Prefab): Prefab =>
 const saveLinked = (): SerializedScene =>
     SceneSerializer.serializeScene(SceneManager.activeScene, { prefabs: "link" });
 
+/** Binds, under `guid`, the prefab loaded there with its file edited. */
+function editPrefab(guid: string, edit: (snapshot: SerializedGameObject) => void): Prefab {
+    const json = JSON.parse(JSON.stringify((AssetDatabase.get(guid) as Prefab).toJSON()));
+    edit(json.snapshot);
+    const next = Prefab.fromJSON(json);
+    AssetDatabase._bindGuid(guid, next);
+    return next;
+}
+
 beforeEach(() => clear());
 afterEach(() => AssetDatabase.clear());
 
@@ -348,6 +357,48 @@ describe("changes inside a nested prefab instance", () => {
         expect(child(back, 1, 0).getComponent(Tag)!.label).toBe("whole link");
     });
 
+    test("a change inside a nested instance stays one field while the nested prefab is not loaded", () => {
+        const { inner, outer } = tankWithOverride();
+        const instance = outer.instantiate();
+        child(instance, 1, 0).getComponent(Tag)!.count = 5;
+        const saved = saveLinked();
+        AssetDatabase._unbind(inner);
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        clear();
+        SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        const again = saveLinked();
+        warn.mockRestore();
+
+        // Saved back as it was read: not frozen into the nested instance's whole link.
+        expect(again).toEqual(saved);
+        AssetDatabase._bindGuid("guid-turret", inner);
+        clear();
+        const [back] = SceneSerializer.deserializeScene(again);
+        expect(child(back, 1, 0).getComponent(Tag)!.label).toBe("outer default");
+        expect(child(back, 1, 0).getComponent(Tag)!.count).toBe(5);
+    });
+
+    test("a change inside a nested instance that no longer applies stays one field, and applies again", () => {
+        const { inner } = tankWithOverride();
+        const instance = (AssetDatabase.get("guid-tank") as Prefab).instantiate();
+        child(instance, 1, 0).getComponent(Tag)!.count = 5;
+        const saved = saveLinked();
+        editPrefab("guid-turret", root => { root.children = []; });
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        clear();
+        SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        const again = saveLinked();
+        warn.mockRestore();
+
+        expect(again.roots[0].prefab!.changes).toEqual(saved.roots[0].prefab!.changes);
+        AssetDatabase._bindGuid("guid-turret", inner);
+        clear();
+        const [back] = SceneSerializer.deserializeScene(again);
+        expect(child(back, 1, 0).getComponent(Tag)!.count).toBe(5);
+    });
+
     test("a change inside a nested instance is reverted in place", () => {
         const { outer } = tankWithOverride();
         const instance = outer.instantiate();
@@ -368,15 +419,6 @@ describe("changes inside a nested prefab instance", () => {
 });
 
 describe("a nested instance's root, after its own prefab changes", () => {
-    /** Binds, under `guid`, the prefab loaded there with its file edited. */
-    function editPrefab(guid: string, edit: (snapshot: SerializedGameObject) => void): Prefab {
-        const json = JSON.parse(JSON.stringify((AssetDatabase.get(guid) as Prefab).toJSON()));
-        edit(json.snapshot);
-        const next = Prefab.fromJSON(json);
-        AssetDatabase._bindGuid(guid, next);
-        return next;
-    }
-
     test("an untouched instance has no changes after the nested prefab's root is rescaled or hidden", () => {
         const outer = tank(turret());
         const saved = (outer.instantiate(), saveLinked());

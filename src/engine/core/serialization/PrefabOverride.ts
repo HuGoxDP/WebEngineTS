@@ -262,6 +262,9 @@ const JSON_ACCESS: NodeAccess<SerializedGameObject> = {
     isInstance: node => node.prefab !== undefined,
 };
 
+/** No changes at all. */
+const EMPTY: PrefabChanges = Object.freeze({ overrides: [] }) as PrefabChanges;
+
 /** Transform fields compared at the GameObject level. */
 const TRANSFORM_FIELDS = ["position", "rotation", "scale"] as const;
 
@@ -327,12 +330,16 @@ export class PrefabDiff {
      * its turn. That is done to `instance`, which is expected to be a snapshot
      * taken for this purpose.
      *
-     * A prefab nested inside is compared one field at a time when `resolve`
-     * finds its tree and both sides link the same prefab: a change inside it is
-     * then addressed through the nesting (`"outer/inner"`), so an edit the
-     * outer prefab makes to a *different* field of the same nested instance
-     * still reaches this one. Otherwise — no resolver, the prefab not loaded,
-     * a different prefab — the nested instance's whole link is one value.
+     * A prefab nested inside is compared one field at a time when both sides
+     * link the same prefab: a change inside it is then addressed through the
+     * nesting (`"outer/inner"`), so an edit the outer prefab makes to a
+     * *different* field of the same nested instance still reaches this one.
+     * With `resolve` finding its tree the two are expanded and compared as
+     * trees; without — no resolver, or the prefab not loaded — the two links'
+     * changes are compared instead, and what the instance's adds is the
+     * change. The nested instance's whole link is one value only for a
+     * different prefab, or for a link that lacks something the outer prefab's
+     * holds.
      *
      * An instance whose nodes have no ids at all while the prefab's do — a
      * snapshot of an object saved or copied before ids existed — is compared
@@ -753,6 +760,7 @@ export class PrefabDiff {
         const linkDiffers = !PrefabDiff._equal(prefab.prefab, instance.prefab);
         const inner = linkDiffers && path.length > 0 && node !== undefined
             ? PrefabDiff._compareNested(prefab, instance, path, node, cmp)
+                ?? PrefabDiff._diffLinks(prefab, instance, path, node)
             : null;
         // A nested instance kept as a link takes its active state and scale
         // from its prefab and its link, never from its shell, which only
@@ -783,8 +791,8 @@ export class PrefabDiff {
         if (inner !== null) {
             PrefabDiff._mergeChanges(changes, inner);
         } else if (linkDiffers) {
-            // Its whole link, as one value: a different prefab, or one that
-            // cannot be read to compare inside.
+            // Its whole link, as one value: a different prefab, or a link that
+            // drops something the outer prefab's holds.
             changes.overrides.push(at({
                 component: null, componentIndex: 0,
                 field: "prefab", value: instance.prefab ?? null,
@@ -799,7 +807,7 @@ export class PrefabDiff {
 
     /**
      * The differences inside a nested instance, addressed through it, or null
-     * when it has to be compared as one value.
+     * when they cannot be compared tree against tree.
      *
      * @remarks
      * Both sides are expanded from the nested prefab with their own changes
@@ -807,6 +815,11 @@ export class PrefabDiff {
      * nested instance's id in the outer prefab. A prefab already being
      * compared further out is not entered again, so one that contains itself
      * cannot recurse.
+     *
+     * Changes the instance keeps as unused — addressed to what the nested
+     * prefab no longer has — are passed on through the nesting as well, so
+     * that they stay changes of one field each and apply again if the nested
+     * prefab gets their objects back.
      */
     private static _compareNested(
         prefab: SerializedGameObject,
@@ -818,7 +831,9 @@ export class PrefabDiff {
         const a = prefab.prefab;
         const b = instance.prefab;
         if (cmp.resolve === null || !a || !b || a.guid !== b.guid || !a.changes || !b.changes) return null;
-        if (!PrefabDiff._equal(a.unused, b.unused) || cmp.chain.includes(a.guid)) return null;
+        if (cmp.chain.includes(a.guid)) return null;
+        const unused = PrefabDiff._linkDelta(a.unused ?? EMPTY, b.unused ?? EMPTY);
+        if (unused === null) return null;
 
         const base = cmp.resolve(a.guid);
         if (base === null) return null;
@@ -831,14 +846,82 @@ export class PrefabDiff {
         );
 
         // Name, position and rotation of the nested root are its shell's, and
-        // were compared there; anything addressed by position alone cannot be
-        // carried through the nesting.
+        // were compared there.
         const rootId = base.id;
         inner.overrides = inner.overrides.filter(o =>
             !(o.node === rootId && o.component === null
                 && (o.field === "name" || o.field === "transform.position" || o.field === "transform.rotation")));
-        if (inner.overrides.some(o => o.node === undefined)) return null;
+        PrefabDiff._mergeChanges(inner, unused);
+        return PrefabDiff._nest(inner, path, node);
+    }
 
+    /**
+     * The differences inside a nested instance read off the two links alone,
+     * addressed through it — for when its prefab cannot be read to expand
+     * them, such as a placeholder's link while the nested prefab is not
+     * loaded.
+     *
+     * @remarks
+     * What the instance's link holds and the outer prefab's does not. That is
+     * the instance's own part only when its link holds everything the outer
+     * prefab's does, an override replaced by one of the same field included,
+     * which is the shape {@link applyChanges} gives a link it folds changes
+     * into. Otherwise null: something the outer prefab's link does and the
+     * instance's does not cannot be said as a change through the nesting.
+     */
+    private static _diffLinks(
+        prefab: SerializedGameObject,
+        instance: SerializedGameObject,
+        path: number[],
+        node: string,
+    ): PrefabChanges | null {
+        const a = prefab.prefab;
+        const b = instance.prefab;
+        if (!a?.changes || !b?.changes || a.guid !== b.guid) return null;
+        const changes = PrefabDiff._linkDelta(a.changes, b.changes);
+        const unused = PrefabDiff._linkDelta(a.unused ?? EMPTY, b.unused ?? EMPTY);
+        if (changes === null || unused === null) return null;
+        PrefabDiff._mergeChanges(changes, unused);
+        return PrefabDiff._nest(changes, path, node);
+    }
+
+    /**
+     * What `to` holds that `from` does not, or null when `from` holds
+     * something `to` lacks. An override of `from` counts as held when `to`
+     * has one for the same field, whatever its value.
+     */
+    private static _linkDelta(from: PrefabChanges, to: PrefabChanges): PrefabChanges | null {
+        if (!from.overrides.every(o => to.overrides.some(e => PrefabDiff._sameField(e, o)))) return null;
+
+        const extra = <T>(a: readonly T[] | undefined, b: readonly T[] | undefined): T[] | null => {
+            const has = (list: readonly T[] | undefined, item: T): boolean =>
+                (list ?? []).some(e => PrefabDiff._equal(e, item));
+            if (!(a ?? []).every(e => has(b, e))) return null;
+            return (b ?? []).filter(e => !has(a, e));
+        };
+        const overrides = to.overrides.filter(o => !from.overrides.some(e => PrefabDiff._equal(e, o)));
+        const addedChildren = extra(from.addedChildren, to.addedChildren);
+        const removedChildren = extra(from.removedChildren, to.removedChildren);
+        const addedComponents = extra(from.addedComponents, to.addedComponents);
+        const removedComponents = extra(from.removedComponents, to.removedComponents);
+        if (addedChildren === null || removedChildren === null
+            || addedComponents === null || removedComponents === null) return null;
+
+        const out: PrefabChanges = { overrides };
+        if (addedChildren.length > 0) out.addedChildren = addedChildren;
+        if (removedChildren.length > 0) out.removedChildren = removedChildren;
+        if (addedComponents.length > 0) out.addedComponents = addedComponents;
+        if (removedComponents.length > 0) out.removedComponents = removedComponents;
+        return out;
+    }
+
+    /**
+     * Changes made inside the nested instance `node`, at `path` in the outer
+     * prefab, addressed through it; null when an override inside has no node
+     * id to carry through the nesting.
+     */
+    private static _nest(inner: PrefabChanges, path: readonly number[], node: string): PrefabChanges | null {
+        if (inner.overrides.some(o => o.node === undefined)) return null;
         const nest = (id: string): string => `${node}${NEST}${id}`;
         return {
             overrides: inner.overrides.map(o => ({ ...o, path: [...path, ...o.path], node: nest(o.node!) })),
@@ -873,9 +956,19 @@ export class PrefabDiff {
             if (found === undefined) layers.set(head, found = { overrides: [] });
             return found;
         };
+        // An override's path runs from the outer root; inside the nested
+        // instance it runs from the nested root.
+        const depth = (head: string): number => {
+            const at = byId.get(head);
+            let levels = 0;
+            for (let n = at; n?.parent; n = byId.get(n.parent.id ?? "")) levels++;
+            return levels;
+        };
         for (const o of changes.overrides) {
             const nested = o.node !== undefined ? splitNested(o.node) : null;
-            if (nested !== null) layer(nested.head).overrides.push({ ...o, node: nested.rest });
+            if (nested !== null) {
+                layer(nested.head).overrides.push({ ...o, path: o.path.slice(depth(nested.head)), node: nested.rest });
+            }
         }
         for (const r of changes.removedComponents ?? []) {
             const nested = splitNested(r.node);
@@ -965,12 +1058,16 @@ export class PrefabDiff {
      * changes already hold for the same field.
      */
     private static _mergeOverride(into: PrefabChanges, override: PrefabOverride): void {
-        const same = (o: PrefabOverride): boolean => o.node === override.node && o.component === override.component
-            && o.componentIndex === override.componentIndex && o.field === override.field
-            && (o.node !== undefined || PrefabDiff._equal(o.path, override.path));
-        const at = into.overrides.findIndex(same);
+        const at = into.overrides.findIndex(o => PrefabDiff._sameField(o, override));
         if (at >= 0) into.overrides[at] = override;
         else into.overrides.push(override);
+    }
+
+    /** Whether two overrides address the same field of the same object. */
+    private static _sameField(a: PrefabOverride, b: PrefabOverride): boolean {
+        return a.node === b.node && a.component === b.component
+            && a.componentIndex === b.componentIndex && a.field === b.field
+            && (a.node !== undefined || PrefabDiff._equal(a.path, b.path));
     }
 
     private static _compareChildren(

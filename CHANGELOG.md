@@ -72,8 +72,11 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   Before, an instance that touched
   anything inside a nested prefab stored that prefab's whole link and stopped following all of
   it; files written that way are still read. `PrefabDiff.compareChanges` takes an optional
-  resolver for the nested prefabs' trees; without one, or without the prefab loaded, it falls
-  back to the whole link.
+  resolver for the nested prefabs' trees; without one, or without the prefab loaded, it compares
+  the two links' changes instead, so a scene opened while a nested prefab is missing saves its
+  changes back one field at a time, as they were read. A change that no longer applies inside
+  a nested instance stays one field too, and applies again if the nested prefab gets its object
+  back.
 - **What an editor's prefab workflow calls.** `GameObject.prefabInstanceRoot` and
   `outermostPrefabInstanceRoot` find the instance an object belongs to, crossing nested prefabs
   for the outermost (the one a Hierarchy marks and the only one that can be unpacked);

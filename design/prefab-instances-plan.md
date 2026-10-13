@@ -995,6 +995,23 @@ ignores), and `revertOverride` applied the stale shell value. A nested root kept
 never compared on its shell for those two fields — its link decides them — and reverting one
 addressed to it takes the value from its own prefab (`SceneSerializer._linkTree`).
 
+*Corrected after review:* "anything else stays one whole-link override" undid Stage 10 on a plain
+open-and-save. A scene opened while the nested prefab was missing rebuilt the nested instance as
+a placeholder whose link is the composed one, and a nested change that had become unused made
+the two links' `unused` differ; either way the next save recorded the nested instance's whole
+link and froze it against later outer-prefab edits. Now:
+
+- `unused` no longer has to be equal. What the instance keeps unused and the outer prefab's link
+  does not is passed through the nesting like any other change (`_compareNested`), where loading
+  folds it back into the nested link's `unused`.
+- When the nested tree cannot be expanded, the two links' changes are compared
+  (`_diffLinks`): what the instance's link adds to the outer prefab's is the instance's change,
+  provided it holds everything the outer prefab's does — the shape `applyChanges` gives a link it
+  folds changes into without a resolver. Only a link that drops something, or a different prefab,
+  is still one whole-link value.
+- Folding strips the nested instance's own place from an override's informational `path`, so a
+  scene opened and saved while the nested prefab is missing is written back byte for byte.
+
 *Corrected after review:* `applyChanges` first composed by adding the `"outer/inner"` changes to
 the nested link's own and applying the result in its fixed order — values, then removals, then
 additions. A change aimed at a child or component the **outer prefab added** to the nested
