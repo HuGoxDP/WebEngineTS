@@ -337,15 +337,25 @@ export class SceneSerializer {
      * than as an instance whose every child was added and whose every
      * reference names nodes the prefab does not have.
      *
+     * `outward` writes a reference that leaves `go` the way a link save of
+     * its scene writes it — counted out through the instances around `go` to
+     * the scene, with its `scope` — rather than as null, which is all a prefab
+     * can hold. What an instance is compared with is read this way, so that a
+     * reference to the rest of the scene is a change, as a link save records
+     * it.
+     *
      * **NEVER use in user-facing code.**
      */
     public static _serializeForPrefab(
         go: GameObject,
-        options: { mintLive?: boolean; match?: SerializedGameObject } = {},
+        options: { mintLive?: boolean; match?: SerializedGameObject; outward?: boolean } = {},
     ): SerializedGameObject {
-        const ctx = SceneSerializer._buildSerializeCtx([go], true, null, {
-            mintLive: options.mintLive ?? false,
+        const mintLive = options.mintLive ?? false;
+        const outer = options.outward === true ? SceneSerializer._enclosingCtx(go, mintLive) : null;
+        const ctx = SceneSerializer._buildSerializeCtx([go], true, outer, {
+            mintLive,
             prefabRoot: go,
+            ownAssets: true,
         });
         if (options.match !== undefined && !SceneSerializer._hasOwnIds(go, ctx)) {
             SceneSerializer._borrowIds(go, options.match, ctx);
@@ -356,6 +366,24 @@ export class SceneSerializer {
         const root = SceneSerializer._serializeNode(go, ctx, false, true);
         if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
         return root;
+    }
+
+    /**
+     * The passes a link save of `go`'s scene opens around `go`: the scene's,
+     * then one for each instance written as a link that `go` lies inside,
+     * outermost first. Nothing is minted in them; a reference to an object
+     * added to another instance and never saved is written by position.
+     */
+    private static _enclosingCtx(go: GameObject, mintLive: boolean): SceneCtx {
+        let ctx = SceneSerializer._buildSerializeCtx(go.scene.getRootGameObjects(), true, null, { mintLive });
+        const around: GameObject[] = [];
+        for (let t = go.transform.parent; t !== null; t = t.parent) {
+            if (SceneSerializer._writtenAsLink(t.gameObject, ctx)) around.unshift(t.gameObject);
+        }
+        for (const root of around) {
+            ctx = SceneSerializer._buildSerializeCtx([root], true, ctx, { ownAssets: true });
+        }
+        return ctx;
     }
 
     /**

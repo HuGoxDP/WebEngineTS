@@ -315,7 +315,8 @@ export class Prefab {
     public getOverrides(instance: GameObject): PrefabOverride[] {
         const tree = this._resolvedTree();
         return PrefabDiff.compare(
-            tree, SceneSerializer._serializeForPrefab(instance, { match: tree }), SceneSerializer._prefabTree,
+            tree, SceneSerializer._serializeForPrefab(instance, { match: tree, outward: true }),
+            SceneSerializer._prefabTree,
         );
     }
 
@@ -396,7 +397,7 @@ export class Prefab {
     public getChanges(instance: GameObject): PrefabChanges {
         const tree = this._resolvedTree();
         const changes = PrefabDiff.compareChanges(
-            tree, SceneSerializer._serializeForPrefab(instance, { mintLive: true, match: tree }),
+            tree, SceneSerializer._serializeForPrefab(instance, { mintLive: true, match: tree, outward: true }),
             SceneSerializer._prefabTree,
         );
         changes.overrides = changes.overrides.filter(o => !Prefab._isDefaultOverride(o, tree));

@@ -238,6 +238,37 @@ describe("reading, applying and reverting an instance's changes", () => {
         expect(watcher.getComponent(Aim)!.target).toBe(hull);
     });
 
+    test("a reference from inside an instance to the rest of the scene is listed as a link save records it", () => {
+        const inner = prefabOf(() => {
+            const turretRoot = make("Turret", "turret", make("Barrel", "barrel"));
+            turretRoot.addComponent(Aim).target = child(turretRoot, 0);
+            return turretRoot;
+        }, "guid-turret");
+        const outer = prefabOf(() => {
+            const root = make("Tank", "tank", make("Hull", "hull"), inner.instantiate());
+            root.addComponent(Aim).target = child(root, 0);
+            return root;
+        }, "guid-tank");
+        const player = new GameObject("Player");
+        const instance = outer.instantiate();
+        instance.getComponent(Aim)!.target = player;
+        child(instance, 1).getComponent(Aim)!.target = player;
+
+        const saved = saveLinked().roots[1].prefab!.changes!;
+
+        expect(saved.overrides.map(o => o.value)).toEqual([
+            { $type: "GameObjectRef", path: [0], scope: 1 },
+            { $type: "GameObjectRef", path: [0], scope: 2 },
+        ]);
+        expect(outer.getChanges(instance)).toEqual(saved);
+        expect(outer.getOverrides(instance).filter(o => o.field === "target")).toEqual(saved.overrides);
+
+        for (const o of outer.getChanges(instance).overrides) outer.revertOverride(instance, o);
+        expect(instance.getComponent(Aim)!.target).toBe(child(instance, 0));
+        expect(child(instance, 1).getComponent(Aim)!.target).toBe(child(instance, 1, 0));
+        expect(outer.getChanges(instance)).toEqual({ overrides: [] });
+    });
+
     test("connecting makes the source an instance of the prefab made from it", () => {
         const inner = turret();
         const source = make("Tank", "tank", make("Hull", "hull"), inner.instantiate());
