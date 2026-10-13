@@ -367,6 +367,65 @@ describe("changes inside a nested prefab instance", () => {
     });
 });
 
+describe("a nested instance's root, after its own prefab changes", () => {
+    /** Binds, under `guid`, the prefab loaded there with its file edited. */
+    function editPrefab(guid: string, edit: (snapshot: SerializedGameObject) => void): Prefab {
+        const json = JSON.parse(JSON.stringify((AssetDatabase.get(guid) as Prefab).toJSON()));
+        edit(json.snapshot);
+        const next = Prefab.fromJSON(json);
+        AssetDatabase._bindGuid(guid, next);
+        return next;
+    }
+
+    test("an untouched instance has no changes after the nested prefab's root is rescaled or hidden", () => {
+        const outer = tank(turret());
+        const saved = (outer.instantiate(), saveLinked());
+        editPrefab("guid-turret", root => {
+            root.transform.scale = { x: 2, y: 2, z: 2 };
+            root.active = false;
+        });
+
+        const fresh = outer.instantiate();
+        expect(child(fresh, 1).transform.localScale.x).toBeCloseTo(2);
+        expect(child(fresh, 1).activeSelf).toBe(false);
+        expect(outer.getChanges(fresh)).toEqual({ overrides: [] });
+        expect(outer.getOverrides(fresh)).toEqual([]);
+
+        clear();
+        const [back] = SceneSerializer.deserializeScene(saved);
+        expect(child(back, 1).transform.localScale.x).toBeCloseTo(2);
+        expect(saveLinked().roots[0].prefab!.changes).toEqual({ overrides: [] });
+    });
+
+    test("a nested root's own scale is recorded inside it, and reverting it takes the nested prefab's", () => {
+        const outer = tank(turret());
+        const instance = outer.instantiate();
+        editPrefab("guid-turret", root => { root.transform.scale = { x: 2, y: 2, z: 2 }; });
+        const nested = child(instance, 1);
+        nested.transform.localScale = new Vector3(3, 3, 3);
+
+        const scale = outer.getChanges(instance).overrides;
+        expect(scale.map(o => [o.node, o.field])).toEqual([
+            [`${nested.prefabNodeId}/${(AssetDatabase.get("guid-turret") as Prefab)._resolvedTree().id}`, "transform.scale"],
+        ]);
+        outer.revertOverride(instance, scale[0]);
+
+        expect(child(instance, 1)).toBe(nested);
+        expect(nested.transform.localScale.x).toBeCloseTo(2);
+        expect(outer.getChanges(instance)).toEqual({ overrides: [] });
+
+        // Addressed to the nested root as a node of the Tank, as a caller may
+        // still hold it: the value comes from the Turret prefab, not from the
+        // Tank's stale shell of it.
+        nested.transform.localScale = new Vector3(3, 3, 3);
+        outer.revertOverride(instance, {
+            path: [1], node: nested.prefabNodeId!, component: null, componentIndex: 0,
+            field: "transform.scale", value: { x: 3, y: 3, z: 3 },
+        });
+        expect(nested.transform.localScale.x).toBeCloseTo(2);
+    });
+});
+
 describe("what the outer prefab added to a nested instance", () => {
     /**
      * A Tank whose own prefab gives its nested Turret a child, Scope, and a

@@ -987,6 +987,14 @@ instance compared field by field they are recorded inside it, not on its shell. 
 follows a nested id into the nested instance and reverts there, against the nested tree as the
 outer prefab defines it.
 
+*Corrected after review:* the shells' active state and scale were still compared whenever the two
+links were equal. The outer prefab's shell caches what the nested prefab had when the outer one
+was saved, so once the nested prefab rescaled or hid its root, every untouched instance reported
+`transform.scale` or `active` on each nested root, link saves wrote those overrides (which loading
+ignores), and `revertOverride` applied the stale shell value. A nested root kept as a link is now
+never compared on its shell for those two fields — its link decides them — and reverting one
+addressed to it takes the value from its own prefab (`SceneSerializer._linkTree`).
+
 *Corrected after review:* `applyChanges` first composed by adding the `"outer/inner"` changes to
 the nested link's own and applying the result in its fixed order — values, then removals, then
 additions. A change aimed at a child or component the **outer prefab added** to the nested

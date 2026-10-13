@@ -1213,6 +1213,30 @@ export class SceneSerializer {
         }
     }
 
+    /**
+     * @internal
+     * The tree a nested prefab instance kept as a link stands for, built the
+     * way loading builds it: its prefab with the link's changes applied, and
+     * the name, position and rotation of `node`, its shell. Null when `node`
+     * is not such a link or its prefab is not loaded.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _linkTree(node: SerializedGameObject): SerializedGameObject | null {
+        const link = node.prefab;
+        if (link?.changes === undefined) return null;
+        const base = SceneSerializer._prefabTree(link.guid);
+        if (base === null) return null;
+
+        const tree = PrefabDiff.applyChanges(
+            base, SceneSerializer._mergeChanges(link.changes, link.unused), SceneSerializer._prefabTree,
+        );
+        tree.name = node.name;
+        tree.transform.position = { ...node.transform.position };
+        tree.transform.rotation = { ...node.transform.rotation };
+        return tree;
+    }
+
     private static _prefabById(guid: string): PrefabSource | null {
         const found = AssetDatabase.get(guid) as Partial<PrefabSource> | null;
         return found !== null && typeof found._resolvedTree === "function"

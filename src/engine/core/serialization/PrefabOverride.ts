@@ -749,22 +749,27 @@ export class PrefabDiff {
             node === undefined ? { path, ...rest } : { path, node, ...rest };
 
         // A nested instance whose link differs: field by field when its prefab
-        // can be read, which makes its active state and scale — taken from its
-        // tree, not its shell — inner changes too.
+        // can be read.
         const linkDiffers = !PrefabDiff._equal(prefab.prefab, instance.prefab);
         const inner = linkDiffers && path.length > 0 && node !== undefined
             ? PrefabDiff._compareNested(prefab, instance, path, node, cmp)
             : null;
+        // A nested instance kept as a link takes its active state and scale
+        // from its prefab and its link, never from its shell, which only
+        // caches them: an outer prefab's shell holds what the nested prefab
+        // had when the outer one was saved. Its link says everything about
+        // them, so the shells' are not compared.
+        const fromLink = path.length > 0 && instance.prefab?.changes !== undefined;
 
         if (prefab.name !== instance.name) {
             changes.overrides.push(at({ component: null, componentIndex: 0, field: "name", value: instance.name }));
         }
-        if (inner === null && prefab.active !== instance.active) {
+        if (!fromLink && prefab.active !== instance.active) {
             changes.overrides.push(at({ component: null, componentIndex: 0, field: "active", value: instance.active }));
         }
 
         for (const key of TRANSFORM_FIELDS) {
-            if (inner !== null && key === "scale") continue;
+            if (fromLink && key === "scale") continue;
             const before = (prefab.transform as any)[key];
             const after = (instance.transform as any)[key];
             if (!PrefabDiff._equal(before, after)) {

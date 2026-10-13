@@ -553,15 +553,15 @@ export class Prefab {
 
         for (let nested = rest === null ? null : splitNested(rest); nested !== null;
             nested = splitNested(rest!)) {
-            const link = PrefabDiff.nodeOf(tree, { node: nested.head })?.node.prefab;
-            const base = link?.changes ? SceneSerializer._prefabTree(link.guid) : null;
+            const node = PrefabDiff.nodeOf(tree, { node: nested.head })?.node;
+            const composed = node === undefined ? null : SceneSerializer._linkTree(node);
             const inner = SceneSerializer._findLiveNode(live, nested.head);
-            if (!link?.changes || base === null || inner === null) return null;
+            if (composed === null || inner === null) return null;
 
-            tree = PrefabDiff.applyChanges(base, link.changes, SceneSerializer._prefabTree);
+            tree = composed;
             live = inner;
             scopes.push(inner);
-            chain.push(link.guid);
+            chain.push(node!.prefab!.guid);
             rest = nested.rest;
         }
         return { live, tree, id: rest, scopes, chain };
@@ -620,10 +620,13 @@ export class Prefab {
             return;
         }
 
+        // A nested instance kept as a link takes its active state and scale
+        // from its own prefab, not from the shell this prefab keeps of it.
+        const own = SceneSerializer._linkTree(json) ?? json;
         const t = live.transform;
         switch (o.field) {
             case "name": live.name = json.name; return;
-            case "active": live.setActive(json.active); return;
+            case "active": live.setActive(own.active); return;
             case "transform.position": {
                 const p = json.transform.position;
                 t.localPosition = t.localPosition.set(p.x, p.y, p.z);
@@ -635,7 +638,7 @@ export class Prefab {
                 return;
             }
             case "transform.scale": {
-                const sc = json.transform.scale;
+                const sc = own.transform.scale;
                 t.localScale = t.localScale.set(sc.x, sc.y, sc.z);
                 return;
             }
