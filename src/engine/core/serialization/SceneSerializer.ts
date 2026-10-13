@@ -1588,7 +1588,7 @@ export class SceneSerializer {
         if (source === null || base === null) return SceneSerializer._placeholder(json, create);
 
         const all = SceneSerializer._mergeChanges(link.changes!, link.unused);
-        const tree = PrefabDiff.applyChanges(base, all);
+        const tree = PrefabDiff.applyChanges(base, all, SceneSerializer._prefabTree);
         const unused = PrefabDiff.unused(base, all);
         if (unused !== null) {
             const count = unused.overrides.length

@@ -214,7 +214,7 @@ export class Prefab {
         }
         resolving.add(this);
         try {
-            return PrefabDiff.applyChanges(base._resolvedTree(), this._changes);
+            return PrefabDiff.applyChanges(base._resolvedTree(), this._changes, SceneSerializer._prefabTree);
         } finally {
             resolving.delete(this);
         }
@@ -335,7 +335,7 @@ export class Prefab {
     ): GameObject {
         const target = scene ?? SceneManager.activeScene;
         return this._stamp(SceneSerializer._instantiatePrefab(
-            PrefabDiff.apply(this._resolvedTree(), overrides),
+            PrefabDiff.apply(this._resolvedTree(), overrides, SceneSerializer._prefabTree),
             target,
             AssetDatabase.guidOf(this),
         ));
@@ -556,7 +556,7 @@ export class Prefab {
             const inner = SceneSerializer._findLiveNode(live, nested.head);
             if (!link?.changes || base === null || inner === null) return null;
 
-            tree = PrefabDiff.applyChanges(base, link.changes);
+            tree = PrefabDiff.applyChanges(base, link.changes, SceneSerializer._prefabTree);
             live = inner;
             scopes.push(inner);
             chain.push(link.guid);

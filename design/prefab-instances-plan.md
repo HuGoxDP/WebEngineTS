@@ -949,6 +949,19 @@ instance compared field by field they are recorded inside it, not on its shell. 
 follows a nested id into the nested instance and reverts there, against the nested tree as the
 outer prefab defines it.
 
+*Corrected after review:* `applyChanges` first composed by adding the `"outer/inner"` changes to
+the nested link's own and applying the result in its fixed order — values, then removals, then
+additions. A change aimed at a child or component the **outer prefab added** to the nested
+instance therefore found nothing when its value was applied, and a removal of one was undone by
+the addition that followed: an edit inside an added child came back as the prefab had it (with a
+false "no longer has" warning), and a deleted added child or component returned, through a link
+round trip and through a variant alike. `applyChanges(tree, changes, resolve)` now rewrites the
+nested link as the difference between the nested prefab's tree and that tree with the link's own
+changes and then the instance's applied, so the added objects are part of what the changes land
+on. Without `resolve`, or with the nested prefab not loaded, it falls back to adding them, which
+is exact only for the nested prefab's own objects. A prefab already being expanded further out is
+not expanded again, so two prefab files that change something inside each other cannot recurse.
+
 **Done when:**
 
 - an edit to an outer prefab's nested override reaches an outer instance that changed a

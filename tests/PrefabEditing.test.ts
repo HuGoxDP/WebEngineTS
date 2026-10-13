@@ -366,3 +366,116 @@ describe("changes inside a nested prefab instance", () => {
         expect(outer.getChanges(instance).overrides.map(o => o.field)).toEqual(["count"]);
     });
 });
+
+describe("what the outer prefab added to a nested instance", () => {
+    /**
+     * A Tank whose own prefab gives its nested Turret a child, Scope, and a
+     * second Tag. Neither is the Turret prefab's: both live in the Tank
+     * prefab's link to it.
+     */
+    function tankAddingToTurret(): Prefab {
+        const inner = turret();
+        return prefabOf(() => {
+            const nested = inner.instantiate();
+            make("Scope", "scope").transform.setParent(nested.transform, false);
+            nested.addComponent(Tag).label = "added by tank";
+            return make("Tank", "tank", make("Hull", "hull"), nested);
+        }, "guid-tank");
+    }
+
+    /** Saves the scene with its instances as links and loads it back. */
+    function roundTrip(): GameObject {
+        const saved = saveLinked();
+        clear();
+        return SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)))[0];
+    }
+
+    test("removing a child it added stays removed through a link round trip", () => {
+        const instance = tankAddingToTurret().instantiate();
+        child(instance, 1, 1).destroyImmediate();
+
+        const back = roundTrip();
+
+        expect(child(back, 1).transform.childCount).toBe(1);
+        expect(child(back, 1, 0).name).toBe("Barrel");
+    });
+
+    test("an edit to a component it added survives a link round trip", () => {
+        const instance = tankAddingToTurret().instantiate();
+        child(instance, 1).getComponents(Tag)[1].label = "edited";
+
+        const back = roundTrip();
+
+        expect(child(back, 1).getComponents(Tag).map(t => t.label)).toEqual(["turret", "edited"]);
+    });
+
+    test("an edit inside a child it added survives, and is not reported as addressing nothing", () => {
+        const instance = tankAddingToTurret().instantiate();
+        child(instance, 1, 1).getComponent(Tag)!.label = "edited";
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const back = roundTrip();
+
+        expect(child(back, 1, 1).getComponent(Tag)!.label).toBe("edited");
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+    });
+
+    test("removing a component it added stays removed through a link round trip", () => {
+        const instance = tankAddingToTurret().instantiate();
+        const nested = child(instance, 1);
+        nested.removeComponent(nested.getComponents(Tag)[1] as never);
+
+        const back = roundTrip();
+
+        expect(child(back, 1).getComponents(Tag).map(t => t.label)).toEqual(["turret"]);
+    });
+
+    test("a variant made from such changes keeps them", () => {
+        const outer = tankAddingToTurret();
+        const instance = outer.instantiate();
+        child(instance, 1, 1).getComponent(Tag)!.label = "variant";
+        child(instance, 1).getComponents(Tag)[1].count = 4;
+
+        const variant = Prefab.createVariant(outer, outer.getChanges(instance)).instantiate();
+
+        expect(child(variant, 1, 1).getComponent(Tag)!.label).toBe("variant");
+        expect(child(variant, 1).getComponents(Tag)[1].count).toBe(4);
+    });
+
+    test("two prefabs that change something inside each other are rebuilt without recursing forever", () => {
+        const pose = {
+            position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 },
+        };
+        const tag = (label: string) => ({ type: "EditingSpec.Tag", fields: { label, count: 0 } });
+        const node = (name: string, extra: Partial<SerializedGameObject>): SerializedGameObject => ({
+            name, active: true, transform: pose, components: [], children: [], ...extra,
+        });
+        const relabel = (node: string, value: string) => ({
+            path: [1, 0], node, component: "EditingSpec.Tag", componentIndex: 0, field: "label", value,
+        });
+        // A holds B, B holds A, and each relabels something inside the other.
+        AssetDatabase._bindGuid("guid-a", Prefab.fromJSON({ name: "A", snapshot: node("A", {
+            id: "a-root",
+            children: [
+                node("X", { id: "a-x", components: [tag("x")] }),
+                node("B", { id: "a-b", prefab: { guid: "guid-b", changes: { overrides: [relabel("b-a/a-x", "from A")] } } }),
+            ],
+        }) }));
+        AssetDatabase._bindGuid("guid-b", Prefab.fromJSON({ name: "B", snapshot: node("B", {
+            id: "b-root",
+            children: [
+                node("Y", { id: "b-y", components: [tag("y")] }),
+                node("A", { id: "b-a", prefab: { guid: "guid-a", changes: { overrides: [relabel("a-b/b-y", "from B")] } } }),
+            ],
+        }) }));
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const a = (AssetDatabase.get("guid-a") as Prefab).instantiate();
+
+        expect(child(a, 1, 0).getComponent(Tag)!.label).toBe("y");
+        expect(child(a, 1, 1).isPrefabAssetMissing).toBe(true);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("contains itself"));
+        warn.mockRestore();
+    });
+});

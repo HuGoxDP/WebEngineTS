@@ -26,9 +26,9 @@ export interface PrefabOverride {
      *
      * Ids joined by `/` address a node inside a nested prefab instance: the
      * nested instance's id in this prefab, then the node's id in the nested
-     * prefab (`"0uak7004/4xe08002"`). Such a change is applied by adding it to
-     * the nested instance's own changes, so the nested instance records one
-     * field at a time rather than as a whole.
+     * prefab (`"0uak7004/4xe08002"`). Such a change is folded into the nested
+     * instance's own link when it is applied, so the nested instance records
+     * one field at a time rather than as a whole.
      */
     node?: string;
     /**
@@ -373,13 +373,15 @@ export class PrefabDiff {
      *
      * @param prefab - the snapshot to start from.
      * @param overrides - differences to apply.
+     * @param resolve - finds the trees of nested prefabs; see {@link applyChanges}.
      * @returns a new snapshot with the overrides applied.
      */
     public static apply(
         prefab: SerializedGameObject,
         overrides: readonly PrefabOverride[],
+        resolve?: PrefabTreeResolver,
     ): SerializedGameObject {
-        return PrefabDiff.applyChanges(prefab, { overrides: [...overrides] });
+        return PrefabDiff.applyChanges(prefab, { overrides: [...overrides] }, resolve);
     }
 
     /**
@@ -396,26 +398,44 @@ export class PrefabDiff {
      * whose id the prefab has, or an added component identical to the one
      * already at its place, is skipped. That is what an instance's older saved
      * changes look like once the instance has been applied to its prefab.
+     *
+     * A change addressed through a nested instance (`"outer/inner"`) is
+     * folded into that instance's link. It was recorded against the nested
+     * prefab *as this one changes it*, so with `resolve` the link becomes the
+     * changes from the nested prefab to that tree with these applied on top:
+     * an edit to a child or component this prefab added to the nested
+     * instance lands on it, and removing one removes it. Without `resolve`, or
+     * with the nested prefab not loaded, the change is added to the link's
+     * own changes, which is exact only for nodes and components the nested
+     * prefab itself has.
+     *
+     * @param resolve - finds the trees of nested prefabs by id.
      */
     public static applyChanges(
         prefab: SerializedGameObject,
         changes: PrefabChanges,
+        resolve?: PrefabTreeResolver,
+    ): SerializedGameObject {
+        return PrefabDiff._applyChanges(prefab, changes, resolve ?? null, []);
+    }
+
+    /**
+     * {@link applyChanges}, carrying the guids of the nested prefabs being
+     * expanded around this call, so that a prefab nested inside itself — two
+     * files that contain each other — is not composed into without end.
+     */
+    private static _applyChanges(
+        prefab: SerializedGameObject,
+        changes: PrefabChanges,
+        resolve: PrefabTreeResolver | null,
+        chain: readonly string[],
     ): SerializedGameObject {
         const clone = JSON.parse(JSON.stringify(prefab)) as SerializedGameObject;
         const byId = PrefabDiff._index(clone);
-        // The link a change addressed through a nested instance goes into.
-        const nestedLink = (head: string): PrefabChanges | null => {
-            const link = byId.get(head)?.node.prefab;
-            return link?.changes ?? null;
-        };
+        PrefabDiff._composeNested(byId, changes, resolve, chain);
 
         for (const override of changes.overrides) {
-            const nested = override.node !== undefined ? splitNested(override.node) : null;
-            if (nested !== null) {
-                const into = nestedLink(nested.head);
-                if (into !== null) PrefabDiff._mergeOverride(into, { ...override, node: nested.rest });
-                continue;
-            }
+            if (override.node !== undefined && splitNested(override.node) !== null) continue;
 
             const node = override.node !== undefined
                 ? byId.get(override.node)?.node
@@ -429,39 +449,6 @@ export class PrefabDiff {
 
             const target = PrefabDiff._componentAt(node, override.component, override.componentIndex);
             if (target) target.fields[override.field] = override.value;
-        }
-
-        // Shape changes inside a nested instance join its own changes.
-        for (const r of changes.removedComponents ?? []) {
-            const nested = splitNested(r.node);
-            const into = nested === null ? null : nestedLink(nested.head);
-            if (nested === null || into === null) continue;
-            const entry = { ...r, node: nested.rest };
-            if (!(into.removedComponents ?? []).some(e => PrefabDiff._equal(e, entry))) {
-                (into.removedComponents ??= []).push(entry);
-            }
-        }
-        for (const id of changes.removedChildren ?? []) {
-            const nested = splitNested(id);
-            const into = nested === null ? null : nestedLink(nested.head);
-            if (nested === null || into === null) continue;
-            if (!(into.removedChildren ?? []).includes(nested.rest)) (into.removedChildren ??= []).push(nested.rest);
-        }
-        for (const a of changes.addedComponents ?? []) {
-            const nested = splitNested(a.node);
-            const into = nested === null ? null : nestedLink(nested.head);
-            if (nested === null || into === null) continue;
-            const entry = { ...a, node: nested.rest };
-            if (!(into.addedComponents ?? []).some(e => PrefabDiff._equal(e, entry))) {
-                (into.addedComponents ??= []).push(entry);
-            }
-        }
-        for (const a of changes.addedChildren ?? []) {
-            const nested = splitNested(a.parent);
-            const into = nested === null ? null : nestedLink(nested.head);
-            if (nested === null || into === null) continue;
-            const already = (into.addedChildren ?? []).some(e => e.node.id !== undefined && e.node.id === a.node.id);
-            if (!already) (into.addedChildren ??= []).push({ ...a, parent: nested.rest });
         }
 
         // Highest index first, so removing one does not renumber the next.
@@ -831,10 +818,11 @@ export class PrefabDiff {
         const base = cmp.resolve(a.guid);
         if (base === null) return null;
 
+        const chain = [...cmp.chain, a.guid];
         const inner = PrefabDiff._compareTrees(
-            PrefabDiff.applyChanges(base, a.changes),
-            PrefabDiff.applyChanges(base, b.changes),
-            { resolve: cmp.resolve, chain: [...cmp.chain, a.guid] },
+            PrefabDiff._applyChanges(base, a.changes, cmp.resolve, chain),
+            PrefabDiff._applyChanges(base, b.changes, cmp.resolve, chain),
+            { resolve: cmp.resolve, chain },
         );
 
         // Name, position and rotation of the nested root are its shell's, and
@@ -854,6 +842,108 @@ export class PrefabDiff {
             addedComponents: inner.addedComponents?.map(e => ({ ...e, node: nest(e.node) })),
             removedComponents: inner.removedComponents?.map(e => ({ ...e, node: nest(e.node) })),
         };
+    }
+
+    /**
+     * Folds the changes addressed through nested instances into those
+     * instances' links, in the tree `byId` indexes. See {@link applyChanges}.
+     *
+     * @remarks
+     * With the nested prefab's tree at hand, its link becomes the difference
+     * between that tree and the tree the link describes with the new changes
+     * applied on top: what the outer prefab added to the nested instance is
+     * part of that tree, so an edit to it, or its removal, lands. Without the
+     * tree, or for a prefab already being expanded further out, the changes
+     * are added to the link's own.
+     */
+    private static _composeNested(
+        byId: Map<string, { node: SerializedGameObject; parent: SerializedGameObject | null }>,
+        changes: PrefabChanges,
+        resolve: PrefabTreeResolver | null,
+        chain: readonly string[],
+    ): void {
+        const layers = new Map<string, PrefabChanges>();
+        const layer = (head: string): PrefabChanges => {
+            let found = layers.get(head);
+            if (found === undefined) layers.set(head, found = { overrides: [] });
+            return found;
+        };
+        for (const o of changes.overrides) {
+            const nested = o.node !== undefined ? splitNested(o.node) : null;
+            if (nested !== null) layer(nested.head).overrides.push({ ...o, node: nested.rest });
+        }
+        for (const r of changes.removedComponents ?? []) {
+            const nested = splitNested(r.node);
+            if (nested !== null) (layer(nested.head).removedComponents ??= []).push({ ...r, node: nested.rest });
+        }
+        for (const id of changes.removedChildren ?? []) {
+            const nested = splitNested(id);
+            if (nested !== null) (layer(nested.head).removedChildren ??= []).push(nested.rest);
+        }
+        for (const a of changes.addedComponents ?? []) {
+            const nested = splitNested(a.node);
+            if (nested !== null) (layer(nested.head).addedComponents ??= []).push({ ...a, node: nested.rest });
+        }
+        for (const a of changes.addedChildren ?? []) {
+            const nested = splitNested(a.parent);
+            if (nested !== null) (layer(nested.head).addedChildren ??= []).push({ ...a, parent: nested.rest });
+        }
+
+        for (const [head, inner] of layers) {
+            const link = byId.get(head)?.node.prefab;
+            if (!link?.changes) continue;
+            const base = resolve === null || chain.includes(link.guid) ? null : resolve(link.guid);
+            if (base === null) {
+                PrefabDiff._mergeInto(link.changes, inner);
+                continue;
+            }
+
+            const next = [...chain, link.guid];
+            const own = link.unused ? PrefabDiff._concat(link.changes, link.unused) : link.changes;
+            const before = PrefabDiff._applyChanges(base, own, resolve, next);
+            const after = PrefabDiff._applyChanges(before, inner, resolve, next);
+            link.changes = PrefabDiff._compareTrees(base, after, { resolve, chain: next });
+            const unused = PrefabDiff.unused(before, inner);
+            if (unused !== null) link.unused = link.unused ? PrefabDiff._concat(link.unused, unused) : unused;
+        }
+    }
+
+    /**
+     * Adds changes to a nested instance's own, replacing an override the
+     * changes already hold for the same field and skipping what is there.
+     */
+    private static _mergeInto(into: PrefabChanges, from: PrefabChanges): void {
+        for (const o of from.overrides) PrefabDiff._mergeOverride(into, o);
+        for (const r of from.removedComponents ?? []) {
+            if (!(into.removedComponents ?? []).some(e => PrefabDiff._equal(e, r))) {
+                (into.removedComponents ??= []).push(r);
+            }
+        }
+        for (const id of from.removedChildren ?? []) {
+            if (!(into.removedChildren ?? []).includes(id)) (into.removedChildren ??= []).push(id);
+        }
+        for (const a of from.addedComponents ?? []) {
+            if (!(into.addedComponents ?? []).some(e => PrefabDiff._equal(e, a))) {
+                (into.addedComponents ??= []).push(a);
+            }
+        }
+        for (const a of from.addedChildren ?? []) {
+            const already = (into.addedChildren ?? []).some(e => e.node.id !== undefined && e.node.id === a.node.id);
+            if (!already) (into.addedChildren ??= []).push(a);
+        }
+    }
+
+    /** Two sets of changes as one, the first's entries before the second's. */
+    private static _concat(a: PrefabChanges, b: PrefabChanges): PrefabChanges {
+        const out: PrefabChanges = { overrides: [...a.overrides, ...b.overrides] };
+        PrefabDiff._mergeChanges(out, {
+            overrides: [],
+            addedChildren: [...(a.addedChildren ?? []), ...(b.addedChildren ?? [])],
+            removedChildren: [...(a.removedChildren ?? []), ...(b.removedChildren ?? [])],
+            addedComponents: [...(a.addedComponents ?? []), ...(b.addedComponents ?? [])],
+            removedComponents: [...(a.removedComponents ?? []), ...(b.removedComponents ?? [])],
+        });
+        return out;
     }
 
     /** Appends one set of changes to another. */
