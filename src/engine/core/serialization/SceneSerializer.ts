@@ -1250,10 +1250,18 @@ export class SceneSerializer {
      * the name, position and rotation of `node`, its shell. Null when `node`
      * is not such a link or its prefab is not loaded.
      *
+     * A nested instance the tree holds in full stands for itself: a copy of
+     * `node` without its link, its root keeping the id it has there.
+     *
      * **NEVER use in user-facing code.**
      */
     public static _linkTree(node: SerializedGameObject): SerializedGameObject | null {
         const link = node.prefab;
+        if (link !== undefined && link.changes === undefined) {
+            const held = SceneSerializer._cloneJson(node);
+            delete held.prefab;
+            return held;
+        }
         if (link?.changes === undefined) return null;
         const base = SceneSerializer._prefabTree(link.guid);
         if (base === null) return null;

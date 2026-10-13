@@ -649,6 +649,74 @@ describe("a nested instance, edited through its own prefab", () => {
     });
 });
 
+describe("an outer prefab made while its nested prefab was not loaded", () => {
+    /**
+     * A Tank made from an object holding a Turret instance read while the
+     * Turret prefab was not loaded, so the Tank keeps the Turret in full.
+     */
+    function tankHoldingTurretInFull(): { inner: Prefab; outer: Prefab } {
+        const inner = turret();
+        const read = SceneSerializer.serializeGameObject(inner.instantiate());
+        clear();
+        AssetDatabase._unbind(inner);
+        const loose = SceneSerializer.deserializeGameObject(read);
+        child(loose, 0).getComponent(Tag)!.label = "outer default";
+        const outer = prefabOf(() => make("Tank", "tank", make("Hull", "hull"), loose), "guid-tank");
+        AssetDatabase._bindGuid("guid-turret", inner);
+        return { inner, outer };
+    }
+
+    test("it holds the nested instance in full", () => {
+        const { outer } = tankHoldingTurretInFull();
+        const held = outer._resolvedTree().children[1];
+        expect(held.prefab).toEqual({ guid: "guid-turret" });
+        expect(held.children.map(c => c.name)).toEqual(["Barrel"]);
+    });
+
+    test("an untouched instance has no changes once the nested prefab is loaded", () => {
+        const { inner, outer } = tankHoldingTurretInFull();
+        const instance = outer.instantiate();
+
+        expect(outer.getChanges(instance)).toEqual({ overrides: [] });
+        expect(outer.getOverrides(instance)).toEqual([]);
+        expect(inner.getChanges(child(instance, 1))).toEqual({ overrides: [] });
+        expect(saveLinked().roots[0].prefab!.changes).toEqual({ overrides: [] });
+    });
+
+    test("a change inside the nested instance is one field, and survives a link round trip", () => {
+        const { outer } = tankHoldingTurretInFull();
+        const instance = outer.instantiate();
+        child(instance, 1, 0).getComponent(Tag)!.count = 4;
+        new GameObject("Scope").transform.setParent(child(instance, 1, 0).transform, false);
+
+        const changes = outer.getChanges(instance);
+        expect(changes.overrides.map(o => o.field)).toEqual(["count"]);
+        expect(changes.overrides[0].node).toMatch(/\//);
+        expect(changes.addedChildren?.map(a => a.node.name)).toEqual(["Scope"]);
+
+        const saved = saveLinked();
+        clear();
+        const [back] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        const barrel = child(back, 1, 0);
+        expect(barrel.getComponent(Tag)!.label).toBe("outer default");
+        expect(barrel.getComponent(Tag)!.count).toBe(4);
+        expect(child(barrel, 0).name).toBe("Scope");
+        expect(saveLinked()).toEqual(saved);
+    });
+
+    test("reverting a change inside it goes back to the outer prefab's copy", () => {
+        const { outer } = tankHoldingTurretInFull();
+        const instance = outer.instantiate();
+        const tag = child(instance, 1, 0).getComponent(Tag)!;
+        tag.label = "mine";
+
+        outer.revertOverride(instance, outer.getChanges(instance).overrides[0]);
+
+        expect(tag.label).toBe("outer default");
+        expect(outer.getChanges(instance)).toEqual({ overrides: [] });
+    });
+});
+
 describe("a nested instance's root, after its own prefab changes", () => {
     test("an untouched instance has no changes after the nested prefab's root is rescaled or hidden", () => {
         const outer = tank(turret());

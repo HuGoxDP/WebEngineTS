@@ -70,14 +70,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   instance's own link when it is applied. So when the outer prefab later edits a *different* field
   of the same nested instance, the edit reaches every instance of it, and an edit to a child or
   component the outer prefab itself added to the nested instance, or its removal, is kept as well.
-  Before, an instance that touched
-  anything inside a nested prefab stored that prefab's whole link and stopped following all of
-  it; files written that way are still read. `PrefabDiff.compareChanges` takes an optional
-  resolver for the nested prefabs' trees; without one, or without the prefab loaded, it compares
-  the two links' changes instead, so a scene opened while a nested prefab is missing saves its
-  changes back one field at a time, as they were read. A change that no longer applies inside
-  a nested instance stays one field too, and applies again if the nested prefab gets its object
-  back.
+  Before, an instance that touched anything inside a nested prefab stored that prefab's whole
+  link and stopped following all of it; files written that way are still read.
+  `PrefabDiff.compareChanges` takes an optional resolver for the nested prefabs' trees; without
+  one, or without the prefab loaded, it compares the two links' changes instead, so a scene
+  opened while a nested prefab is missing saves its changes back one field at a time, as they
+  were read. A change that no longer applies inside a nested instance stays one field too, and
+  applies again if the nested prefab gets its object back. An outer prefab made while its nested
+  prefab was not loaded holds the nested instance in full; once that prefab is loaded, an
+  untouched instance of the outer one has no changes, and a change inside the nested instance is
+  one field, applied to the outer prefab's copy.
 - **What an editor's prefab workflow calls.** `GameObject.prefabInstanceRoot` and
   `outermostPrefabInstanceRoot` find the instance an object belongs to, crossing nested prefabs
   for the outermost (the one a Hierarchy marks and the only one that can be unpacked);

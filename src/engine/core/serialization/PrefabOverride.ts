@@ -354,9 +354,11 @@ export class PrefabDiff {
      * With `resolve` finding its tree the two are expanded and compared as
      * trees; without — no resolver, or the prefab not loaded — the two links'
      * changes are compared instead, and what the instance's adds is the
-     * change. The nested instance's whole link is one value only for a
-     * different prefab, or for a link that lacks something the outer prefab's
-     * holds.
+     * change. An outer prefab that holds the nested instance in full — made
+     * while its prefab was not loaded — is compared with the instance's link
+     * expanded the same way. The nested instance's whole link is one value
+     * only for a different prefab, or for a link that lacks something the
+     * outer prefab's holds.
      *
      * An instance whose nodes have no ids at all while the prefab's do — a
      * snapshot of an object saved or copied before ids existed — is compared
@@ -776,6 +778,7 @@ export class PrefabDiff {
         const linkDiffers = !PrefabDiff._equal(prefab.prefab, instance.prefab);
         const inner = linkDiffers && path.length > 0 && node !== undefined
             ? PrefabDiff._compareNested(prefab, instance, path, node, cmp)
+                ?? PrefabDiff._compareExpanded(prefab, instance, path, node, cmp)
                 ?? PrefabDiff._diffLinks(prefab, instance, path, node)
             : null;
         // A nested instance kept as a link takes its active state and scale
@@ -805,8 +808,11 @@ export class PrefabDiff {
         }
 
         if (inner !== null) {
+            // Its components and children were compared inside it.
             PrefabDiff._mergeChanges(changes, inner);
-        } else if (linkDiffers) {
+            return;
+        }
+        if (linkDiffers) {
             // Its whole link, as one value: a different prefab, or a link that
             // drops something the outer prefab's holds.
             changes.overrides.push(at({
@@ -866,6 +872,50 @@ export class PrefabDiff {
         const rootId = base.id;
         inner.overrides = inner.overrides.filter(o =>
             !(o.node === rootId && o.component === null
+                && (o.field === "name" || o.field === "transform.position" || o.field === "transform.rotation")));
+        PrefabDiff._mergeChanges(inner, unused);
+        return PrefabDiff._nest(inner, path, node);
+    }
+
+    /**
+     * The differences inside a nested instance that the outer prefab holds in
+     * full while the instance holds it as a link, addressed through it; null
+     * when they cannot be compared tree against tree.
+     *
+     * @remarks
+     * An outer prefab made while its nested prefab was not loaded keeps the
+     * nested instance as it was then, in full, with only a note of its
+     * prefab. Once that prefab is loaded an instance writes it as a link, and
+     * the two would otherwise differ as a whole. The link is expanded from
+     * the nested prefab and compared with the outer prefab's copy, whose
+     * interior carries the nested prefab's node ids; the nested root keeps
+     * the outer prefab's id for it, so that the changes land on that copy
+     * when they are applied.
+     */
+    private static _compareExpanded(
+        prefab: SerializedGameObject,
+        instance: SerializedGameObject,
+        path: number[],
+        node: string,
+        cmp: CompareContext,
+    ): PrefabChanges | null {
+        const a = prefab.prefab;
+        const b = instance.prefab;
+        if (cmp.resolve === null || !a || !b || a.guid !== b.guid || a.changes || !b.changes) return null;
+        if (cmp.chain.includes(a.guid)) return null;
+        const unused = PrefabDiff._linkDelta(a.unused ?? EMPTY, b.unused ?? EMPTY);
+        const base = cmp.resolve(a.guid);
+        if (unused === null || base === null) return null;
+
+        const chain = [...cmp.chain, a.guid];
+        const held = JSON.parse(JSON.stringify(prefab)) as SerializedGameObject;
+        const built = PrefabDiff._applyChanges(base, b.changes, cmp.resolve, chain);
+        delete held.prefab;
+        built.id = node;
+        const inner = PrefabDiff._compareTrees(held, built, { resolve: cmp.resolve, chain });
+
+        inner.overrides = inner.overrides.filter(o =>
+            !(o.node === node && o.component === null
                 && (o.field === "name" || o.field === "transform.position" || o.field === "transform.rotation")));
         PrefabDiff._mergeChanges(inner, unused);
         return PrefabDiff._nest(inner, path, node);
@@ -1004,8 +1054,13 @@ export class PrefabDiff {
         }
 
         for (const [head, inner] of layers) {
-            const link = byId.get(head)?.node.prefab;
-            if (!link?.changes) continue;
+            const target = byId.get(head)?.node;
+            const link = target?.prefab;
+            if (target === undefined || link === undefined) continue;
+            if (link.changes === undefined) {
+                PrefabDiff._applyInPlace(target, inner, resolve, chain);
+                continue;
+            }
             const base = resolve === null || chain.includes(link.guid) ? null : resolve(link.guid);
             if (base === null) {
                 PrefabDiff._mergeInto(link.changes, inner);
@@ -1019,6 +1074,31 @@ export class PrefabDiff {
             link.changes = PrefabDiff._compareTrees(base, after, { resolve, chain: next });
             const unused = PrefabDiff.unused(before, inner);
             if (unused !== null) link.unused = link.unused ? PrefabDiff._concat(link.unused, unused) : unused;
+        }
+    }
+
+    /**
+     * Applies changes addressed through a nested instance that the tree holds
+     * in full — the copy an outer prefab keeps of one whose prefab was not
+     * loaded when it was made — to that copy itself, its root under its own
+     * id. What finds nothing in it is kept as the copy's unused changes.
+     */
+    private static _applyInPlace(
+        target: SerializedGameObject,
+        changes: PrefabChanges,
+        resolve: PrefabTreeResolver | null,
+        chain: readonly string[],
+    ): void {
+        const unused = PrefabDiff.unused(target, changes);
+        const applied = PrefabDiff._applyChanges(target, changes, resolve, chain);
+        target.name = applied.name;
+        target.active = applied.active;
+        target.transform = applied.transform;
+        target.components = applied.components;
+        target.children = applied.children;
+
+        if (unused !== null && target.prefab !== undefined) {
+            target.prefab.unused = target.prefab.unused ? PrefabDiff._concat(target.prefab.unused, unused) : unused;
         }
     }
 

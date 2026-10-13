@@ -1087,6 +1087,18 @@ on. Without `resolve`, or with the nested prefab not loaded, it falls back to ad
 is exact only for the nested prefab's own objects. A prefab already being expanded further out is
 not expanded again, so two prefab files that change something inside each other cannot recurse.
 
+*Corrected after review:* an outer prefab made while its nested prefab was not loaded holds the
+nested instance in full, `prefab: { guid }` and all (§6.1, step 4). Once that prefab was loaded,
+an instance of the outer prefab wrote the nested instance as a link, which compared with the
+full copy as one whole-link override — plus a removed component for every component the copy
+has, since the link's shell has none. Every untouched instance reported both, and a link save
+froze the nested instance. Now such a copy and a link of the same prefab are compared tree
+against tree (`_compareExpanded`): the link is expanded from its prefab and given the copy's id
+at its root, so the result is addressed through the nesting like any other, and applying it
+lands on the copy itself (`_applyInPlace`), with what finds nothing kept as the copy's `unused`.
+`_linkTree` gives such a copy as the tree it stands for, so `revertOverride` and the nested-root
+calls of Stage 9 reach inside it too.
+
 **Done when:**
 
 - an edit to an outer prefab's nested override reaches an outer instance that changed a
