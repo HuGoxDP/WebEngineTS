@@ -57,22 +57,59 @@ export const AssetFiles = {
 } as const;
 
 /**
+ * A file being decoded right now, and the files it is waiting on while it
+ * loads what it refers to.
+ */
+interface Decode {
+    readonly file: string;
+    readonly waits: Set<string>;
+}
+
+/** Every decode in progress, from every caller. */
+const decoding = new Set<Decode>();
+
+/**
+ * Whether waiting on `file` would wait on `target`: `file` is `target`, or is
+ * being decoded and waits — directly or through what it waits on — for it.
+ */
+function waitsFor(file: string, target: string): boolean {
+    const seen = new Set<string>();
+    const queue = [file];
+    while (queue.length > 0) {
+        const at = queue.pop()!;
+        if (at === target) return true;
+        if (seen.has(at)) continue;
+        seen.add(at);
+        for (const d of decoding) {
+            if (d.file === at) queue.push(...d.waits);
+        }
+    }
+    return false;
+}
+
+/**
  * Loads what a file refers to, so the synchronous rebuild that follows finds it.
  *
  * @remarks
  * Held by the cache and not released: the asset being built keeps using them.
  * A reference with no known path is reported and left null, the same outcome a
  * scene gets for an asset it cannot find.
+ *
+ * A file another load is decoding is waited for — `Resources` hands every
+ * caller the same load — unless that load is itself waiting, through the
+ * files it refers to, for this one: two prefab files that contain each other.
+ * Waiting then would never end, so the reference is skipped.
  */
-async function loadReferences(json: object): Promise<void> {
+async function loadReferences(json: object, self: Decode): Promise<void> {
     const attempted = new Set<string>();
 
     for (const guid of SceneSerializer.assetReferences(json)) {
         if (AssetDatabase.isLoaded(guid)) continue;
 
-        // A prefab still being decoded further up this chain: waiting for it
-        // would wait for this file, which is waiting for it.
-        if (decodingPrefabs.has(guid)) {
+        // A mesh or material inside a model is loaded by loading the model, once
+        // however many of its parts are used.
+        const file = AssetDatabase.fileOf(guid);
+        if (waitsFor(file, self.file)) {
             console.warn(
                 `[AssetFiles] Prefab "${AssetDatabase.pathOf(guid) ?? guid}" contains, through the prefabs ` +
                 `inside it, a prefab that contains it. It is not loaded twice; an instance of it nested ` +
@@ -81,9 +118,6 @@ async function loadReferences(json: object): Promise<void> {
             continue;
         }
 
-        // A mesh or material inside a model is loaded by loading the model, once
-        // however many of its parts are used.
-        const file = AssetDatabase.fileOf(guid);
         if (!attempted.has(file)) {
             attempted.add(file);
 
@@ -92,11 +126,14 @@ async function loadReferences(json: object): Promise<void> {
                 console.warn(`[AssetFiles] An asset refers to "${guid}", which the project does not list.`);
                 continue;
             }
+            self.waits.add(file);
             try {
                 await Resources.loadAtPath(path);
             } catch (error) {
                 console.warn(`[AssetFiles] Could not load "${path}" for an asset that uses it:`, error);
                 continue;
+            } finally {
+                self.waits.delete(file);
             }
         }
 
@@ -106,13 +143,24 @@ async function loadReferences(json: object): Promise<void> {
     }
 }
 
+/** Runs `load` as a decode of the file at `path`, visible to every other decode while it runs. */
+async function asDecode<T>(path: string, load: (self: Decode) => Promise<T>): Promise<T> {
+    const self: Decode = { file: AssetDatabase.guidForPath(path), waits: new Set() };
+    decoding.add(self);
+    try {
+        return await load(self);
+    } finally {
+        decoding.delete(self);
+    }
+}
+
 function parse(bytes: Uint8Array): unknown {
     return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-async function decodeAssetFile(bytes: Uint8Array): Promise<object> {
+async function decodeAssetFile(bytes: Uint8Array, path: string): Promise<object> {
     const file = parse(bytes) as SerializedAssetFile;
-    await loadReferences(file);
+    await asDecode(path, self => loadReferences(file, self));
 
     const asset = SceneSerializer.deserializeAsset(file);
     if (asset === null) {
@@ -121,24 +169,21 @@ async function decodeAssetFile(bytes: Uint8Array): Promise<object> {
     return asset;
 }
 
-async function decodeMaterial(bytes: Uint8Array): Promise<Material> {
-    const asset = await decodeAssetFile(bytes);
+async function decodeMaterial(bytes: Uint8Array, path: string): Promise<Material> {
+    const asset = await decodeAssetFile(bytes, path);
     if (!(asset instanceof Material)) {
         throw new Error(`[AssetFiles] "${asset.constructor.name}" is not a material.`);
     }
     return asset;
 }
 
-async function decodePhysicMaterial(bytes: Uint8Array): Promise<PhysicMaterial> {
-    const asset = await decodeAssetFile(bytes);
+async function decodePhysicMaterial(bytes: Uint8Array, path: string): Promise<PhysicMaterial> {
+    const asset = await decodeAssetFile(bytes, path);
     if (!(asset instanceof PhysicMaterial)) {
         throw new Error(`[AssetFiles] "${asset.constructor.name}" is not a physic material.`);
     }
     return asset;
 }
-
-/** Guids of the prefab files being decoded right now, so a cycle between them is not awaited. */
-const decodingPrefabs = new Set<string>();
 
 /**
  * Reads a prefab file, after loading what it refers to — the prefabs nested
@@ -146,15 +191,9 @@ const decodingPrefabs = new Set<string>();
  */
 async function decodePrefab(bytes: Uint8Array, path: string): Promise<Prefab> {
     const json = parse(bytes) as SerializedPrefab;
-    const self = AssetDatabase.guidForPath(path);
-    decodingPrefabs.add(self);
-    try {
-        // A tree carries its inline assets at its root; a variant carries its
-        // base's id and its changes, and both are what it refers to.
-        await loadReferences((json.snapshot ?? json) as object);
-    } finally {
-        decodingPrefabs.delete(self);
-    }
+    // A tree carries its inline assets at its root; a variant carries its
+    // base's id and its changes, and both are what it refers to.
+    await asDecode(path, self => loadReferences((json.snapshot ?? json) as object, self));
     return Prefab.fromJSON(json as Parameters<typeof Prefab.fromJSON>[0]);
 }
 

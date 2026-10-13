@@ -47,7 +47,8 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   path from the instance it is written in, or says how many instances out it counts from
   (`scope`). Reading such a file needs the prefabs loaded first:
   `SceneSerializer.assetReferences` lists them, and loading a prefab file through `Resources`
-  loads the prefabs nested inside it, without hanging on two that contain each other. An
+  loads the prefabs nested inside it, without hanging on two that contain each other — and
+  waits for one that another load is still reading. An
   instance whose prefab is not loaded becomes a **placeholder** that keeps its link and is saved
   back exactly as it was read, with a warning; load the prefab and open the scene again to
   rebuild it. A reference from the rest of the scene into a placeholder, or to one of its

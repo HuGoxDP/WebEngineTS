@@ -690,6 +690,12 @@ A prefab that contains itself, directly or through others, is guarded in three p
 - **The reader** checks the guid chain (§6.2).
 - **`decodePrefab` preloading.** `Resources` dedupes in-flight loads, so a cycle would await its
   own promise and hang. Guids being decoded are tracked and skipped with a warning.
+  *Corrected after review:* the guids were one set shared by every load, so any prefab some
+  *other* caller was still decoding read as a cycle: loading a Tank while a Turret load waited
+  on its material skipped the Turret with a false warning, and the Tank's Turret came back a
+  placeholder. Each decode now records which files it is waiting on (`AssetFiles`'
+  `decoding`), and a reference is skipped only when waiting on it would wait, through that
+  graph, on the file being decoded. Any other in-flight load is awaited.
 - **`Prefab.applyInstance`** refuses an instance that contains its own prefab. That is the only
   authoring path that can create a cycle; a new prefab has no guid for anything to point back to.
 

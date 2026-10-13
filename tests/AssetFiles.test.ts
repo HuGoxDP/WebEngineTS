@@ -26,9 +26,15 @@ import { FieldType } from "../src/engine/core/reflection/Types";
  * refers to them by it: two scenes share one, and an edit reaches both.
  */
 
-/** An asset source over a plain map — enough for Resources to read from. */
+/**
+ * An asset source over a plain map — enough for Resources to read from. The
+ * paths in `slow` take a few milliseconds to read, as a network would.
+ */
 class MemorySource implements IAssetSource {
-    constructor(private readonly _files: Map<string, string | Uint8Array>) {}
+    constructor(
+        private readonly _files: Map<string, string | Uint8Array>,
+        private readonly _slow: ReadonlySet<string> = new Set(),
+    ) {}
 
     has(path: string): boolean { return this._files.has(path); }
     list(prefix = ""): string[] { return [...this._files.keys()].filter(p => p.startsWith(prefix)); }
@@ -36,6 +42,7 @@ class MemorySource implements IAssetSource {
     async readBytes(path: string): Promise<Uint8Array> {
         const file = this._files.get(path);
         if (file === undefined) throw new Error(`No such file: ${path}`);
+        if (this._slow.has(path)) await new Promise(resolve => setTimeout(resolve, 20));
         return typeof file === "string" ? new TextEncoder().encode(file) : file;
     }
 
@@ -66,9 +73,9 @@ function clear(): void {
     for (const root of [...SceneManager.activeScene.getRootGameObjects()]) root.destroyImmediate();
 }
 
-function install(entries: Record<string, string>): void {
+function install(entries: Record<string, string>, slow: readonly string[] = []): void {
     files = new Map(Object.entries(entries));
-    Resources.useSource(new MemorySource(files));
+    Resources.useSource(new MemorySource(files, new Set(slow)));
     AssetDatabase.setManifest([
         { guid: "tex-albedo", path: "assets/textures/albedo.png" },
         { guid: "mat-hull", path: "assets/materials/hull.mat.json" },
@@ -484,6 +491,46 @@ describe("a prefab file with prefabs inside it", () => {
         const b = instance.transform.getChild(0).gameObject;
         expect(b.isPrefabInstance).toBe(true);
         expect(b.transform.getChild(0).gameObject.transform.childCount).toBe(0);
+        warn.mockRestore();
+    });
+    test("a prefab another load is still reading is waited for, not taken for one that contains itself", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const hull = new StandardMaterial();
+        const hullText = written(hull);
+        AssetDatabase._bindGuid("mat-hull", hull);
+
+        const turretSource = new GameObject("Turret");
+        turretSource.addComponent(MeshRenderer).sharedMaterial = hull;
+        new GameObject("Barrel").transform.setParent(turretSource.transform, false);
+        const turret = Prefab.fromGameObject(turretSource);
+        turretSource.destroyImmediate();
+        AssetDatabase._bindGuid("prefab-turret", turret);
+
+        const tankSource = new GameObject("Tank");
+        turret.instantiate().transform.setParent(tankSource.transform, false);
+        const tank = Prefab.fromGameObject(tankSource);
+        tankSource.destroyImmediate();
+        const turretText = written(turret);
+        const tankText = written(tank);
+
+        AssetDatabase.clearLoaded();
+        install({
+            "assets/materials/hull.mat.json": hullText,
+            "assets/prefabs/turret.prefab.json": turretText,
+            "assets/prefabs/tank.prefab.json": tankText,
+        }, ["assets/materials/hull.mat.json"]);
+
+        // The Turret is still waiting for its material when the Tank needs it.
+        const turretLoad = Resources.load(Prefab, "prefabs/turret");
+        const loaded = await Resources.load(Prefab, "prefabs/tank");
+
+        expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("contains it"));
+        expect(AssetDatabase.isLoaded("prefab-turret")).toBe(true);
+        const nested = loaded.instantiate().transform.getChild(0).gameObject;
+        expect(nested.isPrefabAssetMissing).toBe(false);
+        expect(nested.transform.getChild(0).gameObject.name).toBe("Barrel");
+        expect(SceneSerializer.serializeScene(SceneManager.activeScene).version).toBe(1);
+        await turretLoad;
         warn.mockRestore();
     });
 });
