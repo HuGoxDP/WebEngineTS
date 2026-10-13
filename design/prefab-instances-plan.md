@@ -1292,6 +1292,18 @@ New in `MissingComponent.test.ts`:
   assets its changes need into the scene's table. Fixing it for variants means giving a variant
   file an `assets` table and `createVariant` a way to receive one; it is a format addition, so it
   is left to the owner. Until then, give a variant's materials files of their own.
+- **An override's `path` follows the prefab, so a prefab edit rewrites scenes that did not
+  change** (found in review, verified). `PrefabOverride.path` is the node's position in the
+  prefab's own tree, computed afresh on every save, and only informational wherever `node` is
+  present: nothing reads it then. When a prefab gains or loses a child in front of an
+  overridden node — a Turret gaining a Shield before its Barrel — a link save of a scene nobody
+  touched writes the new position into every such override. Every scene that uses the prefab
+  then differs in version control although its instances did not change; references and values
+  are unaffected, since they go by id. Keeping the position that was read would make it wrong
+  instead. The clean fix is not to write `path` where `node` is present, which changes the link
+  format and makes `path` optional in the exported `PrefabOverride` type — a decision for the
+  owner. Taken before the editor turns link mode on (first item), it costs nothing in
+  compatibility, as D-5 argued for ids; taken after, it means reading two forms for good.
 - **Bookkeeping.** E11 has no row in `.claude-shared/ENGINE-GAPS.md` yet. The editor plan says
   rows are added when the stage reaches them, so the row goes in when Stage 1 starts. D1 is an
   engine defect found by the engine; it belongs in this repo's CHANGELOG, not in the gap index.
