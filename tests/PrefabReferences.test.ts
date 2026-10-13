@@ -201,6 +201,25 @@ describe("references into a prefab instance", () => {
         expect(instance.getComponent(Aim)!.target!.name).toBe("Real");
     });
 
+    test("it still finds its target, and a change on it stays there, after a nested prefab gains a child in front of it", () => {
+        const [player, tank] = SceneSerializer.deserializeScene(scene(node("Player"), tankLink()));
+        const barrel = child(tank, 1, 0);
+        player.addComponent(Aim).target = barrel;
+        barrel.name = "Long Barrel";
+        const saved = saveLinked();
+        clear();
+
+        const grown = turretTree();
+        grown.children.unshift(node("Shield", { id: "t-shield" }));
+        bind("guid-turret", grown);
+        const [player2, tank2] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+
+        expect(child(tank2, 1, 0).name).toBe("Shield");
+        expect(child(tank2, 1, 1).name).toBe("Long Barrel");
+        expect(player2.getComponent(Aim)!.target).toBe(child(tank2, 1, 1));
+        expect(tank2.getComponent(Aim)!.target).toBe(child(tank2, 0));
+    });
+
     test("a reference written before the object it names was reached still names it by id", () => {
         // The Player is written before the Tank, and so before the walk gets
         // to the Flag added under the Tank.
@@ -246,6 +265,27 @@ describe("references into a prefab instance", () => {
         const instance = made.instantiate();
         expect(child(instance, 1).transform.childCount).toBe(1);
         expect(child(instance, 0).getComponent(Aim)!.target!.name).toBe("Scope");
+    });
+
+    test("so is one to an object added two nested instances deep", () => {
+        bind("guid-barrel", node("Barrel", { id: "b-root" }));
+        bind("guid-turret", node("Turret", {
+            id: "t-root",
+            children: [node("Barrel", { id: "t-barrel", prefab: { guid: "guid-barrel", changes: { overrides: [] } } })],
+        }));
+        const [tank] = SceneSerializer.deserializeScene(scene(tankLink()));
+        const scope = new GameObject("Scope");
+        scope.transform.setParent(child(tank, 1, 0).transform, false);
+        child(tank, 0).addComponent(Aim).target = scope;
+
+        const made = Prefab.fromGameObject(tank);
+        const added = made._resolvedTree().children[1].prefab!.changes!.addedChildren![0];
+        expect(added.parent).toBe("t-barrel/b-root");
+        expect(paths(made._resolvedTree().children[0])).toEqual([[0, "k-turret", "t-barrel", added.node.id]]);
+
+        const instance = made.instantiate();
+        expect(child(instance, 0).getComponent(Aim)!.target).toBe(child(instance, 1, 0, 0));
+        expect(made.getChanges(instance)).toEqual({ overrides: [] });
     });
 
     test("expand mode never writes an id into a path", () => {
