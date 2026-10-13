@@ -46,6 +46,8 @@ export class AssetDatabase {
     private static readonly _guidByPath: Map<string, string> = new Map();
     private static readonly _assetByGuid: Map<string, object> = new Map();
     private static readonly _guidByAsset: WeakMap<object, string> = new WeakMap();
+    /** The further ids an asset answers to, set by {@link _bindAlias}. */
+    private static readonly _aliasesByAsset: WeakMap<object, Set<string>> = new WeakMap();
 
     private constructor() {}
 
@@ -197,6 +199,29 @@ export class AssetDatabase {
 
     /**
      * @internal
+     * Makes a second id find an asset, leaving the id the asset is known by
+     * as it is: {@link get} answers `asset` for `guid`, {@link guidOf} still
+     * answers the asset's own id.
+     *
+     * @remarks
+     * For a scene's copy of an asset a prefab carries. The copy is written
+     * under an id of the scene's, so that the prefab's id never names two
+     * contents in two files; within the session that wrote it, the id finds
+     * the asset it was written from, so a load that reads it back still
+     * shares that asset rather than building another.
+     *
+     * @param guid - the further id.
+     * @param asset - the asset it finds.
+     */
+    public static _bindAlias(guid: string, asset: object): void {
+        AssetDatabase._assetByGuid.set(guid, asset);
+        let aliases = AssetDatabase._aliasesByAsset.get(asset);
+        if (aliases === undefined) AssetDatabase._aliasesByAsset.set(asset, aliases = new Set());
+        aliases.add(guid);
+    }
+
+    /**
+     * @internal
      * Forgets a destroyed asset's instance, keeping its path↔guid mapping.
      *
      * @remarks
@@ -205,12 +230,18 @@ export class AssetDatabase {
      * keep resolving once it is loaded again. What must not survive is the
      * pointer to the dead object — `isLoaded` means "in memory right now", and
      * without this it answered `true` for something already destroyed, handing
-     * `get` a disposed texture.
+     * `get` a disposed texture. The ids it answers to through
+     * {@link _bindAlias} stop finding it as well.
      *
      * @param asset - the instance being destroyed.
      */
     public static _unbind(asset: object | null | undefined): void {
         if (!asset || typeof asset !== "object") return;
+
+        for (const alias of AssetDatabase._aliasesByAsset.get(asset) ?? []) {
+            if (AssetDatabase._assetByGuid.get(alias) === asset) AssetDatabase._assetByGuid.delete(alias);
+        }
+        AssetDatabase._aliasesByAsset.delete(asset);
 
         const guid = AssetDatabase._guidByAsset.get(asset);
         if (guid === undefined) return;

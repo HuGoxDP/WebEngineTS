@@ -793,3 +793,146 @@ describe("what a file with prefab links needs", () => {
         expect(crate).not.toBe(crate2);
     });
 });
+
+describe("a prefab's inline material in a scene", () => {
+    type PrefabFile = ReturnType<Prefab["toJSON"]>;
+
+    /** A prefab file whose one object carries a material built in code. */
+    function prefabFile(name: string, metallic: number): PrefabFile {
+        const source = new GameObject(name);
+        const mat = new StandardMaterial();
+        mat.metallic = metallic;
+        source.addComponent(MeshRenderer).sharedMaterial = mat;
+        const json = Prefab.fromGameObject(source).toJSON();
+        source.destroyImmediate();
+        return JSON.parse(JSON.stringify(json)) as PrefabFile;
+    }
+
+    /** Reads a prefab file and binds it under `guid`, as loading it through Resources would. */
+    function load(file: PrefabFile, guid: string): Prefab {
+        const prefab = Prefab.fromJSON(JSON.parse(JSON.stringify(file)));
+        AssetDatabase._bindGuid(guid, prefab);
+        return prefab;
+    }
+
+    const materialOf = (go: GameObject): StandardMaterial =>
+        go.getComponent(MeshRenderer)!.sharedMaterial as StandardMaterial;
+    const tableGuid = (file: PrefabFile): string => file.snapshot!.assets![0].guid;
+
+    /** A new session: nothing loaded, nothing in the scene. */
+    function newSession(): void {
+        clear();
+        AssetDatabase.clear();
+    }
+
+    test("a scene saved in full carries its copy under an id of its own", () => {
+        const file = prefabFile("Crate", 0.3);
+        load(file, "guid-crate").instantiate();
+
+        const saved = save();
+
+        expect(saved.assets).toHaveLength(1);
+        expect(saved.assets![0].guid).not.toBe(tableGuid(file));
+        expect(saved.assets![0].fields["metallic"]).toBeCloseTo(0.3);
+        expect(saved.roots[0].components[0].fields["sharedMaterial"])
+            .toEqual({ $type: "AssetRef", guid: saved.assets![0].guid });
+    });
+
+    test("a prefab edited since, opened after the scene, gives its new instances its own material", () => {
+        const file = prefabFile("Crate", 0.3);
+        load(file, "guid-crate").instantiate();
+        const saved = save();
+
+        newSession();
+        const [kept] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        file.snapshot!.assets![0].fields["metallic"] = 0.8;
+        const fresh = load(file, "guid-crate").instantiate();
+
+        expect(materialOf(fresh).metallic).toBeCloseTo(0.8);
+        expect(materialOf(kept).metallic).toBeCloseTo(0.3);
+    });
+
+    test("opened before the scene, it leaves the scene's instance the material the scene saved", () => {
+        const file = prefabFile("Crate", 0.3);
+        load(file, "guid-crate").instantiate();
+        const saved = save();
+
+        newSession();
+        file.snapshot!.assets![0].fields["metallic"] = 0.8;
+        const fresh = load(file, "guid-crate").instantiate();
+        const [kept] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+
+        expect(materialOf(kept).metallic).toBeCloseTo(0.3);
+        expect(materialOf(fresh).metallic).toBeCloseTo(0.8);
+    });
+
+    test("a copy, an undo or a restore in the same session still shares the prefab's material", () => {
+        const prefab = load(prefabFile("Crate", 0.3), "guid-crate");
+        const instance = prefab.instantiate();
+        const shared = materialOf(instance);
+
+        expect(materialOf(EngineObject.Instantiate(instance) as GameObject)).toBe(shared);
+
+        const saved = save();
+        clear();
+        const [back] = SceneSerializer.deserializeScene(saved);
+        expect(materialOf(back)).toBe(shared);
+        expect(materialOf(prefab.instantiate())).toBe(shared);
+    });
+
+    test("saving the scene again writes the same file, in the same session and in a new one", () => {
+        load(prefabFile("Crate", 0.3), "guid-crate").instantiate();
+        const first = save();
+
+        expect(save()).toEqual(first);
+
+        newSession();
+        SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(first)));
+        expect(save()).toEqual(first);
+    });
+
+    test("so does the object a prefab was made from, whose material the prefab copied", () => {
+        const source = new GameObject("Crate");
+        const mat = new StandardMaterial();
+        mat.metallic = 0.3;
+        source.addComponent(MeshRenderer).sharedMaterial = mat;
+        const file = JSON.parse(JSON.stringify(Prefab.fromGameObject(source).toJSON())) as PrefabFile;
+
+        const saved = save();
+        expect(saved.assets![0].guid).not.toBe(tableGuid(file));
+
+        newSession();
+        const [kept] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        file.snapshot!.assets![0].fields["metallic"] = 0.8;
+        expect(materialOf(load(file, "guid-crate").instantiate()).metallic).toBeCloseTo(0.8);
+        expect(materialOf(kept).metallic).toBeCloseTo(0.3);
+    });
+
+    test("a linked instance given another prefab's material carries it under the scene's own id", () => {
+        const crateFile = prefabFile("Crate", 0.3);
+        const barrelFile = prefabFile("Barrel", 0.6);
+        const crate = load(crateFile, "guid-crate");
+        const barrel = load(barrelFile, "guid-barrel");
+        const instance = crate.instantiate();
+        const donor = barrel.instantiate();
+        instance.getComponent(MeshRenderer)!.sharedMaterial = materialOf(donor);
+        donor.destroyImmediate();
+
+        const saved = saveLinked();
+
+        expect(saved.assets).toHaveLength(1);
+        expect(saved.assets![0].guid).not.toBe(tableGuid(barrelFile));
+        expect(saved.roots[0].prefab!.changes!.overrides.map(o => o.value))
+            .toEqual([{ $type: "AssetRef", guid: saved.assets![0].guid }]);
+
+        // A new session: the scene is opened, then the Barrel prefab, since edited.
+        newSession();
+        load(crateFile, "guid-crate");
+        const [kept] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        barrelFile.snapshot!.assets![0].fields["metallic"] = 0.8;
+        const fresh = load(barrelFile, "guid-barrel").instantiate();
+
+        expect(materialOf(fresh).metallic).toBeCloseTo(0.8);
+        expect(materialOf(kept).metallic).toBeCloseTo(0.6);
+    });
+});

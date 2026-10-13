@@ -154,7 +154,12 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   table every time, under the id it already has, and its reference never carries a `path`. A
   material saved twice without being reloaded keeps its id too, so an unchanged scene saves
   byte-identically. The same cause made an untouched instance of a prefab with such a material
-  report `MeshRenderer.sharedMaterial` as an override; it no longer does.
+  report `MeshRenderer.sharedMaterial` as an override; it no longer does. A prefab's own material
+  of this kind is the one exception to "the id it already has": a scene carries its copy under an
+  id of the scene's, since one id written into both files let whichever a session read first
+  decide the material — a scene opened before an edited prefab handed every new instance of it
+  the scene's stale copy. Copies, undo and Play restore in one session still share the prefab's
+  material.
 - **A child keeps its local position, rotation and scale when a scene is loaded.** The loader
   set a child's saved pose and then attached it to its parent keeping its *world* pose, which
   subtracted the parent's: a child at `(0, 0.5, 0)` under a parent at `(1, 2, 3)` came back at

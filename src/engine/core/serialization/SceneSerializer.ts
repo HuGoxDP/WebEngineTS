@@ -56,12 +56,26 @@ interface SceneCtx extends SerializeContext {
     /** Inline assets already written, shared with {@link outer}. */
     readonly inlined: Map<object, string>;
     /**
+     * Every inline asset written anywhere in the pass, by the id it was
+     * written under — what a linked instance's own table is read back
+     * against. Shared with {@link outer}.
+     */
+    readonly writtenAssets: Map<string, object>;
+    /**
      * Node ids given to objects that had none, for a pass that must leave the
      * live objects as they are. Shared with {@link outer}.
      */
     readonly minted: Map<GameObject, string>;
     /** Whether an id minted for an added node is stored on the live object. */
     readonly mintLive: boolean;
+    /**
+     * Whether this pass writes a prefab's tree, or an instance to be compared
+     * with one. An asset a prefab carries keeps the prefab's id here, so that
+     * an untouched instance compares equal; a table of anything else — a
+     * scene's — writes it under an id of its own ({@link SceneSerializer}'s
+     * `_tableGuidOf`).
+     */
+    readonly prefabIds: boolean;
     /** Shared with {@link outer}. */
     assetTable: SerializedAsset[];
     locate(go: GameObject): { path: Array<number | string>; scope: number } | null;
@@ -581,6 +595,7 @@ export class SceneSerializer {
         const mintLive = options.mintLive ?? true;
         const prefabRoot = options.prefabRoot ?? null;
         const shared = outer !== null && options.ownAssets !== true;
+        const prefabIds = prefabRoot !== null || options.ownAssets === true || (outer?.prefabIds ?? false);
         const goToPath = new Map<GameObject, number[]>();
         const walk = (go: GameObject, path: number[]): void => {
             goToPath.set(go, path);
@@ -604,8 +619,10 @@ export class SceneSerializer {
             link,
             outer,
             inlined,
+            writtenAssets: outer ? outer.writtenAssets : new Map<string, object>(),
             minted: outer ? outer.minted : new Map<GameObject, string>(),
             mintLive: outer ? outer.mintLive : mintLive,
+            prefabIds,
             locate: (go) => {
                 let level = 0;
                 for (let c: SceneCtx | null = ctxRef.value; c !== null; c = c.outer, level++) {
@@ -653,8 +670,9 @@ export class SceneSerializer {
 
                 // Registered before the fields are walked, so an asset that
                 // somehow refers back to itself cannot recurse forever.
-                const guid = SceneSerializer._inlineGuidOf(asset);
+                const guid = SceneSerializer._tableGuidOf(asset, prefabIds);
                 inlined.set(asset, guid);
+                ctxRef.value!.writtenAssets.set(guid, asset);
                 // Already passed up from a linked instance's own table.
                 if (assetTable.some(entry => entry.guid === guid)) return guid;
 
@@ -700,6 +718,60 @@ export class SceneSerializer {
 
     /** Ids minted for assets with no file, by {@link _inlineGuidOf}. */
     private static readonly _inlineGuids = new WeakMap<object, string>();
+
+    /**
+     * The id an asset with no file is written under in a table, given whether
+     * the table is a prefab's ({@link SceneCtx.prefabIds}).
+     *
+     * @remarks
+     * A prefab's own inline asset — a material built in code — is written into
+     * the prefab's file under an id, and an instance of the prefab uses the
+     * asset rebuilt from it. A scene that wrote it under the same id would
+     * carry a second copy of one id: whichever file a session read first would
+     * decide what the id is, so a scene opened before an edited prefab handed
+     * every new instance of the prefab the scene's stale copy, and the other
+     * order handed the scene's instance the prefab's. Outside a prefab's tree
+     * such an asset is therefore written under an id of the scene's own, kept
+     * for the asset so that saving twice writes the same file. While the
+     * prefab's asset is in memory that id finds it too
+     * (`AssetDatabase._bindAlias`), so a copy, an undo or a Play restore made
+     * in the same session goes on sharing it.
+     */
+    private static _tableGuidOf(asset: object, prefabIds: boolean): string {
+        if (!prefabIds) {
+            const copy = SceneSerializer._sceneCopyGuids.get(asset);
+            if (copy !== undefined && (!AssetDatabase.isLoaded(copy) || AssetDatabase.get(copy) === asset)) {
+                if (AssetDatabase.guidOf(asset) !== null) AssetDatabase._bindAlias(copy, asset);
+                return copy;
+            }
+        }
+
+        const own = SceneSerializer._inlineGuidOf(asset);
+        if (prefabIds || !SceneSerializer._prefabAssetGuids.has(own)) return own;
+
+        const fresh = AssetDatabase._newGuid();
+        SceneSerializer._sceneCopyGuids.set(asset, fresh);
+        if (AssetDatabase.guidOf(asset) !== null) AssetDatabase._bindAlias(fresh, asset);
+        return fresh;
+    }
+
+    /** Ids a scene writes a prefab's inline asset under, by {@link _tableGuidOf}. */
+    private static readonly _sceneCopyGuids = new WeakMap<object, string>();
+
+    /** The ids a prefab's own asset table uses, by {@link _claimPrefabAssets}. */
+    private static readonly _prefabAssetGuids = new Set<string>();
+
+    /**
+     * @internal
+     * Records the ids of the assets a prefab's tree carries as the prefab's,
+     * so that no scene writes its own copy of one under the same id. Called by
+     * `Prefab` for every tree it holds.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _claimPrefabAssets(tree: SerializedGameObject | null): void {
+        for (const entry of tree?.assets ?? []) SceneSerializer._prefabAssetGuids.add(entry.guid);
+    }
 
     /**
      * Writes one object, deciding how a prefab instance is written.
@@ -815,7 +887,7 @@ export class SceneSerializer {
         const out = SceneSerializer._serializeShell(go, outer, under);
         out.prefab = { guid, changes };
         if (info.unused !== null) out.prefab.unused = SceneSerializer._cloneJson(info.unused);
-        SceneSerializer._carryAssets(local.assetTable, tree, out.prefab, outer.assetTable);
+        SceneSerializer._carryAssets(local, tree, out.prefab, outer);
         return out;
     }
 
@@ -829,15 +901,20 @@ export class SceneSerializer {
      * the first copy of an id to load is the one kept, so a stale scene copy
      * could shadow an edited prefab. Only what the changes refer to, directly
      * or through another such asset, and the prefab does not carry, goes up.
+     *
+     * One that another prefab carries — a material the instance took from a
+     * different prefab — goes up into a table that is not a prefab's under
+     * the id that table writes it under, for the same reason, and the changes
+     * refer to it by that id.
      */
     private static _carryAssets(
-        local: readonly SerializedAsset[],
+        local: SceneCtx,
         tree: SerializedGameObject,
         link: SerializedPrefabLink,
-        into: SerializedAsset[],
+        outer: SceneCtx,
     ): void {
-        if (local.length === 0) return;
-        const byGuid = new Map(local.map(entry => [entry.guid, entry]));
+        if (local.assetTable.length === 0) return;
+        const byGuid = new Map(local.assetTable.map(entry => [entry.guid, entry]));
         const needed = new Set<string>();
         const visit = (value: unknown): void => {
             if (Array.isArray(value)) {
@@ -859,10 +936,42 @@ export class SceneSerializer {
         visit(link.unused);
 
         const carried = new Set((tree.assets ?? []).map(entry => entry.guid));
-        const present = new Set(into.map(entry => entry.guid));
-        for (const entry of local) {
-            if (needed.has(entry.guid) && !carried.has(entry.guid) && !present.has(entry.guid)) into.push(entry);
+        const going = local.assetTable.filter(entry => needed.has(entry.guid) && !carried.has(entry.guid));
+
+        const renamed = new Map<string, string>();
+        if (!outer.prefabIds) {
+            for (const entry of going) {
+                const asset = local.writtenAssets.get(entry.guid);
+                if (asset === undefined || !SceneSerializer._prefabAssetGuids.has(entry.guid)) continue;
+                renamed.set(entry.guid, SceneSerializer._tableGuidOf(asset, false));
+            }
         }
+        if (renamed.size > 0) {
+            SceneSerializer._renameAssetRefs(link, renamed);
+            for (const entry of going) {
+                SceneSerializer._renameAssetRefs(entry.fields, renamed);
+                entry.guid = renamed.get(entry.guid) ?? entry.guid;
+            }
+        }
+
+        const present = new Set(outer.assetTable.map(entry => entry.guid));
+        for (const entry of going) {
+            if (!present.has(entry.guid)) outer.assetTable.push(entry);
+        }
+    }
+
+    /** Points every asset reference in saved JSON whose id `renamed` maps at the new id, in place. */
+    private static _renameAssetRefs(value: unknown, renamed: ReadonlyMap<string, string>): void {
+        if (Array.isArray(value)) {
+            for (const item of value) SceneSerializer._renameAssetRefs(item, renamed);
+            return;
+        }
+        if (value === null || typeof value !== "object") return;
+        const obj = value as Record<string, unknown>;
+        if (obj["$type"] === "AssetRef" && typeof obj["guid"] === "string") {
+            obj["guid"] = renamed.get(obj["guid"]) ?? obj["guid"];
+        }
+        for (const key of Object.keys(obj)) SceneSerializer._renameAssetRefs(obj[key], renamed);
     }
 
     /**

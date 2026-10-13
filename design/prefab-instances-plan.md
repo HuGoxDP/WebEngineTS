@@ -446,6 +446,27 @@ Otherwise the scene would carry a copy of every inline material the prefab owns.
 `_materializeAssets` keeps whichever copy of a guid is bound first, so a stale scene copy could
 shadow an edited prefab.
 
+*Corrected after review:* the D2 fix (Stage 2) made **expand** mode do exactly that. An instance's
+material rebuilt from the prefab's table is bound under the table's id, and D2 writes every asset
+with no file "under the id it already has", so a scene saved in full carried a copy under the
+prefab's own id. In a new session, whichever file was read first decided what that id was: a
+scene opened before an edited prefab handed every new instance of the prefab the scene's stale
+copy, and the other order handed the scene's instance the prefab's. The rule is now that **a
+table that is not a prefab's never names an asset by an id a prefab's table uses.**
+
+- `Prefab` records the ids of its tree's `assets` (`SceneSerializer._claimPrefabAssets`), for a
+  tree it is made with, reads from a file or takes in `applyInstance`.
+- Passes that write a prefab's tree or an instance compared with one (`SceneCtx.prefabIds`:
+  `_serializeForPrefab` and every linked instance's own pass) keep the prefab's id, so an
+  untouched instance still compares equal. Any other table — a scene's, a snapshot's, an asset
+  file's — writes such an asset under an id of its own, kept for the asset so that saving twice
+  writes the same file (`_tableGuidOf`). `_carryAssets` renames the same way when a linked
+  instance's changes take another prefab's material up into the scene.
+- Within the session that wrote it, that id also finds the prefab's asset
+  (`AssetDatabase._bindAlias`, dropped with the asset by `_unbind`), so `Instantiate`, undo and
+  Play restore still share the prefab's material instead of building a copy, as they did before.
+  In a new session it names the scene's copy alone.
+
 ### 6.2 Deserialize
 
 `DeserializeContext.scopeStack` holds the instances being rebuilt **as links**, outermost first.
@@ -1138,6 +1159,12 @@ New in `MissingComponent.test.ts`:
   revert are wrong for that case. Unity gives components fileIDs too. Adding ids changes the
   format of every scene, not just of prefabs, so it is a separate decision. It is best taken
   before the editor's stage 16 (diff-based undo), which would build on it.
+- **A prefab made from another prefab's instance shares that prefab's inline asset ids** (found
+  in review, verified). `Prefab.fromGameObject(instance)` writes the instance's material — rebuilt
+  from the first prefab's table — under that table's id, so two prefab files name one id, and in a
+  new session whichever is instantiated first decides the material of both. Scenes no longer do
+  this (§6.1, Assets); between prefab files it needs to know which prefab owns an id, not only
+  that some prefab does, so it is left to the owner with the variant case below.
 - **A variant cannot carry an inline asset it introduces** (found in Stage 8, verified).
   `getOverrides` returns values without the instance's asset table, so an override that gives an
   instance a code-built material is an `AssetRef` to an id nothing binds: through

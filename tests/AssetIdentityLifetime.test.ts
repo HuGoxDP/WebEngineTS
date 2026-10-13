@@ -103,4 +103,18 @@ describe("Asset identity does not outlive the instance", () => {
         expect(AssetDatabase.isLoaded("guid-a")).toBe(false);
         expect(AssetDatabase.isLoaded("guid-b")).toBe(true);
     });
+
+    test("a further id an asset answers to forgets it with its own", async () => {
+        install();
+        const a = await Resources.load(Texture2D, "textures/a.ktx2");
+        AssetDatabase._bindAlias("copy-of-a", a);
+
+        expect(AssetDatabase.get("copy-of-a")).toBe(a);
+        expect(AssetDatabase.guidOf(a)).toBe("guid-a");
+
+        Resources.release(a);
+        Resources.unloadUnused();
+
+        expect(AssetDatabase.isLoaded("copy-of-a")).toBe(false);
+    });
 });
