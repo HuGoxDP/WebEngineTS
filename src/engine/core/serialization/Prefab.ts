@@ -2,9 +2,10 @@ import type { Scene } from "../Scene";
 import type { GameObject } from "../GameObject";
 import { SceneManager } from "../SceneManager";
 import { AssetDatabase } from "../assets/AssetDatabase";
-import { SceneSerializer, type SerializedGameObject } from "./SceneSerializer";
+import { SceneSerializer, type SerializedAsset, type SerializedGameObject } from "./SceneSerializer";
 import {
     PrefabDiff,
+    joinNested,
     splitNested,
     type PrefabAddedChild,
     type PrefabAddedComponent,
@@ -309,11 +310,15 @@ export class Prefab {
      * the object this prefab was made from without `connect` — is compared
      * node for node by position, as every object was before ids.
      *
+     * An instance of this prefab nested inside another instance is compared
+     * with this prefab as the prefabs around it change it, so what the outer
+     * prefab sets on it is not listed — only what differs from that.
+     *
      * @param instance - a live GameObject, usually one {@link instantiate} made.
      * @returns the differences, in tree order. Empty when it matches.
      */
     public getOverrides(instance: GameObject): PrefabOverride[] {
-        const tree = this._resolvedTree();
+        const tree = this._start(instance).tree;
         return PrefabDiff.compare(
             tree, SceneSerializer._serializeForPrefab(instance, { match: tree, outward: true }),
             SceneSerializer._prefabTree,
@@ -360,10 +365,26 @@ export class Prefab {
      * name, position and rotation, which an instance never takes from its
      * prefab (Unity's default overrides, which Revert All leaves alone too).
      *
+     * An instance of this prefab nested inside another instance is reverted
+     * to what the prefabs around it make of it: what the outer prefab sets on
+     * it stays, name, position and rotation included, and only what the scene
+     * changed goes. References from it to the instance around it are rebuilt
+     * as the outer prefab has them.
+     *
      * @param instance - the instance to replace.
      * @returns the fresh instance, in the same scene, parent and position.
      */
     public revert(instance: GameObject): GameObject {
+        const around = this._start(instance).around;
+        const holder = instance.transform.parent?.gameObject ?? null;
+        if (around !== null && holder !== null) {
+            const index = instance.transform.getSiblingIndex();
+            instance.destroyImmediate();
+            return SceneSerializer._restoreChild(
+                around.scopes, around.node, holder, index, around.tree.assets, around.chain,
+            );
+        }
+
         const scene = instance.scene;
         const parent = instance.transform.parent;
         const index = instance.transform.getSiblingIndex();
@@ -403,14 +424,23 @@ export class Prefab {
      * An object whose nodes have no ids is compared by position, as
      * {@link getOverrides} says, and its objects are given the ids of the
      * prefab nodes they were matched with.
+     *
+     * An instance of this prefab nested inside another instance is compared
+     * with this prefab as the prefabs around it change it: what the outer
+     * prefab sets on it is not a change, and the root's name, position and
+     * rotation are listed like any other value, since a nested root takes
+     * them from the prefab around it.
      */
     public getChanges(instance: GameObject): PrefabChanges {
-        const tree = this._resolvedTree();
+        const start = this._start(instance);
+        const tree = start.tree;
         const changes = PrefabDiff.compareChanges(
             tree, SceneSerializer._serializeForPrefab(instance, { mintLive: true, match: tree, outward: true }),
             SceneSerializer._prefabTree,
         );
-        changes.overrides = changes.overrides.filter(o => !Prefab._isDefaultOverride(o, tree));
+        if (start.around === null) {
+            changes.overrides = changes.overrides.filter(o => !Prefab._isDefaultOverride(o, tree));
+        }
         return changes;
     }
 
@@ -429,14 +459,24 @@ export class Prefab {
      * them as links *after* the apply without reloading would record their old
      * state as their own changes.
      *
+     * An instance of this prefab nested inside another instance applies only
+     * what the scene changed on it ({@link getChanges}) — Unity's "Apply to
+     * Prefab" on a nested instance. What the prefabs around it set on it stays
+     * theirs, and so does a change to an object only they add. A reference to
+     * an object outside the instance has nothing to point at in a prefab, and
+     * is not applied.
+     *
      * @throws if `instance` is not an instance of this prefab, or if it holds
      *   an instance of this prefab, directly or through the prefabs inside it:
      *   applying it would make a prefab that contains itself.
      */
     public applyInstance(instance: GameObject): void {
         this._requireInstance(instance);
-        const tree = this._resolvedTree();
-        const snapshot = SceneSerializer._serializeForPrefab(instance, { mintLive: true, match: tree });
+        const start = this._start(instance);
+        const tree = start.tree;
+        const snapshot = SceneSerializer._serializeForPrefab(instance, {
+            mintLive: true, match: tree, outward: start.around !== null,
+        });
 
         const guid = AssetDatabase.guidOf(this);
         if (guid !== null && Prefab._holdsPrefab(snapshot, guid, new Set())) {
@@ -446,18 +486,83 @@ export class Prefab {
             );
         }
 
+        const next = start.around === null
+            ? Prefab._asRoot(snapshot, tree)
+            : this._withChanges(PrefabDiff.compareChanges(tree, snapshot, SceneSerializer._prefabTree), snapshot);
+
+        if (this._snapshot === null) {
+            this._changes = PrefabDiff.compareChanges(this.base!._resolvedTree(), next, SceneSerializer._prefabTree);
+        } else {
+            this._snapshot = next;
+            SceneSerializer._claimPrefabAssets(next);
+        }
+    }
+
+    /**
+     * An instance's snapshot made into this prefab's tree: the prefab root
+     * keeps its own id, name, position and rotation.
+     */
+    private static _asRoot(snapshot: SerializedGameObject, tree: SerializedGameObject): SerializedGameObject {
         if (tree.id !== undefined) snapshot.id = tree.id;
         snapshot.name = tree.name;
         snapshot.transform.position = { ...tree.transform.position };
         snapshot.transform.rotation = { ...tree.transform.rotation };
-        PrefabDiff.ensureIds(snapshot);
+        return PrefabDiff.ensureIds(snapshot);
+    }
 
-        if (this._snapshot === null) {
-            this._changes = PrefabDiff.compareChanges(this.base!._resolvedTree(), snapshot, SceneSerializer._prefabTree);
-        } else {
-            this._snapshot = snapshot;
-            SceneSerializer._claimPrefabAssets(snapshot);
-        }
+    /**
+     * This prefab's own tree with a nested instance's changes applied: all but
+     * the root's name, position and rotation and any reference that leaves the
+     * instance, carrying the inline assets they use from the instance's table.
+     */
+    private _withChanges(changes: PrefabChanges, snapshot: SerializedGameObject): SerializedGameObject {
+        const own = this._resolvedTree();
+        changes.overrides = changes.overrides.filter(o =>
+            !Prefab._isDefaultOverride(o, own) && !Prefab._leavesInstance(o.value));
+        const next = PrefabDiff.applyChanges(own, changes, SceneSerializer._prefabTree);
+
+        const known = new Set((next.assets ?? []).map(entry => entry.guid));
+        const used = Prefab._assetGuids(changes, snapshot.assets ?? []);
+        const carried = (snapshot.assets ?? []).filter(entry => used.has(entry.guid) && !known.has(entry.guid));
+        if (carried.length > 0) next.assets = [...(next.assets ?? []), ...carried];
+        return PrefabDiff.ensureIds(next);
+    }
+
+    /** Whether a saved value holds a reference that counts out of the instance it is written in. */
+    private static _leavesInstance(value: unknown): boolean {
+        if (Array.isArray(value)) return value.some(Prefab._leavesInstance);
+        if (value === null || typeof value !== "object") return false;
+        const obj = value as Record<string, unknown>;
+        const isRef = obj["$type"] === "GameObjectRef" || obj["$type"] === "ComponentRef";
+        if (isRef && typeof obj["scope"] === "number" && obj["scope"] > 0) return true;
+        return Object.keys(obj).some(key => Prefab._leavesInstance(obj[key]));
+    }
+
+    /**
+     * The ids of the entries of `table` that `changes` refer to, directly or
+     * through another entry.
+     */
+    private static _assetGuids(changes: PrefabChanges, table: readonly SerializedAsset[]): Set<string> {
+        const byGuid = new Map(table.map(entry => [entry.guid, entry]));
+        const used = new Set<string>();
+        const visit = (value: unknown): void => {
+            if (Array.isArray(value)) {
+                value.forEach(visit);
+                return;
+            }
+            if (value === null || typeof value !== "object") return;
+            const obj = value as Record<string, unknown>;
+            const entry = obj["$type"] === "AssetRef" && typeof obj["guid"] === "string"
+                ? byGuid.get(obj["guid"])
+                : undefined;
+            if (entry !== undefined && !used.has(entry.guid)) {
+                used.add(entry.guid);
+                visit(entry.fields);
+            }
+            for (const key of Object.keys(obj)) visit(obj[key]);
+        };
+        visit(changes);
+        return used;
     }
 
     /**
@@ -470,6 +575,10 @@ export class Prefab {
      * added child or component is removed, a removed one is built again from
      * the prefab where it was. The objects not concerned keep their identity,
      * and references to them from elsewhere stay valid.
+     *
+     * On an instance of this prefab nested inside another instance, a change
+     * goes back to what the prefabs around it set, as {@link getChanges}
+     * compares it.
      *
      * @param change - an override, an added child or component, a removed
      *   component, or the id of a removed child.
@@ -556,10 +665,11 @@ export class Prefab {
         scopes: GameObject[];
         chain: string[];
     } | null {
+        const start = this._start(instance);
         let live = instance;
-        let tree = this._resolvedTree();
-        const scopes = [instance];
-        const chain = this._chain();
+        let tree = start.tree;
+        const scopes = start.scopes;
+        const chain = start.chain;
         let rest = address ?? null;
 
         for (let nested = rest === null ? null : splitNested(rest); nested !== null;
@@ -576,6 +686,57 @@ export class Prefab {
             rest = nested.rest;
         }
         return { live, tree, id: rest, scopes, chain };
+    }
+
+    /**
+     * What `instance` is compared with, applied against and reverted to: the
+     * tree it stands for, the instance roots a reference rebuilt inside it may
+     * count from, and the prefab chain a rebuilt link is checked against.
+     *
+     * @remarks
+     * An instance on its own stands for this prefab. A prefab nested inside
+     * another instance stands for its node there: this prefab with the changes
+     * the prefabs around it make to it, as loading builds it. That is Unity's
+     * view of a nested instance — its overrides are what the scene changed,
+     * not what the outer prefab did. `around` is then the level that holds
+     * it, with its node. When the prefabs around it are not loaded, or that
+     * node is not an instance of this prefab, it stands for this prefab alone.
+     */
+    private _start(instance: GameObject): {
+        tree: SerializedGameObject;
+        scopes: GameObject[];
+        chain: string[];
+        around: {
+            tree: SerializedGameObject;
+            node: SerializedGameObject;
+            scopes: GameObject[];
+            chain: string[];
+        } | null;
+    } {
+        const alone = { tree: this._resolvedTree(), scopes: [instance], chain: this._chain(), around: null };
+        const outermost = instance.outermostPrefabInstanceRoot;
+        if (outermost === null || outermost === instance) return alone;
+        const outer = outermost.prefabSource;
+        const guid = AssetDatabase.guidOf(this);
+        if (outer === null || guid === null) return alone;
+
+        const ids: string[] = [];
+        for (let go: GameObject | null = instance; go !== outermost;
+            go = go.transform.parent?.gameObject.prefabInstanceRoot ?? null) {
+            if (go === null || go._prefabNodeId === null) return alone;
+            ids.unshift(go._prefabNodeId);
+        }
+        const at = outer._descend(outermost, joinNested(ids));
+        const node = at?.id == null ? undefined : PrefabDiff.nodeOf(at.tree, { node: at.id })?.node;
+        const tree = node?.prefab?.guid === guid ? SceneSerializer._linkTree(node) : null;
+        if (at === null || node === undefined || tree === null) return alone;
+
+        return {
+            tree,
+            scopes: [...at.scopes, instance],
+            chain: [...at.chain, guid],
+            around: { tree: at.tree, node, scopes: at.scopes, chain: at.chain },
+        };
     }
 
     /**

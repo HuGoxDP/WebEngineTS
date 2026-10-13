@@ -981,6 +981,27 @@ Update `unity-parity-plan.md` Stage 4 item 2.
   mode *after* the apply without reloading would record their old state as overrides; the
   `applyInstance` JSDoc says so.
 
+*Corrected after review:* asked of a prefab nested inside another instance, `getChanges`,
+`getOverrides`, `applyInstance`, `revert` and `revertOverride` compared it with its own prefab's
+bare tree. What the outer prefab sets on the nested instance therefore read as the instance's
+own change: `getChanges` listed it, `applyInstance` wrote it into the nested prefab — and so into
+every other use of it — and `revert` dropped it, after which the outer instance reported an
+override. Each now starts from the nested instance's node in the instance around it, built the
+way loading builds it (`_linkTree`) — Unity's view, where a nested instance's overrides are what
+the scene changed and "Apply to Prefab" applies only those. So:
+
+- `getChanges` lists the nested root's name, position and rotation like any other value, since
+  a nested root takes them from the prefab around it (D-13 is about the outermost root).
+- `applyInstance` applies those changes to the nested prefab's own tree rather than replacing
+  it, so a change to an object only the outer prefab adds stays the outer prefab's, and a
+  reference that leaves the instance — which a prefab cannot hold — is not applied.
+- `revert` rebuilds the nested instance from its node in the instance around it, in place, so
+  its node id, the outer prefab's values and its references out to the instance around it come
+  back as the outer prefab has them.
+
+When the prefabs around it are not loaded, the nested instance is compared with its own prefab
+alone, as before.
+
 The editor plan's own stage-14 row lives in another repository and is not changed from here.
 
 ### Stage 10 — Nested overrides, field by field

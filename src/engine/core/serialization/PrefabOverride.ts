@@ -255,6 +255,16 @@ export function splitNested(id: string): { head: string; rest: string } | null {
     return at < 0 ? null : { head: id.slice(0, at), rest: id.slice(at + 1) };
 }
 
+/**
+ * @internal
+ * The id that addresses a node through nested instances: each instance's id
+ * in the prefab around it, outermost first, then the node's own. The inverse
+ * of {@link splitNested}.
+ */
+export function joinNested(ids: readonly string[]): string {
+    return ids.join(NEST);
+}
+
 /** How a saved tree is walked: a node carrying `prefab` is a nested instance. */
 const JSON_ACCESS: NodeAccess<SerializedGameObject> = {
     id: node => node.id ?? null,

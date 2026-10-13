@@ -449,6 +449,98 @@ describe("changes inside a nested prefab instance", () => {
     });
 });
 
+describe("a nested instance, edited through its own prefab", () => {
+    /**
+     * A Turret whose root aims at its Barrel, inside a Tank prefab that
+     * relabels the Barrel and aims the Turret at its own Hull instead.
+     */
+    function tankAimingTurret(): { inner: Prefab; outer: Prefab } {
+        const inner = prefabOf(() => {
+            const root = make("Turret", "turret", make("Barrel", "barrel"));
+            root.addComponent(Aim).target = child(root, 0);
+            return root;
+        }, "guid-turret");
+        const outer = prefabOf(() => {
+            const hull = make("Hull", "hull");
+            const nested = inner.instantiate();
+            child(nested, 0).getComponent(Tag)!.label = "outer default";
+            nested.getComponent(Aim)!.target = hull;
+            return make("Tank", "tank", hull, nested);
+        }, "guid-tank");
+        return { inner, outer };
+    }
+
+    test("its changes are what the scene changed, not what the outer prefab sets on it", () => {
+        const { inner, outer } = tankAimingTurret();
+        const instance = outer.instantiate();
+        const nested = child(instance, 1);
+
+        expect(inner.getChanges(nested)).toEqual({ overrides: [] });
+        expect(inner.getOverrides(nested)).toEqual([]);
+
+        child(nested, 0).getComponent(Tag)!.count = 5;
+        nested.transform.localPosition = new Vector3(0, 2, 0);
+
+        expect(inner.getChanges(nested).overrides.map(o => `${o.field}=${JSON.stringify(o.value)}`).sort())
+            .toEqual(["count=5", 'transform.position={"x":0,"y":2,"z":0}']);
+    });
+
+    test("applying it to its own prefab applies what the scene changed and nothing the outer prefab set", () => {
+        const { inner, outer } = tankAimingTurret();
+        const player = new GameObject("Player");
+        const instance = outer.instantiate();
+        const nested = child(instance, 1);
+        child(nested, 0).getComponent(Tag)!.count = 5;
+        // A reference out of the instance has nothing to point at in a prefab.
+        nested.getComponent(Aim)!.target = player;
+
+        inner.applyInstance(nested);
+
+        const fresh = inner.instantiate();
+        expect(child(fresh, 0).getComponent(Tag)!.label).toBe("barrel");
+        expect(child(fresh, 0).getComponent(Tag)!.count).toBe(5);
+        expect(fresh.getComponent(Aim)!.target).toBe(child(fresh, 0));
+        // What the instance it came from has of its own is now only that reference.
+        expect(inner.getChanges(nested).overrides.map(o => o.field)).toEqual(["target"]);
+    });
+
+    test("reverting it keeps what the outer prefab sets on it, in its place", () => {
+        const { inner, outer } = tankAimingTurret();
+        const instance = outer.instantiate();
+        const nested = child(instance, 1);
+        child(nested, 0).getComponent(Tag)!.count = 5;
+        child(nested, 0).getComponent(Tag)!.label = "mine";
+        nested.transform.localPosition = new Vector3(0, 2, 0);
+        const id = nested.prefabNodeId;
+
+        const fresh = inner.revert(nested);
+
+        expect(nested.exists()).toBe(false);
+        expect(child(instance, 1)).toBe(fresh);
+        expect(fresh.prefabNodeId).toBe(id);
+        expect(fresh.prefabSource).toBe(inner);
+        expect(fresh.transform.localPosition.y).toBeCloseTo(0);
+        expect(child(fresh, 0).getComponent(Tag)!.label).toBe("outer default");
+        expect(child(fresh, 0).getComponent(Tag)!.count).toBe(0);
+        expect(fresh.getComponent(Aim)!.target).toBe(child(instance, 0));
+        expect(outer.getChanges(instance)).toEqual({ overrides: [] });
+    });
+
+    test("reverting one of its changes goes back to what the outer prefab sets", () => {
+        const { inner, outer } = tankAimingTurret();
+        const instance = outer.instantiate();
+        const nested = child(instance, 1);
+        const tag = child(nested, 0).getComponent(Tag)!;
+        tag.label = "mine";
+
+        const label = inner.getChanges(nested).overrides.find(o => o.field === "label")!;
+        inner.revertOverride(nested, label);
+
+        expect(tag.label).toBe("outer default");
+        expect(outer.getChanges(instance)).toEqual({ overrides: [] });
+    });
+});
+
 describe("a nested instance's root, after its own prefab changes", () => {
     test("an untouched instance has no changes after the nested prefab's root is rescaled or hidden", () => {
         const outer = tank(turret());
