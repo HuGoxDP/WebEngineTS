@@ -132,7 +132,9 @@ export interface SerializeOptions {
      *
      * - `"expand"` (default) — the whole tree, with a note of the prefab it came
      *   from. Nothing needs the prefab to read it back, and nothing follows an
-     *   edit to the prefab either.
+     *   edit to the prefab either. The exception is a placeholder for a prefab
+     *   that was not loaded when it was read: having no tree, it is written
+     *   back as the link it was read as, in either mode.
      * - `"link"` — only the prefab and what differs from it, which is what lets
      *   an edit to the prefab reach every scene that uses it. Reading it back
      *   needs the prefab loaded first; {@link SceneSerializer.assetReferences}
@@ -1942,6 +1944,10 @@ export class SceneSerializer {
             const target = owner === null
                 ? null
                 : SceneSerializer._findComponent(owner, ref.typeName, ref.index);
+            // A placeholder has none of its prefab's components to be found.
+            if (owner !== null && target === null && owner._prefabInfo?.raw) {
+                SceneSerializer._warnLostToPlaceholder(ref, owner);
+            }
             SceneSerializer._writeRef(ref.component, ref.field, ref.arrayIndex, target);
         }
     }
@@ -1980,15 +1986,23 @@ export class SceneSerializer {
         let cur = SceneSerializer._root(roots, path);
         for (let i = 1; cur !== null && i < path.length; i++) {
             if (cur._prefabInfo?.raw) {
-                console.warn(
-                    `[SceneSerializer] ${ref.component.constructor.name}.${ref.field} points into ` +
-                    `"${cur.name}", whose prefab is not loaded. It is null for now, and is lost if ` +
-                    `the scene is saved before the prefab is loaded.`,
-                );
+                SceneSerializer._warnLostToPlaceholder(ref, cur);
                 return;
             }
             cur = SceneSerializer._step(cur, path[i]);
         }
+    }
+
+    /**
+     * The warning for a reference into, or onto a component of, an instance
+     * whose prefab is missing, naming its holder and field.
+     */
+    private static _warnLostToPlaceholder(ref: { component: object; field: string }, placeholder: GameObject): void {
+        console.warn(
+            `[SceneSerializer] ${ref.component.constructor.name}.${ref.field} points into ` +
+            `"${placeholder.name}", whose prefab is not loaded. It is null for now, and is lost if ` +
+            `the scene is saved before the prefab is loaded.`,
+        );
     }
 
     /**

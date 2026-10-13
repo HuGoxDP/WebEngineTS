@@ -119,7 +119,8 @@ children-before-components walk (which fixes the asset-table order) are unchange
 
 The tree is complete, every reference is a plain path from the scene roots, and there is no
 `scope`. A reader that predates all of this sees an ordinary scene and ignores `id` and `prefab`.
-`version` stays 1.
+`version` stays 1 — unless the scene writes back, as it read them, a placeholder's link or data
+whose paths hold node ids (§2.5).
 
 ### 2.4 The same scene, link mode
 
@@ -172,8 +173,12 @@ A path is read left to right from a starting set of roots:
   the outer prefab; its interior is not, since its ids belong to another prefab and may repeat
   (two Turrets inside one Tank have identical interiors).
 
-Ids are written only in link contexts (§6.1). Expand mode never writes a string segment, so an
-expand file stays readable by every engine build.
+Ids are encoded only in link contexts (§6.1); expand mode never turns a reference into a string
+segment. *Corrected after review:* it does write back, as it read them, three things that can
+hold them — a placeholder's link (§2.6), the data of an unknown component or value (§6.4, which
+a legacy prefab file has rewritten to ids, §5.2), and changes kept as `unused` (§7.2). A scene
+that holds one of them is version 2 (§5.4), so an expand file is readable by every engine build
+only when it holds none of them.
 
 ### 2.6 An instance whose prefab is missing
 
@@ -334,8 +339,11 @@ its exact bytes.**
 prefab file's internal references id paths, and a link-mode scene whose instances all fell back
 to expand can still hold id paths into them. Neither contains a link, yet both are misread by an
 older reader exactly as the third bullet above says. The marker therefore follows what an older
-reader would misread, not only links. A scene saved in the default mode has neither, so the
-byte-for-byte promise for ordinary scenes is unchanged.
+reader would misread, not only links. An ordinary scene saved in the default mode has neither,
+so the byte-for-byte promise for it is unchanged. *Corrected after review:* a default-mode save is
+still version 2 when it writes back verbatim what holds a link or an id path (§2.5) — so the
+editor can meet version 2 before it opts into link mode, as soon as it loads a placeholder or a
+legacy prefab whose unknown component holds a reference (§11).
 
 - The reader accepts 1 and 2 (absent means 1) and refuses anything higher with an error that
   names the version.
@@ -575,8 +583,11 @@ Unknown data is carried as data. Prefabs do not change that.
 
 The object is a placeholder, and the link is written back verbatim (§2.6). Three decided limits:
 
-- **References into its absent subtree** resolve to null, and are lost if the scene is saved
-  while the prefab is missing. The loader warns, naming each holder and field. Keeping them would
+- **References into its absent subtree**, or to a component of the placeholder itself (it has
+  none), resolve to null, and are lost if the scene is saved while the prefab is missing. The
+  loader warns, naming each holder and field. *Corrected after review:* a component reference
+  onto the placeholder root was resolved to null with no warning, because the object it names
+  exists; it now warns like the rest. Keeping them would
   need a side table, mapping each holder and field to the raw reference, that the writer
   consults. That mechanism has no other use. Preloading (Stage 7) makes the state rare, and the
   editor can show it (`isPrefabAssetMissing`, Stage 9) before a save.
@@ -1152,7 +1163,10 @@ New in `MissingComponent.test.ts`:
   scenes to be on a release that reads version 2. virtual-lab runs exported scenarios on its own
   engine, so this is a release-coordination call. It also needs the editor's `_loadSceneText`
   (`commands.service.ts:614`) to accept version 2. Until both are true, the editor stays on expand,
-  which Stage 3 already makes link-preserving.
+  which Stage 3 already makes link-preserving. *Corrected after review:* accepting version 2 is
+  needed earlier than that. A default-mode save is version 2 when it writes back a placeholder's
+  link, an unknown component's data with node ids, or `unused` changes (§2.5), so once the editor
+  can load a prefab file it can write an autosave it then refuses to reopen.
 - **Component identity.** Components have no ids; a `ComponentRef` is a type plus an index.
   Removing the first of two same-type components in an instance is recorded as field overrides on
   #0 plus a removal of #1. The rebuild is right, but the "modified" markers and per-override

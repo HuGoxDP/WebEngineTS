@@ -31,6 +31,12 @@ class Tag extends Behaviour {
     public label: string = "";
 }
 
+@Serializable({ typeName: "PrefabSpec.Pick" })
+class Pick extends Behaviour {
+    @SerializedField({ type: FieldType.Component })
+    public picked: object | null = null;
+}
+
 const pose = (x = 0, y = 0, z = 0): SerializedGameObject["transform"] => ({
     position: { x, y, z },
     rotation: { x: 0, y: 0, z: 0, w: 1 },
@@ -506,6 +512,30 @@ describe("a prefab instance saved as its prefab plus changes", () => {
         expect(saved.roots).toEqual(json.roots);
     });
 
+    test("references into a placeholder, and onto a component of it, are reported by holder and field", () => {
+        const into = (path: Array<number | string>) => ({ $type: "GameObjectRef", path });
+        const json = linkScene(
+            node("Lost", { prefab: { guid: "guid-missing", changes: { overrides: [] } } }),
+            node("Watcher", { components: [
+                { type: "PrefabSpec.Aim", fields: { target: into([0, "k-hull"]) } },
+                { type: "PrefabSpec.Pick", fields: {
+                    picked: { $type: "ComponentRef", path: [0], component: "PrefabSpec.Tag", index: 0 },
+                } },
+            ] }),
+            node("Pointer", { components: [{ type: "PrefabSpec.Aim", fields: { target: into([0]) } }] }),
+        );
+
+        const [lost, watcher, pointer] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(json)));
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Aim.target points into "Lost"'));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Pick.picked points into "Lost"'));
+        expect(watcher.getComponent(Aim)!.target).toBeNull();
+        expect(watcher.getComponent(Pick)!.picked).toBeNull();
+        // The placeholder itself is there to be pointed at, and nothing is lost.
+        expect(pointer.getComponent(Aim)!.target).toBe(lost);
+        expect(warn).toHaveBeenCalledTimes(3);
+    });
+
     test("a change addressed to a node the prefab no longer has is kept, and applies again when the node returns", () => {
         const changes = {
             overrides: CHANGES.overrides,
@@ -746,6 +776,34 @@ describe("what a file with prefab links needs", () => {
         // A prefab file follows the same rule.
         expect(Prefab.fromGameObject(new GameObject("Plain")).toJSON()).not.toHaveProperty("version");
         expect(new Prefab(tankTree()).toJSON().version).toBe(2);
+    });
+
+    test("a scene saved in full is version 2 only for what it writes back as it read it, ids included", () => {
+        // A placeholder's link.
+        SceneSerializer.deserializeScene(linkScene(
+            node("Lost", { prefab: { guid: "guid-missing", changes: { overrides: [] } } }),
+        ));
+        expect(save().version).toBe(2);
+
+        // An unknown component's data, whose references a prefab file names by node id.
+        clear();
+        Prefab.fromJSON({ name: "Legacy", snapshot: node("Legacy", {
+            components: [{ type: "PrefabSpec.Unknown", fields: { follow: { $type: "GameObjectRef", path: [0, 0] } } }],
+            children: [node("Kid")],
+        }) }).instantiate();
+        const unknown = save();
+        expect(unknown.roots[0].components[0].fields["follow"]).toEqual({ $type: "GameObjectRef", path: [0, "~0"] });
+        expect(unknown.version).toBe(2);
+
+        // Changes kept because their object is gone from the prefab.
+        clear();
+        SceneSerializer.deserializeScene(linkScene(tankLink({ overrides: [{
+            path: [5], node: "k-gone", component: "PrefabSpec.Aim", componentIndex: 0, field: "target",
+            value: { $type: "GameObjectRef", path: [0, "k-hull"] },
+        }] })));
+        const unused = save();
+        expect(unused.roots[0].prefab!.unused).toBeDefined();
+        expect(unused.version).toBe(2);
     });
 
     test("a file of a version the engine does not know is refused", () => {

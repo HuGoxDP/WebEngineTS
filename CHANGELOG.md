@@ -50,11 +50,14 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   loads the prefabs nested inside it, without hanging on two that contain each other. An
   instance whose prefab is not loaded becomes a **placeholder** that keeps its link and is saved
   back exactly as it was read, with a warning; load the prefab and open the scene again to
-  rebuild it. Changes that address something the prefab no longer has are kept (`unused`) and
-  apply again if it comes back. An instance that reordered or reparented its prefab's own
-  objects is saved in full, with a warning — inside an instance that is itself saved as a link,
-  as an object its changes add in full. A linked instance does not copy its prefab's inline
-  materials into the scene. The default stays `"expand"`, which writes every instance in full.
+  rebuild it. A reference from the rest of the scene into a placeholder, or to one of its
+  components, has nothing to find: it is null, a warning names its holder and field, and it is
+  lost if the scene is saved before the prefab is loaded. Changes that address something the
+  prefab no longer has are kept (`unused`) and apply again if it comes back. An instance that
+  reordered or reparented its prefab's own objects is saved in full, with a warning — inside an
+  instance that is itself saved as a link, as an object its changes add in full. A linked
+  instance does not copy its prefab's inline materials into the scene. The default stays
+  `"expand"`, which writes every instance in full.
   **A file holding a link, or a reference that names a prefab node by id, is written as
   `version: 2`; the engine refuses any version above 2.** Every engine that will read such files
   — including any that runs exported scenarios — has to be on a build that reads version 2 before
@@ -124,17 +127,22 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   the result directly has to allow for that.
 - **`SerializedScene.version` is `1 | 2`.** Version 2 marks a file only a reader that knows prefab
   links can read (see *Added*); `deserializeScene` and `Prefab.fromJSON` now throw for a version
-  above 2 instead of loading it hollow. Every scene saved in the default mode is still version 1.
+  above 2 instead of loading it hollow. A scene saved in the default mode is version 1 unless it
+  writes back, as it read them, a placeholder's link or data whose paths name nodes by id — an
+  unknown component's from a prefab file, or changes kept as unused. A reader that refuses
+  version 2 therefore cannot always reopen a default-mode save either.
 - **A reference path may hold prefab node ids.** `PendingGORef.path`, the `path` of
   `DeserializeContext.pendingGORefs` and `pendingComponentRefs`, and `SerializeContext.locate`
   are now `Array<number | string>`. Inside a prefab instance a reference names its target by node
   id rather than by child position, so it still finds it after the prefab gains or loses a child
   in front of it, and removing a sibling inside an instance no longer turns every later
   reference into an override. Code that reads these paths must accept a string segment: a node
-  id, looked for among the descendants without entering a nested instance. Ids are written only
-  where prefab instances are saved as links and in prefab files; the default save writes the same
-  all-number paths as before. A prefab file from before node ids has its references read as ids
-  on load.
+  id, looked for among the descendants without entering a nested instance. Ids are written
+  where prefab instances are saved as links and in prefab files. The default save encodes
+  all-number paths as before, but what it writes back as it was read keeps its ids: a
+  placeholder's link, the data of an unknown component or value, changes kept as unused. A prefab
+  file from before node ids has its references read as ids on load, the data of its unknown
+  components included.
 - **`Texture2D.fromKTX2ArrayBuffer` warns once per run** when `maxSize` is set, because the cap
   does not reach it. Behaviour is unchanged — one console line where there was silence.
 
