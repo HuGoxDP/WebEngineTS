@@ -1,5 +1,6 @@
 import type { Scene } from "../Scene";
 import type { GameObject } from "../GameObject";
+import type { Component } from "../Component";
 import { SceneManager } from "../SceneManager";
 import { AssetDatabase } from "../assets/AssetDatabase";
 import { SceneSerializer, type SerializedAsset, type SerializedGameObject } from "./SceneSerializer";
@@ -368,8 +369,8 @@ export class Prefab {
      * An instance of this prefab nested inside another instance is reverted
      * to what the prefabs around it make of it: what the outer prefab sets on
      * it stays, name, position and rotation included, and only what the scene
-     * changed goes. References from it to the instance around it are rebuilt
-     * as the outer prefab has them.
+     * changed goes. References between it and the instance around it are
+     * rebuilt as the outer prefab has them.
      *
      * @param instance - the instance to replace.
      * @returns the fresh instance, in the same scene, parent and position.
@@ -380,9 +381,11 @@ export class Prefab {
         if (around !== null && holder !== null) {
             const index = instance.transform.getSiblingIndex();
             instance.destroyImmediate();
-            return SceneSerializer._restoreChild(
+            const rebuilt = SceneSerializer._restoreChild(
                 around.scopes, around.node, holder, index, around.tree.assets, around.chain,
             );
+            Prefab._reconnect(rebuilt);
+            return rebuilt;
         }
 
         const scene = instance.scene;
@@ -574,7 +577,10 @@ export class Prefab {
      * Done in place: a value is written back onto the object that holds it, an
      * added child or component is removed, a removed one is built again from
      * the prefab where it was. The objects not concerned keep their identity,
-     * and references to them from elsewhere stay valid.
+     * and references to them from elsewhere stay valid. References inside the
+     * instance to what is built again point at it again, wherever the
+     * prefabs say they do and nothing else was assigned since; a reference
+     * from outside the instance does not, since nothing records it.
      *
      * On an instance of this prefab nested inside another instance, a change
      * goes back to what the prefabs around it set, as {@link getChanges}
@@ -607,7 +613,7 @@ export class Prefab {
             const parent = this._liveNode(root, tree, { node: found.parent.id, path: [] });
             if (parent === null) return;
             const index = Prefab._liveIndex(parent, found.parent, found.parent.children.indexOf(found.node));
-            SceneSerializer._restoreChild(scopes, found.node, parent, index, assets, chain);
+            Prefab._reconnect(SceneSerializer._restoreChild(scopes, found.node, parent, index, assets, chain));
             return;
         }
 
@@ -646,7 +652,8 @@ export class Prefab {
         let seen = 0;
         const position = node.node.components.findIndex(c => c.type === change.component && seen++ === change.componentIndex);
         if (position < 0) return;
-        SceneSerializer._restoreComponent(scopes, node.node.components[position], live, position, assets);
+        const restored = SceneSerializer._restoreComponent(scopes, node.node.components[position], live, position, assets);
+        if (restored !== null) Prefab._reconnect(restored);
     }
 
     /**
@@ -819,7 +826,7 @@ export class Prefab {
                 if (parent === null || found.parent === null) return;
                 const index = t.getSiblingIndex();
                 live.destroyImmediate();
-                SceneSerializer._restoreChild(scopes, json, parent, index, tree.assets, chain);
+                Prefab._reconnect(SceneSerializer._restoreChild(scopes, json, parent, index, tree.assets, chain));
                 return;
             }
         }
@@ -840,6 +847,33 @@ export class Prefab {
             live = live.transform.getChild(index).gameObject;
         }
         return live;
+    }
+
+    /**
+     * Points back at `restored`, just rebuilt from a prefab, every reference
+     * in the instance around it that its prefabs aim there and that was left
+     * dangling when the object it replaces went away (see
+     * `SceneSerializer._reconnect`). References from outside the instance
+     * are not the prefabs' to say, and are left alone.
+     */
+    private static _reconnect(restored: GameObject | Component): void {
+        const go = "gameObject" in restored ? restored.gameObject : restored;
+        const top = go.outermostPrefabInstanceRoot;
+        const source = top?.prefabSource ?? null;
+        if (top === null || source === null) return;
+
+        for (const o of source.getChanges(top).overrides) {
+            if (o.component === null) continue;
+            const at = source._descend(top, o.node);
+            if (at === null) continue;
+            const address = { ...o, node: at.id ?? undefined };
+            const saved = PrefabDiff.nodeOf(at.tree, address)?.node
+                .components.filter(c => c.type === o.component)[o.componentIndex];
+            const live = source._liveNode(at.live, at.tree, address);
+            const target = live === null ? null : SceneSerializer._componentOf(live, o.component, o.componentIndex);
+            if (saved === undefined || target === null) continue;
+            SceneSerializer._reconnect(at.scopes, target, o.field, saved.fields[o.field] ?? null, restored);
+        }
     }
 
     /** The prefab guids a rebuilt nested link is checked against, so a cycle stops. */

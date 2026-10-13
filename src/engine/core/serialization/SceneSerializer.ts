@@ -1587,6 +1587,92 @@ export class SceneSerializer {
 
     /**
      * @internal
+     * Points a field back at what was just rebuilt, where it was left
+     * dangling — null, or holding a destroyed object — and its saved value
+     * `json` finds `restored`: the object, something below it, or, for a
+     * component, that component. Reached element by element through arrays
+     * and nested values, so nothing else in the field is touched. See
+     * {@link _restoreChild} for `scopes`.
+     *
+     * @remarks
+     * Rebuilding a removed child or component makes new objects, and every
+     * reference that pointed at the old ones still holds them. This is what
+     * puts those references back, without overwriting a field that was
+     * pointed somewhere else meanwhile.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _reconnect(
+        scopes: readonly GameObject[],
+        owner: object,
+        field: string,
+        json: unknown,
+        restored: GameObject | Component,
+    ): void {
+        if (owner instanceof MissingComponent) return;
+        const reaches = (found: GameObject | Component | null): boolean => {
+            if (found === null) return false;
+            if (restored instanceof Component) return found === restored;
+            const go = found instanceof Component ? found.gameObject : found;
+            for (let t: Transform | null = go.transform; t !== null; t = t.parent) {
+                if (t.gameObject === restored) return true;
+            }
+            return false;
+        };
+        const visit = (live: unknown, saved: unknown, set: (value: unknown) => void): void => {
+            if (Array.isArray(saved)) {
+                if (!Array.isArray(live) || live.length !== saved.length) return;
+                saved.forEach((item, i) => visit(live[i], item, value => { live[i] = value; }));
+                return;
+            }
+            if (saved === null || typeof saved !== "object") return;
+            const obj = saved as Record<string, unknown>;
+            if (obj["$type"] === "Nested") {
+                const fields = obj["fields"] as Record<string, unknown> | undefined;
+                if (live === null || typeof live !== "object" || fields === undefined) return;
+                for (const key of Object.keys(fields)) {
+                    visit((live as Record<string, unknown>)[key], fields[key],
+                        value => SceneSerializer._assign(live, key, value));
+                }
+                return;
+            }
+            if (obj["$type"] !== "GameObjectRef" && obj["$type"] !== "ComponentRef") return;
+            if (!SceneSerializer._dangling(live)) return;
+            const found = SceneSerializer._resolveSaved(scopes, obj);
+            if (reaches(found)) set(found);
+        };
+        visit((owner as Record<string, unknown>)[field], json, value => SceneSerializer._assign(owner, field, value));
+    }
+
+    /** Whether a live reference points at nothing: null, or an object that was destroyed. */
+    private static _dangling(value: unknown): boolean {
+        if (value === null || value === undefined) return true;
+        const exists = (value as { exists?: unknown }).exists;
+        return typeof exists === "function" && !(exists as () => boolean).call(value);
+    }
+
+    /**
+     * What a saved `GameObjectRef` or `ComponentRef` finds, read from inside
+     * the instance roots `scopes` the way a reference rebuilt there resolves.
+     */
+    private static _resolveSaved(
+        scopes: readonly GameObject[],
+        ref: Record<string, unknown>,
+    ): GameObject | Component | null {
+        const path = ref["path"];
+        if (!Array.isArray(path)) return null;
+        const stack = scopes.slice(1);
+        const scope = typeof ref["scope"] === "number" && ref["scope"] > 0 ? ref["scope"] : 0;
+        const base = scope < stack.length ? [stack[stack.length - 1 - scope]]
+            : scope === stack.length ? [scopes[0]]
+            : null;
+        const go = base === null ? null : SceneSerializer._lookupByPath(base, path as Array<number | string>);
+        if (go === null || ref["$type"] === "GameObjectRef") return go;
+        return SceneSerializer._findComponent(go, String(ref["component"] ?? ""), Number(ref["index"] ?? 0));
+    }
+
+    /**
+     * @internal
      * The `index`-th component of a registered type on `go`, or null.
      *
      * **NEVER use in user-facing code.**

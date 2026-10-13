@@ -32,6 +32,12 @@ class Aim extends Behaviour {
     public target: GameObject | null = null;
 }
 
+@Serializable({ typeName: "EditingSpec.Part" })
+class Part extends Behaviour {
+    @SerializedField({ type: FieldType.Component })
+    public part: object | null = null;
+}
+
 function clear(): void {
     for (const root of [...SceneManager.activeScene.getRootGameObjects()]) root.destroyImmediate();
 }
@@ -313,6 +319,108 @@ describe("reading, applying and reverting an instance's changes", () => {
         expect(shrunk.removeUnusedOverrides(back)).toBeNull();
         expect(() => prefab.removeUnusedOverrides(back)).toThrow(/not an instance/);
         warn.mockRestore();
+    });
+});
+
+describe("references to what a revert rebuilds", () => {
+    /** A Turret whose root aims at its Barrel and holds the Barrel's Tag. */
+    function aimingTurret(): Prefab {
+        return prefabOf(() => {
+            const root = make("Turret", "turret", make("Barrel", "barrel"));
+            root.addComponent(Aim).target = child(root, 0);
+            root.addComponent(Part).part = child(root, 0).getComponent(Tag);
+            return root;
+        }, "guid-turret");
+    }
+
+    test("a removed child brought back is what the prefab's references point at again", () => {
+        const prefab = aimingTurret();
+        const instance = prefab.instantiate();
+        child(instance, 0).destroyImmediate();
+
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedChildren![0]);
+
+        const barrel = child(instance, 0);
+        expect(instance.getComponent(Aim)!.target).toBe(barrel);
+        expect(instance.getComponent(Part)!.part).toBe(barrel.getComponent(Tag));
+        expect(prefab.getChanges(instance)).toEqual({ overrides: [] });
+        expect(saveLinked().roots[0].prefab!.changes).toEqual({ overrides: [] });
+    });
+
+    test("so is one removed in a saved scene and brought back after it is opened again", () => {
+        const prefab = aimingTurret();
+        child(prefab.instantiate(), 0).destroyImmediate();
+        const saved = saveLinked();
+        clear();
+        const [instance] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        expect(instance.getComponent(Aim)!.target).toBeNull();
+
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedChildren![0]);
+
+        expect(instance.getComponent(Aim)!.target).toBe(child(instance, 0));
+        expect(prefab.getChanges(instance)).toEqual({ overrides: [] });
+    });
+
+    test("a reference the scene pointed somewhere else is left where it points", () => {
+        const prefab = aimingTurret();
+        const player = new GameObject("Player");
+        const instance = prefab.instantiate();
+        instance.getComponent(Aim)!.target = player;
+        child(instance, 0).destroyImmediate();
+
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedChildren![0]);
+
+        expect(instance.getComponent(Aim)!.target).toBe(player);
+        expect(instance.getComponent(Part)!.part).toBe(child(instance, 0).getComponent(Tag));
+    });
+
+    test("a removed component brought back is what the prefab's references point at again", () => {
+        const prefab = aimingTurret();
+        const instance = prefab.instantiate();
+        const barrel = child(instance, 0);
+        barrel.removeComponent(barrel.getComponent(Tag)!);
+
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedComponents![0]);
+
+        expect(instance.getComponent(Part)!.part).toBe(barrel.getComponent(Tag));
+        expect(instance.getComponent(Aim)!.target).toBe(barrel);
+        expect(prefab.getChanges(instance)).toEqual({ overrides: [] });
+    });
+
+    test("inside a nested instance, and from the outer prefab into one", () => {
+        const inner = aimingTurret();
+        const outer = prefabOf(() => {
+            const nested = inner.instantiate();
+            const root = make("Tank", "tank", make("Hull", "hull"), nested);
+            root.addComponent(Aim).target = child(nested, 0);
+            return root;
+        }, "guid-tank");
+        const instance = outer.instantiate();
+        child(instance, 1, 0).destroyImmediate();
+
+        outer.revertOverride(instance, outer.getChanges(instance).removedChildren![0]);
+
+        const barrel = child(instance, 1, 0);
+        expect(child(instance, 1).getComponent(Aim)!.target).toBe(barrel);
+        expect(instance.getComponent(Aim)!.target).toBe(barrel);
+        expect(outer.getChanges(instance)).toEqual({ overrides: [] });
+    });
+
+    test("a nested instance rebuilt by revert is what the outer prefab's references point at", () => {
+        const inner = aimingTurret();
+        const outer = prefabOf(() => {
+            const nested = inner.instantiate();
+            const root = make("Tank", "tank", make("Hull", "hull"), nested);
+            root.addComponent(Aim).target = child(nested, 0);
+            return root;
+        }, "guid-tank");
+        const instance = outer.instantiate();
+        child(instance, 1, 0).getComponent(Tag)!.label = "mine";
+
+        const fresh = inner.revert(child(instance, 1));
+
+        expect(instance.getComponent(Aim)!.target).toBe(child(fresh, 0));
+        expect(outer.getChanges(instance)).toEqual({ overrides: [] });
     });
 });
 

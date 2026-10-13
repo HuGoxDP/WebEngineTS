@@ -1018,6 +1018,20 @@ the scene changed and "Apply to Prefab" applies only those. So:
 When the prefabs around it are not loaded, the nested instance is compared with its own prefab
 alone, as before.
 
+*Corrected after review:* reverting a removed child built it again but left every reference to
+it on the object that was destroyed — a reference to a destroyed object is written as `null` —
+so the references read as overrides from then on, and a link save recorded them. The same held
+for a removed component, a nested instance rebuilt by reverting its whole link, and a nested
+instance rebuilt by `revert`. After each rebuild, a field in the instance is pointed at the new
+object when its prefabs' value finds it there and the field is dangling — `null`, or holding a
+destroyed object (`SceneSerializer._reconnect`). A field assigned something else meanwhile is
+the instance's own, and is left alone. A reference from outside the instance is not the
+prefabs' to say, and is not restored. Unity restores those too, because its references are
+file ids and the object comes back under the same one; here a live reference holds the object
+itself, and nothing records which scene fields held the old one. Making the component case visible needed D4 first: a reference
+to the removed component was written as one to another of its type, so it never read as a
+change.
+
 The editor plan's own stage-14 row lives in another repository and is not changed from here.
 
 ### Stage 10 — Nested overrides, field by field
