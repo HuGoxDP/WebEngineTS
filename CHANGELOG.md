@@ -28,16 +28,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   children and components alongside the values (`PrefabChanges` and its parts are exported).
   An object that has no ids — one saved or copied before they existed, or the object a prefab
   was made from without `connect` — is still compared with the prefab by position, as before.
-  `Prefab.instantiate`, `instantiateWithOverrides` and `revert` return instances; `revert` keeps
-  the old one's place among its siblings. An instance keeps its link through undo, Play restore,
-  copy and paste and `EngineObject.Instantiate`; a copy of an object from *inside* an instance
-  is a plain object, as a duplicate of one is in Unity. A prefab made from an object that holds
-  another prefab's instance keeps it as a link, so it follows that prefab — and is no longer
-  instantiated as an empty shell. **Saved files gain two optional keys**: `id` on the nodes of a
-  prefab and of an instance, and `prefab: { guid }` on an instance root. A scene with no prefab
-  instance in it is written byte for byte as before, and a reader that predates the keys ignores
-  them. A prefab file written before ids existed is given ids derived from node positions, the
-  same ones on every load.
+  `Prefab.instantiate`, `instantiateWithOverrides` and `revert` return instances; `revert` puts
+  the fresh one in the old one's place (see *Changed*). An instance keeps its link through undo,
+  Play restore, copy and paste and `EngineObject.Instantiate`; a copy of an object from *inside*
+  an instance is a plain object, as a duplicate of one is in Unity. A prefab made from an object
+  that holds another prefab's instance keeps it as a link, so it follows that prefab — and is no
+  longer instantiated as an empty shell. **Saved files gain two optional keys**: `id` on the
+  nodes of a prefab and of an instance, and `prefab: { guid }` on an instance root. A scene with
+  no prefab instance in it is written byte for byte as before, and a reader that predates the
+  keys ignores them. A prefab file written before ids existed is given ids derived from node
+  positions, the same ones on every load.
 - **Scenes and prefab files can save prefab instances as links:**
   `SceneSerializer.serializeScene(scene, { prefabs: "link" })` (and `serializeGameObject`) writes
   an instance as its prefab plus what differs — values, added and removed children and
@@ -126,6 +126,12 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Changed
 
+- **`Prefab.revert` leaves the instance where it was.** The fresh instance keeps the old one's
+  place among its siblings and its name, local position and rotation — what an instance never
+  takes from its prefab, and what Unity's Revert All leaves alone too. It used to come back at
+  the prefab's own position, attached to the old parent keeping its world pose. The old instance
+  is now destroyed at once rather than once the running task finishes, so a save made straight
+  after a revert — an editor's undo snapshot, say — no longer writes both.
 - **`Prefab.toJSON()` returns the exported `SerializedPrefab`**, whose `snapshot` is optional: a
   variant saved with its base has `base` and `changes` instead. Code that reads `snapshot` from
   the result directly has to allow for that.

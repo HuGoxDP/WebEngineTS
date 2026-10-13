@@ -2,6 +2,8 @@ import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { GameObject } from "../src/engine/core/GameObject";
 import { EngineObject } from "../src/engine/core/EngineObject";
 import { Behaviour } from "../src/engine/core/Behaviour";
+import { Vector3 } from "../src/engine/core/math/Vector3";
+import { Quaternion } from "../src/engine/core/math/Quaternion";
 import { SceneManager } from "../src/engine/core/SceneManager";
 import { Serializable, SerializedField } from "../src/engine/core/reflection/Decorators";
 import { FieldType } from "../src/engine/core/reflection/Types";
@@ -237,6 +239,41 @@ describe("a prefab and its instances", () => {
         expect(reverted.prefabSource).toBe(prefab);
         expect(reverted.getComponent(Tag)!.label).toBe("turret");
         expect(prefab.getOverrides(reverted)).toEqual([]);
+    });
+
+    test("revert replaces the instance at once, so a save straight after writes it once", () => {
+        const prefab = turret();
+        const instance = prefab.instantiate();
+        instance.getComponent(Tag)!.label = "tweaked";
+
+        prefab.revert(instance);
+        const saved = SceneSerializer.serializeScene(SceneManager.activeScene);
+
+        expect(instance.exists()).toBe(false);
+        expect(saved.roots.map(r => r.name)).toEqual(["Turret"]);
+        expect(saved.roots[0].components[0].fields["label"]).toBe("turret");
+    });
+
+    test("revert keeps the instance's own name, position and rotation", () => {
+        const prefab = turret();
+        const instance = prefab.instantiate();
+        instance.name = "Left Turret";
+        instance.transform.localPosition = new Vector3(5, 0, -2);
+        const turned = Quaternion.euler(0, 90, 0);
+        instance.transform.localRotation = turned;
+        instance.transform.localScale = new Vector3(3, 3, 3);
+        instance.getComponent(Tag)!.label = "tweaked";
+
+        const reverted = prefab.revert(instance);
+
+        expect(reverted.name).toBe("Left Turret");
+        expect(reverted.transform.localPosition.x).toBeCloseTo(5);
+        expect(reverted.transform.localPosition.z).toBeCloseTo(-2);
+        expect(reverted.transform.localRotation.y).toBeCloseTo(turned.y);
+        expect(reverted.transform.localRotation.w).toBeCloseTo(turned.w);
+        expect(reverted.transform.localScale.x).toBeCloseTo(1);
+        expect(reverted.getComponent(Tag)!.label).toBe("turret");
+        expect(prefab.getChanges(reverted)).toEqual({ overrides: [] });
     });
 
     test("unpacking removes the link and the ids and leaves nested instances; unpacking completely removes those too", () => {

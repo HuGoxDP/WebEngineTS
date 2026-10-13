@@ -350,26 +350,36 @@ export class Prefab {
      * Equivalent to Unity's "Revert All". Implemented as destroy-and-recreate
      * rather than field-by-field assignment: a partial revert would leave any
      * component the prefab does not have still attached, which is not what
-     * reverting means.
+     * reverting means. The old instance is destroyed at once, so a save made
+     * straight after writes the fresh one alone.
      *
      * The fresh instance takes the old one's place: the same scene, parent and
      * sibling index, and — when it is nested inside another instance — the
      * same node id there, so the instance around it does not read the revert
-     * as one object removed and another added.
+     * as one object removed and another added. It also keeps the old one's
+     * name, position and rotation, which an instance never takes from its
+     * prefab (Unity's default overrides, which Revert All leaves alone too).
      *
      * @param instance - the instance to replace.
      * @returns the fresh instance, in the same scene, parent and position.
      */
     public revert(instance: GameObject): GameObject {
+        const scene = instance.scene;
         const parent = instance.transform.parent;
         const index = instance.transform.getSiblingIndex();
         const nodeId = instance._prefabNodeId;
-        instance.destroy();
+        const name = instance.name;
+        const position = instance.transform.localPosition.clone();
+        const rotation = instance.transform.localRotation.clone();
+        instance.destroyImmediate();
 
-        const fresh = this.instantiate(instance.scene);
+        const fresh = this.instantiate(scene);
         fresh.transform.setParent(parent, false);
         fresh.transform.setSiblingIndex(index);
         fresh._prefabNodeId = nodeId;
+        fresh.name = name;
+        fresh.transform.localPosition = position;
+        fresh.transform.localRotation = rotation;
         return fresh;
     }
 

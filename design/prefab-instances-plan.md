@@ -867,7 +867,11 @@ Nothing stamps instances yet, so the tests start from JSON.
 - **Stamping.** `instantiate`, `instantiateWithOverrides` and `revert` set
   `_prefabInfo = { source: this, guid: AssetDatabase.guidOf(this), … }`, keep the node ids, and
   set the root's id to null.
-- **`revert`** puts the new instance back at the old sibling index.
+- **`revert`** puts the new instance back at the old sibling index. *Corrected after review:* it
+  also keeps the old instance's name, position and rotation — the shell's fields (D-13), which
+  Unity's Revert All leaves alone — and destroys the old instance at once. A deferred destroy left
+  both in the scene until the running task finished, so an undo snapshot taken straight after a
+  revert wrote the instance twice.
 - **`getOverrides`** compares against `_serializeForPrefab(instance)`.
 - **`unpackPrefab`** refuses a nested root (§7.10).
 - **Exports.** `index.ts` exports `SerializeOptions`, `PrefabChanges`, `PrefabAddedChild`,
