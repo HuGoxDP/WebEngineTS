@@ -68,7 +68,10 @@ From Stage 6 on, a `path` may also contain **string segments**: node ids (§2.5)
 A scene with no prefab instance in it is written **byte for byte as before**. Nothing sets
 `_prefabInfo` or `_prefabNodeId` today, so none of these keys can appear. Key order and the
 children-before-components walk (which fixes the asset-table order) are unchanged from
-`bde23fc` (checked against that commit's `_serializeGO`).
+`bde23fc` (checked against that commit's `_serializeGO`). *Corrected after review:* that holds
+for what this feature adds. The defects fixed on the way (§4.6) change what a scene that hit
+them writes: a destroyed child is no longer written (D1), an inline asset keeps its table entry
+(D2), and a reference to a removed component is `null` (D4).
 
 ### 2.2 A prefab file
 
@@ -254,8 +257,9 @@ Read in full at `9ffd1d1`. The WIP is coherent; it is unfinished, not wrong.
    texts are now stale: `unity-parity-plan.md` Stage 4 ("structural changes are not overrides",
    "prefabs have no ids yet") and the `_createGameObject` JSDoc ("`_clone` round-trips through
    `Prefab`").
-6. **Four defects that exist without this feature**, all verified at HEAD with the Stage 1
-   fixes applied, and all in this feature's path (D3 was found while Stage 1 was written):
+6. **Five defects that exist without this feature**, all verified at HEAD with the Stage 1
+   fixes applied, and all in this feature's path (D3 was found while Stage 1 was written, D4 in
+   review):
    - **D1 — a destroyed child stays in its parent's child list, and is saved.**
      `GameObject.onDestroy` ends in `Transform.onDestroy`, which removes only the Three.js object.
      `Transform._children` still holds the dead transform. After `child.destroyImmediate()`,
@@ -283,10 +287,22 @@ Read in full at `9ffd1d1`. The WIP is coherent; it is unfinished, not wrong.
      as `bde23fc`. For E11 it is fatal: a link-mode shell sets the instance root's pose before its
      children are built. Found by the Stage 1 golden test, which had to keep its parent at the
      origin until the fix.
+   - **D4 — a reference to a removed component is saved as one to another** (found in review,
+     verified at `bde23fc`). A `ComponentRef` is the owner's path plus which component of that
+     type it is, and the writer counted a component no longer on its object as the first. A field
+     holding a removed component — a `Button.targetGraphic` whose image was removed — therefore
+     reopened pointing at the first component of the same type on that object. For E11 it hides a
+     removed component's references from the diff: they compare equal to the prefab's. It is now
+     written as `null`, as a reference to a destroyed GameObject always was.
 
 ## 5. Backward compatibility
 
 ### 5.1 Old scenes load exactly as before
+
+*Corrected after review:* their references and data do. Their child poses do not: since D3 a
+child is placed at the local pose it was saved with, where `bde23fc` subtracted its parent's —
+the saved pose is the one the author set, so this is the fix, but it changes what such a scene
+looks like when loaded.
 
 **How it is guaranteed.** An old file has no `id`, no `prefab` and no `scope`.
 

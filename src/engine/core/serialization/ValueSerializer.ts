@@ -46,7 +46,9 @@ export interface SerializeContext {
     componentTypeName(component: object): string | null;
     /**
      * Which of its GameObject's components of that same type this one is.
-     * `0` unless the object genuinely carries several.
+     * `0` unless the object genuinely carries several; `-1` when it is no
+     * longer on the object — removed or destroyed — so that a reference to it
+     * is written as nothing rather than as one to another component.
      */
     componentIndex(owner: GameObject, component: object): number;
     /**
@@ -588,7 +590,10 @@ export class ValueSerializer {
      *
      * @remarks
      * A reference out of the saved subtree, or to a class no registry knows, is
-     * nulled rather than written as a half-reference that fails on load.
+     * nulled rather than written as a half-reference that fails on load. So
+     * is one to a component no longer on its object, as one to a destroyed
+     * GameObject is: written by its type and position, it would come back
+     * pointing at another component of that type.
      */
     private static _componentRef(
         component: object,
@@ -598,13 +603,15 @@ export class ValueSerializer {
         const where = ValueSerializer._locate(ctx, owner);
         const typeName = ctx.componentTypeName(component);
         if (!where || typeName === null) return null;
+        const index = ctx.componentIndex(owner, component);
+        if (index < 0) return null;
 
         return {
             $type: "ComponentRef",
             path: where.path,
             ...(where.scope > 0 ? { scope: where.scope } : {}),
             component: typeName,
-            index: ctx.componentIndex(owner, component),
+            index,
         };
     }
 

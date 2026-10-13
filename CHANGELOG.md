@@ -35,8 +35,9 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   that holds another prefab's instance keeps it as a link, so it follows that prefab — and is no
   longer instantiated as an empty shell. **Saved files gain two optional keys**: `id` on the
   nodes of a prefab and of an instance, and `prefab: { guid }` on an instance root. A scene with
-  no prefab instance in it is written byte for byte as before, and a reader that predates the
-  keys ignores them. A prefab file written before ids existed is given ids derived from node
+  no prefab instance in it is written byte for byte as before — apart from the defects fixed
+  below, which change what a scene that hit them writes — and a reader that predates the keys
+  ignores them. A prefab file written before ids existed is given ids derived from node
   positions, the same ones on every load.
 - **Scenes and prefab files can save prefab instances as links:**
   `SceneSerializer.serializeScene(scene, { prefabs: "link" })` (and `serializeGameObject`) writes
@@ -195,6 +196,13 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   `(-1, -1.5, -3)`. Every load, undo and `EngineObject.Instantiate` of a hierarchy whose parents
   were not at the origin with no rotation and unit scale was affected. **Scenes that were saved
   after such a load hold the displaced values** and keep them; only the loader is fixed.
+- **A reference to a removed component no longer comes back pointing at another one.** A
+  component reference is saved as its object plus which component of that type it is, and a
+  component that had been removed counted as the first. So a field that held a removed component
+  — a button's target graphic, say — was saved as a reference to the first component of the same
+  type on that object, and reopened pointing there (or at nothing, if there was none). It is now
+  saved as `null`, as a reference to a destroyed GameObject always was. A scene that held such a
+  reference saves `null` where it used to write that `ComponentRef`.
 - **Four `Mesh.create*` primitives were wound inside out.** `createPlane`, `createCylinder`
   (its side wall), `createCapsule` and `createTorus` emitted triangle indices opposite to the
   normals they stored, so `side: FrontSide` culled them: a plane vanished entirely, a torus was a

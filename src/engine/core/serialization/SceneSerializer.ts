@@ -664,6 +664,8 @@ export class SceneSerializer {
             assetTable,
             componentTypeName: (component) => SceneSerializer._typeNameOf(component),
             componentIndex: (owner, component) => {
+                // The one component kept outside the list, and found by name.
+                if (component instanceof Transform) return component === owner.transform ? 0 : -1;
                 const list = (owner as unknown as { _components: Component[] })._components;
                 const name = SceneSerializer._typeNameOf(component);
                 let index = 0;
@@ -671,7 +673,7 @@ export class SceneSerializer {
                     if (candidate === component) return index;
                     if (SceneSerializer._typeNameOf(candidate) === name) index++;
                 }
-                return 0;
+                return -1;
             },
             nestedValue: (value) => {
                 // A value whose class was not registered when the scene loaded is

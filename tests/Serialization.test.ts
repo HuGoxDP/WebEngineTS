@@ -2320,6 +2320,20 @@ describe("SceneSerializer — component references", () => {
         expect(json.components.find(c => c.type === "Button")!.fields.targetGraphic).toBeNull();
     });
 
+    test("a reference to a removed component is saved as null, not as another of its type", () => {
+        const root = new GameObject("Panel");
+        root.addComponent(UIImage);
+        const second = root.addComponent(UIImage);
+        root.addComponent(Button).targetGraphic = second;
+        root.removeComponent(second);
+
+        const json = SceneSerializer.serializeGameObject(root);
+        const back = SceneSerializer.deserializeGameObject(json);
+
+        expect(json.components.find(c => c.type === "Button")!.fields.targetGraphic).toBeNull();
+        expect(back.getComponent(Button)!.targetGraphic).toBeNull();
+    });
+
     test("an array of component references round-trips", () => {
         const root = new GameObject("Panel");
         const holder = root.addComponent(ImageListHolder);
