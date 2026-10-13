@@ -39,7 +39,7 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   below, which change what a scene that hit them writes — and a reader that predates the keys
   ignores them. A prefab file written before ids existed is given ids derived from node
   positions, the same ones on every load.
-- **Scenes and prefab files can save prefab instances as links:**
+- **Scenes can save prefab instances as links, and prefab files always do** (see *Changed*):
   `SceneSerializer.serializeScene(scene, { prefabs: "link" })` (and `serializeGameObject`) writes
   an instance as its prefab plus what differs — values, added and removed children and
   components — so an edit to the prefab reaches every scene that uses it on its next load, while
@@ -143,6 +143,13 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   the prefab's own position, attached to the old parent keeping its world pose. The old instance
   is now destroyed at once rather than once the running task finishes, so a save made straight
   after a revert — an editor's undo snapshot, say — no longer writes both.
+- **Prefab files take the new form without anything opting in.** Link mode is opt-in for scenes
+  only: `Prefab.toJSON()` always writes the prefab instances nested in a prefab as links and the
+  references between its own objects by node id. A prefab holding either — most do — is
+  therefore `version: 2`, a version-1 file read with `Prefab.fromJSON` and saved again included.
+  An engine from before this build checks no version: reading such a file it throws on the
+  references, and builds the nested instances empty. A prefab file with neither stays in the
+  version-1 form, with only `id` keys added, which an older engine ignores.
 - **`Prefab.toJSON()` returns the exported `SerializedPrefab`**, whose `snapshot` is optional: a
   variant saved with its base has `base` and `changes` instead. Code that reads `snapshot` from
   the result directly has to allow for that.
@@ -200,7 +207,9 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   subtracted the parent's: a child at `(0, 0.5, 0)` under a parent at `(1, 2, 3)` came back at
   `(-1, -1.5, -3)`. Every load, undo and `EngineObject.Instantiate` of a hierarchy whose parents
   were not at the origin with no rotation and unit scale was affected. **Scenes that were saved
-  after such a load hold the displaced values** and keep them; only the loader is fixed.
+  after such a load hold the displaced values** and keep them; only the loader is fixed. **This
+  changes where such a scene's objects are when it is loaded, and so can change what it costs to
+  draw** — a measurement of a scene loaded from a file is not comparable across the fix.
 - **A reference to a removed component no longer comes back pointing at another one.** A
   component reference is saved as its object plus which component of that type it is, and a
   component that had been removed counted as the first. So a field that held a removed component

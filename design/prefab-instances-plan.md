@@ -1271,7 +1271,12 @@ New in `MissingComponent.test.ts`:
   which Stage 3 already makes link-preserving. *Corrected after review:* accepting version 2 is
   needed earlier than that. A default-mode save is version 2 when it writes back a placeholder's
   link, an unknown component's data with node ids, or `unused` changes (§2.5), so once the editor
-  can load a prefab file it can write an autosave it then refuses to reopen.
+  can load a prefab file it can write an autosave it then refuses to reopen. *Corrected after
+  review:* prefab files are already there. D-1 makes link mode opt-in for scenes; a prefab file
+  always keeps its nested instances as links and its internal references as node ids (Stages 5
+  and 6), so any prefab file holding either is version 2 — one read from a version-1 file and
+  saved again included. *Verified* against `bde23fc`: such a file throws on its references there,
+  and its nested instances load empty.
 - **Component identity.** Components have no ids; a `ComponentRef` is a type plus an index.
   Removing the first of two same-type components in an instance is recorded as field overrides on
   #0 plus a removal of #1. The rebuild is right, but the "modified" markers and per-override
