@@ -495,7 +495,6 @@ describe("changes inside a nested prefab instance", () => {
         const changes = outer.getChanges(instance);
 
         expect(changes.overrides).toEqual([{
-            path: [1, 0],
             node: `${nested.prefabNodeId}/${child(nested, 0).prefabNodeId}`,
             component: "EditingSpec.Tag",
             componentIndex: 0,

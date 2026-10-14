@@ -324,8 +324,11 @@ describe("objects without node ids", () => {
         return tank;
     }
 
+    /** The prefab node an override lands on, by name: overrides carry the node's id, not its position. */
+    const nodeName = (prefab: Prefab, o: { node?: string; path?: number[] }): string | undefined =>
+        PrefabDiff.nodeOf(prefab._resolvedTree(), o)?.node.name;
     const described = (prefab: Prefab, go: GameObject): string[] =>
-        prefab.getOverrides(go).map(o => `${JSON.stringify(o.path)} ${o.field}=${JSON.stringify(o.value)}`);
+        prefab.getOverrides(go).map(o => `${nodeName(prefab, o)} ${o.field}=${JSON.stringify(o.value)}`);
 
     test("the object a prefab was made from without connecting is compared with it by position", () => {
         const source = plainTank();
@@ -335,7 +338,7 @@ describe("objects without node ids", () => {
 
         child(source, 0).name = "Hull 2";
         child(source, 1, 0).getComponent(Tag)!.label = "long";
-        expect(described(prefab, source)).toEqual(['[0] name="Hull 2"', '[1,0] label="long"']);
+        expect(described(prefab, source)).toEqual(['Hull name="Hull 2"', 'Barrel label="long"']);
         expect(child(source, 0).prefabNodeId).toBeNull();
     });
 
@@ -361,7 +364,7 @@ describe("objects without node ids", () => {
         const [loaded] = SceneSerializer.deserializeScene(old);
         child(loaded, 1, 0).getComponent(Tag)!.label = "long";
 
-        expect(described(prefab, loaded)).toEqual(['[1,0] label="long"']);
+        expect(described(prefab, loaded)).toEqual(['Barrel label="long"']);
         const changes = prefab.getChanges(loaded);
         expect(changes.overrides.map(o => o.field)).toEqual(["label"]);
         expect(changes.addedChildren).toBeUndefined();
@@ -380,7 +383,7 @@ describe("objects without node ids", () => {
 
         const changes = PrefabDiff.compareChanges(prefab._resolvedTree(), snapshot);
 
-        expect(changes.overrides.map(o => `${JSON.stringify(o.path)} ${o.field}`)).toEqual(["[1,0] label"]);
+        expect(changes.overrides.map(o => `${nodeName(prefab, o)} ${o.field}`)).toEqual(["Barrel label"]);
         expect(changes.addedChildren!.map(a => a.node.name)).toEqual(["Flag"]);
         expect(changes.removedChildren).toBeUndefined();
         expect(JSON.stringify(snapshot)).toBe(before);

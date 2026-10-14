@@ -1151,7 +1151,7 @@ export class SceneSerializer {
      * prefab (Unity's default overrides).
      */
     private static _isShellOverride(o: PrefabOverride, tree: SerializedGameObject): boolean {
-        const atRoot = o.node !== undefined ? o.node === tree.id : o.path.length === 0;
+        const atRoot = o.node !== undefined ? o.node === tree.id : (o.path ?? []).length === 0;
         return atRoot && o.component === null && SHELL_FIELDS.has(o.field);
     }
 

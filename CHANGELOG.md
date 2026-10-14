@@ -191,6 +191,13 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   placeholder's link, the data of an unknown component or value, changes kept as unused. A prefab
   file from before node ids has its references read as ids on load, the data of its unknown
   components included.
+- **`PrefabOverride.path` is optional, and not written where `node` is.** An override addresses
+  its object by node id; the position written beside it changed whenever the prefab gained or
+  lost a child in front, so a link save of a scene nobody touched rewrote every such override and
+  showed a diff in version control. It is now written only for a prefab whose nodes have no ids;
+  one read from an older file is accepted and ignored. Code that reads `path` from what
+  `getOverrides`, `getChanges` or `compareChanges` return must allow for its absence and use
+  `node` (`GameObject.prefabNodeId` maps it to the live object).
 - **`Texture2D.fromKTX2ArrayBuffer` warns once per run** when `maxSize` is set, because the cap
   does not reach it. Behaviour is unchanged — one console line where there was silence.
 

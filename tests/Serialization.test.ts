@@ -2650,13 +2650,15 @@ describe("Prefab — per-instance overrides", () => {
         const overrides = prefab.getOverrides(instance);
 
         expect(overrides.length).toBe(1);
-        expect(overrides[0].path).toEqual([]);
+        // Addressed by node id; a position is written only for a prefab without ids.
+        expect(overrides[0].node).toBe(prefab._resolvedTree().id);
+        expect(overrides[0].path).toBeUndefined();
         expect(overrides[0].component).toBe("TestScript");
         expect(overrides[0].field).toBe("speed");
         expect(overrides[0].value).toBe(12);
     });
 
-    test("a change on a child carries the child's path", () => {
+    test("a change on a child carries the child's node id", () => {
         const prefab = makePrefab();
         const instance = prefab.instantiate();
         instance.transform.getChild(0).gameObject.getComponent(AnotherScript)!.value = 99;
@@ -2664,7 +2666,8 @@ describe("Prefab — per-instance overrides", () => {
         const overrides = prefab.getOverrides(instance);
 
         expect(overrides.length).toBe(1);
-        expect(overrides[0].path).toEqual([0]);
+        expect(overrides[0].node).toBe(instance.transform.getChild(0).gameObject.prefabNodeId);
+        expect(overrides[0].path).toBeUndefined();
         expect(overrides[0].value).toBe(99);
     });
 

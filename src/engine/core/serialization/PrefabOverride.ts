@@ -16,10 +16,13 @@ export interface PrefabOverride {
      * Child indices from the instance root down to the owning GameObject, in the
      * prefab's own tree. Empty for the root itself.
      *
-     * Informational once {@link node} is present: the node is found by id, so a
-     * prefab that gains or loses a sibling does not misdirect the override.
+     * Written only where {@link node} is absent — a prefab whose nodes have no
+     * ids. Where `node` is present the node is found by id, so a position
+     * would only move whenever the prefab gains or loses a child in front,
+     * rewriting files whose instances did not change; it is not written, and
+     * one read from an older file is ignored.
      */
-    path: number[];
+    path?: number[];
     /**
      * Id of the owning node within the prefab, when its nodes have ids — which
      * every prefab made by {@link Prefab.fromGameObject} does.
@@ -479,7 +482,7 @@ export class PrefabDiff {
 
             const node = override.node !== undefined
                 ? byId.get(override.node)?.node
-                : PrefabDiff._nodeAt(clone, override.path);
+                : PrefabDiff._nodeAt(clone, override.path ?? []);
             if (!node) continue;
 
             if (override.component === null) {
@@ -816,7 +819,7 @@ export class PrefabDiff {
     ): void {
         const node = foreign ? undefined : prefab.id;
         const at = (rest: Omit<PrefabOverride, "path" | "node">): PrefabOverride =>
-            node === undefined ? { path, ...rest } : { path, node, ...rest };
+            node === undefined ? { path, ...rest } : { node, ...rest };
 
         // A nested instance whose link differs: field by field when its prefab
         // can be read.
@@ -1010,7 +1013,10 @@ export class PrefabDiff {
             if (!(a ?? []).every(e => has(b, e))) return null;
             return (b ?? []).filter(e => !has(a, e));
         };
-        const overrides = to.overrides.filter(o => !from.overrides.some(e => PrefabDiff._equal(e, o)));
+        // The same value of the same field, whatever position an older file
+        // wrote beside the node id.
+        const overrides = to.overrides.filter(o =>
+            !from.overrides.some(e => PrefabDiff._sameField(e, o) && PrefabDiff._equal(e.value, o.value)));
         const addedChildren = extra(from.addedChildren, to.addedChildren);
         const removedChildren = extra(from.removedChildren, to.removedChildren);
         const addedComponents = extra(from.addedComponents, to.addedComponents);
@@ -1035,7 +1041,10 @@ export class PrefabDiff {
         if (inner.overrides.some(o => o.node === undefined)) return null;
         const nest = (id: string): string => `${node}${NEST}${id}`;
         return {
-            overrides: inner.overrides.map(o => ({ ...o, path: [...path, ...o.path], node: nest(o.node!) })),
+            overrides: inner.overrides.map(o => {
+                const { path: _ignored, ...rest } = o;
+                return { ...rest, node: nest(o.node!) };
+            }),
             addedChildren: inner.addedChildren?.map(e => ({ ...e, parent: nest(e.parent) })),
             removedChildren: inner.removedChildren?.map(nest),
             addedComponents: inner.addedComponents?.map(e => ({ ...e, node: nest(e.node) })),
@@ -1078,7 +1087,9 @@ export class PrefabDiff {
         for (const o of changes.overrides) {
             const nested = o.node !== undefined ? splitNested(o.node) : null;
             if (nested !== null) {
-                layer(nested.head).overrides.push({ ...o, path: o.path.slice(depth(nested.head)), node: nested.rest });
+                const inner: PrefabOverride = { ...o, node: nested.rest };
+                if (o.path !== undefined) inner.path = o.path.slice(depth(nested.head));
+                layer(nested.head).overrides.push(inner);
             }
         }
         for (const r of changes.removedComponents ?? []) {

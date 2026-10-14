@@ -135,9 +135,9 @@ whose paths hold node ids (§2.5).
   { "name": "Tank", "active": true, "transform": …, "components": [], "children": [],
     "prefab": { "guid": "guid-tank", "changes": {
       "overrides": [
-        { "path": [1], "node": "0uak7004", "component": null, "componentIndex": 0, "field": "prefab",
+        { "node": "0uak7004", "component": null, "componentIndex": 0, "field": "prefab",
           "value": { "guid": "guid-turret", "changes": { "overrides": [
-            { "path": [0], "node": "4xe08002", "component": "Game.Aim", "componentIndex": 0,
+            { "node": "4xe08002", "component": "Game.Aim", "componentIndex": 0,
               "field": "target", "value": { "$type": "GameObjectRef", "path": [0], "scope": 2 } } ] } } }
       ],
       "addedChildren": [
@@ -1131,6 +1131,8 @@ link and froze it against later outer-prefab edits. Now:
   is still one whole-link value.
 - Folding strips the nested instance's own place from an override's informational `path`, so a
   scene opened and saved while the nested prefab is missing is written back byte for byte.
+  (Since A1 an override that has a `node` is written without `path` at all — §11, settled — so
+  this matters only for a file from before that.)
 
 *Corrected after review:* `applyChanges` first composed by adding the `"outer/inner"` changes to
 the nested link's own and applying the result in its fixed order — values, then removals, then
@@ -1355,21 +1357,21 @@ New in `MissingComponent.test.ts`:
   assets its changes need into the scene's table. Fixing it for variants means giving a variant
   file an `assets` table and `createVariant` a way to receive one; it is a format addition, so it
   is left to the owner. Until then, give a variant's materials files of their own.
-- **An override's `path` follows the prefab, so a prefab edit rewrites scenes that did not
-  change** (found in review, verified). `PrefabOverride.path` is the node's position in the
-  prefab's own tree, computed afresh on every save, and only informational wherever `node` is
-  present: nothing reads it then. When a prefab gains or loses a child in front of an
-  overridden node — a Turret gaining a Shield before its Barrel — a link save of a scene nobody
-  touched writes the new position into every such override. Every scene that uses the prefab
-  then differs in version control although its instances did not change; references and values
-  are unaffected, since they go by id. Keeping the position that was read would make it wrong
-  instead. The clean fix is not to write `path` where `node` is present, which changes the link
-  format and makes `path` optional in the exported `PrefabOverride` type — a decision for the
-  owner. Taken before the editor turns link mode on (first item), it costs nothing in
-  compatibility, as D-5 argued for ids; taken after, it means reading two forms for good.
 - **Bookkeeping.** E11 has no row in `.claude-shared/ENGINE-GAPS.md` yet. The editor plan says
   rows are added when the stage reaches them, so the row goes in when Stage 1 starts. D1 is an
   engine defect found by the engine; it belongs in this repo's CHANGELOG, not in the gap index.
+
+### Settled from this list
+
+- **An override's `path` follows the prefab** (found in review, verified; settled in A1, review
+  #10). `PrefabOverride.path` was the node's position in the prefab's own tree, computed afresh
+  on every save and only informational wherever `node` is present, so a prefab gaining a child in
+  front of an overridden node — a Turret gaining a Shield before its Barrel — made a link save of
+  a scene nobody touched write the new position into every such override. *Decided before the
+  format freezes:* `path` is not written where `node` is present, and is optional in the exported
+  `PrefabOverride` type. Readers still accept it from older files and go by `node`; every reader of
+  an override's `path` in the serializer falls back to it only for a prefab without ids. An
+  unchanged scene now re-saves byte-identically after its prefab grows.
 
 ## 12. Related
 

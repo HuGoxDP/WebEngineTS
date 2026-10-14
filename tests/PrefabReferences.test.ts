@@ -301,3 +301,58 @@ describe("references into a prefab instance", () => {
         expect(JSON.stringify(saved)).not.toMatch(/"scope":/);
     });
 });
+
+describe("an override names its node by id alone", () => {
+    /** A Tank whose Hull and whose Turret's Barrel the scene relabelled, saved as a link. */
+    function edited(): SerializedScene {
+        const [tank] = SceneSerializer.deserializeScene(scene(tankLink()));
+        tank.getComponent(Aim)!.target = null;
+        child(tank, 1, 0).name = "Barrel 2";
+        child(tank, 0).name = "Hull 2";
+        return saveLinked();
+    }
+
+    test("no position is written beside a node id", () => {
+        const saved = edited();
+
+        const overrides = saved.roots[0].prefab!.changes!.overrides;
+        expect(overrides.map(o => o.node)).toEqual(["k-root", "k-hull", "k-turret/t-barrel"]);
+        expect(JSON.stringify(saved)).not.toMatch(/"path":\[\d/);
+    });
+
+    for (const [grows, edit] of [
+        ["Tank gains a child before its Hull", () => {
+            const tree = tankTree();
+            tree.children.unshift(node("Armour", { id: "k-armour" }));
+            bind("guid-tank", tree);
+        }],
+        ["Turret gains a child before its Barrel", () => {
+            const tree = turretTree();
+            tree.children.unshift(node("Shield", { id: "t-shield" }));
+            bind("guid-turret", tree);
+        }],
+    ] as const) {
+        test(`an untouched scene saves the same bytes after a prefab grows: ${grows}`, () => {
+            const saved = JSON.stringify(edited());
+            clear();
+            edit();
+
+            SceneSerializer.deserializeScene(JSON.parse(saved));
+
+            expect(JSON.stringify(saveLinked())).toBe(saved);
+        });
+    }
+
+    test("a position an older file wrote beside the node id is read past, and not written again", () => {
+        const older = scene(node("Tank", { prefab: { guid: "guid-tank", changes: { overrides: [
+            // A stale position: the node id is what counts.
+            { path: [7], node: "k-hull", component: null, componentIndex: 0, field: "name", value: "Hull 2" },
+        ] } } }));
+
+        const [tank] = SceneSerializer.deserializeScene(older);
+
+        expect(child(tank, 0).name).toBe("Hull 2");
+        expect(saveLinked().roots[0].prefab!.changes!.overrides)
+            .toEqual([{ node: "k-hull", component: null, componentIndex: 0, field: "name", value: "Hull 2" }]);
+    });
+});

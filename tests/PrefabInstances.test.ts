@@ -341,7 +341,7 @@ describe("a prefab instance saved as its prefab plus changes", () => {
     /** Every kind of change, in the order the writer produces them. */
     const CHANGES = {
         overrides: [
-            { path: [0], node: "k-hull", component: "PrefabSpec.Tag", componentIndex: 0, field: "label", value: "patched" },
+            { node: "k-hull", component: "PrefabSpec.Tag", componentIndex: 0, field: "label", value: "patched" },
         ],
         addedChildren: [
             { parent: "k-root", index: 2, after: "k-turret", node: node("Flag", {
