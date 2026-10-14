@@ -413,7 +413,7 @@ Stage 1 (layout dirty flags → rotation/scale → layout groups) is next.
 ## Dependencies
 
 - Runtime: `three` (peer dep ≥0.160.0), `jszip`, `tslib`, `reflect-metadata`
-- Build: `rollup`, `@rollup/plugin-typescript`, `@rollup/plugin-node-resolve`, `@rollup/plugin-commonjs`, `rollup-plugin-dts`
+- Build: `rollup`, `@rollup/plugin-typescript`, `@rollup/plugin-node-resolve`, `@rollup/plugin-commonjs`, `rollup-plugin-dts`, `@rollup/plugin-terser` (standalone build only)
 - Types: `@types/three`, `@types/node`
 
 ## Communication
