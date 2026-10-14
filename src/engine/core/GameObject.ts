@@ -140,6 +140,12 @@ export class GameObject extends EngineObject {
      *
      * A prefab instance nested inside another is the root of its own
      * instance, so this is true for it as well.
+     *
+     * The link survives a copy (`EngineObject.Instantiate`) or a save only
+     * when the prefab has an asset id — it was saved, or loaded through
+     * `Resources` or `AssetDatabase`. A prefab made in code and never given
+     * one has nothing to be named by, so its instance is copied and written
+     * as a plain tree, and the copy reports false.
      */
     public get isPrefabInstance(): boolean {
         return this._prefabInfo !== null;
@@ -151,7 +157,9 @@ export class GameObject extends EngineObject {
      * @remarks
      * Null for an object that is not an instance, and also for one whose prefab
      * is not loaded — the link is still there then ({@link isPrefabInstance}),
-     * and the prefab is found once it is.
+     * and the prefab is found once it is. A copy or a save keeps the link only
+     * for a prefab that has an asset id (see {@link isPrefabInstance}); for any
+     * other the copy has no prefab at all.
      */
     public get prefabSource(): Prefab | null {
         const info = this._prefabInfo;

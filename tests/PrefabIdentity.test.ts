@@ -207,6 +207,30 @@ describe("a prefab and its instances", () => {
         expect(prefab.getOverrides(copy)).toEqual([]);
     });
 
+    test("a prefab with no asset id loses its link on copy and on save, and keeps it once it has one", () => {
+        const source = make("Turret", "turret", make("Barrel", "barrel"));
+        const prefab = Prefab.fromGameObject(source);
+        source.destroyImmediate();
+        const instance = prefab.instantiate();
+        expect(instance.isPrefabInstance).toBe(true);
+
+        const copy = EngineObject.Instantiate(instance) as GameObject;
+        expect(copy.isPrefabInstance).toBe(false);
+        expect(child(copy, 0).getComponent(Tag)!.label).toBe("barrel");
+
+        const loaded = SceneSerializer.deserializeScene(SceneSerializer.serializeScene(SceneManager.activeScene));
+        expect(loaded.map(go => go.name)).toEqual(["Turret", "Turret"]);
+        for (const go of loaded) {
+            expect(go.isPrefabInstance).toBe(false);
+            expect(child(go, 0).getComponent(Tag)!.label).toBe("barrel");
+        }
+
+        AssetDatabase._bindGuid("guid-late", prefab);
+        const kept = EngineObject.Instantiate(instance) as GameObject;
+        expect(kept.isPrefabInstance).toBe(true);
+        expect(kept.prefabSource).toBe(prefab);
+    });
+
     test("duplicating a node inside an instance gives an added object", () => {
         const prefab = turret();
         const instance = prefab.instantiate();

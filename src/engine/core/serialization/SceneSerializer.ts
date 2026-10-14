@@ -154,7 +154,10 @@ export interface SerializeOptions {
      * - `"link"` — only the prefab and what differs from it, which is what lets
      *   an edit to the prefab reach every scene that uses it. Reading it back
      *   needs the prefab loaded first; {@link SceneSerializer.assetReferences}
-     *   says which.
+     *   says which. Only an instance whose prefab has an asset id can be
+     *   written this way (it was saved, or loaded through `Resources` or
+     *   `AssetDatabase`); any other is written as a plain tree, and reads back
+     *   as one.
      */
     prefabs?: "expand" | "link";
 }

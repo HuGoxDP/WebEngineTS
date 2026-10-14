@@ -30,7 +30,10 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   was made from without `connect` — is still compared with the prefab by position, as before.
   `Prefab.instantiate`, `instantiateWithOverrides` and `revert` return instances; `revert` puts
   the fresh one in the old one's place (see *Changed*). An instance keeps its link through undo,
-  Play restore, copy and paste and `EngineObject.Instantiate`; a copy of an object from *inside*
+  Play restore, copy and paste and `EngineObject.Instantiate` — provided its prefab has an asset
+  id (it was saved, or loaded through `Resources` or `AssetDatabase`). A prefab made in code and
+  never given one has nothing to be named by, so its instances are copied and saved as plain
+  trees and the copy is not an instance. A copy of an object from *inside*
   an instance is a plain object, as a duplicate of one is in Unity. A prefab made from an object
   that holds another prefab's instance keeps it as a link, so it follows that prefab — and is no
   longer instantiated as an empty shell. **Saved files gain two optional keys**: `id` on the
