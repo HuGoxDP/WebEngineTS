@@ -95,15 +95,19 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   keep their identity and references to them stay valid; a removed child or component it
   builds again is what the instance's references point at again, wherever its prefabs say so
   and the reference still holds the removed object — and so is what any reference elsewhere in
-  the scene that still held it points at, found by node id. A reference set to `null` is never
-  re-pointed, since it may be the scene's own change — so **a reference to a removed object that
-  was saved and reloaded in between stays null**. A nested instance whose children were reordered
-  is reported as removed and added again under one id; reverting either half reverts both, and
-  builds the nested instance once, as a link — reverting one half used to leave two live copies
-  under one id, or none. `Prefab.revert` keeps every reference from elsewhere in the scene into
+  the scene that still held it points at, found by node id (a component only when it is the one
+  of its type there; otherwise the reference is left empty, with a warning). A reference set to
+  `null` is never re-pointed, since it may be the scene's own change — so **a reference to a
+  removed object that was saved and reloaded in between stays null**. A nested instance whose
+  children were reordered is reported as removed and added again under one id; reverting either
+  half reverts both, and builds the nested instance once, as a link — reverting one half used to
+  leave two live copies under one id, or none. `Prefab.revert` keeps every reference from elsewhere in the scene into
   the instance — from its twin in the same outer prefab, the instance around it, or a plain scene
   object — pointing at the object that takes its place, as Unity's revert keeps identity; one
   whose object the revert takes away is left empty, with a warning naming the holder and field.
+  An object the scene added is never taken for the prefab's object that now stands at its place,
+  and a component on an object that had fewer of its type than the prefab gives it is left empty
+  too, since which of them it was cannot be told until components have ids of their own.
   `Prefab.removeUnusedOverrides` drops what no longer applies. `Prefab.fromGameObject(go, name, { connect: true })` makes `go` an
   instance of the prefab made from it, as Unity's Save As Prefab Asset And Connect does. Asked
   of a prefab nested inside another instance, each of these works against that prefab as the

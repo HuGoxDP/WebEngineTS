@@ -387,15 +387,36 @@ export class SceneSerializer {
             prefabRoot: go,
             ownAssets: true,
         });
-        if (options.match !== undefined && !SceneSerializer._hasOwnIds(go, ctx)) {
-            SceneSerializer._borrowIds(go, options.match, ctx);
-        }
         // Every node gets its id before anything is written, so that the
         // prefab's own references can address them by it.
-        SceneSerializer._mintAll(go, ctx);
+        SceneSerializer._giveAllIds(go, options.match, ctx);
         const root = SceneSerializer._serializeNode(go, ctx, false, true);
         if (ctx.assetTable.length > 0) root.assets = ctx.assetTable;
         return root;
+    }
+
+    /**
+     * @internal
+     * Stores on `go` and the objects below it the node ids
+     * {@link _serializeForPrefab} with `mintLive` would give them, and writes
+     * nothing: an object added to an instance gets a new id, and one of a copy
+     * from before ids the id of the node at its place in `match`. What a
+     * revert does first, so that it can tell the objects it builds again from
+     * those it takes away.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _nameForPrefab(go: GameObject, match?: SerializedGameObject): void {
+        const ctx = SceneSerializer._buildSerializeCtx([go], true, null, { mintLive: true, prefabRoot: go });
+        SceneSerializer._giveAllIds(go, match, ctx);
+    }
+
+    /** {@link _borrowIds} from `match` for a copy from before ids, then {@link _mintAll}. */
+    private static _giveAllIds(go: GameObject, match: SerializedGameObject | undefined, ctx: SceneCtx): void {
+        if (match !== undefined && !SceneSerializer._hasOwnIds(go, ctx)) {
+            SceneSerializer._borrowIds(go, match, ctx);
+        }
+        SceneSerializer._mintAll(go, ctx);
     }
 
     /**

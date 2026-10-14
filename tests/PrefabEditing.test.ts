@@ -1124,6 +1124,187 @@ describe("a revert keeps the references into what it builds again", () => {
 
         expect(player.getComponent(Part)!.part).toBe(barrel.getComponent(Tag));
     });
+
+    test("an object the instance added in front of the prefab's own is not mistaken for the one now at its place", () => {
+        const { tank } = world();
+        const player = new GameObject("Player");
+        const instance = tank.instantiate();
+        // Never compared or saved, so it has no node id yet.
+        const flag = new GameObject("Flag");
+        flag.transform.setParent(instance.transform, false);
+        flag.transform.setSiblingIndex(0);
+        player.addComponent(Aim).target = flag;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const fresh = tank.revert(instance);
+
+        expect(player.getComponent(Aim)!.target).toBeNull();
+        expect(child(fresh, 0).name).toBe("Hull");
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain("not there any more: Player.EditingSpec.Aim.target");
+        warn.mockRestore();
+    });
+
+    test("so is one added in front of a nested instance's own, when that instance is reverted", () => {
+        const { turret, tank } = world();
+        const player = new GameObject("Player");
+        const instance = tank.instantiate();
+        const scope = new GameObject("Scope");
+        scope.transform.setParent(child(instance, 1).transform, false);
+        scope.transform.setSiblingIndex(0);
+        player.addComponent(Aim).target = scope;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const fresh = turret.revert(child(instance, 1));
+
+        expect(player.getComponent(Aim)!.target).toBeNull();
+        expect(child(fresh, 0).name).toBe("Barrel");
+        expect(warn).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+    });
+
+    test("so is one added in front of a nested instance's own, when the instance around it is reverted", () => {
+        const { tank } = world();
+        const player = new GameObject("Player");
+        const instance = tank.instantiate();
+        const scope = new GameObject("Scope");
+        scope.transform.setParent(child(instance, 1).transform, false);
+        scope.transform.setSiblingIndex(0);
+        player.addComponent(Aim).target = scope;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const fresh = tank.revert(instance);
+
+        expect(player.getComponent(Aim)!.target).toBeNull();
+        expect(child(fresh, 1, 0).name).toBe("Barrel");
+        expect(warn).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+    });
+});
+
+describe("a revert and a component one of several of its type", () => {
+    /** Crate > Lid, where Lid has two Tags: "lid", then "second". */
+    function crate(): Prefab {
+        return prefabOf(() => {
+            const lid = make("Lid", "lid");
+            lid.addComponent(Tag).label = "second";
+            return make("Crate", "crate", lid);
+        }, "guid-crate");
+    }
+
+    test("one held on an object that lost another of its type is left empty, not moved to that other", () => {
+        const prefab = crate();
+        const player = new GameObject("Player");
+        const instance = prefab.instantiate();
+        const tags = child(instance, 0).getComponents(Tag);
+        child(instance, 0).removeComponent(tags[0]);
+        player.addComponent(Part).part = tags[1];
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        prefab.revert(instance);
+
+        // Which Tag it held cannot be told by type and occurrence; components
+        // have no ids of their own yet.
+        expect(player.getComponent(Part)!.part).toBeNull();
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain("one of several components of a type");
+        warn.mockRestore();
+    });
+
+    test("so is one held across a link save and load", () => {
+        const prefab = crate();
+        const instance = prefab.instantiate();
+        const tags = child(instance, 0).getComponents(Tag);
+        child(instance, 0).removeComponent(tags[0]);
+        new GameObject("Player").addComponent(Part).part = tags[1];
+        const json = JSON.parse(JSON.stringify(saveLinked()));
+        clear();
+        const roots = SceneSerializer.deserializeScene(json);
+        const player = roots.find(r => r.name === "Player")!;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        prefab.revert(roots.find(r => r.name === "Crate")!);
+
+        expect(player.getComponent(Part)!.part).toBeNull();
+        expect(warn).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+    });
+
+    test("one held on an object with all of its type is kept", () => {
+        const prefab = crate();
+        const player = new GameObject("Player");
+        const instance = prefab.instantiate();
+        child(instance, 0).getComponents(Tag)[1].count = 4;
+        player.addComponent(Part).part = child(instance, 0).getComponents(Tag)[1];
+
+        const fresh = prefab.revert(instance);
+
+        expect(player.getComponent(Part)!.part).toBe(child(fresh, 0).getComponents(Tag)[1]);
+    });
+
+    test("bringing back one of two removed components empties the reference, and bringing back the other does not fill it", () => {
+        const prefab = crate();
+        const player = new GameObject("Player");
+        const instance = prefab.instantiate();
+        const lid = child(instance, 0);
+        const tags = lid.getComponents(Tag);
+        player.addComponent(Part).part = tags[0];
+        lid.removeComponent(tags[0]);
+        lid.removeComponent(tags[1]);
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedComponents![0]);
+        expect(player.getComponent(Part)!.part).toBeNull();
+
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedComponents![0]);
+        expect(player.getComponent(Part)!.part).toBeNull();
+        expect(prefab.getChanges(instance)).toEqual({ overrides: [] });
+        expect(warn).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+    });
+
+    test("bringing back a removed component does not aim a reference at it when another held one the scene added", () => {
+        const prefab = crate();
+        const first = new GameObject("First");
+        const second = new GameObject("Second");
+        const instance = prefab.instantiate();
+        const lid = child(instance, 0);
+        first.addComponent(Part).part = lid.getComponents(Tag)[0];
+        lid.removeComponent(lid.getComponents(Tag)[0]);
+        const extra = lid.addComponent(Tag);
+        second.addComponent(Part).part = extra;
+        lid.removeComponent(extra);
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedComponents![0]);
+
+        // One of the two was the prefab's, the other the scene's own; which is
+        // which cannot be told by type until components have ids.
+        expect(first.getComponent(Part)!.part).toBeNull();
+        expect(second.getComponent(Part)!.part).toBeNull();
+        expect(lid.getComponents(Tag)).toHaveLength(2);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain("2 different ones of that type");
+        warn.mockRestore();
+    });
+
+    test("bringing back a removed child says why a reference to one of its several components is left empty", () => {
+        const prefab = crate();
+        const player = new GameObject("Player");
+        const instance = prefab.instantiate();
+        player.addComponent(Part).part = child(instance, 0).getComponents(Tag)[1];
+        child(instance, 0).destroyImmediate();
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedChildren![0]);
+
+        expect(player.getComponent(Part)!.part).toBeNull();
+        expect(warn).toHaveBeenCalledTimes(1);
+        const message = String(warn.mock.calls[0][0]);
+        expect(message).toContain("one of several components of a type");
+        expect(message).not.toContain("not there any more");
+        warn.mockRestore();
+    });
 });
 
 describe("a nested instance saved in full in place of its link", () => {

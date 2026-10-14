@@ -1090,6 +1090,20 @@ otherwise the field is left null with a warning. The prefab-value reconnect abov
 it, for what the records cannot place. Components go by type and occurrence until they have ids of
 their own (Q2); the records are built so that switching them to component ids changes one field.
 
+*Corrected after review (A1):* a record held a child index for an object with no node id yet —
+one the instance added that nothing had compared or saved — so after the revert the reference
+landed on whatever prefab object now stood at that index. The instance's objects are now given the
+ids a save would give them before anything is recorded (`SceneSerializer._nameForPrefab`), and a
+record is node ids only: an added object's id is one the rebuilt subtree lacks, so its reference
+is left null, with the warning. A component record also carries how many of its type its object
+had; when the rebuilt object has more — the instance removed one — which one it held cannot be
+told by occurrence, and it is left null too. Reverting a removed component used to warn without
+clearing the field when several of its type were removed, so reverting the next one filled it
+silently; it is cleared now, and it is also cleared when the references hold two different
+destroyed components of that type, since at most one was the prefab's. A single one is still taken
+for the prefab's, even if the scene added it and removed it again: that limit goes with component
+ids (A5). Each warning says why: the object is gone, or it was one of several of its type.
+
 The editor plan's own stage-14 row lives in another repository and is not changed from here.
 
 ### Stage 10 — Nested overrides, field by field

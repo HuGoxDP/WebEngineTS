@@ -51,17 +51,24 @@ const resolving = new Set<Prefab>();
  */
 interface HeldTarget {
     /**
-     * From the subtree's root down to the object: node ids, or a child index
-     * for a node that has none. Empty for the root itself.
+     * From the subtree's root down to the object, by node ids. Empty for the
+     * root itself; null when an object on the way has no id — one the
+     * instance added and nothing named — which nothing built again can be.
      */
-    readonly path: ReadonlyArray<string | number>;
+    readonly path: ReadonlyArray<string> | null;
     /**
      * The component held, by registered type and which of that type on its
-     * object — `-1` when that can no longer be told — or null for the object
-     * itself. By type and occurrence until components have ids of their own.
+     * object — `-1` when that can no longer be told — with how many of that
+     * type the object had; or null for the object itself. By type and
+     * occurrence until components have ids of their own: an object that had
+     * fewer of the type than the one built again lost some, and which ones
+     * cannot be told.
      */
-    readonly component: { readonly type: string; readonly index: number } | null;
+    readonly component: { readonly type: string; readonly index: number; readonly count: number } | null;
 }
+
+/** Why a recorded reference found nothing in the subtree built again. */
+type HeldLoss = "gone" | "ambiguous";
 
 /**
  * A reusable GameObject template — save once, instantiate many times.
@@ -403,8 +410,10 @@ export class Prefab {
      * instance is destroyed, by its node ids from the instance root (a
      * component by type and which of that type), and found again in the
      * fresh instance. One whose object the revert takes away — something the
-     * instance added — is left empty, with one warning naming every holder
-     * and field.
+     * instance added — is left empty, with a warning naming every holder and
+     * field. So is one that held a component on an object that had fewer of
+     * its type than the prefab gives it: which of them it held cannot be told
+     * until components have ids of their own.
      *
      * @param instance - the instance to replace.
      * @returns the fresh instance, in the same scene, parent and position.
@@ -717,13 +726,16 @@ export class Prefab {
      * points at what is built in its place — found by node ids from the
      * removed child. A component of a removed child is found again when it is
      * the only one of its type on its object, and a removed component when it
-     * is the only one of its type removed there; otherwise the reference is
-     * left empty, with a warning. A reference inside the instance that the
-     * prefabs aim at what is built again, and that still holds a destroyed
-     * object, points at it too. A field set to `null` is left alone — it may
-     * be the scene's own change — so a reference to a removed object that was
-     * saved and loaded again in between, which the save wrote as `null`,
-     * stays null.
+     * is the only one of its type removed there and the only one the
+     * references hold; otherwise the reference is left empty, with a warning.
+     * Until components have ids of their own, a component the scene added and
+     * removed again cannot be told from the prefab's: a reference that held
+     * only it is pointed at the one built again. A reference inside the
+     * instance that the prefabs aim at what is built again, and that still
+     * holds a destroyed object, points at it too. A field set to `null` is
+     * left alone — it may be the scene's own change — so a reference to a
+     * removed object that was saved and loaded again in between, which the
+     * save wrote as `null`, stays null.
      *
      * A nested instance held in full where the prefab keeps a link — one
      * whose children were reordered — is reported as that child removed and
@@ -809,20 +821,25 @@ export class Prefab {
         const position = node.node.components.findIndex(c => c.type === change.component && seen++ === change.componentIndex);
         if (position < 0) return;
         // What still holds a removed component of this type on this object: it
-        // is the one built again only when it is the only one removed.
+        // is the one built again only when it is the only one removed, and the
+        // only one of its type held — two cannot both be the prefab's.
         const removed = node.node.components.filter(c => c.type === change.component).length
             - Prefab._componentsOf(live).filter(c => SceneSerializer._componentTypeName(c) === change.component).length;
-        const held = SceneSerializer._heldReferences(live.scene.getRootGameObjects(), (go, component) =>
+        const held = SceneSerializer._heldReferences<Component>(live.scene.getRootGameObjects(), (go, component) =>
             component !== null && go === live && !component.exists()
-                && SceneSerializer._componentTypeName(component) === change.component ? true : null,
+                && SceneSerializer._componentTypeName(component) === change.component ? component : null,
         () => false);
         const restored = SceneSerializer._restoreComponent(scopes, node.node.components[position], live, position, assets);
         if (restored === null) return;
-        if (removed === 1) {
+        const distinct = new Set(held.map(h => h.target)).size;
+        if (removed === 1 && distinct === 1) {
             for (const h of held) h.assign(restored);
         } else if (held.length > 0) {
+            for (const h of held) h.assign(null);
             Prefab._warnLost(`Bringing back a ${change.component} on "${live.name}"`, held.map(h => h.where),
-                `${removed} of that type were removed, and which one each held cannot be told`);
+                removed === 1
+                    ? `they held ${distinct} different ones of that type, and which was the prefab's cannot be told`
+                    : `${removed} of that type were removed, and which one each held cannot be told`);
         }
         Prefab._reconnect(restored);
     }
@@ -1061,34 +1078,65 @@ export class Prefab {
      * {@link _pointBack} can aim each at the object that replaces the one it
      * held — Unity keeps them, since its revert keeps identity. References
      * from inside the subtree are not recorded: they are built again with it.
+     *
+     * The instance's objects are first given the node ids a save would give
+     * them ({@link _nameObjects}), so that an object the instance added is
+     * recorded by an id the subtree built again does not have — and its
+     * reference left empty — rather than by a position some other object
+     * takes.
      */
     private static _heldInto(root: GameObject): HeldReference<HeldTarget>[] {
-        const pathOf = (go: GameObject): Array<string | number> | null => {
-            const path: Array<string | number> = [];
+        Prefab._nameObjects(root);
+        const outside = Symbol();
+        const pathOf = (go: GameObject): string[] | null | typeof outside => {
+            const path: string[] = [];
+            let named = true;
             for (let at: GameObject | null = go; at !== root; at = at.transform.parent?.gameObject ?? null) {
-                if (at === null) return null;
-                path.unshift(at._prefabNodeId ?? at.transform.getSiblingIndex());
+                if (at === null) return outside;
+                if (at._prefabNodeId === null) named = false;
+                else path.unshift(at._prefabNodeId);
             }
-            return path;
+            return named ? path : null;
         };
         return SceneSerializer._heldReferences<HeldTarget>(
             root.scene.getRootGameObjects(),
             (go, component) => {
                 const path = pathOf(go);
-                if (path === null) return null;
+                if (path === outside) return null;
                 if (component === null) return { path, component: null };
                 const type = SceneSerializer._componentTypeName(component);
                 if (type === null) return null;
-                let index = component === go.transform ? 0 : -1;
-                let seen = 0;
+                if (component === go.transform) return { path, component: { type, index: 0, count: 1 } };
+                let index = -1;
+                let count = 0;
                 for (const candidate of Prefab._componentsOf(go)) {
-                    if (candidate === component) { index = seen; break; }
-                    if (SceneSerializer._componentTypeName(candidate) === type) seen++;
+                    if (SceneSerializer._componentTypeName(candidate) !== type) continue;
+                    if (candidate === component) index = count;
+                    count++;
                 }
-                return { path, component: { type, index } };
+                return { path, component: { type, index, count } };
             },
-            holder => pathOf(holder) !== null,
+            holder => pathOf(holder) !== outside,
         );
+    }
+
+    /**
+     * Gives every object of the instance around `go` the node id a save gives
+     * it, as {@link getChanges} does: an object the instance added gets a new
+     * one, and one of an instance from before ids the id of the prefab node at
+     * its place. Nothing is done outside an instance whose prefab is loaded.
+     */
+    private static _nameObjects(go: GameObject): void {
+        const top = go.outermostPrefabInstanceRoot;
+        const source = top?.prefabSource ?? null;
+        if (top === null || source === null) return;
+        let match: SerializedGameObject | undefined;
+        try {
+            match = source._resolvedTree();
+        } catch {
+            match = undefined;
+        }
+        SceneSerializer._nameForPrefab(top, match);
     }
 
     /**
@@ -1100,8 +1148,8 @@ export class Prefab {
      * its type it was, and is found again only when it is the one of its type.
      */
     private static _heldIntoRemoved(parent: GameObject, id: string): HeldReference<HeldTarget>[] {
-        const pathOf = (go: GameObject): Array<string | number> | null => {
-            const path: Array<string | number> = [];
+        const pathOf = (go: GameObject): string[] | null => {
+            const path: string[] = [];
             for (let at = go; !at.exists();) {
                 const up = at.transform.parent?.gameObject ?? null;
                 if (up === null) return null;
@@ -1119,7 +1167,7 @@ export class Prefab {
                 if (path === null) return null;
                 if (component === null) return { path, component: null };
                 const type = SceneSerializer._componentTypeName(component);
-                return type === null ? null : { path, component: { type, index: -1 } };
+                return type === null ? null : { path, component: { type, index: -1, count: 0 } };
             },
             () => false,
         );
@@ -1128,38 +1176,53 @@ export class Prefab {
     /**
      * Aims each recorded reference at what now stands where its object stood
      * in `root`'s subtree. One whose place the subtree no longer has — an
-     * object the revert removed, or a node the prefab does not have — is left
-     * empty, with one warning naming every holder and field.
+     * object the revert removed, or a node the prefab does not have — or
+     * whose component cannot be told from others of its type is left empty,
+     * with a warning for each of those two reasons naming every holder and
+     * field.
      */
     private static _pointBack(held: readonly HeldReference<HeldTarget>[], root: GameObject): void {
-        const lost: string[] = [];
+        const lost: Record<HeldLoss, string[]> = { gone: [], ambiguous: [] };
         for (const h of held) {
             const found = Prefab._resolveHeld(root, h.target);
-            h.assign(found);
-            if (found === null) lost.push(h.where);
+            if (typeof found === "string") {
+                h.assign(null);
+                lost[found].push(h.where);
+            } else {
+                h.assign(found);
+            }
         }
-        if (lost.length > 0) {
-            Prefab._warnLost(`Reverting "${root.name}"`, lost, "what they pointed at is not there any more");
+        if (lost.gone.length > 0) {
+            Prefab._warnLost(`Reverting "${root.name}"`, lost.gone, "what they pointed at is not there any more");
+        }
+        if (lost.ambiguous.length > 0) {
+            Prefab._warnLost(`Reverting "${root.name}"`, lost.ambiguous,
+                "each held one of several components of a type on its object, and which one cannot be told");
         }
     }
 
-    /** What a recorded reference's place finds below `root`, or null. */
-    private static _resolveHeld(root: GameObject, target: HeldTarget): GameObject | Component | null {
+    /**
+     * What a recorded reference's place finds below `root`, or why it finds
+     * nothing.
+     */
+    private static _resolveHeld(root: GameObject, target: HeldTarget): GameObject | Component | HeldLoss {
+        if (target.path === null) return "gone";
         let go: GameObject | null = root;
         for (const segment of target.path) {
-            if (typeof segment === "string") {
-                go = Prefab._childWithId(go, segment);
-            } else {
-                go = segment < go.transform.childCount ? go.transform.getChild(segment).gameObject : null;
-            }
-            if (go === null) return null;
+            go = Prefab._childWithId(go, segment);
+            if (go === null) return "gone";
         }
         const wanted = target.component;
         if (wanted === null) return go;
-        if (wanted.index >= 0) return SceneSerializer._componentOf(go, wanted.type, wanted.index);
+        if (wanted.index >= 0) {
+            const of = Prefab._componentsOf(go).filter(c => SceneSerializer._componentTypeName(c) === wanted.type).length;
+            if (wanted.count < of) return "ambiguous";
+            return SceneSerializer._componentOf(go, wanted.type, wanted.index) ?? "gone";
+        }
         const first = SceneSerializer._componentOf(go, wanted.type, 0);
+        if (first === null) return "gone";
         const only = first === go.transform || SceneSerializer._componentOf(go, wanted.type, 1) === null;
-        return only ? first : null;
+        return only ? first : "ambiguous";
     }
 
     /** One warning for references a revert could not keep, which are left empty. */
