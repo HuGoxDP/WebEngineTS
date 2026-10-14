@@ -56,20 +56,25 @@ export interface PrefabAddedChild {
     /** Id of the prefab node it was added under. */
     parent: string;
     /**
-     * Its position among that node's children in the instance. Used when
-     * {@link after} is absent — a file written before it existed — or names a
-     * sibling that is not there any more.
+     * Its position among that node's children in the instance, as files
+     * written before {@link after} existed give it. Read only when `after` is
+     * absent, and not written any more: a position moves whenever the prefab
+     * gains a child in front, so writing it made an unchanged scene save
+     * differently.
      */
-    index: number;
+    index?: number;
     /**
      * Id of the prefab's child it follows in the instance — the nearest one
      * before it — or `null` when it comes before all of them.
      *
      * @remarks
      * Where an added child goes is kept relative to the prefab's own
-     * children, so that a child the prefab gains in front does not move it in
-     * among them: Unity places an added object by its sibling, too. Several
-     * added children that follow the same sibling keep their order.
+     * children, so that a child the prefab gains in front neither moves it in
+     * among them nor changes what a save writes. Several added children that
+     * follow the same sibling keep their order. When that sibling is gone —
+     * removed by the instance, it goes after the nearest earlier child of the
+     * prefab's that the instance still has (first, if there is none); not in
+     * the prefab any more, it goes last.
      */
     after?: string | null;
     node: SerializedGameObject;
@@ -504,9 +509,12 @@ export class PrefabDiff {
             if (at >= 0) node.components.splice(at, 1);
         }
 
+        // The prefab's own order, kept for an added child whose sibling is removed.
+        const order = new Map<SerializedGameObject, readonly SerializedGameObject[]>();
         for (const id of changes.removedChildren ?? []) {
             const entry = byId.get(id);
             if (!entry?.parent) continue;
+            if (!order.has(entry.parent)) order.set(entry.parent, [...entry.parent.children]);
             entry.parent.children.splice(entry.parent.children.indexOf(entry.node), 1);
         }
 
@@ -526,15 +534,16 @@ export class PrefabDiff {
             node.components.splice(at, 0, JSON.parse(JSON.stringify(a.component)) as SerializedComponent);
         }
 
-        // Lowest index first too; those that follow one sibling keep their order.
-        const addedChildren = [...(changes.addedChildren ?? [])].sort((a, b) => a.index - b.index);
+        // In the order written, which is the instance's: those that follow one
+        // sibling keep it. An older file's, placed by index, lowest first.
+        const addedChildren = [...(changes.addedChildren ?? [])].sort((a, b) => (a.index ?? -1) - (b.index ?? -1));
         const inserted = new Set<SerializedGameObject>();
         for (const a of addedChildren) {
             const parent = byId.get(a.parent)?.node;
             if (!parent) continue;
             if (a.node.id !== undefined && present.has(a.node.id)) continue;
             const copy = JSON.parse(JSON.stringify(a.node)) as SerializedGameObject;
-            parent.children.splice(PrefabDiff._insertAt(parent, a, inserted), 0, copy);
+            parent.children.splice(PrefabDiff._insertAt(parent, a, inserted, order.get(parent)), 0, copy);
             inserted.add(copy);
         }
 
@@ -544,28 +553,37 @@ export class PrefabDiff {
     /**
      * Where an added child goes among `parent`'s children: just after the
      * sibling it follows ({@link PrefabAddedChild.after}), past the children
-     * already added there, or — with no `after`, or one naming a sibling that
-     * is not there — at its index.
+     * already added there. A sibling the instance removed gives way to the
+     * nearest earlier one of the prefab's it still has, or to the start; one
+     * the prefab no longer has puts the child last. A file with no `after`
+     * gives an index instead.
      *
      * @param inserted - the children added so far, which `after` never names.
+     * @param order - `parent`'s children as the prefab has them, before the
+     *   instance's removals; absent when it removed none there.
      */
     private static _insertAt(
         parent: SerializedGameObject,
         added: PrefabAddedChild,
         inserted: ReadonlySet<SerializedGameObject>,
+        order: readonly SerializedGameObject[] | undefined,
     ): number {
         const children = parent.children;
-        if (added.after !== undefined) {
-            const anchor = added.after === null
-                ? -1
-                : children.findIndex(c => c.id === added.after && !inserted.has(c));
-            if (added.after === null || anchor >= 0) {
-                let at = anchor + 1;
-                while (at < children.length && inserted.has(children[at])) at++;
-                return at;
+        if (added.after === undefined) return Math.min(Math.max(added.index ?? children.length, 0), children.length);
+
+        let anchor = -1;
+        if (added.after !== null) {
+            anchor = children.findIndex(c => c.id === added.after && !inserted.has(c));
+            if (anchor < 0) {
+                const own = order ?? children;
+                const was = own.findIndex(c => c.id === added.after);
+                if (was < 0) return children.length;
+                for (let k = was - 1; k >= 0 && anchor < 0; k--) anchor = children.indexOf(own[k]);
             }
         }
-        return Math.min(Math.max(added.index, 0), children.length);
+        let at = anchor + 1;
+        while (at < children.length && inserted.has(children[at])) at++;
+        return at;
     }
 
     /**
@@ -1246,7 +1264,7 @@ export class PrefabDiff {
         const matched = new Set<string>();
         // The prefab's child the next added one follows, if any.
         let after: string | null = null;
-        instance.children.forEach((child, index) => {
+        instance.children.forEach(child => {
             const at = child.id === undefined
                 ? -1
                 : prefab.children.findIndex(p => p.id === child.id);
@@ -1255,7 +1273,7 @@ export class PrefabDiff {
                 matched.add(child.id!);
                 if (PrefabDiff._replaces(prefab.children[at], child)) {
                     (changes.removedChildren ??= []).push(child.id!);
-                    (changes.addedChildren ??= []).push({ parent: node, index, after, node: child });
+                    (changes.addedChildren ??= []).push({ parent: node, after, node: child });
                     return;
                 }
                 PrefabDiff._compareNode(prefab.children[at], child, [...path, at], changes, false, cmp);
@@ -1264,7 +1282,7 @@ export class PrefabDiff {
             }
 
             PrefabDiff.ensureIds(child);
-            (changes.addedChildren ??= []).push({ parent: node, index, after, node: child });
+            (changes.addedChildren ??= []).push({ parent: node, after, node: child });
         });
 
         for (const child of prefab.children) {

@@ -344,7 +344,7 @@ describe("a prefab instance saved as its prefab plus changes", () => {
             { node: "k-hull", component: "PrefabSpec.Tag", componentIndex: 0, field: "label", value: "patched" },
         ],
         addedChildren: [
-            { parent: "k-root", index: 2, after: "k-turret", node: node("Flag", {
+            { parent: "k-root", after: "k-turret", node: node("Flag", {
                 components: [{ type: "PrefabSpec.Tag", fields: { label: "flag" } }],
                 id: "a-flag",
             }) },
@@ -563,8 +563,11 @@ describe("a prefab instance saved as its prefab plus changes", () => {
         const again = saveLinked().roots[0].prefab!;
         expect(again.unused).toBeUndefined();
         expect(again.changes!.overrides).toEqual(changes.overrides);
-        // Written back with the prefab sibling it follows: none, it is first.
-        expect(again.changes!.addedChildren).toEqual([{ ...changes.addedChildren[0], after: null }]);
+        // Written back with the prefab sibling it follows — none, it is first —
+        // and without the index an older file placed it by.
+        expect(again.changes!.addedChildren).toEqual([
+            { parent: "k-hull", after: null, node: changes.addedChildren[0].node },
+        ]);
     });
 
     describe("where an added child goes", () => {
@@ -587,14 +590,19 @@ describe("a prefab instance saved as its prefab plus changes", () => {
             first.transform.setParent(instance.transform, false);
             first.transform.setSiblingIndex(0);
             const saved = saveLinked();
-            expect(saved.roots[0].prefab!.changes!.addedChildren!.map(a => [a.node.name, a.index, a.after]))
-                .toEqual([["Plate", 0, null], ["Flag", 3, "k-turret"], ["Pennant", 4, "k-turret"]]);
+            const written = saved.roots[0].prefab!.changes!.addedChildren!;
+            expect(written.map(a => [a.node.name, a.after]))
+                .toEqual([["Plate", null], ["Flag", "k-turret"], ["Pennant", "k-turret"]]);
+            // No position: it would change with every child the prefab gains.
+            expect(written.filter(a => "index" in a)).toEqual([]);
 
             clear();
             bind("guid-tank", withAntenna());
             const [root] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
 
             expect(names(root)).toEqual(["Plate", "Antenna", "Hull", "Turret", "Flag", "Pennant"]);
+            // Unchanged, the scene saves the same bytes it was loaded from.
+            expect(JSON.stringify(saveLinked())).toBe(JSON.stringify(saved));
         });
 
         test("it follows the nearest prefab child the instance still has", () => {
@@ -611,27 +619,45 @@ describe("a prefab instance saved as its prefab plus changes", () => {
             expect(names(root)).toEqual(["Antenna", "Hull", "Flag"]);
         });
 
-        test("one following a child that is not there any more goes at its index", () => {
+        test("one following a child the prefab no longer has goes last", () => {
             const gone = withAntenna();
-            gone.children.splice(2, 1);
+            gone.children.splice(1, 1);
             bind("guid-tank", gone);
-            const changes = { overrides: [], addedChildren: [added("Flag", { index: 0, after: "k-turret" })] };
+            // An index beside it — files from before it was dropped carry one — is not read.
+            for (const placed of [{ after: "k-hull" }, { index: 0, after: "k-hull" }]) {
+                clear();
+                const changes = { overrides: [], addedChildren: [added("Flag", placed)] };
 
-            const [root] = SceneSerializer.deserializeScene(linkScene(tankLink(changes)));
+                const [root] = SceneSerializer.deserializeScene(linkScene(tankLink(changes)));
 
-            expect(names(root)).toEqual(["Flag", "Antenna", "Hull"]);
+                expect(names(root)).toEqual(["Antenna", "Turret", "Flag"]);
+            }
         });
 
-        test("one following a child the instance removed goes at its index", () => {
+        test("one following a child the instance removed follows the nearest earlier one it still has", () => {
+            bind("guid-tank", withAntenna());
             const changes = {
                 overrides: [],
-                removedChildren: ["k-turret"],
-                addedChildren: [added("Flag", { index: 0, after: "k-turret" })],
+                removedChildren: ["k-hull"],
+                addedChildren: [added("Flag", { after: "k-hull" })],
             };
 
             const [root] = SceneSerializer.deserializeScene(linkScene(tankLink(changes)));
 
-            expect(names(root)).toEqual(["Flag", "Hull"]);
+            expect(names(root)).toEqual(["Antenna", "Flag", "Turret"]);
+        });
+
+        test("one following a child the instance removed, with none before it, goes first", () => {
+            bind("guid-tank", withAntenna());
+            const changes = {
+                overrides: [],
+                removedChildren: ["k-antenna"],
+                addedChildren: [added("Flag", { after: "k-antenna" }), added("Pennant", { after: "k-antenna" })],
+            };
+
+            const [root] = SceneSerializer.deserializeScene(linkScene(tankLink(changes)));
+
+            expect(names(root)).toEqual(["Flag", "Pennant", "Hull", "Turret"]);
         });
 
         test("a file with an index alone loads as before", () => {
@@ -732,8 +758,8 @@ describe("a prefab instance saved as its prefab plus changes", () => {
         expect(warn).toHaveBeenCalledWith(expect.stringContaining("reordered"));
         const changes = saved.roots[0].prefab!.changes!;
         expect(changes.removedChildren).toEqual(["k-turret"]);
-        expect(changes.addedChildren!.map(a => [a.parent, a.index, a.node.id, a.node.prefab])).toEqual([
-            ["k-root", 1, "k-turret", { guid: "guid-turret" }],
+        expect(changes.addedChildren!.map(a => [a.parent, a.after, a.node.id, a.node.prefab])).toEqual([
+            ["k-root", "k-hull", "k-turret", { guid: "guid-turret" }],
         ]);
         expect(changes.addedChildren![0].node.children.map(c => c.name)).toEqual(["Light", "Barrel"]);
 

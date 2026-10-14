@@ -217,7 +217,7 @@ describe("a prefab and its instances", () => {
         expect(duplicate.prefabNodeId).toBeNull();
         const changes = SceneSerializer.serializeGameObject(instance, { prefabs: "link" }).prefab!.changes!;
         expect(changes.overrides).toEqual([]);
-        expect(changes.addedChildren!.map(a => a.index)).toEqual([1]);
+        expect(changes.addedChildren!.map(a => [a.after, a.index])).toEqual([[child(instance, 0).prefabNodeId, undefined]]);
         expect(changes.removedChildren).toBeUndefined();
     });
 

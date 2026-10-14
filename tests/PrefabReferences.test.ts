@@ -302,22 +302,32 @@ describe("references into a prefab instance", () => {
     });
 });
 
-describe("an override names its node by id alone", () => {
-    /** A Tank whose Hull and whose Turret's Barrel the scene relabelled, saved as a link. */
+describe("an override or an added child names its place by id alone", () => {
+    /**
+     * A Tank whose Hull and whose Turret's Barrel the scene relabelled, and to
+     * which, and to whose Turret, it added a child, saved as a link.
+     */
     function edited(): SerializedScene {
         const [tank] = SceneSerializer.deserializeScene(scene(tankLink()));
         tank.getComponent(Aim)!.target = null;
         child(tank, 1, 0).name = "Barrel 2";
         child(tank, 0).name = "Hull 2";
+        new GameObject("Flag").transform.setParent(tank.transform, false);
+        new GameObject("Scope").transform.setParent(child(tank, 1).transform, false);
         return saveLinked();
     }
 
     test("no position is written beside a node id", () => {
         const saved = edited();
 
-        const overrides = saved.roots[0].prefab!.changes!.overrides;
-        expect(overrides.map(o => o.node)).toEqual(["k-root", "k-hull", "k-turret/t-barrel"]);
+        const changes = saved.roots[0].prefab!.changes!;
+        expect(changes.overrides.map(o => o.node)).toEqual(["k-root", "k-hull", "k-turret/t-barrel"]);
+        expect(changes.addedChildren!.map(a => [a.parent, a.after, a.node.name])).toEqual([
+            ["k-turret/t-root", "t-barrel", "Scope"],
+            ["k-root", "k-turret", "Flag"],
+        ]);
         expect(JSON.stringify(saved)).not.toMatch(/"path":\[\d/);
+        expect(JSON.stringify(saved)).not.toMatch(/"index":/);
     });
 
     for (const [grows, edit] of [

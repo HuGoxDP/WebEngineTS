@@ -57,9 +57,10 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   lost if the scene is saved before the prefab is loaded. Changes that address something the
   prefab no longer has are kept (`unused`) and apply again if it comes back. A child the instance
   added is placed after the prefab child it follows (`PrefabAddedChild.after`, `null` for first),
-  so a child the prefab gains in front does not move it in among the prefab's own; its `index`
-  is still written, and is what a file without `after`, or one whose `after` names a child that
-  is gone, is placed by. An instance that reordered or reparented its prefab's own objects is
+  so a child the prefab gains in front neither moves it in among the prefab's own nor changes
+  what a save writes. When that child is gone it goes after the nearest earlier one the instance
+  still has (first, if none) — or last, if the prefab no longer has it. A file with an `index`
+  and no `after` is placed by its index, as before. An instance that reordered or reparented its prefab's own objects is
   saved in full, with a warning — inside an instance that is itself saved as a link, as an object
   its changes add in full. A linked instance does not copy its prefab's inline materials into the
   scene. The default stays `"expand"`, which writes every instance in full.
@@ -194,6 +195,12 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   placeholder's link, the data of an unknown component or value, changes kept as unused. A prefab
   file from before node ids has its references read as ids on load, the data of its unknown
   components included.
+- **`PrefabAddedChild.index` is optional, and not written.** An added child is placed by
+  `after`, the prefab sibling it follows; the position written beside it moved whenever the
+  prefab gained a child in front, so a link save of a scene nobody touched showed a diff. A file
+  that gives only `index` is still placed by it, and one that gives both is placed by `after`.
+  Code that reads `index` from what `getChanges` or `compareChanges` return must allow for its
+  absence.
 - **`PrefabOverride.path` is optional, and not written where `node` is.** An override addresses
   its object by node id; the position written beside it changed whenever the prefab gained or
   lost a child in front, so a link save of a scene nobody touched rewrote every such override and

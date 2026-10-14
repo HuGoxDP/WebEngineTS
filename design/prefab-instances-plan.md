@@ -141,7 +141,7 @@ whose paths hold node ids (§2.5).
               "field": "target", "value": { "$type": "GameObjectRef", "path": [0], "scope": 2 } } ] } } }
       ],
       "addedChildren": [
-        { "parent": "7jixp003", "index": 2, "after": "0uak7004", "node": { "name": "Flag", …, "id": "6o3xj006" } } ],
+        { "parent": "7jixp003", "after": "0uak7004", "node": { "name": "Flag", …, "id": "6o3xj006" } } ],
       "addedComponents": [
         { "node": "k2v0f002", "index": 0, "component": { "type": "Game.Aim", "fields": {
           "target": { "$type": "GameObjectRef", "path": [0] } } } } ]
@@ -666,10 +666,15 @@ is.
   between the prefab's own children. *Decided, before the format freezes:* it also carries
   `after`, the id of the prefab sibling it follows in the instance (`null` when it comes first),
   and is placed just after that sibling, past the children already added there, so several that
-  follow one sibling keep their order. The writer keeps writing `index`, for older readers and for
-  debugging; the reader uses it when `after` is absent (an older file) or names a sibling that is
-  not there — removed by the prefab since, or by the instance itself, whose removals are applied
-  first. Unity places an added object by its sibling too.
+  follow one sibling keep their order. Unlike an absolute index, this survives the prefab gaining
+  a child in front. *Decided in the A1 review:* `index` is no longer written — it changed with
+  every child the prefab gained in front, so an unchanged scene re-saved with a diff, the churn
+  §11 removed from override paths, and no released reader understands link-mode `addedChildren` —
+  and the exported `PrefabAddedChild.index` is optional. The reader uses `after` when its sibling
+  is in the instance. A sibling the instance removed (its removals are applied first) gives way to
+  the nearest earlier prefab sibling the instance still has, or to the start; one the prefab no
+  longer has puts the child last. A file with `index` and no `after` — written before `after`
+  existed, or by hand — is placed by its index, as before; one with both is placed by `after`.
 - `compareChanges` matches children by id, so a reorder of the prefab's own children has no
   representation.
 - Unity forbids it: "Children of a Prefab instance cannot be deleted or moved, and components
@@ -1401,6 +1406,13 @@ New in `MissingComponent.test.ts`:
   `PrefabOverride` type. Readers still accept it from older files and go by `node`; every reader of
   an override's `path` in the serializer falls back to it only for a prefab without ids. An
   unchanged scene now re-saves byte-identically after its prefab grows.
+- **An added child's `index` follows the prefab** (found in the A1 review; decided there). With
+  `after` in place, `addedChildren[].index` was still written "for older readers and debugging",
+  and it moved whenever the prefab gained a child in front — the same churn as `path`. No
+  released reader understands link-mode `addedChildren`, so nothing needs it: it is no longer
+  written, and is optional in the exported `PrefabAddedChild` type. A file that gives only an
+  index is still placed by it (§7.3). An unchanged scene with an added child now re-saves
+  byte-identically after its prefab, and a nested prefab inside it, gain a child in front.
 
 ## 12. Related
 
