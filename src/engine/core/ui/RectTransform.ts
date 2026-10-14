@@ -83,6 +83,9 @@ export enum RectTransformEdge {
 @Serializable({ typeName: "RectTransform", category: "UI" })
 export class RectTransform extends Component {
 
+    /** @internal One rect per object: every UI component binds to the first it finds. */
+    public static override readonly _allowMultiple: boolean = false;
+
     /** Offset of the rect's pivot from the anchor reference point, in canvas units. */
     @SerializedField({ type: FieldType.Vector2 })
     public anchoredPosition: Vector2 = new Vector2(0, 0);

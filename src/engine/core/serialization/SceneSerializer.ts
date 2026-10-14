@@ -2214,10 +2214,24 @@ export class SceneSerializer {
         return go;
     }
 
-    /** Builds an object's components, then its children, from saved JSON. */
+    /**
+     * Builds an object's components, then its children, from saved JSON.
+     *
+     * @remarks
+     * Every component exists before the first one wakes, so a component whose
+     * `awake` looks for a sibling or adds the one it needs — a UI graphic
+     * wants a `RectTransform` — finds the saved one instead of adding its own
+     * beside it. Each component then wakes and takes its fields in list order,
+     * as before. Fields are deliberately not written first, though Unity does:
+     * a setter that runs before `onAwake` loses its value in any built-in whose
+     * backing object `onAwake` creates (`DirectionalLight.shadowDistance` came
+     * back as 200, saved as 75).
+     */
     private static _buildContents(go: GameObject, json: SerializedGameObject, ctx: LoadCtx): void {
-        for (const compJson of json.components) {
-            SceneSerializer._deserializeComponent(compJson, go, ctx);
+        for (const { component, saved } of SceneSerializer._attachAll(go, json.components)) {
+            if (!component.exists()) continue;
+            go._wakeComponent(component);
+            for (const fields of saved) SceneSerializer._applyFields(component, fields, ctx);
         }
         for (const childJson of json.children) {
             const child = SceneSerializer._deserializeGO(childJson, ctx);
@@ -2361,20 +2375,64 @@ export class SceneSerializer {
         go: GameObject,
         ctx: DeserializeContext,
     ): Component | null {
+        const comp = SceneSerializer._attachComponent(json, go);
+        go._wakeComponent(comp);
+        SceneSerializer._applyFields(comp, json, ctx);
+        return comp;
+    }
+
+    /**
+     * Constructs every saved component of `go`, without waking any.
+     *
+     * @remarks
+     * A type that allows one per object ({@link Component._allowMultiple}) is
+     * attached once however often it was saved, and each saved copy's fields
+     * are listed against that one component, in file order. A scene written
+     * while a UI object's awake added a second `RectTransform` beside the
+     * saved one holds such a pair; the later copy is the one that carries the
+     * layout the author set, so it is applied last.
+     */
+    private static _attachAll(
+        go: GameObject,
+        saved: readonly SerializedComponent[],
+    ): Array<{ component: Component; saved: SerializedComponent[] }> {
+        const built: Array<{ component: Component; saved: SerializedComponent[] }> = [];
+        for (const json of saved) {
+            const ctor = TypeRegistry.get(json.type);
+            const first = ctor !== null && (ctor as unknown as typeof Component)._allowMultiple === false
+                ? built.find(b => b.component.constructor === ctor)
+                : undefined;
+            if (first) {
+                console.warn(
+                    `[SceneSerializer] "${go.name}" was saved with more than one ${json.type}; ` +
+                    `they are read as one, the later values winning.`,
+                );
+                first.saved.push(json);
+                continue;
+            }
+            built.push({ component: SceneSerializer._attachComponent(json, go), saved: [json] });
+        }
+        return built;
+    }
+
+    private static _attachComponent(json: SerializedComponent, go: GameObject): Component {
         const ctor = TypeRegistry.get(json.type);
         if (!ctor) {
             // Not skipped: a skipped component is a deleted one the next time the
             // scene is saved. It is kept inert, with its data, until the type
             // exists again.
             console.warn(`[SceneSerializer] Unknown component type "${json.type}" — kept as it was saved`);
-            const missing = go.addComponent(MissingComponent);
+            const missing = go._attachComponent(MissingComponent);
             missing.originalType = json.type;
             missing.originalFields = SceneSerializer._cloneJson(json.fields ?? {});
             return missing;
         }
+        return go._attachComponent(ctor as new (go: GameObject) => Component);
+    }
 
-        const comp = go.addComponent(ctor as any) as Component;
-        const fields = getAllFields(ctor as any);
+    private static _applyFields(comp: Component, json: SerializedComponent, ctx: DeserializeContext): void {
+        if (comp instanceof MissingComponent) return;
+        const fields = getAllFields(comp.constructor as AnyConstructor);
 
         for (const f of fields) {
             if (!f.serialize) continue;
@@ -2388,7 +2446,6 @@ export class SceneSerializer {
             ctx.currentField = null;
             SceneSerializer._assign(comp, f.name, value);
         }
-        return comp;
     }
 
     /**

@@ -189,10 +189,13 @@ export abstract class Collider extends Behaviour {
      * @remarks
      * Called when a {@link Rigidbody} appears on a GameObject that already had
      * colliders: each one drops the static body it made for itself and joins
-     * the new dynamic one.
+     * the new dynamic one. A collider that has not attached yet has nothing to
+     * move: it is about to enable and will find the body itself. A load makes
+     * this reachable, since the Rigidbody enables while a collider listed after
+     * it exists but has not.
      */
     public _reattach(): void {
-        if (!this.isActiveAndEnabled) return;
+        if (!this.isActiveAndEnabled || this._cannonShape === null) return;
         this._detachShape();
         this._attachShape();
     }

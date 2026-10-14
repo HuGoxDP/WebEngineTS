@@ -30,6 +30,14 @@ export abstract class Component extends EngineObject {
      */
     public readonly gameObject: GameObject;
 
+    /**
+     * @internal
+     * Whether a GameObject may hold more than one of this type. A load reads
+     * it to keep the extra saved copies of a type that says no from becoming
+     * extra components; adding one by code is not stopped.
+     */
+    public static readonly _allowMultiple: boolean = true;
+
     // ==================== CONSTRUCTOR ====================
 
     /**
