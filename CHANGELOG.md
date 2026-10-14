@@ -59,11 +59,10 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   added is placed after the prefab child it follows (`PrefabAddedChild.after`, `null` for first),
   so a child the prefab gains in front does not move it in among the prefab's own; its `index`
   is still written, and is what a file without `after`, or one whose `after` names a child that
-  is gone, is placed by. An instance that
-  reordered or reparented its prefab's own objects is saved in full, with a warning — inside an
-  instance that is itself saved as a link, as an object its changes add in full. A linked
-  instance does not copy its prefab's inline materials into the scene. The default stays
-  `"expand"`, which writes every instance in full.
+  is gone, is placed by. An instance that reordered or reparented its prefab's own objects is
+  saved in full, with a warning — inside an instance that is itself saved as a link, as an object
+  its changes add in full. A linked instance does not copy its prefab's inline materials into the
+  scene. The default stays `"expand"`, which writes every instance in full.
   **A file holding a link, or a reference that names a prefab node by id, is written as
   `version: 2`; the engine refuses any version above 2.** Every engine that will read such files
   — including any that runs exported scenarios — has to be on a build that reads version 2 before
@@ -101,12 +100,11 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   was saved and reloaded in between stays null**. A nested instance whose children were reordered
   is reported as removed and added again under one id; reverting either half reverts both, and
   builds the nested instance once, as a link — reverting one half used to leave two live copies
-  under one id, or none. `Prefab.revert` keeps every reference from
-  elsewhere in the scene into the instance — from its twin in the same outer prefab, the instance
-  around it, or a plain scene object — pointing at the object that takes its place, as Unity's
-  revert keeps identity; one whose object the revert takes away is left empty, with a warning
-  naming the holder and field. `Prefab.removeUnusedOverrides` drops
-  what no longer applies. `Prefab.fromGameObject(go, name, { connect: true })` makes `go` an
+  under one id, or none. `Prefab.revert` keeps every reference from elsewhere in the scene into
+  the instance — from its twin in the same outer prefab, the instance around it, or a plain scene
+  object — pointing at the object that takes its place, as Unity's revert keeps identity; one
+  whose object the revert takes away is left empty, with a warning naming the holder and field.
+  `Prefab.removeUnusedOverrides` drops what no longer applies. `Prefab.fromGameObject(go, name, { connect: true })` makes `go` an
   instance of the prefab made from it, as Unity's Save As Prefab Asset And Connect does. Asked
   of a prefab nested inside another instance, each of these works against that prefab as the
   prefabs around it change it, as Unity does: `getChanges` lists what the scene changed on it,
