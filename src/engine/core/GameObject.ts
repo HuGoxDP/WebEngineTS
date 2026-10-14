@@ -464,8 +464,37 @@ export class GameObject extends EngineObject {
      * 3. `OnEnable()` fires (if active and enabled)
      */
     public addComponent<T extends Component>(type: new (go: GameObject) => T): T {
+        const component = this._attachComponent(type);
+        this._wakeComponent(component);
+        return component;
+    }
+
+    /**
+     * @internal
+     * Constructs a component and lists it, without starting its lifecycle.
+     * {@link _wakeComponent} does the rest; {@link addComponent} is the two
+     * together.
+     *
+     * Exists so a load can make every component of an object findable before
+     * any of them wakes.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _attachComponent<T extends Component>(type: new (go: GameObject) => T): T {
         const component = new type(this);
         this._components.push(component);
+        return component;
+    }
+
+    /**
+     * @internal
+     * Runs the lifecycle {@link addComponent} gives a new component: `awake`,
+     * then `onEnable` if the object is active and the component enabled.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _wakeComponent(component: Component): void {
+        if (!component.exists()) return;
 
         // Lifecycle: Awake
         // - ScriptableBehaviour (user scripts) → _systemAwake() → public awake()
@@ -487,8 +516,6 @@ export class GameObject extends EngineObject {
         if (component instanceof Behaviour && this.activeInHierarchy && component.enabled) {
             component._onEnabledChanged();
         }
-
-        return component;
     }
 
     /**
