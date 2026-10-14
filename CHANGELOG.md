@@ -55,7 +55,11 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   rebuild it. A reference from the rest of the scene into a placeholder, or to one of its
   components, has nothing to find: it is null, a warning names its holder and field, and it is
   lost if the scene is saved before the prefab is loaded. Changes that address something the
-  prefab no longer has are kept (`unused`) and apply again if it comes back. An instance that
+  prefab no longer has are kept (`unused`) and apply again if it comes back. A child the instance
+  added is placed after the prefab child it follows (`PrefabAddedChild.after`, `null` for first),
+  so a child the prefab gains in front does not move it in among the prefab's own; its `index`
+  is still written, and is what a file without `after`, or one whose `after` names a child that
+  is gone, is placed by. An instance that
   reordered or reparented its prefab's own objects is saved in full, with a warning — inside an
   instance that is itself saved as a link, as an object its changes add in full. A linked
   instance does not copy its prefab's inline materials into the scene. The default stays

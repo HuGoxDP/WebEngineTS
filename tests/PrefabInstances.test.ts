@@ -344,7 +344,7 @@ describe("a prefab instance saved as its prefab plus changes", () => {
             { path: [0], node: "k-hull", component: "PrefabSpec.Tag", componentIndex: 0, field: "label", value: "patched" },
         ],
         addedChildren: [
-            { parent: "k-root", index: 2, node: node("Flag", {
+            { parent: "k-root", index: 2, after: "k-turret", node: node("Flag", {
                 components: [{ type: "PrefabSpec.Tag", fields: { label: "flag" } }],
                 id: "a-flag",
             }) },
@@ -563,7 +563,85 @@ describe("a prefab instance saved as its prefab plus changes", () => {
         const again = saveLinked().roots[0].prefab!;
         expect(again.unused).toBeUndefined();
         expect(again.changes!.overrides).toEqual(changes.overrides);
-        expect(again.changes!.addedChildren).toEqual(changes.addedChildren);
+        // Written back with the prefab sibling it follows: none, it is first.
+        expect(again.changes!.addedChildren).toEqual([{ ...changes.addedChildren[0], after: null }]);
+    });
+
+    describe("where an added child goes", () => {
+        const names = (go: GameObject): string[] =>
+            Array.from({ length: go.transform.childCount }, (_, i) => child(go, i).name);
+        /** The Tank prefab with an Antenna in front of its Hull. */
+        const withAntenna = (): SerializedGameObject => {
+            const tree = tankTree();
+            tree.children.unshift(node("Antenna", { id: "k-antenna" }));
+            return tree;
+        };
+        const added = (name: string, rest: object) =>
+            ({ parent: "k-root", ...rest, node: node(name, { id: `a-${name.toLowerCase()}` }) });
+
+        test("it stays after the prefab child it followed when the prefab gains one in front", () => {
+            const instance = tank.instantiate();
+            new GameObject("Flag").transform.setParent(instance.transform, false);
+            new GameObject("Pennant").transform.setParent(instance.transform, false);
+            const first = new GameObject("Plate");
+            first.transform.setParent(instance.transform, false);
+            first.transform.setSiblingIndex(0);
+            const saved = saveLinked();
+            expect(saved.roots[0].prefab!.changes!.addedChildren!.map(a => [a.node.name, a.index, a.after]))
+                .toEqual([["Plate", 0, null], ["Flag", 3, "k-turret"], ["Pennant", 4, "k-turret"]]);
+
+            clear();
+            bind("guid-tank", withAntenna());
+            const [root] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+
+            expect(names(root)).toEqual(["Plate", "Antenna", "Hull", "Turret", "Flag", "Pennant"]);
+        });
+
+        test("it follows the nearest prefab child the instance still has", () => {
+            const instance = tank.instantiate();
+            child(instance, 1).destroyImmediate();
+            new GameObject("Flag").transform.setParent(instance.transform, false);
+            const saved = saveLinked();
+            expect(saved.roots[0].prefab!.changes!.addedChildren![0].after).toBe("k-hull");
+
+            clear();
+            bind("guid-tank", withAntenna());
+            const [root] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+
+            expect(names(root)).toEqual(["Antenna", "Hull", "Flag"]);
+        });
+
+        test("one following a child that is not there any more goes at its index", () => {
+            const gone = withAntenna();
+            gone.children.splice(2, 1);
+            bind("guid-tank", gone);
+            const changes = { overrides: [], addedChildren: [added("Flag", { index: 0, after: "k-turret" })] };
+
+            const [root] = SceneSerializer.deserializeScene(linkScene(tankLink(changes)));
+
+            expect(names(root)).toEqual(["Flag", "Antenna", "Hull"]);
+        });
+
+        test("one following a child the instance removed goes at its index", () => {
+            const changes = {
+                overrides: [],
+                removedChildren: ["k-turret"],
+                addedChildren: [added("Flag", { index: 0, after: "k-turret" })],
+            };
+
+            const [root] = SceneSerializer.deserializeScene(linkScene(tankLink(changes)));
+
+            expect(names(root)).toEqual(["Flag", "Hull"]);
+        });
+
+        test("a file with an index alone loads as before", () => {
+            bind("guid-tank", withAntenna());
+            const changes = { overrides: [], addedChildren: [added("Flag", { index: 2 })] };
+
+            const [root] = SceneSerializer.deserializeScene(linkScene(tankLink(changes)));
+
+            expect(names(root)).toEqual(["Antenna", "Hull", "Flag", "Turret"]);
+        });
     });
 
     test("a prefab that contains itself becomes a placeholder instead of recursing", () => {

@@ -52,8 +52,23 @@ export interface PrefabOverride {
 export interface PrefabAddedChild {
     /** Id of the prefab node it was added under. */
     parent: string;
-    /** Its position among that node's children in the instance. */
+    /**
+     * Its position among that node's children in the instance. Used when
+     * {@link after} is absent — a file written before it existed — or names a
+     * sibling that is not there any more.
+     */
     index: number;
+    /**
+     * Id of the prefab's child it follows in the instance — the nearest one
+     * before it — or `null` when it comes before all of them.
+     *
+     * @remarks
+     * Where an added child goes is kept relative to the prefab's own
+     * children, so that a child the prefab gains in front does not move it in
+     * among them: Unity places an added object by its sibling, too. Several
+     * added children that follow the same sibling keep their order.
+     */
+    after?: string | null;
     node: SerializedGameObject;
 }
 
@@ -508,16 +523,46 @@ export class PrefabDiff {
             node.components.splice(at, 0, JSON.parse(JSON.stringify(a.component)) as SerializedComponent);
         }
 
+        // Lowest index first too; those that follow one sibling keep their order.
         const addedChildren = [...(changes.addedChildren ?? [])].sort((a, b) => a.index - b.index);
+        const inserted = new Set<SerializedGameObject>();
         for (const a of addedChildren) {
             const parent = byId.get(a.parent)?.node;
             if (!parent) continue;
             if (a.node.id !== undefined && present.has(a.node.id)) continue;
-            parent.children.splice(Math.min(Math.max(a.index, 0), parent.children.length), 0,
-                JSON.parse(JSON.stringify(a.node)) as SerializedGameObject);
+            const copy = JSON.parse(JSON.stringify(a.node)) as SerializedGameObject;
+            parent.children.splice(PrefabDiff._insertAt(parent, a, inserted), 0, copy);
+            inserted.add(copy);
         }
 
         return clone;
+    }
+
+    /**
+     * Where an added child goes among `parent`'s children: just after the
+     * sibling it follows ({@link PrefabAddedChild.after}), past the children
+     * already added there, or — with no `after`, or one naming a sibling that
+     * is not there — at its index.
+     *
+     * @param inserted - the children added so far, which `after` never names.
+     */
+    private static _insertAt(
+        parent: SerializedGameObject,
+        added: PrefabAddedChild,
+        inserted: ReadonlySet<SerializedGameObject>,
+    ): number {
+        const children = parent.children;
+        if (added.after !== undefined) {
+            const anchor = added.after === null
+                ? -1
+                : children.findIndex(c => c.id === added.after && !inserted.has(c));
+            if (added.after === null || anchor >= 0) {
+                let at = anchor + 1;
+                while (at < children.length && inserted.has(children[at])) at++;
+                return at;
+            }
+        }
+        return Math.min(Math.max(added.index, 0), children.length);
     }
 
     /**
@@ -1188,6 +1233,8 @@ export class PrefabDiff {
         }
 
         const matched = new Set<string>();
+        // The prefab's child the next added one follows, if any.
+        let after: string | null = null;
         instance.children.forEach((child, index) => {
             const at = child.id === undefined
                 ? -1
@@ -1197,15 +1244,16 @@ export class PrefabDiff {
                 matched.add(child.id!);
                 if (PrefabDiff._replaces(prefab.children[at], child)) {
                     (changes.removedChildren ??= []).push(child.id!);
-                    (changes.addedChildren ??= []).push({ parent: node, index, node: child });
+                    (changes.addedChildren ??= []).push({ parent: node, index, after, node: child });
                     return;
                 }
                 PrefabDiff._compareNode(prefab.children[at], child, [...path, at], changes, false, cmp);
+                after = child.id!;
                 return;
             }
 
             PrefabDiff.ensureIds(child);
-            (changes.addedChildren ??= []).push({ parent: node, index, node: child });
+            (changes.addedChildren ??= []).push({ parent: node, index, after, node: child });
         });
 
         for (const child of prefab.children) {

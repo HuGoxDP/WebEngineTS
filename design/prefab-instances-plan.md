@@ -141,7 +141,7 @@ whose paths hold node ids (§2.5).
               "field": "target", "value": { "$type": "GameObjectRef", "path": [0], "scope": 2 } } ] } } }
       ],
       "addedChildren": [
-        { "parent": "7jixp003", "index": 2, "node": { "name": "Flag", …, "id": "6o3xj006" } } ],
+        { "parent": "7jixp003", "index": 2, "after": "0uak7004", "node": { "name": "Flag", …, "id": "6o3xj006" } } ],
       "addedComponents": [
         { "node": "k2v0f002", "index": 0, "component": { "type": "Game.Aim", "fields": {
           "target": { "$type": "GameObjectRef", "path": [0] } } } } ]
@@ -661,7 +661,15 @@ is.
 
 **Order inside an instance** follows the prefab:
 
-- An added child carries its own `index`.
+- An added child carries its own `index`. *Corrected after verification (N6):* an index is
+  absolute, so after the prefab gained a child in front, an instance's added last child landed
+  between the prefab's own children. *Decided, before the format freezes:* it also carries
+  `after`, the id of the prefab sibling it follows in the instance (`null` when it comes first),
+  and is placed just after that sibling, past the children already added there, so several that
+  follow one sibling keep their order. The writer keeps writing `index`, for older readers and for
+  debugging; the reader uses it when `after` is absent (an older file) or names a sibling that is
+  not there — removed by the prefab since, or by the instance itself, whose removals are applied
+  first. Unity places an added object by its sibling too.
 - `compareChanges` matches children by id, so a reorder of the prefab's own children has no
   representation.
 - Unity forbids it: "Children of a Prefab instance cannot be deleted or moved, and components
