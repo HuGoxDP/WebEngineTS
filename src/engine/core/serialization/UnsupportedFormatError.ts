@@ -30,7 +30,7 @@ function list(versions: readonly number[]): string {
  * material, a physic material — refuses the same way, before it loads or builds
  * anything, so a host can tell "this file is from a newer build" from a
  * corrupt one and say so in its own words: the fields carry what was found and
- * what is read, and nothing needs parsing out of {@link message}.
+ * what is read, and nothing needs parsing out of `message`.
  *
  * A file is refused when its `version` is anything other than a whole number of
  * 1 or more that this build reads — `"2"`, `0`, `null` and `1.5` included. An

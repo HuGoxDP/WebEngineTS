@@ -383,6 +383,33 @@ describe("a material file", () => {
         expect(error.readable).toEqual([1]);
     });
 
+    /** A material file naming another file of the project, which a reader would load first. */
+    const referring = (version: number): string => {
+        const file: Record<string, unknown> = { ...SceneSerializer.serializeAsset(new StandardMaterial()), version };
+        file["fields"] = { ...(file["fields"] as object), albedoTexture: { $type: "AssetRef", guid: "phys-ice" } };
+        return JSON.stringify(file);
+    };
+
+    test("of a version this build does not read is refused before what it names is loaded", async () => {
+        install({ "assets/materials/hull.mat.json": referring(3), "assets/physics/ice.physicmat.json": "{}" });
+        const loadAtPath = vi.spyOn(Resources, "loadAtPath");
+
+        const error = await refusalOf(() => Resources.load(Material, "materials/hull"));
+
+        expect(error.what).toBe("material");
+        expect(loadAtPath).not.toHaveBeenCalled();
+        expect(source.reads).toEqual(["assets/materials/hull.mat.json"]);
+    });
+
+    test("of version 1 does load what it names, which is what the spy above would catch", async () => {
+        install({ "assets/materials/hull.mat.json": referring(1), "assets/physics/ice.physicmat.json": "{}" });
+        const loadAtPath = vi.spyOn(Resources, "loadAtPath");
+
+        await Resources.load(Material, "materials/hull").catch(() => undefined);
+
+        expect(loadAtPath).toHaveBeenCalledWith("assets/physics/ice.physicmat.json");
+    });
+
     test("is refused by deserializeAsset too, for a caller that reads it without Resources", () => {
         const file = { ...SceneSerializer.serializeAsset(new StandardMaterial()), version: 3 } as unknown as SerializedAssetFile;
 

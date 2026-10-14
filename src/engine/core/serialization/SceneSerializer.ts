@@ -628,6 +628,10 @@ export class SceneSerializer {
      * the file's instances share and follow it. {@link optionalAssetReferences}
      * says which ids those are, so that a loader passes over one the project
      * does not have without a warning.
+     *
+     * Ask {@link SceneSerializer.canRead} first: a file of a version this
+     * build does not read may refer to things this method cannot see, and
+     * nothing should be loaded for it.
      */
     public static assetReferences(json: object): string[] {
         const { required, optional } = SceneSerializer._references(json);
