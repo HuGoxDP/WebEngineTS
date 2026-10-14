@@ -677,8 +677,11 @@ export class Prefab {
      * the prefab where it was. The objects not concerned keep their identity,
      * and references to them from elsewhere stay valid. References inside the
      * instance to what is built again point at it again, wherever the
-     * prefabs say they do and nothing else was assigned since; a reference
-     * from outside the instance does not, since nothing records it.
+     * prefabs say they do and the field still holds the removed object; a
+     * reference from outside the instance does not, since nothing records it.
+     * A field set to `null` is left alone — it may be the scene's own change —
+     * so a reference to a removed object that was saved and loaded again in
+     * between, which the save wrote as `null`, stays null.
      *
      * On an instance of this prefab nested inside another instance, a change
      * goes back to what the prefabs around it set, as {@link getChanges}
@@ -949,10 +952,10 @@ export class Prefab {
 
     /**
      * Points back at `restored`, just rebuilt from a prefab, every reference
-     * in the instance around it that its prefabs aim there and that was left
-     * dangling when the object it replaces went away (see
-     * `SceneSerializer._reconnect`). References from outside the instance
-     * are not the prefabs' to say, and are left alone.
+     * in the instance around it that its prefabs aim there and that still
+     * holds the destroyed object it replaces (see
+     * `SceneSerializer._reconnect`). A `null` is left alone. References from
+     * outside the instance are not the prefabs' to say, and are left alone.
      */
     private static _reconnect(restored: GameObject | Component): void {
         const go = "gameObject" in restored ? restored.gameObject : restored;

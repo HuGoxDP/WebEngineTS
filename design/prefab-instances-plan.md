@@ -1023,9 +1023,13 @@ it on the object that was destroyed — a reference to a destroyed object is wri
 so the references read as overrides from then on, and a link save recorded them. The same held
 for a removed component, a nested instance rebuilt by reverting its whole link, and a nested
 instance rebuilt by `revert`. After each rebuild, a field in the instance is pointed at the new
-object when its prefabs' value finds it there and the field is dangling — `null`, or holding a
-destroyed object (`SceneSerializer._reconnect`). A field assigned something else meanwhile is
-the instance's own, and is left alone. A reference from outside the instance is not the
+object when its prefabs' value finds it there and the field still holds the destroyed object
+(`SceneSerializer._reconnect`). A field assigned something else meanwhile is the instance's own,
+and is left alone. *Corrected after verification (N2):* the field used to count as dangling when
+it was `null` too, so reverting an unrelated removal re-pointed a reference the scene had set to
+`null` on purpose. A `null` is now never re-pointed. The price is one case the first fix covered:
+a reference to a removed object that was saved and loaded again before the revert was written as
+`null`, and stays null. A reference from outside the instance is not the
 prefabs' to say, and is not restored. Unity restores those too, because its references are
 file ids and the object comes back under the same one; here a live reference holds the object
 itself, and nothing records which scene fields held the old one. Making the component case visible needed D4 first: a reference

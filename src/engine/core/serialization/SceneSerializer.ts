@@ -1595,18 +1595,23 @@ export class SceneSerializer {
 
     /**
      * @internal
-     * Points a field back at what was just rebuilt, where it was left
-     * dangling — null, or holding a destroyed object — and its saved value
-     * `json` finds `restored`: the object, something below it, or, for a
-     * component, that component. Reached element by element through arrays
-     * and nested values, so nothing else in the field is touched. See
-     * {@link _restoreChild} for `scopes`.
+     * Points a field back at what was just rebuilt, where it still holds a
+     * destroyed object and its saved value `json` finds `restored`: the
+     * object, something below it, or, for a component, that component.
+     * Reached element by element through arrays and nested values, so nothing
+     * else in the field is touched. See {@link _restoreChild} for `scopes`.
      *
      * @remarks
      * Rebuilding a removed child or component makes new objects, and every
      * reference that pointed at the old ones still holds them. This is what
      * puts those references back, without overwriting a field that was
      * pointed somewhere else meanwhile.
+     *
+     * A field that holds `null` is left alone, even where its saved value
+     * would find `restored`: a `null` the scene set on purpose cannot be told
+     * from one a save wrote for the removed object, and only the first is
+     * the scene's to keep. So a reference to a removed object that was saved
+     * and loaded again before the revert stays null.
      *
      * **NEVER use in user-facing code.**
      */
@@ -1645,16 +1650,16 @@ export class SceneSerializer {
                 return;
             }
             if (obj["$type"] !== "GameObjectRef" && obj["$type"] !== "ComponentRef") return;
-            if (!SceneSerializer._dangling(live)) return;
+            if (!SceneSerializer._destroyed(live)) return;
             const found = SceneSerializer._resolveSaved(scopes, obj);
             if (reaches(found)) set(found);
         };
         visit((owner as Record<string, unknown>)[field], json, value => SceneSerializer._assign(owner, field, value));
     }
 
-    /** Whether a live reference points at nothing: null, or an object that was destroyed. */
-    private static _dangling(value: unknown): boolean {
-        if (value === null || value === undefined) return true;
+    /** Whether a live reference holds an object that was destroyed. `null` is not one. */
+    private static _destroyed(value: unknown): boolean {
+        if (value === null || typeof value !== "object") return false;
         const exists = (value as { exists?: unknown }).exists;
         return typeof exists === "function" && !(exists as () => boolean).call(value);
     }

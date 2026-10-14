@@ -347,7 +347,9 @@ describe("references to what a revert rebuilds", () => {
         expect(saveLinked().roots[0].prefab!.changes).toEqual({ overrides: [] });
     });
 
-    test("so is one removed in a saved scene and brought back after it is opened again", () => {
+    test("one removed in a saved scene and brought back after it is opened again stays null", () => {
+        // The save wrote the reference to the removed Barrel as null, and a
+        // null cannot be told from one the scene set on purpose.
         const prefab = aimingTurret();
         child(prefab.instantiate(), 0).destroyImmediate();
         const saved = saveLinked();
@@ -357,8 +359,50 @@ describe("references to what a revert rebuilds", () => {
 
         prefab.revertOverride(instance, prefab.getChanges(instance).removedChildren![0]);
 
-        expect(instance.getComponent(Aim)!.target).toBe(child(instance, 0));
-        expect(prefab.getChanges(instance)).toEqual({ overrides: [] });
+        expect(instance.getComponent(Aim)!.target).toBeNull();
+        expect(prefab.getChanges(instance).overrides.map(o => o.field)).toEqual(["target", "part"]);
+    });
+
+    test("a reference the scene set to null stays null when an unrelated removal is reverted", () => {
+        const prefab = aimingTurret();
+        const instance = prefab.instantiate();
+        instance.getComponent(Aim)!.target = null;
+        const before = prefab.getChanges(instance).overrides;
+        child(instance, 0).destroyImmediate();
+
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedChildren![0]);
+
+        expect(instance.getComponent(Aim)!.target).toBeNull();
+        expect(instance.getComponent(Part)!.part).toBe(child(instance, 0).getComponent(Tag));
+        expect(prefab.getChanges(instance).overrides).toEqual(before);
+    });
+
+    test("so does one the scene set to null before it was saved and opened again", () => {
+        const prefab = aimingTurret();
+        const instance = prefab.instantiate();
+        instance.getComponent(Aim)!.target = null;
+        child(instance, 0).destroyImmediate();
+        const saved = saveLinked();
+        clear();
+        const [reopened] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+
+        prefab.revertOverride(reopened, prefab.getChanges(reopened).removedChildren![0]);
+
+        expect(reopened.getComponent(Aim)!.target).toBeNull();
+    });
+
+    test("a component reference the scene set to null stays null when a removed component is reverted", () => {
+        const prefab = aimingTurret();
+        const instance = prefab.instantiate();
+        instance.getComponent(Part)!.part = null;
+        const barrel = child(instance, 0);
+        barrel.removeComponent(barrel.getComponent(Tag)!);
+
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedComponents![0]);
+
+        expect(barrel.getComponent(Tag)).not.toBeNull();
+        expect(instance.getComponent(Part)!.part).toBeNull();
+        expect(prefab.getChanges(instance).overrides.map(o => o.field)).toEqual(["part"]);
     });
 
     test("a reference the scene pointed somewhere else is left where it points", () => {
