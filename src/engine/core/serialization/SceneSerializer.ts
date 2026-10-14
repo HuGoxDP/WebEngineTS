@@ -187,8 +187,15 @@ export interface SerializedAsset {
      * prefab is loaded, and its asset still serializes as this entry does,
      * binds the entry to the prefab's own asset instead of building the copy,
      * so the scene's instances go on sharing — and following — the prefab's
-     * material. Otherwise the copy is used. Optional: a reader that does not
-     * know it ignores it and uses the copy.
+     * material; another loaded prefab whose table carries the same id will do.
+     * Otherwise the copy is used. Optional: a reader that does not know it
+     * ignores it and uses the copy.
+     *
+     * {@link SceneSerializer.assetReferences} lists the prefab, as one the
+     * file reads without ({@link SceneSerializer.optionalAssetReferences}).
+     * Loaded only after the scene, it cannot re-bind the copy, but a copy
+     * that still serializes as the prefab's asset counts as that asset where
+     * an instance is compared with its prefab or saved as a link.
      */
     of?: { prefab: string; id: string };
 }
@@ -547,11 +554,33 @@ export class SceneSerializer {
      * instance saved as its prefab plus changes. An instance saved in full
      * names its prefab too, but reading it needs nothing, and its link is found
      * once the prefab is loaded.
+     *
+     * A prefab whose inline asset the file carries a copy of
+     * ({@link SerializedAsset.of}) is listed too, though the file reads
+     * without it: loaded first, it lets the copy be the prefab's own asset, so
+     * the file's instances share and follow it. {@link optionalAssetReferences}
+     * says which ids those are, so that a loader passes over one the project
+     * does not have without a warning.
      */
     public static assetReferences(json: object): string[] {
-        const carried = new Set<string>(
-            ((json as { assets?: SerializedAsset[] }).assets ?? []).map(a => a.guid),
-        );
+        const { required, optional } = SceneSerializer._references(json);
+        return [...required, ...optional];
+    }
+
+    /**
+     * The ids {@link assetReferences} lists that the file reads without: the
+     * prefabs its asset table holds copies from ({@link SerializedAsset.of}).
+     * Load each when the project has it; one it does not have is no error, and
+     * the file uses its own copy.
+     */
+    public static optionalAssetReferences(json: object): string[] {
+        return [...SceneSerializer._references(json).optional];
+    }
+
+    /** What {@link assetReferences} lists, split by whether reading the file needs it. */
+    private static _references(json: object): { required: Set<string>; optional: Set<string> } {
+        const table = (json as { assets?: SerializedAsset[] }).assets ?? [];
+        const carried = new Set<string>(table.map(a => a.guid));
         const found = new Set<string>();
 
         const walk = (node: unknown): void => {
@@ -585,8 +614,16 @@ export class SceneSerializer {
         if (sky?.skybox) found.add(sky.skybox);
         if (sky?.environmentReflections) found.add(sky.environmentReflections);
 
-        for (const guid of carried) found.delete(guid);
-        return [...found];
+        const optional = new Set<string>();
+        for (const entry of table) {
+            const of = SceneSerializer._originOf(entry);
+            if (of !== null && !found.has(of.prefab)) optional.add(of.prefab);
+        }
+        for (const guid of carried) {
+            found.delete(guid);
+            optional.delete(guid);
+        }
+        return { required: found, optional };
     }
 
     /** The guid of a prefab link that has to be rebuilt from its prefab, or null. */
@@ -822,6 +859,10 @@ export class SceneSerializer {
      * in the same session goes on sharing it.
      */
     private static _tableGuidOf(asset: object, prefabIds: boolean): string {
+        if (prefabIds) {
+            const twin = SceneSerializer._twinId(asset);
+            if (twin !== null) return twin;
+        }
         if (!prefabIds) {
             const copy = SceneSerializer._sceneCopyGuids.get(asset);
             if (copy !== undefined && (!AssetDatabase.isLoaded(copy) || AssetDatabase.get(copy) === asset)) {
@@ -887,7 +928,7 @@ export class SceneSerializer {
      */
     private static _copyOf(asset: object, written: string): { prefab: string; id: string } | null {
         const read = SceneSerializer._copyOrigins.get(asset);
-        if (read !== undefined) return { ...read };
+        if (read !== undefined) return read.id === written ? null : { ...read };
 
         const own = AssetDatabase.guidOf(asset) ?? SceneSerializer._inlineGuids.get(asset) ?? null;
         if (own === null || own === written || !SceneSerializer._prefabAssetGuids.has(own)) return null;
@@ -903,30 +944,106 @@ export class SceneSerializer {
 
     /**
      * Binds a scene's table entry that is a copy of a prefab's inline asset
-     * ({@link SerializedAsset.of}) to the prefab's own asset, when that prefab
-     * is loaded and its asset serializes exactly as the entry does. The
-     * prefab's table is built as an instance of it would build it.
+     * ({@link SerializedAsset.of}) to the prefab's own asset, when a loaded
+     * prefab carrying it ({@link _prefabsCarrying}) has it serialize exactly
+     * as the entry does. The prefab's table is built as an instance of it
+     * would build it, and the asset keeps the entry's `of` for the next save.
      *
      * @returns whether the entry was bound; when not, the caller builds the copy.
      */
     private static _bindToPrefabAsset(entry: SerializedAsset, ctx: DeserializeContext): boolean {
-        const of = entry.of;
-        if (of === null || typeof of !== "object" || typeof of.prefab !== "string" || typeof of.id !== "string") {
-            return false;
-        }
-        const tree = SceneSerializer._prefabTree(of.prefab);
-        const own = tree?.assets?.find(candidate => candidate.guid === of.id);
-        if (tree === null || own === undefined || own.type !== entry.type
-            || !SceneSerializer._sameJson(own.fields, entry.fields)) {
-            return false;
-        }
+        const of = SceneSerializer._originOf(entry);
+        if (of === null) return false;
+        for (const prefab of SceneSerializer._prefabsCarrying(of)) {
+            const tree = SceneSerializer._prefabTree(prefab);
+            const own = tree?.assets?.find(candidate => candidate.guid === of.id);
+            if (tree === null || own === undefined || own.type !== entry.type
+                || !SceneSerializer._sameJson(own.fields, entry.fields)) {
+                continue;
+            }
 
-        SceneSerializer._materializeAssets(tree.assets, ctx, false);
-        const asset = AssetDatabase.get(of.id);
-        if (asset === null) return false;
-        AssetDatabase._bindAlias(entry.guid, asset);
-        SceneSerializer._sceneCopyGuids.set(asset, entry.guid);
-        return true;
+            SceneSerializer._materializeAssets(tree.assets, ctx, false);
+            const asset = AssetDatabase.get(of.id);
+            if (asset === null) continue;
+            AssetDatabase._bindAlias(entry.guid, asset);
+            SceneSerializer._sceneCopyGuids.set(asset, entry.guid);
+            // Kept with the asset, so that the scene goes on saying what it
+            // copies once the prefab is unloaded.
+            SceneSerializer._copyOrigins.set(asset, of);
+            return true;
+        }
+        return false;
+    }
+
+    /** A table entry's {@link SerializedAsset.of}, when it is well formed. */
+    private static _originOf(entry: SerializedAsset): { prefab: string; id: string } | null {
+        const of = entry.of as unknown;
+        if (of === null || typeof of !== "object") return null;
+        const { prefab, id } = of as Record<string, unknown>;
+        return typeof prefab === "string" && typeof id === "string" ? { prefab, id } : null;
+    }
+
+    /**
+     * The loaded prefabs that may carry the asset `of` names: the prefab it
+     * names, then any other loaded prefab whose table uses the same id — one
+     * material object saved into two prefabs is written into both under one
+     * id, and `of` names only the first.
+     */
+    private static *_prefabsCarrying(of: { prefab: string; id: string }): Generator<string> {
+        yield of.prefab;
+        for (const ref of SceneSerializer._prefabAssetOwners.get(of.id) ?? []) {
+            const owner = ref.deref();
+            const guid = owner === undefined ? null : AssetDatabase.guidOf(owner);
+            if (guid !== null && guid !== of.prefab) yield guid;
+        }
+    }
+
+    /**
+     * The id, in a prefab's table, of the prefab asset that `asset` — a
+     * scene's copy of it ({@link SerializedAsset.of}) — stands for, or null.
+     *
+     * @remarks
+     * A scene opened before its prefab, as the editor opens one, builds the
+     * copy, and nothing re-binds it once the prefab loads. Where an instance
+     * is compared with its prefab or written as a link, a copy that still
+     * serializes as a loaded prefab's asset does is taken for that asset, so
+     * it is no change of the instance's and a link save carries nothing. The
+     * copy stays a separate object until the scene is opened again: an edit
+     * to the prefab's material does not reach it before then.
+     */
+    private static _twinId(asset: object): string | null {
+        const origin = SceneSerializer._copyOrigins.get(asset);
+        if (origin === undefined || SceneSerializer._twinning.has(asset)) return null;
+        const type = TypeRegistry.getTypeName(asset);
+        SceneSerializer._twinning.add(asset);
+        try {
+            let fields: Record<string, unknown> | null = null;
+            for (const prefab of SceneSerializer._prefabsCarrying(origin)) {
+                const own = SceneSerializer._prefabTree(prefab)?.assets?.find(entry => entry.guid === origin.id);
+                if (own === undefined || own.type !== type) continue;
+                fields ??= SceneSerializer._assetFields(asset);
+                if (SceneSerializer._sameJson(own.fields, fields)) return origin.id;
+            }
+            return null;
+        } finally {
+            SceneSerializer._twinning.delete(asset);
+        }
+    }
+
+    /** The copies {@link _twinId} is comparing, so that one that refers to itself stops. */
+    private static readonly _twinning = new Set<object>();
+
+    /** An asset's fields as a prefab's table writes them, writing nothing anywhere. */
+    private static _assetFields(asset: object): Record<string, unknown> {
+        const ctx = SceneSerializer._buildSerializeCtx([], false, null, { ownAssets: true });
+        const fields: Record<string, unknown> = {};
+        for (const f of getAllFields(asset.constructor as AnyConstructor)) {
+            if (!f.serialize) continue;
+            fields[f.name] = ValueSerializer.serialize(
+                (asset as Record<string, unknown>)[f.name], f.type, ctx, f.elementType,
+            );
+        }
+        return fields;
     }
 
     /** Whether two pieces of saved JSON are equal, whatever the order of their keys. */
@@ -1629,10 +1746,8 @@ export class SceneSerializer {
             const asset = SceneSerializer._buildAsset(entry.type, entry.fields, ctx);
             if (asset === null) continue;
             AssetDatabase._bindGuid(entry.guid, asset);
-            const of = entry.of;
-            if (followOf && of && typeof of.prefab === "string" && typeof of.id === "string") {
-                SceneSerializer._copyOrigins.set(asset, { prefab: of.prefab, id: of.id });
-            }
+            const of = followOf ? SceneSerializer._originOf(entry) : null;
+            if (of !== null) SceneSerializer._copyOrigins.set(asset, of);
         }
     }
 

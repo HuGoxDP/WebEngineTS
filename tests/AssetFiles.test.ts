@@ -184,6 +184,31 @@ describe("a material as a file", () => {
         warn.mockRestore();
     });
 
+    test("a prefab its table holds a copy from is loaded when the project has it, and not missed when it does not", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const crate = new GameObject("Crate");
+        const prefabText = written(Prefab.fromGameObject(crate));
+        crate.destroyImmediate();
+        const copy = SceneSerializer.serializeAsset(new StandardMaterial());
+        const file = (prefab: string) => {
+            const out = SceneSerializer.serializeAsset(new StandardMaterial());
+            out.assets = [{ guid: "a-copy", type: copy.type, fields: copy.fields, of: { prefab, id: "m-crate" } }];
+            return JSON.stringify(out);
+        };
+        install({
+            "assets/materials/hull.mat.json": file("prefab-crate"),
+            "assets/materials/glow.mat.json": file("prefab-nowhere"),
+            "assets/prefabs/crate.prefab.json": prefabText,
+        });
+
+        await Resources.load(Material, "materials/hull");
+        await Resources.load(Material, "materials/glow");
+
+        expect(AssetDatabase.isLoaded("prefab-crate")).toBe(true);
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+    });
+
     test("is loaded once and shared", async () => {
         install({ "assets/materials/hull.mat.json": written(new StandardMaterial()) });
 

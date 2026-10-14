@@ -503,12 +503,28 @@ table that is not a prefab's never names an asset by an id a prefab's table uses
   asset** — built from the prefab's table as an instance would build it — and no copy is made.
   Otherwise the copy is used, as before, and nothing warns. Equality is on the serialized form, so
   a prefab whose material was edited since keeps the scene's own, now different, copy: the honest
-  result. `of` is not listed by `assetReferences` — the scene loads without the prefab — so it
-  binds only when the host loaded the prefab first. *Verified:* `of` is additive for a version-1
-  reader. `SceneSerializer._materializeAssets` reads `guid`, `type` and `fields` of an entry and
-  nothing else, and so does the `0.1.0-local.1789023160893` bundle the consumers run (its
+  result. *Verified:* `of` is additive for a version-1 reader. Before `of` existed (`e6a8500`),
+  `SceneSerializer._materializeAssets` read `guid`, `type` and `fields` of an entry and nothing
+  else, and so does the `0.1.0-local.1789023160893` bundle the consumers run (its
   `_materializeAssets`, read from the packed `dist/WebEngineTS.esm.js`), so the key needs no
   version 2 marker and a scene that has one stays version 1.
+- *Corrected after review (A1):* the binding above held only when the prefab was loaded before the
+  scene, and `of` was not listed by `assetReferences`, so nothing made that order happen; the
+  editor opens a scene with `deserializeScene` and loads no prefab first. Loaded the other way
+  round, every N3 symptom came back. *Decided there, both:* (a) `assetReferences` lists `of.prefab`,
+  and the new `optionalAssetReferences` says it is a reference the file reads without, so a loader
+  that follows the list loads the prefab first and binds, and passes over quietly one the project
+  does not have (`AssetFiles.loadReferences` does). (b) For a scene opened first: where an instance
+  is compared with its prefab or written as a link — any table that is a prefab's — a copy whose
+  `of` names a loaded prefab, and whose fields still serialize as that prefab's entry does, is
+  written under the prefab's id (`SceneSerializer._twinId` in `_tableGuidOf`). It is then no
+  change of the instance's, a link save carries no asset, and a full save still writes the copy
+  with its `of`. The copy stays its own object until the scene is opened again, so an edit to the
+  prefab's material reaches the instance only then. The review also found that `of` was lost on
+  the next save once the prefab was unloaded — `_copyOf` looked for a loaded owner — so a binding
+  now records the entry's `of` with the prefab's asset; and that a material saved into two
+  prefabs, named by `of` after the first, bound only through it, so binding and `_twinId` try
+  every loaded prefab whose table carries the id (`_prefabsCarrying`), the named one first.
 
 ### 6.2 Deserialize
 

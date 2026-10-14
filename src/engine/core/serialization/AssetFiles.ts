@@ -93,7 +93,9 @@ function waitsFor(file: string, target: string): boolean {
  * @remarks
  * Held by the cache and not released: the asset being built keeps using them.
  * A reference with no known path is reported and left null, the same outcome a
- * scene gets for an asset it cannot find.
+ * scene gets for an asset it cannot find — unless the file reads without it
+ * ({@link SceneSerializer.optionalAssetReferences}), which is passed over
+ * quietly.
  *
  * A file another load is decoding is waited for — `Resources` hands every
  * caller the same load — unless that load is itself waiting, through the
@@ -102,6 +104,8 @@ function waitsFor(file: string, target: string): boolean {
  */
 async function loadReferences(json: object, self: Decode): Promise<void> {
     const attempted = new Set<string>();
+    // Loaded when the project has them, passed over quietly when it does not.
+    const optional = new Set(SceneSerializer.optionalAssetReferences(json));
 
     for (const guid of SceneSerializer.assetReferences(json)) {
         if (AssetDatabase.isLoaded(guid)) continue;
@@ -123,7 +127,9 @@ async function loadReferences(json: object, self: Decode): Promise<void> {
 
             const path = AssetDatabase.pathOf(file);
             if (path === null) {
-                console.warn(`[AssetFiles] An asset refers to "${guid}", which the project does not list.`);
+                if (!optional.has(guid)) {
+                    console.warn(`[AssetFiles] An asset refers to "${guid}", which the project does not list.`);
+                }
                 continue;
             }
             self.waits.add(file);
@@ -137,7 +143,7 @@ async function loadReferences(json: object, self: Decode): Promise<void> {
             }
         }
 
-        if (!AssetDatabase.isLoaded(guid)) {
+        if (!AssetDatabase.isLoaded(guid) && !optional.has(guid)) {
             console.warn(`[AssetFiles] "${AssetDatabase.pathOf(file)}" has no part called "${guid}".`);
         }
     }

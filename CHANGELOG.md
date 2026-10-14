@@ -238,7 +238,17 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   it every instance got a copy of its own, reported a `MeshRenderer.sharedMaterial` change, and a
   link save recorded that and stopped following the prefab. With the prefab not loaded, or its
   material changed since, the copy is used, as before. `of` is optional and leaves the file at
-  version 1: a reader that predates it ignores it and uses the copy.
+  version 1: a reader that predates it ignores it and uses the copy. Any loaded prefab whose table
+  carries that id will do, so a material saved into two prefabs binds through either.
+  `SceneSerializer.assetReferences` lists the prefab `of` names, and the new
+  `optionalAssetReferences` says it is one the file reads without, so a loader that follows the
+  list binds the copy, and one the project lacks is passed over without a warning (`AssetFiles`
+  does both). A scene opened *before* the prefab — what an editor that opens a scene directly
+  does — keeps the copy, but once the prefab is loaded a copy that still serializes as the
+  prefab's material counts as it: no `sharedMaterial` change, nothing carried by a link save, and
+  `of` still written by a full one; the copy follows edits to the prefab's material only after the
+  scene is opened again. A scene that bound to the prefab's material goes on writing `of` after the
+  prefab is unloaded.
 - **A child keeps its local position, rotation and scale when a scene is loaded.** The loader
   set a child's saved pose and then attached it to its parent keeping its *world* pose, which
   subtracted the parent's: a child at `(0, 0.5, 0)` under a parent at `(1, 2, 3)` came back at

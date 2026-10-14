@@ -1105,6 +1105,86 @@ describe("a prefab's inline material in a scene", () => {
         expect(materialOf(followed).metallic).toBeCloseTo(0.8);
     });
 
+    test("its prefab is named as a reference a loader may skip", () => {
+        const file = prefabFile("Crate", 0.3);
+        load(file, "guid-crate").instantiate();
+
+        const saved = save();
+
+        // Saved in full, nothing has to be rebuilt from the prefab: it is listed
+        // only so that a loader that follows the list binds the copy.
+        expect(SceneSerializer.assetReferences(saved)).toEqual(["guid-crate"]);
+        expect(SceneSerializer.optionalAssetReferences(saved)).toEqual(["guid-crate"]);
+        const linked = saveLinked();
+        expect(SceneSerializer.assetReferences(linked)).toEqual(["guid-crate"]);
+        expect(SceneSerializer.optionalAssetReferences(linked)).toEqual([]);
+    });
+
+    test("opened before its prefab, as an editor opens a scene, its instance has no changes once the prefab loads", () => {
+        const file = prefabFile("Crate", 0.3);
+        load(file, "guid-crate").instantiate();
+        const saved = JSON.parse(JSON.stringify(save())) as SerializedScene;
+
+        newSession();
+        const [kept] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        const prefab = load(file, "guid-crate");
+
+        expect(prefab.getChanges(kept)).toEqual({ overrides: [] });
+        expect(prefab.getOverrides(kept).filter(o => o.field === "sharedMaterial")).toEqual([]);
+        const linked = saveLinked();
+        expect(linked.assets).toBeUndefined();
+        expect(linked.roots[0].prefab!.changes).toEqual({ overrides: [] });
+        expect(save()).toEqual(saved);
+
+        // A copy edited since is the scene's own change.
+        materialOf(kept).metallic = 0.6;
+        expect(prefab.getChanges(kept).overrides.map(o => o.field)).toEqual(["sharedMaterial"]);
+        expect(saveLinked().assets).toHaveLength(1);
+    });
+
+    test("it keeps saying what it copies after its prefab is unloaded", () => {
+        const file = prefabFile("Crate", 0.3);
+        load(file, "guid-crate").instantiate();
+        const saved = JSON.parse(JSON.stringify(save())) as SerializedScene;
+
+        for (const unload of [
+            (prefab: Prefab) => AssetDatabase._unbind(prefab),
+            () => AssetDatabase.clearLoaded(),
+        ]) {
+            newSession();
+            const prefab = load(file, "guid-crate");
+            SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+            unload(prefab);
+
+            expect(save().assets![0].of).toEqual(saved.assets![0].of);
+        }
+    });
+
+    test("one material two prefabs share binds through either of them", () => {
+        const shared = new StandardMaterial();
+        shared.metallic = 0.3;
+        const files = ["Left", "Right"].map(name => {
+            const source = new GameObject(name);
+            source.addComponent(MeshRenderer).sharedMaterial = shared;
+            const json = JSON.parse(JSON.stringify(Prefab.fromGameObject(source).toJSON())) as PrefabFile;
+            source.destroyImmediate();
+            return json;
+        });
+        expect(tableGuid(files[0])).toBe(tableGuid(files[1]));
+        load(files[0], "guid-left").instantiate();
+        load(files[1], "guid-right").instantiate();
+        const saved = JSON.parse(JSON.stringify(save())) as SerializedScene;
+        expect(saved.assets![0].of!.prefab).toBe("guid-left");
+
+        newSession();
+        const right = load(files[1], "guid-right");
+        const roots = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        const instance = roots.find(r => r.name === "Right")!;
+
+        expect(right.getChanges(instance)).toEqual({ overrides: [] });
+        expect(materialOf(instance)).toBe(materialOf(right.instantiate()));
+    });
+
     test("opened without its prefab, the scene's copy is used, quietly, and still says what it copies", () => {
         const file = prefabFile("Crate", 0.3);
         load(file, "guid-crate").instantiate();
