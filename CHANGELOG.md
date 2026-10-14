@@ -252,6 +252,18 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   parents were not at the origin with no rotation and unit scale used to load displaced, so this
   moves objects and **can change what such a scene costs to draw** — a measurement of a scene
   loaded from a file is not comparable across the fix.
+- **The standalone bundle is minified: 917,253 → 391,742 bytes gzip** (4,077,276 → 1,505,564 raw,
+  gzip at level 9, measured on this build); class and function names are kept. A student's
+  browser downloads about 525 KB less. Only `WebEngineTS.standalone.js` changes — the ESM and
+  CJS builds stay readable, because a consumer bundling them minifies the result itself.
+  Because class and function names are kept, `constructor.name`, scenario code that registers
+  by class name and the warnings that print one read as before; local names and comments are
+  gone, apart from the three.js and jszip licence notices. The bundle no longer ends with a
+  `//# sourceMappingURL` comment, which pointed at a file hosts do not copy: the map is still
+  written beside it, and a release attaches `WebEngineTS.standalone.js.map` for reading a stack
+  trace. A host that took the unminified bundle's stack traces at face value needs that map.
+  **Load time changes** (download and parse); frame time is not expected to, and was not
+  measured, so a benchmark that records the load phase is not comparable across this build.
 
 ### Fixed
 

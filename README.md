@@ -38,12 +38,19 @@ in `dist/`:
 | --- | --- | --- | --- |
 | `WebEngineTS.esm.js` | ES module | external | Bundler-based apps (Angular, Vite, webpack) |
 | `WebEngineTS.cjs.js` | CommonJS | external | Node.js tooling / SSR |
-| `WebEngineTS.standalone.js` | ES module | **bundled** | Browser `<script type="importmap">` (scenario Blob URLs) |
+| `WebEngineTS.standalone.js` | ES module, **minified** | **bundled** | Browser `<script type="importmap">` (scenario Blob URLs) |
 | `WebEngineTS.d.ts` | Types | — | A single bundled type-declaration file |
 
 For the `esm`/`cjs` builds `three` is marked **external** — the host application provides it.
 The `standalone` build bundles `three` (and `jszip`, `tslib`) so a plain HTML page can resolve
 `import ... from "three"` and `from "WebEngineTS"` through an import map with no bundler.
+
+The `standalone` build is the only one that is **minified**, because it is the file a student's
+browser downloads; a consumer bundling `esm`/`cjs` minifies the result itself and keeps readable
+stack traces. Class and function names are kept (scenario code registers by class name, and
+warnings and the editor print `constructor.name`), and licence notices stay. Its source map is
+written as `WebEngineTS.standalone.js.map` with no `sourceMappingURL` comment in the bundle, so a
+host that copies only the `.js` file serves no dangling reference; the release attaches the map.
 
 The public entry point is `src/engine/index.ts`.
 
@@ -145,6 +152,7 @@ A release is a GitHub Release, published by pushing a version tag. CI
 | --- | --- |
 | `WebEngineTS-X.Y.Z.tgz` | npm consumers — the packed library, exactly as `npm pack` makes it |
 | `WebEngineTS.standalone.js`, `WebEngineTS.d.ts` | Hosts that load the engine through an import map |
+| `WebEngineTS.standalone.js.map` | The standalone bundle's source map, for debugging a minified stack trace; not needed to run it |
 | `basis_transcoder.js`, `basis_transcoder.wasm` | The KTX2 transcoder matching the `three` this build bundles (see above) |
 
 The release notes are that version's section of `CHANGELOG.md`.

@@ -106,6 +106,9 @@ jobs:
       #   * WebEngineTS.standalone.js + WebEngineTS.d.ts — the import-map
       #     bundle (three included) and its types, which is all the benchmark
       #     suite takes.
+      #   * WebEngineTS.standalone.js.map — the bundle is minified and carries no
+      #     sourceMappingURL comment, so the map is only useful to someone who
+      #     fetches it beside the bundle to read a stack trace.
       #   * basis_transcoder.js + .wasm — the KTX2 transcoder every host must
       #     serve itself (README, "KTX2 / Basis textures"). It is versioned
       #     with three, and the standalone bundle carries this build's three
@@ -139,6 +142,7 @@ jobs:
             "${prerelease[@]}" \
             "$TGZ" \
             dist/WebEngineTS.standalone.js \
+            dist/WebEngineTS.standalone.js.map \
             dist/WebEngineTS.d.ts \
             "$basis/basis_transcoder.js" \
             "$basis/basis_transcoder.wasm"

@@ -6,7 +6,7 @@
 // Produces:
 //   dist/WebEngineTS.esm.js         — ES module (three external, for Angular/Vite bundlers)
 //   dist/WebEngineTS.cjs.js         — CommonJS (three external, for Node.js tooling, SSR)
-//   dist/WebEngineTS.standalone.js  — ES module (three BUNDLED, for browser import maps)
+//   dist/WebEngineTS.standalone.js  — ES module, minified (three BUNDLED, for browser import maps)
 //   dist/WebEngineTS.d.ts           — Single bundled type declaration
 //
 // The standalone build is used by the host page's <script type="importmap">
@@ -19,6 +19,7 @@ import { readFileSync } from "node:fs";
 import typescript from "@rollup/plugin-typescript";
 import resolve from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
+import terser from "@rollup/plugin-terser";
 import dts from "rollup-plugin-dts";
 
 // ─── Build identity ───
@@ -152,18 +153,45 @@ const jsBuild = {
 };
 
 // ─── Build 2: Standalone ESM — three BUNDLED (for import maps) ───
+//
+// This is the file every student downloads, so it is the only build that is
+// minified. The ESM and CJS builds stay readable: a consumer bundling them
+// minifies the result itself and keeps stack traces that name engine code.
+//
+// Class and function names are kept. The engine never reads them back for its
+// own types (every @Serializable passes `typeName`), but scenario code does:
+// it registers by class name, warnings and the editor print
+// `constructor.name`, and the scenario entry point is found through its class.
+//
+// Comments are dropped except licence notices (three.js and jszip are MIT and
+// ask that the notice travel with the code).
+//
+// sourcemap "hidden" writes dist/WebEngineTS.standalone.js.map without the
+// trailing `//# sourceMappingURL` comment: hosts copy only the .js file, so the
+// comment would point at a file that is not there. The map is attached to the
+// GitHub Release for debugging. @rollup/plugin-terser only asks terser for a
+// map when `sourcemap` is `true` or a path, so `sourceMap: true` is repeated
+// here; without it the map would describe the bundle before minification.
 const standaloneBuild = {
   input: "src/engine/index.ts",
 
   output: {
     file: "dist/WebEngineTS.standalone.js",
     format: "es",
-    sourcemap: true,
+    sourcemap: "hidden",
   },
 
   // No externals — everything is bundled (three, jszip, tslib)
   external: [],
-  plugins: buildPlugins(),
+  plugins: [
+    ...buildPlugins(),
+    terser({
+      keep_classnames: true,
+      keep_fnames: true,
+      sourceMap: true,
+      format: { comments: /@license|@preserve|^!/ },
+    }),
+  ],
   onwarn,
 };
 
