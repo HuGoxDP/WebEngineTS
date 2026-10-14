@@ -54,7 +54,10 @@ const reload = (go: GameObject): GameObject => {
 };
 
 function clear(): void {
-    for (const root of [...SceneManager.activeScene.getRootGameObjects()]) root.destroyImmediate();
+    for (const root of [...SceneManager.activeScene.getRootGameObjects()]) {
+        // One test leaving a component whose onDestroy throws must not fail every test after it.
+        try { root.destroyImmediate(); } catch { /* the test that caused it has already failed */ }
+    }
 }
 
 beforeEach(() => clear());
@@ -434,5 +437,25 @@ describe("a destroyed component of a prefab instance", () => {
         const [back] = SceneSerializer.deserializeScene(saved);
         expect(back.getComponent(Tag)).toBeNull();
         expect(back.getComponent(Pick)).not.toBeNull();
+    });
+});
+
+describe("a component added while its object is being destroyed", () => {
+    class Spawner extends ScriptableBehaviour {
+        public spawned: Watched | null = null;
+        public override onDisable(): void { this.spawned = this.gameObject.addComponent(Watched); }
+    }
+
+    test("is destroyed with it, not left alive outside the list", () => {
+        const go = new GameObject("Doomed");
+        const spawner = go.addComponent(Spawner);
+
+        go.destroyImmediate();
+
+        const spawned = spawner.spawned!;
+        expect(spawned).not.toBeNull();
+        expect(spawned.exists()).toBe(false);
+        expect(spawned.onDestroyCalls).toBe(1);
+        expect(go.getAllComponents()).toEqual([]);
     });
 });

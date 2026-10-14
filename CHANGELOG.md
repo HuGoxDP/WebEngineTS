@@ -280,8 +280,9 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   `destroyImmediate`, and a prefab instance never reported such a component as removed. It now
   leaves the list after its `onDisable` and `onDestroy` have run: at once for `destroyImmediate`,
   at the end of the frame (or after its delay) for `destroy`, and when its GameObject is
-  destroyed. Removal replaces the list instead of splicing it, so a script that destroys itself
-  or a sibling from `update` no longer makes the next component skip its update that frame. A
+  destroyed — including one a sibling adds from its `onDisable` or `onDestroy` while the object
+  is being destroyed. Removal replaces the list instead of splicing it, so `removeComponent`
+  called from `update` no longer makes the next component skip its update that frame. A
   component whose `onDestroy` throws still leaves the list, as it already did through
   `removeComponent`. The `Transform` is not part of the list and is untouched.
 - **A material with no file stays in the scene on every save, under one id.** A scene carries a

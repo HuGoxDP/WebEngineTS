@@ -506,9 +506,9 @@ export class GameObject extends EngineObject {
      *
      * Destroying a component any other way — `component.destroyImmediate()`,
      * or `component.destroy()` once the frame ends — takes it out of this list
-     * just the same. This is the form that reports whether it was there, and
-     * that drops the component even if its `onDestroy` throws, logging the
-     * error instead of rethrowing it.
+     * just the same. This is the form that reports whether the component was
+     * there, and that logs an error thrown by its `onDestroy` instead of
+     * rethrowing it.
      */
     public removeComponent(component: Component): boolean {
         if (component instanceof Transform) return false;
@@ -929,9 +929,14 @@ export class GameObject extends EngineObject {
      */
     protected override onDestroy(): void {
         // 1. Destroy all components. Each takes itself out of the list as it
-        // goes, so walk a copy.
-        for (const component of [...this._components]) {
-            component.destroyImmediate();
+        // goes, so walk a copy — and walk again for any a sibling added from its
+        // onDisable or onDestroy, so that none outlives its object.
+        const asked = new Set<Component>();
+        for (let next = [...this._components]; next.length > 0; next = this._components.filter(c => !asked.has(c))) {
+            for (const component of next) {
+                asked.add(component);
+                component.destroyImmediate();
+            }
         }
         this._components = [];
 
