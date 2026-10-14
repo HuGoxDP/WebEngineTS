@@ -1126,3 +1126,56 @@ describe("a revert keeps the references into what it builds again", () => {
         expect(player.getComponent(Part)!.part).toBe(barrel.getComponent(Tag));
     });
 });
+
+describe("a nested instance saved in full in place of its link", () => {
+    /** Turret (Barrel, Light) inside Tank (Hull, Turret); the Tank aims at the Turret's Light. */
+    function world(): { turret: Prefab; tank: Prefab } {
+        const turret = prefabOf(() => make("Turret", "turret", make("Barrel", "barrel"), make("Light", "light")), "guid-turret");
+        const tank = prefabOf(() => {
+            const nested = turret.instantiate();
+            const root = make("Tank", "tank", make("Hull", "hull"), nested);
+            root.addComponent(Aim).target = child(nested, 1);
+            return root;
+        }, "guid-tank");
+        return { turret, tank };
+    }
+
+    const names = (go: GameObject): string[] =>
+        Array.from({ length: go.transform.childCount }, (_, i) => child(go, i).name);
+
+    /** A Tank whose Turret's children were reordered, and a Player aiming at its Barrel. */
+    function reordered(tank: Prefab): { instance: GameObject; player: GameObject } {
+        const player = new GameObject("Player");
+        const instance = tank.instantiate();
+        child(instance, 1, 1).transform.setSiblingIndex(0);
+        player.addComponent(Aim).target = child(instance, 1, 1);
+        return { instance, player };
+    }
+
+    for (const half of ["removed", "added"] as const) {
+        test(`reverting the ${half} half of the pair builds the nested instance once, as a link`, () => {
+            const { tank, turret } = world();
+            const { instance, player } = reordered(tank);
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const changes = tank.getChanges(instance);
+            expect(changes.removedChildren).toHaveLength(1);
+            expect(changes.addedChildren).toHaveLength(1);
+            // Reading the changes warns that the Turret cannot be a link; nothing after that may.
+            warn.mockClear();
+
+            tank.revertOverride(instance, half === "removed" ? changes.removedChildren![0] : changes.addedChildren![0]);
+
+            expect(names(instance)).toEqual(["Hull", "Turret"]);
+            const nested = child(instance, 1);
+            expect(nested.prefabSource).toBe(turret);
+            expect(names(nested)).toEqual(["Barrel", "Light"]);
+            expect(tank.getChanges(instance)).toEqual({ overrides: [] });
+            expect(instance.getComponent(Aim)!.target).toBe(child(nested, 1));
+            expect(player.getComponent(Aim)!.target).toBe(child(nested, 0));
+            const saved = saveLinked();
+            expect(saved.roots[1].prefab!.changes).toEqual({ overrides: [] });
+            expect(warn.mock.calls.map(c => String(c[0])).filter(m => m.includes("reordered"))).toEqual([]);
+            warn.mockRestore();
+        });
+    }
+});

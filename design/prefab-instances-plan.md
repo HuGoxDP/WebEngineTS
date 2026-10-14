@@ -682,6 +682,14 @@ instance falls back to expanded as well (`_dropsContents`), with a warning. The 
 is what `getChanges`, `createVariant` and `Prefab.fromGameObject` of an object holding such an
 instance record.
 
+*Corrected after verification (N5):* `getChanges` reports that replacement as two entries,
+`removedChildren: [X]` and an `addedChildren` copy whose `node.id` is `X`, and `revertOverride`
+took each as a change of its own. Reverting the removal built a second nested instance beside the
+copy — two live objects with one id — and reverting the addition deleted the copy, leaving no
+nested instance at all. The pair is now one change: reverting either half takes the copy away and
+builds the nested instance once from its prefab, at the prefab's place (`Prefab._restoreRemoved`).
+References into the copy follow it by node ids, as references into a reverted instance do (N4).
+
 ### 7.4 Two sources of truth for the root
 
 In link mode the shell holds name, active and transform, and `changes` can hold root overrides of

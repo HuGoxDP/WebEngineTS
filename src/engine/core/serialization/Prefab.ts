@@ -725,6 +725,12 @@ export class Prefab {
      * saved and loaded again in between, which the save wrote as `null`,
      * stays null.
      *
+     * A nested instance held in full where the prefab keeps a link — one
+     * whose children were reordered — is reported as that child removed and
+     * added again under the same id. The two are one change: reverting either
+     * takes the full copy away and builds the nested instance once, from its
+     * prefab, at the prefab's place, and references into the copy follow it.
+     *
      * On an instance of this prefab nested inside another instance, a change
      * goes back to what the prefabs around it set, as {@link getChanges}
      * compares it.
@@ -755,11 +761,7 @@ export class Prefab {
             if (found === null || found.parent === null) return;
             const parent = this._liveNode(root, tree, { node: found.parent.id, path: [] });
             if (parent === null) return;
-            const index = Prefab._liveIndex(parent, found.parent, found.parent.children.indexOf(found.node));
-            const held = Prefab._heldIntoRemoved(parent, at.id!);
-            const restored = SceneSerializer._restoreChild(scopes, found.node, parent, index, assets, chain);
-            Prefab._pointBack(held, restored);
-            Prefab._reconnect(restored);
+            Prefab._restoreRemoved(parent, { node: found.node, parent: found.parent }, scopes, assets, chain);
             return;
         }
 
@@ -770,10 +772,18 @@ export class Prefab {
 
         if ("parent" in change) {
             const parent = this._liveNode(root, tree, { node: at.id!, path: [] });
-            const added = parent === null || change.node.id === undefined
-                ? null
-                : Prefab._childWithId(parent, change.node.id);
-            added?.destroyImmediate();
+            const id = change.node.id;
+            const added = parent === null || id === undefined ? null : Prefab._childWithId(parent, id);
+            if (added === null) return;
+            // The added half of a nested instance saved in full in place of the
+            // prefab's own: the pair is one change, undone by building the
+            // nested instance again.
+            const replaced = PrefabDiff.nodeOf(tree, { node: id! });
+            if (replaced !== null && replaced.parent !== null && replaced.parent.id === at.id) {
+                Prefab._restoreRemoved(parent!, { node: replaced.node, parent: replaced.parent }, scopes, assets, chain);
+                return;
+            }
+            added.destroyImmediate();
             return;
         }
 
@@ -814,6 +824,37 @@ export class Prefab {
             Prefab._warnLost(`Bringing back a ${change.component} on "${live.name}"`, held.map(h => h.where),
                 `${removed} of that type were removed, and which one each held cannot be told`);
         }
+        Prefab._reconnect(restored);
+    }
+
+    /**
+     * Builds again, under `parent`, a child of the prefab's that the instance
+     * does not have as the prefab has it, at the prefab's place among the
+     * children, and points the references that held what it replaces at it.
+     *
+     * @remarks
+     * Either the child was removed, or it is a nested instance the scene
+     * holds in full — one whose children were reordered, which a link cannot
+     * say — and `getChanges` reports that as the child removed and added again
+     * under the same id. The two halves are one change: reverting either
+     * takes the copy away and builds the nested instance once, from its
+     * prefab, so no two live objects carry one id. References into the copy
+     * follow it, by node ids, like those into a reverted instance.
+     */
+    private static _restoreRemoved(
+        parent: GameObject,
+        found: { node: SerializedGameObject; parent: SerializedGameObject },
+        scopes: readonly GameObject[],
+        assets: SerializedAsset[] | undefined,
+        chain: string[],
+    ): void {
+        const id = found.node.id!;
+        const copy = Prefab._childWithId(parent, id);
+        const held = [...(copy === null ? [] : Prefab._heldInto(copy)), ...Prefab._heldIntoRemoved(parent, id)];
+        copy?.destroyImmediate();
+        const index = Prefab._liveIndex(parent, found.parent, found.parent.children.indexOf(found.node));
+        const restored = SceneSerializer._restoreChild(scopes, found.node, parent, index, assets, chain);
+        Prefab._pointBack(held, restored);
         Prefab._reconnect(restored);
     }
 
