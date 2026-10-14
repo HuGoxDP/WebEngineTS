@@ -17,6 +17,8 @@ import { ZipAssetSource } from "../assets/ZipAssetSource.ts";
 import { StreamingAssetSource } from "../assets/StreamingAssetSource.ts";
 import type { StreamingAssetSourceOptions } from "../assets/StreamingAssetSource.ts";
 import { AssetPriority, toScenarioManifest } from "../assets/StreamingManifest.ts";
+import { BuildInfo } from "../BuildInfo.ts";
+import { refuseUnreadableManifestVersion, warnIfBuiltForNewerEngine } from "./ManifestVersions.ts";
 /**
  * Regex to match ES module import/export specifiers.
  *
@@ -1044,7 +1046,9 @@ export class Scenario extends EngineObject {
     // ==================== PRIVATE: VALIDATION ====================
 
     /**
-     * Validates that all required manifest fields are present.
+     * Validates that all required manifest fields are present and that this
+     * build reads the manifest's major version. A manifest that asks for a newer
+     * engine ({@link IScenarioManifest.engineVersion}) is warned about, not refused.
      */
     private static _validateManifest(manifest: IScenarioManifest): void {
         const required: (keyof IScenarioManifest)[] = [
@@ -1056,6 +1060,9 @@ export class Scenario extends EngineObject {
                 throw new Error(`[Scenario] Manifest is missing required field: '${field}'`);
             }
         }
+
+        refuseUnreadableManifestVersion(manifest.manifestVersion);
+        warnIfBuiltForNewerEngine(manifest.engineVersion, BuildInfo, manifest.name);
     }
 
     // ==================== STATIC FACTORIES ====================

@@ -80,7 +80,11 @@ export interface IScenarioAssetEntry {
 }
 
 export interface IScenarioManifest {
-    /** Manifest format version (for forward compatibility). */
+    /**
+     * Manifest format version. A string such as `"1.0"`: a build reads the
+     * majors it knows (1) and refuses another, since a new major is a manifest it
+     * would misread; a minor bump is additive and passes.
+     */
     manifestVersion: string;
 
     /** Unique scenario identifier (reverse-domain style recommended). */
@@ -101,7 +105,13 @@ export interface IScenarioManifest {
     /** Author information. */
     author?: IScenarioAuthor;
 
-    /** Minimum engine version required to run this scenario. */
+    /**
+     * The engine version this scenario was built against (semver).
+     *
+     * @remarks
+     * Never a reason to refuse: an engine whose `major.minor` is older than this
+     * warns once and runs the scenario anyway.
+     */
     engineVersion?: string;
 
     /**

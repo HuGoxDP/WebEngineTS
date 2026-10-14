@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import JSZip from "jszip";
 import { GameObject } from "../src/engine/core/GameObject";
 import { SceneManager } from "../src/engine/core/SceneManager";
 import { Resources, type IAssetSource } from "../src/engine/core/assets/Resources";
@@ -15,7 +16,28 @@ import { Prefab } from "../src/engine/core/serialization/Prefab";
 import { Material } from "../src/engine/core/graphics/Material";
 import { StandardMaterial } from "../src/engine/core/graphics/StandardMaterial";
 import { PhysicMaterial } from "../src/engine/physics/PhysicMaterial";
+import { Scenario } from "../src/engine/core/scenario/Scenario";
+import { ScenarioLoadState } from "../src/engine/core/scenario/ScenarioTypes";
+import {
+    MANIFEST_MAJOR_VERSIONS,
+    manifestMajorOf,
+    warnIfBuiltForNewerEngine,
+} from "../src/engine/core/scenario/ManifestVersions";
+import { parseStreamingManifest, toScenarioManifest } from "../src/engine/core/assets/StreamingManifest";
+import type { FetchLike } from "../src/engine/core/assets/StreamingAssetSource";
+import type { IEngineBuildInfo } from "../src/engine/core/BuildInfo";
 import WebEngine, * as Engine from "../src/engine/index";
+
+// The tests run against the sources, whose BuildInfo says it is not a build and
+// so is never compared with a manifest's engineVersion. The scenario tests need
+// a stamped one; nothing else in this file reads BuildInfo.
+vi.mock("../src/engine/core/BuildInfo", () => ({
+    BuildInfo: Object.freeze({
+        version: "0.1.0-local.1700000000000",
+        builtAt: "2026-10-14T00:00:00.000Z",
+        isBuild: true,
+    }),
+}));
 
 /**
  * The engine states which file versions it reads, and every reader refuses the
@@ -423,5 +445,223 @@ describe("a file the writers produce is unchanged", () => {
 
         expect(SceneSerializer.serializeScene(SceneManager.activeScene).version).toBe(1);
         expect(new Prefab(SceneSerializer.serializeGameObject(go), "Plain").toJSON().version).toBeUndefined();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// the scenario manifest
+// ---------------------------------------------------------------------------
+
+describe("a scenario manifest's manifestVersion", () => {
+    async function load(manifest: Record<string, unknown>): Promise<Scenario> {
+        const zip = new JSZip();
+        zip.file("manifest.json", JSON.stringify({
+            manifestVersion: "1.0", id: "x", name: "X", version: "1.0.0", entryPoint: "main.js", ...manifest,
+        }));
+        zip.file("scripts/main.js", "export default class {}");
+        const scenario = new Scenario();
+        await scenario.loadFromData(await zip.generateAsync({ type: "arraybuffer" }));
+        return scenario;
+    }
+
+    beforeEach(() => {
+        vi.spyOn(console, "log").mockImplementation(() => {});
+    });
+
+    test("reads major 1 only", () => {
+        expect(MANIFEST_MAJOR_VERSIONS).toEqual([1]);
+        expect(Object.isFrozen(MANIFEST_MAJOR_VERSIONS)).toBe(true);
+    });
+
+    test.each(["1", "1.0", "1.2", "1.0.0", "1.10.3", 1])("%j is read", async (version) => {
+        const scenario = await load({ manifestVersion: version });
+
+        expect(scenario.loadState).toBe(ScenarioLoadState.Ready);
+    });
+
+    test.each(["2.0", "2", "0.9", "10.0", "3.1.4", 2])("%j asks for a newer engine and is refused", async (version) => {
+        await expect(load({ manifestVersion: version })).rejects.toThrow(
+            new RegExp(`requires a newer engine \\(manifestVersion ${String(version).replace(/\./g, "\\.")}; this build reads 1\\.x\\)\\. Update the engine\\.`),
+        );
+    });
+
+    test.each(["v1", "1.0abc", "1.", ".1", "1..0", " 1.0", "1.0 ", "one", true, [], {}])(
+        "%j is not a version number and is refused", async (version) => {
+            await expect(load({ manifestVersion: version })).rejects.toThrow(/manifestVersion is not a version number/);
+        },
+    );
+
+    test("an empty one is refused as missing, as it always was", async () => {
+        await expect(load({ manifestVersion: "" })).rejects.toThrow(/missing required field: 'manifestVersion'/);
+    });
+
+    test("a refused manifest leaves the scenario in the Error state", async () => {
+        const scenario = new Scenario();
+        const zip = new JSZip();
+        zip.file("manifest.json", JSON.stringify({
+            manifestVersion: "2.0", id: "x", name: "X", version: "1", entryPoint: "main.js",
+        }));
+
+        await expect(scenario.loadFromData(await zip.generateAsync({ type: "arraybuffer" }))).rejects.toThrow();
+
+        expect(scenario.loadState).toBe(ScenarioLoadState.Error);
+    });
+
+    test.each([
+        ["1", 1], ["1.0", 1], ["2.0", 2], ["10.3.1", 10], [1, 1], [2, 2],
+        ["v1", null], ["1.0abc", null], ["", null], [null, null], [undefined, null], [true, null], ["1.", null],
+    ])("manifestMajorOf(%j) is %j", (value, major) => {
+        expect(manifestMajorOf(value)).toBe(major);
+    });
+
+    describe("the manifest made from a streaming manifest", () => {
+        const manifestUrl = "https://cdn.test/s/scenario.json";
+        const streaming = {
+            schema: 1, id: "streamed", name: "Streamed", entry: "scripts/main.js",
+            scripts: [{ path: "scripts/main.js", url: "main.js" }], assets: [],
+        };
+        const serve = (body: unknown): FetchLike => async () => ({
+            ok: true, status: 200, json: async () => body,
+        }) as unknown as Response;
+
+        test("states a major this build reads", () => {
+            const manifest = toScenarioManifest(parseStreamingManifest(streaming));
+
+            expect(MANIFEST_MAJOR_VERSIONS).toContain(manifestMajorOf(manifest.manifestVersion));
+        });
+
+        test("is read, through the same check", async () => {
+            const scenario = new Scenario();
+
+            await scenario.loadFromManifestUrl(manifestUrl, { fetch: serve(streaming) });
+
+            expect(scenario.loadState).toBe(ScenarioLoadState.Ready);
+            expect(scenario.manifest!.manifestVersion).toBe("1.0");
+        });
+    });
+});
+
+describe("a scenario manifest's engineVersion", () => {
+    const stamped = (version: string): IEngineBuildInfo => ({ version, builtAt: "2026-10-14T00:00:00.000Z", isBuild: true });
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+        warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    test("a newer major warns, naming both versions", () => {
+        warnIfBuiltForNewerEngine("2.0.0", stamped("0.1.0"), "Lab");
+
+        expect(warn).toHaveBeenCalledTimes(1);
+        const text = String(warn.mock.calls[0][0]);
+        expect(text).toContain("2.0.0");
+        expect(text).toContain("0.1.0");
+        expect(text).toContain('"Lab"');
+    });
+
+    test("a newer minor warns", () => {
+        warnIfBuiltForNewerEngine("0.3.0", stamped("0.2.9"));
+
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    test("it warns once however many scenarios ask", () => {
+        const build = stamped("0.4.0");
+        warnIfBuiltForNewerEngine("0.9.0", build);
+        warnIfBuiltForNewerEngine("0.9.0", build, "Another");
+        warnIfBuiltForNewerEngine("0.9.0", build);
+
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    test.each([
+        ["0.5.0", "0.5.0"],
+        ["0.5.9", "0.5.0"],
+        ["0.4.0", "0.5.0"],
+        ["0.5.0", "1.0.0"],
+        ["1.9.9", "2.0.0"],
+    ])("%s asked of %s is not newer, so it is silent", (required, running) => {
+        warnIfBuiltForNewerEngine(required, stamped(running));
+
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    test("a pre-release stamp is ignored on both sides", () => {
+        warnIfBuiltForNewerEngine("0.6.0-local.9999999999999", stamped("0.6.0-local.1"));
+        warnIfBuiltForNewerEngine("0.6.0", stamped("0.6.0-local.1"));
+        warnIfBuiltForNewerEngine("0.6.0-local.1", stamped("0.6.0"));
+        warnIfBuiltForNewerEngine("0.6.0+build.5", stamped("0.6.0"));
+
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    test("a newer major.minor still warns when either side carries a stamp", () => {
+        warnIfBuiltForNewerEngine("0.8.0-local.1", stamped("0.7.0-local.2"));
+
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    test.each(["latest", "^9.0.0", ">=9.0.0", "9", "9.0", "v9.0.0", "", "9.0.x", "nine.0.0"])(
+        "%j is not semver and is silent", (required) => {
+            warnIfBuiltForNewerEngine(required, stamped("0.1.0"));
+
+            expect(warn).not.toHaveBeenCalled();
+        },
+    );
+
+    test.each([undefined, null, 9, {}])("%j is not a string and is silent", (required) => {
+        warnIfBuiltForNewerEngine(required, stamped("0.1.0"));
+
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    test("an engine running from its sources compares nothing", () => {
+        warnIfBuiltForNewerEngine("99.0.0", { version: "0.0.0-source", builtAt: null, isBuild: false });
+
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    test("a build whose own version is not semver compares nothing", () => {
+        warnIfBuiltForNewerEngine("99.0.0", stamped("dev"));
+
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    describe("on a loaded scenario", () => {
+        async function load(engineVersion: unknown): Promise<Scenario> {
+            const zip = new JSZip();
+            zip.file("manifest.json", JSON.stringify({
+                manifestVersion: "1.0", id: "x", name: "Lab", version: "1.0.0", entryPoint: "main.js", engineVersion,
+            }));
+            const scenario = new Scenario();
+            await scenario.loadFromData(await zip.generateAsync({ type: "arraybuffer" }));
+            return scenario;
+        }
+
+        beforeEach(() => {
+            vi.spyOn(console, "log").mockImplementation(() => {});
+        });
+
+        test("a newer engine warns and the scenario loads anyway", async () => {
+            const scenario = await load("77.0.0");
+
+            expect(scenario.loadState).toBe(ScenarioLoadState.Ready);
+            expect(warn).toHaveBeenCalledTimes(1);
+            const text = String(warn.mock.calls[0][0]);
+            expect(text).toContain("77.0.0");
+            expect(text).toContain("0.1.0-local.1700000000000");
+        });
+
+        test("the version this very build was packed as is silent", async () => {
+            await load("0.1.0-local.1789023160893");
+
+            expect(warn).not.toHaveBeenCalled();
+        });
+
+        test("no engineVersion is silent", async () => {
+            await load(undefined);
+
+            expect(warn).not.toHaveBeenCalled();
+        });
     });
 });
