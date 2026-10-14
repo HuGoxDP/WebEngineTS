@@ -3,7 +3,7 @@ import type { GameObject } from "../GameObject";
 import { Component } from "../Component";
 import { Transform } from "../Transform";
 import { SceneManager } from "../SceneManager";
-import { TypeRegistry } from "../reflection/TypeRegistry";
+import { TypeRegistry, type AnyConstructor } from "../reflection/TypeRegistry";
 import { getAllFields } from "../reflection/Decorators";
 import { FieldType } from "../reflection/Types";
 import { AssetDatabase } from "../assets/AssetDatabase";
@@ -1710,7 +1710,7 @@ export class SceneSerializer {
             if (type !== undefined && type !== FieldType.Object) return;
             if (seen.has(value) || TypeRegistry.getTypeName(value) === null) return;
             seen.add(value);
-            for (const f of getAllFields(value.constructor as any)) {
+            for (const f of getAllFields(value.constructor as AnyConstructor)) {
                 if (!f.serialize) continue;
                 visit((value as Record<string, unknown>)[f.name], v => SceneSerializer._assign(value, f.name, v),
                     `${where}.${f.name}`, f.type, f.elementType);
@@ -1722,7 +1722,7 @@ export class SceneSerializer {
                 for (const component of SceneSerializer._componentsOf(go)) {
                     if (component instanceof Transform || component instanceof MissingComponent) continue;
                     const name = `${go.name}.${SceneSerializer._typeNameOf(component) ?? component.constructor.name}`;
-                    for (const f of getAllFields(component.constructor as any)) {
+                    for (const f of getAllFields(component.constructor as AnyConstructor)) {
                         if (!f.serialize) continue;
                         visit((component as unknown as Record<string, unknown>)[f.name],
                             v => SceneSerializer._assign(component, f.name, v),
