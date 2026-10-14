@@ -966,6 +966,79 @@ describe("a prefab's inline material in a scene", () => {
         expect(materialOf(kept).metallic).toBeCloseTo(0.3);
     });
 
+    test("the scene's copy says which prefab's material it is a copy of, and stays version 1", () => {
+        const file = prefabFile("Crate", 0.3);
+        load(file, "guid-crate").instantiate();
+
+        const saved = save();
+
+        expect(saved.version).toBe(1);
+        expect(saved.assets![0].of).toEqual({ prefab: "guid-crate", id: tableGuid(file) });
+    });
+
+    test("opened in a new session after its prefab, the scene's instance shares and follows its material", () => {
+        const file = prefabFile("Crate", 0.3);
+        load(file, "guid-crate").instantiate();
+        const saved = JSON.parse(JSON.stringify(save())) as SerializedScene;
+
+        newSession();
+        const prefab = load(file, "guid-crate");
+        const [kept] = SceneSerializer.deserializeScene(saved);
+        SceneSerializer.resolvePendingAssets();
+
+        expect(prefab.getChanges(kept)).toEqual({ overrides: [] });
+        expect(save()).toEqual(saved);
+        const linked = saveLinked();
+        expect(linked.assets).toBeUndefined();
+        expect(linked.roots[0].prefab!.changes).toEqual({ overrides: [] });
+        expect(materialOf(kept)).toBe(materialOf(prefab.instantiate()));
+
+        // The prefab's material is edited: the instance follows it.
+        newSession();
+        file.snapshot!.assets![0].fields["metallic"] = 0.8;
+        load(file, "guid-crate");
+        const [followed] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(linked)));
+        expect(materialOf(followed).metallic).toBeCloseTo(0.8);
+    });
+
+    test("opened without its prefab, the scene's copy is used, quietly, and still says what it copies", () => {
+        const file = prefabFile("Crate", 0.3);
+        load(file, "guid-crate").instantiate();
+        const saved = JSON.parse(JSON.stringify(save())) as SerializedScene;
+
+        newSession();
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const [kept] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(saved)));
+        SceneSerializer.resolvePendingAssets();
+        const again = save();
+        warn.mockRestore();
+
+        expect(warn).not.toHaveBeenCalled();
+        expect(materialOf(kept).metallic).toBeCloseTo(0.3);
+        expect(again).toEqual(saved);
+
+        // Saved again without the prefab, it still binds once the prefab is there.
+        newSession();
+        const prefab = load(file, "guid-crate");
+        const [bound] = SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(again)));
+        expect(materialOf(bound)).toBe(materialOf(prefab.instantiate()));
+    });
+
+    test("opened after its prefab's material changed, the scene's instance keeps its own copy", () => {
+        const file = prefabFile("Crate", 0.3);
+        load(file, "guid-crate").instantiate();
+        const saved = JSON.parse(JSON.stringify(save())) as SerializedScene;
+
+        newSession();
+        file.snapshot!.assets![0].fields["metallic"] = 0.8;
+        const prefab = load(file, "guid-crate");
+        const [kept] = SceneSerializer.deserializeScene(saved);
+
+        expect(materialOf(kept).metallic).toBeCloseTo(0.3);
+        expect(materialOf(kept)).not.toBe(materialOf(prefab.instantiate()));
+        expect(prefab.getChanges(kept).overrides.map(o => o.field)).toEqual(["sharedMaterial"]);
+    });
+
     test("a linked instance given another prefab's material carries it under the scene's own id", () => {
         const crateFile = prefabFile("Crate", 0.3);
         const barrelFile = prefabFile("Barrel", 0.6);

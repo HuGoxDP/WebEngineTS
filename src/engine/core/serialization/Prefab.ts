@@ -108,7 +108,7 @@ export class Prefab {
         changes: readonly PrefabOverride[] | PrefabChanges = [],
     ) {
         this._snapshot = snapshot;
-        SceneSerializer._claimPrefabAssets(snapshot);
+        SceneSerializer._claimPrefabAssets(snapshot, this);
         this._base = base instanceof Prefab ? base : null;
         this._baseGuid = typeof base === "string" ? base : null;
         this._changes = Prefab._toChanges(changes);
@@ -502,7 +502,7 @@ export class Prefab {
             this._changes = PrefabDiff.compareChanges(this.base!._resolvedTree(), next, SceneSerializer._prefabTree);
         } else {
             this._snapshot = next;
-            SceneSerializer._claimPrefabAssets(next);
+            SceneSerializer._claimPrefabAssets(next, this);
         }
     }
 

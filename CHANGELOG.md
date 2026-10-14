@@ -204,7 +204,13 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   id of the scene's, since one id written into both files let whichever a session read first
   decide the material — a scene opened before an edited prefab handed every new instance of it
   the scene's stale copy. Copies, undo and Play restore in one session still share the prefab's
-  material.
+  material. The scene's copy says what it is a copy of — `of: { prefab, id }` on its table entry
+  (`SerializedAsset.of`) — so a scene opened in a new session *after* that prefab, whose material
+  still serializes as the copy does, shares the prefab's material too, and follows it: without
+  it every instance got a copy of its own, reported a `MeshRenderer.sharedMaterial` change, and a
+  link save recorded that and stopped following the prefab. With the prefab not loaded, or its
+  material changed since, the copy is used, as before. `of` is optional and leaves the file at
+  version 1: a reader that predates it ignores it and uses the copy.
 - **A child keeps its local position, rotation and scale when a scene is loaded.** The loader
   set a child's saved pose and then attached it to its parent keeping its *world* pose, which
   subtracted the parent's: a child at `(0, 0.5, 0)` under a parent at `(1, 2, 3)` came back at

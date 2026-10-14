@@ -161,6 +161,20 @@ export interface SerializedAsset {
     guid: string;
     type: string;
     fields: Record<string, unknown>;
+    /**
+     * What this entry is a copy of: an inline asset a prefab carries in its
+     * own table, by the prefab's id and the asset's id in that table.
+     *
+     * @remarks
+     * A scene never names a prefab's inline asset by the prefab's id, so it
+     * carries a copy under an id of its own. Loading the scene while that
+     * prefab is loaded, and its asset still serializes as this entry does,
+     * binds the entry to the prefab's own asset instead of building the copy,
+     * so the scene's instances go on sharing — and following — the prefab's
+     * material. Otherwise the copy is used. Optional: a reader that does not
+     * know it ignores it and uses the copy.
+     */
+    of?: { prefab: string; id: string };
 }
 
 /** The `format` of a file written by {@link SceneSerializer.serializeAsset}. */
@@ -709,7 +723,8 @@ export class SceneSerializer {
                 if (assetTable.some(entry => entry.guid === guid)) return guid;
 
                 const fields: Record<string, unknown> = {};
-                assetTable.push({ guid, type: typeName, fields });
+                const of = prefabIds ? null : SceneSerializer._copyOf(asset, guid);
+                assetTable.push(of === null ? { guid, type: typeName, fields } : { guid, type: typeName, fields, of });
                 for (const f of getAllFields(asset.constructor as any)) {
                     if (!f.serialize) continue;
                     fields[f.name] = ValueSerializer.serialize(
@@ -793,16 +808,100 @@ export class SceneSerializer {
     /** The ids a prefab's own asset table uses, by {@link _claimPrefabAssets}. */
     private static readonly _prefabAssetGuids = new Set<string>();
 
+    /** The prefabs whose tables use each id, by {@link _claimPrefabAssets}. */
+    private static readonly _prefabAssetOwners = new Map<string, WeakRef<PrefabSource>[]>();
+
+    /**
+     * What a scene's copy of a prefab's asset that was read back as a copy is
+     * a copy of — its `of` — so that saving it again keeps saying so.
+     */
+    private static readonly _copyOrigins = new WeakMap<object, { prefab: string; id: string }>();
+
     /**
      * @internal
      * Records the ids of the assets a prefab's tree carries as the prefab's,
-     * so that no scene writes its own copy of one under the same id. Called by
-     * `Prefab` for every tree it holds.
+     * so that no scene writes its own copy of one under the same id, and which
+     * prefab carries them, so that a scene's copy can say what it is a copy
+     * of ({@link SerializedAsset.of}). Called by `Prefab` for every tree it
+     * holds.
      *
      * **NEVER use in user-facing code.**
      */
-    public static _claimPrefabAssets(tree: SerializedGameObject | null): void {
-        for (const entry of tree?.assets ?? []) SceneSerializer._prefabAssetGuids.add(entry.guid);
+    public static _claimPrefabAssets(tree: SerializedGameObject | null, owner?: PrefabSource): void {
+        for (const entry of tree?.assets ?? []) {
+            SceneSerializer._prefabAssetGuids.add(entry.guid);
+            if (owner === undefined) continue;
+            const owners = (SceneSerializer._prefabAssetOwners.get(entry.guid) ?? [])
+                .filter(ref => ref.deref() !== undefined && ref.deref() !== owner);
+            owners.push(new WeakRef(owner));
+            SceneSerializer._prefabAssetOwners.set(entry.guid, owners);
+        }
+    }
+
+    /**
+     * The `of` of a table entry: the prefab, and the id in its table, of the
+     * prefab's own asset that `asset` is or was read back as a copy of, when
+     * the table writes it under another id; null otherwise.
+     *
+     * @remarks
+     * Of the prefabs whose tables use the asset's id, the first that is loaded
+     * under an id of its own and still carries it. A prefab that does not is
+     * not named: a reader could not find its asset anyway.
+     */
+    private static _copyOf(asset: object, written: string): { prefab: string; id: string } | null {
+        const read = SceneSerializer._copyOrigins.get(asset);
+        if (read !== undefined) return { ...read };
+
+        const own = AssetDatabase.guidOf(asset) ?? SceneSerializer._inlineGuids.get(asset) ?? null;
+        if (own === null || own === written || !SceneSerializer._prefabAssetGuids.has(own)) return null;
+        for (const ref of SceneSerializer._prefabAssetOwners.get(own) ?? []) {
+            const owner = ref.deref();
+            const prefab = owner === undefined ? null : AssetDatabase.guidOf(owner);
+            if (prefab === null) continue;
+            const tree = SceneSerializer._prefabTree(prefab);
+            if (tree?.assets?.some(entry => entry.guid === own)) return { prefab, id: own };
+        }
+        return null;
+    }
+
+    /**
+     * Binds a scene's table entry that is a copy of a prefab's inline asset
+     * ({@link SerializedAsset.of}) to the prefab's own asset, when that prefab
+     * is loaded and its asset serializes exactly as the entry does. The
+     * prefab's table is built as an instance of it would build it.
+     *
+     * @returns whether the entry was bound; when not, the caller builds the copy.
+     */
+    private static _bindToPrefabAsset(entry: SerializedAsset, ctx: DeserializeContext): boolean {
+        const of = entry.of;
+        if (of === null || typeof of !== "object" || typeof of.prefab !== "string" || typeof of.id !== "string") {
+            return false;
+        }
+        const tree = SceneSerializer._prefabTree(of.prefab);
+        const own = tree?.assets?.find(candidate => candidate.guid === of.id);
+        if (tree === null || own === undefined || own.type !== entry.type
+            || !SceneSerializer._sameJson(own.fields, entry.fields)) {
+            return false;
+        }
+
+        SceneSerializer._materializeAssets(tree.assets, ctx, false);
+        const asset = AssetDatabase.get(of.id);
+        if (asset === null) return false;
+        AssetDatabase._bindAlias(entry.guid, asset);
+        SceneSerializer._sceneCopyGuids.set(asset, entry.guid);
+        return true;
+    }
+
+    /** Whether two pieces of saved JSON are equal, whatever the order of their keys. */
+    private static _sameJson(a: unknown, b: unknown): boolean {
+        if (a === b) return true;
+        if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+        if (Array.isArray(a) !== Array.isArray(b)) return false;
+        const ka = Object.keys(a as object);
+        const kb = Object.keys(b as object);
+        if (ka.length !== kb.length) return false;
+        return ka.every(key => Object.prototype.hasOwnProperty.call(b, key)
+            && SceneSerializer._sameJson((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
     }
 
     /**
@@ -982,7 +1081,11 @@ export class SceneSerializer {
             SceneSerializer._renameAssetRefs(link, renamed);
             for (const entry of going) {
                 SceneSerializer._renameAssetRefs(entry.fields, renamed);
-                entry.guid = renamed.get(entry.guid) ?? entry.guid;
+                const to = renamed.get(entry.guid);
+                if (to === undefined) continue;
+                const of = SceneSerializer._copyOf(local.writtenAssets.get(entry.guid)!, to);
+                entry.guid = to;
+                if (of !== null) entry.of = of;
             }
         }
 
@@ -1467,19 +1570,32 @@ export class SceneSerializer {
      * @remarks
      * An id already in memory is left alone: a scenario that loaded its own
      * materials keeps them, rather than being handed a second copy of each.
+     *
+     * A scene's copy of a prefab's inline asset is bound to the prefab's own
+     * asset when it still is one ({@link SerializedAsset.of}); otherwise the
+     * copy is built, and remembers what it is a copy of.
+     *
+     * @param followOf - whether entries' `of` is read. Off for a prefab's own
+     *   table, which never carries one.
      */
     private static _materializeAssets(
         table: SerializedAsset[] | undefined,
         ctx: DeserializeContext,
+        followOf = true,
     ): void {
         if (!table) return;
 
         for (const entry of table) {
             if (AssetDatabase.isLoaded(entry.guid)) continue;
+            if (followOf && entry.of !== undefined && SceneSerializer._bindToPrefabAsset(entry, ctx)) continue;
 
             const asset = SceneSerializer._buildAsset(entry.type, entry.fields, ctx);
             if (asset === null) continue;
             AssetDatabase._bindGuid(entry.guid, asset);
+            const of = entry.of;
+            if (followOf && of && typeof of.prefab === "string" && typeof of.id === "string") {
+                SceneSerializer._copyOrigins.set(asset, { prefab: of.prefab, id: of.id });
+            }
         }
     }
 

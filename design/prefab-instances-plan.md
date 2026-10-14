@@ -490,6 +490,25 @@ table that is not a prefab's never names an asset by an id a prefab's table uses
   (`AssetDatabase._bindAlias`, dropped with the asset by `_unbind`), so `Instantiate`, undo and
   Play restore still share the prefab's material instead of building a copy, as they did before.
   In a new session it names the scene's copy alone.
+- *Corrected after verification (N3):* "the scene's copy alone" detached every instance in a
+  scene reopened in a new session — the editor's autosave case, since every scene it writes is
+  expand mode. Each instance got its own copy, `getChanges` reported a phantom
+  `MeshRenderer.sharedMaterial` override, a link save recorded it, and the instance stopped
+  following the prefab's material. *Decided:* the copy records what it is a copy of. A table entry
+  that is a copy of a prefab's inline asset carries `of: { prefab: "<prefab guid>", id: "<the
+  asset's id in the prefab's table>" }` (`SerializedAsset.of`; `_copyOf` finds the prefab among
+  the ones `_claimPrefabAssets` recorded as carrying that id, and a copy read back keeps its `of`
+  for the next save). On load (`_bindToPrefabAsset`), if that prefab is loaded and its asset with
+  that id serializes deep-equal to the entry, the entry's id is bound to the **prefab's live
+  asset** — built from the prefab's table as an instance would build it — and no copy is made.
+  Otherwise the copy is used, as before, and nothing warns. Equality is on the serialized form, so
+  a prefab whose material was edited since keeps the scene's own, now different, copy: the honest
+  result. `of` is not listed by `assetReferences` — the scene loads without the prefab — so it
+  binds only when the host loaded the prefab first. *Verified:* `of` is additive for a version-1
+  reader. `SceneSerializer._materializeAssets` reads `guid`, `type` and `fields` of an entry and
+  nothing else, and so does the `0.1.0-local.1789023160893` bundle the consumers run (its
+  `_materializeAssets`, read from the packed `dist/WebEngineTS.esm.js`), so the key needs no
+  version 2 marker and a scene that has one stays version 1.
 
 ### 6.2 Deserialize
 
