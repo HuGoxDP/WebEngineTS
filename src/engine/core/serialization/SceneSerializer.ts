@@ -1934,7 +1934,7 @@ export class SceneSerializer {
             owner.originalFields[field] = SceneSerializer._cloneJson(json);
             return;
         }
-        const meta = getAllFields(owner.constructor as any).find(f => f.name === field && f.serialize);
+        const meta = getAllFields(owner.constructor as AnyConstructor).find(f => f.name === field && f.serialize);
         if (meta === undefined) return;
         SceneSerializer._restore(scopes, assets, [], ctx => {
             ctx.currentComponent = owner;
