@@ -24,7 +24,7 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   `unpackPrefab(completely)` cuts the link, and refuses a prefab nested inside another instance,
   naming the instance to unpack instead. Every node of a prefab now has an id, so an instance is
   compared with its prefab node by node: `Prefab.getOverrides` no longer misreads a removed
-  sibling as edits to the next one, and `PrefabDiff.compareChanges` reports added and removed
+  sibling as edits to the next one, and `Prefab.getChanges` reports added and removed
   children and components alongside the values (`PrefabChanges` and its parts are exported).
   An object that has no ids — one saved or copied before they existed, or the object a prefab
   was made from without `connect` — is still compared with the prefab by position, as before.
@@ -35,8 +35,8 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   never given one has nothing to be named by, so its instances are copied and saved as plain
   trees and the copy is not an instance. A copy of an object from *inside*
   an instance is a plain object, as a duplicate of one is in Unity. A prefab made from an object
-  that holds another prefab's instance keeps it as a link, so it follows that prefab — and is no
-  longer instantiated as an empty shell. **Saved files gain two optional keys**: `id` on the
+  that holds another prefab's instance keeps it as a link, so it follows that prefab.
+  **Saved files gain two optional keys**: `id` on the
   nodes of a prefab and of an instance, and `prefab: { guid }` on an instance root. A scene with
   no prefab instance in it is written byte for byte as before — apart from the defects fixed
   below, which change what a scene that hit them writes — and a reader that predates the keys
@@ -79,10 +79,9 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   component the outer prefab itself added to the nested instance, or its removal, is kept as well.
   Before, an instance that touched anything inside a nested prefab stored that prefab's whole
   link and stopped following all of it; files written that way are still read.
-  `PrefabDiff.compareChanges` takes an optional resolver for the nested prefabs' trees; without
-  one, or without the prefab loaded, it compares the two links' changes instead, so a scene
-  opened while a nested prefab is missing saves its changes back one field at a time, as they
-  were read. A change that no longer applies inside a nested instance stays one field too, and
+  `Prefab.getChanges` finds the nested prefabs' trees itself; where a nested prefab is not
+  loaded it compares the two links' changes instead, so a scene opened while a nested prefab is
+  missing saves its changes back one field at a time, as they were read. A change that no longer applies inside a nested instance stays one field too, and
   applies again if the nested prefab gets its object back. An outer prefab made while its nested
   prefab was not loaded holds the nested instance in full; once that prefab is loaded, an
   untouched instance of the outer one has no changes, and a change inside the nested instance is
@@ -128,7 +127,6 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   scene instance of one becomes a placeholder. `Prefab.createVariant` also accepts
   `PrefabChanges`, so a variant can add and remove children and components, and
   `Prefab.variantChanges` returns them. A variant whose base has no id is flattened, as before.
-
 - **`Texture.flipVertically`** — states whether an image is flipped as it is uploaded. Two
   conventions meet in the engine: the image path uploads `flipY = true` (V=0 at the bottom, as
   Unity and the engine's own primitives expect), while glTF uploads `false` and a KTX2 texture is
@@ -180,12 +178,13 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   writes back, as it read them, a placeholder's link or data whose paths name nodes by id — an
   unknown component's from a prefab file, or changes kept as unused. A reader that refuses
   version 2 therefore cannot always reopen a default-mode save either.
-- **`PrefabDiff.compare` and `compareChanges` compare trees in the form a prefab is stored
-  in**: nested prefab instances as links, references naming prefab nodes by id. That is the form
-  `Prefab.getOverrides` and `Prefab.getChanges` read a live instance in, and they are what to call
-  for one. A snapshot from `SceneSerializer.serializeGameObject(instance)` — what `getOverrides`
-  itself used to compare — is not: its nested instances and its references inside the instance
-  read as changes. An object with no node ids at all is still compared by position.
+- **`Prefab.getOverrides` compares an instance in the form a prefab is stored in**: nested
+  prefab instances as links, references naming prefab nodes by id — the form `Prefab.getChanges`
+  reads it in too. An untouched instance therefore has no overrides, nested instances included.
+  `getOverrides` used to compare a snapshot from `SceneSerializer.serializeGameObject(instance)`,
+  whose nested instances and references inside the instance read as changes; `PrefabDiff`,
+  which stays internal, expects the stored form as well. An object with no node ids at all is
+  still compared by position.
 - **A reference path may hold prefab node ids.** `PendingGORef.path`, the `path` of
   `DeserializeContext.pendingGORefs` and `pendingComponentRefs`, and `SerializeContext.locate`
   are now `Array<number | string>`. Inside a prefab instance a reference names its target by node
@@ -198,11 +197,14 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   placeholder's link, the data of an unknown component or value, changes kept as unused. A prefab
   file from before node ids has its references read as ids on load, the data of its unknown
   components included.
+- **The serializer's contexts say where a reference is counted from.** `SerializeContext` gains
+  an optional `locate`; pending-reference entries gain `ref` (`RefScope`, now exported);
+  `componentIndex` may return -1.
 - **`PrefabAddedChild.index` is optional, and not written.** An added child is placed by
   `after`, the prefab sibling it follows; the position written beside it moved whenever the
   prefab gained a child in front, so a link save of a scene nobody touched showed a diff. A file
   that gives only `index` is still placed by it, and one that gives both is placed by `after`.
-  Code that reads `index` from what `getChanges` or `compareChanges` return must allow for its
+  Code that reads `index` from what `Prefab.getChanges` returns must allow for its
   absence.
 - **`PrefabOverride.path` is optional, and not written where `node` is.** An override addresses
   its object by node id; the position written beside it changed whenever the prefab gained or
@@ -211,10 +213,15 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   whose nodes have no ids, or a node inside a nested instance held in full, whose ids belong to
   another prefab; one read beside a `node` from an older file is accepted and ignored, and an
   override that gives neither is not applied. Code that reads `path` from what
-  `getOverrides`, `getChanges` or `compareChanges` return must allow for its absence and use
+  `getOverrides` or `getChanges` return must allow for its absence and use
   `node` (`GameObject.prefabNodeId` maps it to the live object).
 - **`Texture2D.fromKTX2ArrayBuffer` warns once per run** when `maxSize` is set, because the cap
   does not reach it. Behaviour is unchanged — one console line where there was silence.
+- **A scene loaded from a file puts its children where they were saved** (see *Fixed*: "A child
+  keeps its local position, rotation and scale when a scene is loaded"). Every hierarchy whose
+  parents were not at the origin with no rotation and unit scale used to load displaced, so this
+  moves objects and **can change what such a scene costs to draw** — a measurement of a scene
+  loaded from a file is not comparable across the fix.
 
 ### Fixed
 

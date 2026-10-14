@@ -1,8 +1,9 @@
 # Plan: prefab instances saved as prefab plus changes (E11)
 
 **Status:** **implemented 2026-10-12, Stages 1–10**, one commit per stage (Stage 2 is three, one
-per defect). Where the implementation departs from what is written below, the departure is
-recorded where it applies: D3, a fourth pre-existing defect (§4.6, Stage 2); the version-2 marker
+per defect), then two review passes, 2026-10-12/13. Where the implementation departs from what is
+written below, the departure is recorded where it applies: D3, a fourth pre-existing defect (§4.6,
+Stage 2); D4 and D5, two more found in review and by the verifier (§4.6); the version-2 marker
 also covering node-id paths (§5.4, D-2); the Stage 9 refinements; and one limit found in Stage 8
 (§11). The open questions in §11 are still the owner's.
 
@@ -71,7 +72,8 @@ children-before-components walk (which fixes the asset-table order) are unchange
 `bde23fc` (checked against that commit's `_serializeGO`). *Corrected after review:* that holds
 for what this feature adds. The defects fixed on the way (§4.6) change what a scene that hit
 them writes: a destroyed child is no longer written (D1), an inline asset keeps its table entry
-(D2), and a reference to a removed component is `null` (D4).
+(D2), a reference to a removed component is `null` (D4), and a destroyed component is no longer
+written (D5).
 
 ### 2.2 A prefab file
 
@@ -363,8 +365,8 @@ A link-mode file read by an engine without the link reader loads hollow and is s
 - string path segments are read as child indices.
 
 **Decision: a scene or prefab file that contains at least one link, or at least one reference
-path with a node id in it, is written with `version: 2`; one with neither keeps `version: 1` and
-its exact bytes.**
+path with a node id in it, is written with `version: 2`; a scene file with neither keeps `version: 1` and its
+bytes, and a prefab file keeps the `{ name, snapshot }` shape with `id` keys added.**
 
 *Refined while implementing Stage 7.* The plan first said "a link" alone. Stage 6 makes every
 prefab file's internal references id paths, and a link-mode scene whose instances all fell back
@@ -391,16 +393,24 @@ legacy prefab whose unknown component holds a reference (§11).
 
 ### 6.1 Serialize
 
-**Contexts.** The writer's context is the module-private `SceneCtx`. It is the WIP's own type,
-which it used and never declared:
+**Contexts.** The writer's context is the module-private `SceneCtx`. It was the WIP's own type,
+which it used and never declared; Stage 1 declared it, and later stages added fields. The block
+is the declaration in `SceneSerializer.ts` as of 2026-10-14, without the members it inherits from
+`SerializeContext`:
 
 ```ts
 interface SceneCtx extends SerializeContext {
-    readonly link: boolean;                 // write instances as links
-    readonly outer: SceneCtx | null;        // the pass this one is nested in
-    readonly inlined: Map<object, string>;  // inline assets already written, shared with outer
-    assetTable: SerializedAsset[];          // shared with outer
-    locate(go: GameObject): { path: number[]; scope: number } | null;
+    readonly roots: ReadonlyArray<GameObject>;   // what paths in this pass are counted from
+    readonly prefabRoot: GameObject | null;      // the object a prefab is being made from
+    readonly link: boolean;                      // write instances as links
+    readonly outer: SceneCtx | null;             // the pass this one is nested in
+    readonly inlined: Map<object, string>;       // inline assets already written, shared with outer
+    readonly writtenAssets: Map<string, object>; // ... by the id they were written under, shared
+    readonly minted: Map<GameObject, string>;    // ids given to objects that had none, shared
+    readonly mintLive: boolean;                  // whether a minted id is stored on the live object
+    readonly prefabIds: boolean;                 // writing a prefab's tree: its assets keep its ids
+    assetTable: SerializedAsset[];               // shared with outer
+    locate(go: GameObject): { path: Array<number | string>; scope: number } | null;
 }
 ```
 
@@ -813,7 +823,7 @@ These resolve the open questions both analyses raised. Each says why.
 | # | Question | Decision | Why |
 |---|---|---|---|
 | D-1 | Who writes link mode? | **Opt-in, forever.** Only the editor's file save passes `{ prefabs: "link" }`. Undo, Play, autosave, clipboard and `Instantiate` stay on expand, and the engine default stays expand. | Expand is self-contained and synchronous to read, which every in-memory caller needs. A link is a property of a file on disk, so the caller that writes files opts in. |
-| D-2 | Mark link files? | **`version: 2`** on scene and prefab files that contain a link or a node-id reference path. Readers accept 1 and 2 and refuse higher. Files with neither stay `version: 1`, byte for byte. | A hollow load, or a reference followed to the wrong object, is silent data loss. The marker makes at least the editor, and every future engine, refuse instead. (§5.4; refined in Stage 7 to cover id paths.) |
+| D-2 | Mark link files? | **`version: 2`** on scene and prefab files that contain a link or a node-id reference path. Readers accept 1 and 2 and refuse higher. Scene files with neither keep `version: 1` and their bytes; prefab files keep the `{ name, snapshot }` shape with `id` keys added. | A hollow load, or a reference followed to the wrong object, is silent data loss. The marker makes at least the editor, and every future engine, refuse instead. (§5.4; refined in Stage 7 to cover id paths.) |
 | D-3 | Missing prefab | Placeholder from the shell, `raw` kept and written back verbatim, a warning, and `isPrefabAssetMissing` (Stage 9). No late rebuild. | The E6 contract one level up (§7.1). |
 | D-4 | What does `assetReferences` list? | Prefabs **needed to rebuild**: links with `changes`, link values in `field: "prefab"` overrides, a variant's `base`. Not expand-mode `{ guid }` markers. | Its JSDoc defines the answer as "what a loader has to have in memory before it rebuilds one". An expand instance is complete, and `prefabSource` resolves lazily once the prefab arrives. |
 | D-5 | Id-based addressing? | **Yes, before link mode is announced.** String path segments, written in link contexts only (§2.5, §6.1). | Positional paths turn shape changes into spurious overrides and silently retarget after prefab edits (§7.7). Doing it before the format is frozen costs nothing in compatibility; doing it after means two encodings forever. |
@@ -1422,9 +1432,9 @@ New in `MissingComponent.test.ts`:
   assets its changes need into the scene's table. Fixing it for variants means giving a variant
   file an `assets` table and `createVariant` a way to receive one; it is a format addition, so it
   is left to the owner. Until then, give a variant's materials files of their own.
-- **Bookkeeping.** E11 has no row in `.claude-shared/ENGINE-GAPS.md` yet. The editor plan says
-  rows are added when the stage reaches them, so the row goes in when Stage 1 starts. D1 is an
-  engine defect found by the engine; it belongs in this repo's CHANGELOG, not in the gap index.
+- **Bookkeeping.** E11 is tracked in the shared `PLAN.md` §1.5, not in
+  `.claude-shared/ENGINE-GAPS.md`. D1–D5 are engine defects found by the engine; they belong in
+  this repo's CHANGELOG, not in the gap index.
 
 ### Settled from this list
 

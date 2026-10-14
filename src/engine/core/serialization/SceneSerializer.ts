@@ -255,8 +255,10 @@ export interface SerializedScene {
      * The format. `2` when the file holds something a reader that predates
      * prefab links would misread rather than refuse: an instance saved as its
      * prefab plus changes, or a reference that names a prefab node by id.
-     * Anything else is written as `1`, byte for byte as before. A reader
-     * refuses a version it does not know.
+     * Anything else is written as `1`, in the format before prefab links (the
+     * fixes for destroyed children and components, inline assets and
+     * references to removed components aside). A reader refuses a version it
+     * does not know.
      */
     version: 1 | 2;
     roots: SerializedGameObject[];

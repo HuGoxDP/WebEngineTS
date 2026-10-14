@@ -78,7 +78,7 @@ export {
     getExecutionOrder,
 } from "./core/reflection/Decorators";
 export { ValueSerializer } from "./core/serialization/ValueSerializer";
-export type { SerializeContext, DeserializeContext, PendingGORef } from "./core/serialization/ValueSerializer";
+export type { SerializeContext, DeserializeContext, PendingGORef, RefScope } from "./core/serialization/ValueSerializer";
 export { SceneSerializer } from "./core/serialization/SceneSerializer";
 export { MissingComponent, MissingValue } from "./core/serialization/MissingComponent";
 export type {

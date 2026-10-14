@@ -172,7 +172,8 @@ export class Prefab {
      *
      * @param base - the prefab to vary from.
      * @param changes - differences, usually from {@link getOverrides}, or
-     *   values and shape from `PrefabDiff.compareChanges`.
+     *   values and shape from {@link getChanges}. {@link applyInstance} on a
+     *   variant records an instance's changes the same way.
      * @param name - display name. Defaults to the base's.
      */
     public static createVariant(
@@ -332,7 +333,7 @@ export class Prefab {
      *
      * Only values are reported here: a child or component added to or removed
      * from an instance is a different *shape*, not a different value, and
-     * Unity lists it separately. `PrefabDiff.compareChanges` has both.
+     * Unity lists it separately. {@link getChanges} has both.
      *
      * The instance is read in the shape a prefab is stored in — its root in
      * full, a prefab nested inside it as a link — so an untouched instance has
