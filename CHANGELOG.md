@@ -221,6 +221,17 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   this way, so **a deleted child came back, with no components, on the next save or undo.** It
   now leaves the list when it is destroyed: at once for `destroyImmediate`, at the end of the
   frame for `destroy`, as in Unity.
+- **A destroyed component is gone from its object (D5).** A component left its GameObject's
+  component list only when removed with `removeComponent`; `destroy()` and `destroyImmediate()`
+  left it listed, so `getComponent(s)` still returned it and **a saved scene kept it, along with
+  every reference to it, and brought both back to life on load.** The editor deletes with
+  `destroyImmediate`, and a prefab instance never reported such a component as removed. It now
+  leaves the list after its `onDisable` and `onDestroy` have run: at once for `destroyImmediate`,
+  at the end of the frame (or after its delay) for `destroy`, and when its GameObject is
+  destroyed. Removal replaces the list instead of splicing it, so a script that destroys itself
+  or a sibling from `update` no longer makes the next component skip its update that frame. A
+  component whose `onDestroy` throws still leaves the list, as it already did through
+  `removeComponent`. The `Transform` is not part of the list and is untouched.
 - **A material with no file stays in the scene on every save, under one id.** A scene carries a
   material built in code in its `assets` table. Loading the scene gave the material that id, and
   the next save then took the id for a file: it wrote a bare reference and dropped the table

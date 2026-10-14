@@ -245,6 +245,31 @@ export abstract class Component extends EngineObject {
         // Subclasses perform cleanup here
     }
 
+    /**
+     * @internal
+     * Destroys the component, then takes it out of its GameObject's component
+     * list.
+     *
+     * @remarks
+     * Leaving the list is what makes a destroyed component gone from its
+     * object, as it is in Unity: `getComponent(s)`, the update loops and the
+     * serializer all walk that list, and a dead entry there was saved back
+     * into the scene along with every reference to it. It happens last, so
+     * `onDisable` and `onDestroy` still find the component where it was, and in
+     * a `finally`, so a callback that throws cannot leave a deleted component
+     * behind to be saved. Every route to destruction ends here — `destroy`
+     * (at the end of the frame or after its delay), `destroyImmediate`,
+     * {@link GameObject.removeComponent} and the destruction of the GameObject
+     * itself — so the list is left exactly once however it is asked.
+     */
+    public override _destroyImmediate(): void {
+        try {
+            super._destroyImmediate();
+        } finally {
+            this.gameObject._detachComponent(this);
+        }
+    }
+
     // ==================== CLONING ====================
 
     /**

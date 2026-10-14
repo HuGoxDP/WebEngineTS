@@ -168,7 +168,8 @@ export abstract class Behaviour extends Component {
             this.onDisable();
         }
 
-        // Continue normal destruction chain (calls onDestroy → marks destroyed → unregisters)
+        // Continue normal destruction chain (calls onDestroy → marks destroyed →
+        // unregisters → leaves the GameObject's component list)
         super._destroyImmediate();
     }
 

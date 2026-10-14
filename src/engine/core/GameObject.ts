@@ -495,11 +495,16 @@ export class GameObject extends EngineObject {
      * Equivalent to Unity's `Destroy(component)`. Cleans up Three.js side
      * effects (e.g. lights, mesh visuals) via the component's
      * `_destroyImmediate` lifecycle hook.
+     *
+     * Destroying a component any other way — `component.destroyImmediate()`,
+     * or `component.destroy()` once the frame ends — takes it out of this list
+     * just the same. This is the form that reports whether it was there, and
+     * that drops the component even if its `onDestroy` throws, logging the
+     * error instead of rethrowing it.
      */
     public removeComponent(component: Component): boolean {
         if (component instanceof Transform) return false;
-        const idx = this._components.indexOf(component);
-        if (idx === -1) return false;
+        if (!this._components.includes(component)) return false;
 
         // Run lifecycle (Disable + Destroy) first so subsystems can unhook.
         try {
@@ -507,8 +512,32 @@ export class GameObject extends EngineObject {
         } catch (err) {
             console.error("[GameObject.removeComponent] error during destroy:", err);
         }
-        this._components.splice(idx, 1);
+        this._detachComponent(component);
         return true;
+    }
+
+    /**
+     * @internal
+     * Takes a destroyed component out of the component list. Called by
+     * {@link Component._destroyImmediate} once the component's `onDisable` and
+     * `onDestroy` have run; does nothing for a component that is not listed, so
+     * it is safe to reach twice and for the Transform, which never is.
+     *
+     * @remarks
+     * Replaces the array instead of splicing it. A component may destroy itself
+     * or a sibling from inside an `update` or a message handler, while the loop
+     * that called it is still walking this list; shifting the elements under
+     * that loop would skip the next component for the frame. A loop already
+     * running finishes over the list it started with — a destroyed entry in it
+     * does nothing, as each of those loops tests `exists()` — and the copy
+     * happens once per removal, never per frame.
+     */
+    public _detachComponent(component: Component): void {
+        const at = this._components.indexOf(component);
+        if (at === -1) return;
+        const remaining = this._components.slice();
+        remaining.splice(at, 1);
+        this._components = remaining;
     }
 
     /**
@@ -891,8 +920,9 @@ export class GameObject extends EngineObject {
      * 4. Destroy the Transform (removes from Three.js hierarchy)
      */
     protected override onDestroy(): void {
-        // 1. Destroy all components
-        for (const component of this._components) {
+        // 1. Destroy all components. Each takes itself out of the list as it
+        // goes, so walk a copy.
+        for (const component of [...this._components]) {
             component.destroyImmediate();
         }
         this._components = [];
