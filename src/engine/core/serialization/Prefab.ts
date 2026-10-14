@@ -512,11 +512,15 @@ export class Prefab {
      * An instance of this prefab nested inside another instance applies only
      * what the scene changed on it ({@link getChanges}) — Unity's "Apply to
      * Prefab" on a nested instance. What the prefabs around it set on it stays
-     * theirs, and so does a change to an object only they add. A reference to
-     * an object outside the instance has nothing to point at in a prefab, and
-     * is not applied: a changed value that points out leaves the prefab's own
-     * value (a nested prefab's own, for a change inside one), and one held by
-     * a child or component the instance added is applied as null.
+     * theirs, and so does a change to an object only they add.
+     *
+     * A reference to an object outside the instance has nothing to point at
+     * in a prefab, and is never applied — the same rule whether the instance
+     * is nested or not, and whether the prefab is a variant: a changed value
+     * that points out leaves the prefab's own value (inside a nested
+     * instance, the prefab's own override there, or else the nested prefab's
+     * value), and one held by a child or component the instance added is
+     * applied as null.
      *
      * @throws if `instance` is not an instance of this prefab, or if it holds
      *   an instance of this prefab, directly or through the prefabs inside it:
@@ -526,9 +530,9 @@ export class Prefab {
         this._requireInstance(instance);
         const start = this._start(instance);
         const tree = start.tree;
-        const snapshot = SceneSerializer._serializeForPrefab(instance, {
-            mintLive: true, match: tree, outward: start.around !== null,
-        });
+        // References out of the instance are written as such, so that the
+        // rule below can tell a changed value from an added one.
+        const snapshot = SceneSerializer._serializeForPrefab(instance, { mintLive: true, match: tree, outward: true });
 
         const guid = AssetDatabase.guidOf(this);
         if (guid !== null && Prefab._holdsPrefab(snapshot, guid, new Set())) {
@@ -539,7 +543,7 @@ export class Prefab {
         }
 
         const next = start.around === null
-            ? Prefab._asRoot(snapshot, tree)
+            ? Prefab._keepOwnValues(Prefab._asRoot(snapshot, tree), tree)
             : this._withChanges(PrefabDiff.compareChanges(tree, snapshot, SceneSerializer._prefabTree), snapshot);
         // Whatever the path, nothing in a prefab may count out of it.
         Prefab._keepInside(next, 0, "node");
@@ -580,6 +584,59 @@ export class Prefab {
         const carried = (snapshot.assets ?? []).filter(entry => used.has(entry.guid) && !known.has(entry.guid));
         if (carried.length > 0) next.assets = [...(next.assets ?? []), ...carried];
         return PrefabDiff.ensureIds(next);
+    }
+
+    /**
+     * Puts back into `node` — an instance's snapshot about to become this
+     * prefab's tree, `own` being the tree it replaces — the prefab's own value
+     * of every field the instance changed to point out of itself, which is
+     * what dropping the change does for a nested instance in
+     * {@link _withChanges}: a prefab has nothing out there to point at. Inside
+     * a nested link the change is an override, which goes back to the
+     * prefab's own override there, or is dropped when the prefab has none.
+     * What the instance added has no value of the prefab's, and is left for
+     * {@link _keepInside} to make null. Objects and components are matched as
+     * a comparison matches them: by node id, then by type and occurrence.
+     */
+    private static _keepOwnValues(node: SerializedGameObject, own: SerializedGameObject): SerializedGameObject {
+        const seen = new Map<string, number>();
+        for (const component of node.components) {
+            const index = seen.get(component.type) ?? 0;
+            seen.set(component.type, index + 1);
+            const mine = own.components.filter(c => c.type === component.type)[index];
+            if (mine === undefined) continue;
+            for (const field of Object.keys(component.fields)) {
+                if (field in mine.fields && Prefab._pointsOut(component.fields[field], 0)) {
+                    component.fields[field] = JSON.parse(JSON.stringify(mine.fields[field])) as unknown;
+                }
+            }
+        }
+        for (const child of node.children) {
+            const mine = child.id === undefined ? undefined : own.children.find(c => c.id === child.id);
+            if (mine !== undefined) Prefab._keepOwnValues(child, mine);
+        }
+
+        const link = node.prefab?.changes;
+        if (link !== undefined && own.prefab?.guid === node.prefab!.guid) {
+            const theirs = own.prefab.changes?.overrides ?? [];
+            link.overrides = link.overrides.filter(o => {
+                if (o.field === "prefab" || !Prefab._pointsOut(o.value, 1 + Prefab._addressDepth(o.node))) return true;
+                const kept = theirs.find(t => t.node === o.node && t.component === o.component
+                    && t.componentIndex === o.componentIndex && t.field === o.field
+                    && (o.node !== undefined || JSON.stringify(t.path) === JSON.stringify(o.path)));
+                if (kept === undefined) return false;
+                o.value = JSON.parse(JSON.stringify(kept.value)) as unknown;
+                return true;
+            });
+        }
+        return node;
+    }
+
+    /** Whether a saved value is, or holds, a reference that counts out further than `depth` links. */
+    private static _pointsOut(value: unknown, depth: number): boolean {
+        if (value === null || typeof value !== "object") return false;
+        if (Prefab._isOutward(value, depth)) return true;
+        return Object.values(value as Record<string, unknown>).some(v => Prefab._pointsOut(v, depth));
     }
 
     /** How many nested instances an address passes through (`"outer/inner"` is one). */

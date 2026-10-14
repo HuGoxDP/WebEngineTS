@@ -1019,6 +1019,52 @@ describe("applying a nested instance keeps every reference inside the prefab", (
         expect(fresh.getComponent(Aim)!.target).toBe(child(fresh, 0));
         expect(JSON.stringify(turret.toJSON())).not.toContain('"scope"');
     });
+
+    test("so does one on an instance that is not nested, and one on a nested instance inside it", () => {
+        const { barrel } = world();
+        // The Turret sets its nested Barrel's aim on the Turret itself.
+        const turret = prefabOf(() => {
+            const nested = barrel.instantiate();
+            const root = make("Turret", "turret", nested);
+            root.addComponent(Aim).target = nested;
+            nested.getComponent(Aim)!.target = root;
+            return root;
+        }, "guid-turret");
+        const watcher = new GameObject("Watcher");
+        const instance = turret.instantiate();
+        instance.getComponent(Aim)!.target = watcher;
+        child(instance, 0).getComponent(Aim)!.target = watcher;
+        const sight = new GameObject("Sight");
+        sight.transform.setParent(instance.transform, false);
+        sight.addComponent(Aim).target = watcher;
+
+        turret.applyInstance(instance);
+
+        expect(JSON.stringify(turret.toJSON())).not.toContain('"scope":2');
+        const fresh = turret.instantiate();
+        expect(fresh.getComponent(Aim)!.target).toBe(child(fresh, 0));
+        expect(child(fresh, 0).getComponent(Aim)!.target).toBe(fresh);
+        expect(child(fresh, 1).name).toBe("Sight");
+        expect(child(fresh, 1).getComponent(Aim)!.target).toBeNull();
+    });
+
+    test("so does one on an instance of a variant", () => {
+        const { turret } = world();
+        const variant = Prefab.createVariant(turret, []);
+        AssetDatabase._bindGuid("guid-variant", variant);
+        const watcher = new GameObject("Watcher");
+        const instance = variant.instantiate();
+        instance.getComponent(Aim)!.target = watcher;
+        instance.addComponent(Part).part = watcher.transform;
+
+        variant.applyInstance(instance);
+
+        expect(JSON.stringify(variant.toJSON())).not.toContain('"scope"');
+        const fresh = variant.instantiate();
+        expect(fresh.getComponent(Aim)!.target).toBe(child(fresh, 0));
+        expect(fresh.getComponent(Part)!.part).toBeNull();
+        expect(turret.instantiate().getComponent(Part)).toBeNull();
+    });
 });
 
 describe("a revert keeps the references into what it builds again", () => {

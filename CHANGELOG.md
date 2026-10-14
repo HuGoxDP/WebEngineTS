@@ -112,10 +112,11 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   instance of the prefab made from it, as Unity's Save As Prefab Asset And Connect does. Asked
   of a prefab nested inside another instance, each of these works against that prefab as the
   prefabs around it change it, as Unity does: `getChanges` lists what the scene changed on it,
-  `applyInstance` writes only that into its prefab (not what the outer prefab sets on it, and no
-  reference out of the instance: a changed value that points out leaves the prefab's own, and one
-  on a child or component the scene added is applied as null), and `revert` and `revertOverride`
-  go back to what the outer prefab sets.
+  `applyInstance` writes only that into its prefab (not what the outer prefab sets on it), and
+  `revert` and `revertOverride` go back to what the outer prefab sets. Whatever the instance —
+  nested or not, of a prefab or of a variant — `applyInstance` writes no reference out of it: a
+  changed value that points out leaves the prefab's own, and one on a child or component the
+  scene added is applied as null.
 - **A prefab variant keeps its base when it is saved.** `Prefab.toJSON()` writes a variant whose
   base has an id as `{ name, version: 2, base, changes }`, and `Prefab.fromJSON` reads it back as
   a variant that follows later edits to its base; loading it through `Resources` loads the base

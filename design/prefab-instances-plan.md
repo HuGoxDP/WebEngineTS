@@ -1053,6 +1053,21 @@ the scene changed and "Apply to Prefab" applies only those. So:
 When the prefabs around it are not loaded, the nested instance is compared with its own prefab
 alone, as before.
 
+*Corrected after verification (N1), and after review (A1):* "is not applied" held for the
+overrides only. A reference on a child or component the instance added went into the nested
+prefab's file still counting out of it, and every instance of that prefab then aimed outside
+itself. `Prefab._keepInside` now walks everything applied. A reference leaves the instance when
+its `scope` is above the number of links it sits below — scope counts from the link it is written
+in, so a scope-1 reference inside a nested link that points back into the instance stays. A
+changed value that points out is dropped, so the prefab keeps its own value; one on something the
+instance added has no value of the prefab's to keep, and is made null. The review then found the
+top-level and variant paths following another rule: they wrote the instance's tree with every
+reference out of it as `null`, so a changed value that pointed out replaced the prefab's own
+with `null`. Decided there: one rule for every path. The top-level and variant snapshot keeps its
+outward references (`outward: true`), `Prefab._keepOwnValues` puts back the prefab's own value of
+each changed one — inside a nested link, the prefab's own override there, or none — and
+`_keepInside` makes the rest null.
+
 *Corrected after review:* reverting a removed child built it again but left every reference to
 it on the object that was destroyed — a reference to a destroyed object is written as `null` —
 so the references read as overrides from then on, and a link save recorded them. The same held
