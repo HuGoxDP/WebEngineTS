@@ -213,7 +213,7 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   reads it in too. An untouched instance therefore has no overrides, nested instances included.
   `getOverrides` used to compare a snapshot from `SceneSerializer.serializeGameObject(instance)`,
   whose nested instances and references inside the instance read as changes; `PrefabDiff`,
-  which stays internal, expects the stored form as well. An object with no node ids at all is
+  which is internal and no longer exported from the package, expects the stored form as well. An object with no node ids at all is
   still compared by position.
 - **A reference path may hold prefab node ids.** `PendingGORef.path`, the `path` of
   `DeserializeContext.pendingGORefs` and `pendingComponentRefs`, and `SerializeContext.locate`

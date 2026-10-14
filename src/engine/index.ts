@@ -96,7 +96,6 @@ export { ASSET_FILE_FORMAT } from "./core/serialization/SceneSerializer";
 export { AssetFiles } from "./core/serialization/AssetFiles";
 export { Prefab } from "./core/serialization/Prefab";
 export type { SerializedPrefab } from "./core/serialization/Prefab";
-export { PrefabDiff } from "./core/serialization/PrefabOverride";
 export type {
     PrefabOverride,
     PrefabChanges,
