@@ -98,8 +98,9 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   of a prefab nested inside another instance, each of these works against that prefab as the
   prefabs around it change it, as Unity does: `getChanges` lists what the scene changed on it,
   `applyInstance` writes only that into its prefab (not what the outer prefab sets on it, and no
-  reference out of the instance), and `revert` and `revertOverride` go back to what the outer
-  prefab sets.
+  reference out of the instance: a changed value that points out leaves the prefab's own, and one
+  on a child or component the scene added is applied as null), and `revert` and `revertOverride`
+  go back to what the outer prefab sets.
 - **A prefab variant keeps its base when it is saved.** `Prefab.toJSON()` writes a variant whose
   base has an id as `{ name, version: 2, base, changes }`, and `Prefab.fromJSON` reads it back as
   a variant that follows later edits to its base; loading it through `Resources` loads the base

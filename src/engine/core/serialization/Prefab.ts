@@ -13,6 +13,7 @@ import {
     type PrefabChanges,
     type PrefabOverride,
     type PrefabRemovedComponent,
+    type SerializedPrefabLink,
 } from "./PrefabOverride";
 
 /**
@@ -467,7 +468,9 @@ export class Prefab {
      * Prefab" on a nested instance. What the prefabs around it set on it stays
      * theirs, and so does a change to an object only they add. A reference to
      * an object outside the instance has nothing to point at in a prefab, and
-     * is not applied.
+     * is not applied: a changed value that points out leaves the prefab's own
+     * value (a nested prefab's own, for a change inside one), and one held by
+     * a child or component the instance added is applied as null.
      *
      * @throws if `instance` is not an instance of this prefab, or if it holds
      *   an instance of this prefab, directly or through the prefabs inside it:
@@ -492,6 +495,8 @@ export class Prefab {
         const next = start.around === null
             ? Prefab._asRoot(snapshot, tree)
             : this._withChanges(PrefabDiff.compareChanges(tree, snapshot, SceneSerializer._prefabTree), snapshot);
+        // Whatever the path, nothing in a prefab may count out of it.
+        Prefab._keepInside(next, 0, "node");
 
         if (this._snapshot === null) {
             this._changes = PrefabDiff.compareChanges(this.base!._resolvedTree(), next, SceneSerializer._prefabTree);
@@ -520,8 +525,8 @@ export class Prefab {
      */
     private _withChanges(changes: PrefabChanges, snapshot: SerializedGameObject): SerializedGameObject {
         const own = this._resolvedTree();
-        changes.overrides = changes.overrides.filter(o =>
-            !Prefab._isDefaultOverride(o, own) && !Prefab._leavesInstance(o.value));
+        changes.overrides = changes.overrides.filter(o => !Prefab._isDefaultOverride(o, own));
+        Prefab._keepInside(changes, 0, "changes");
         const next = PrefabDiff.applyChanges(own, changes, SceneSerializer._prefabTree);
 
         const known = new Set((next.assets ?? []).map(entry => entry.guid));
@@ -531,14 +536,107 @@ export class Prefab {
         return PrefabDiff.ensureIds(next);
     }
 
-    /** Whether a saved value holds a reference that counts out of the instance it is written in. */
-    private static _leavesInstance(value: unknown): boolean {
-        if (Array.isArray(value)) return value.some(Prefab._leavesInstance);
-        if (value === null || typeof value !== "object") return false;
+    /** How many nested instances an address passes through (`"outer/inner"` is one). */
+    private static _addressDepth(address: string | undefined): number {
+        let depth = 0;
+        for (let rest = address ?? ""; ; depth++) {
+            const nested = splitNested(rest);
+            if (nested === null) return depth;
+            rest = nested.rest;
+        }
+    }
+
+    /**
+     * Takes out of saved data, in place, every reference that leaves the
+     * instance it is being applied from — a prefab has nothing for it to
+     * point at — and says whether there was one.
+     *
+     * @remarks
+     * A changed value that points out is dropped, so the prefab keeps its own
+     * value; that holds for a change inside a nested link as well. A
+     * reference on something the instance added — a child, a component, or
+     * anything inside them — has no value of the prefab's to fall back on,
+     * and is made null.
+     *
+     * A reference's `scope` counts link contexts out from where it is
+     * written, so one sitting `depth` links below the instance leaves it when
+     * its scope is above `depth`. A node's components and children are at its
+     * own depth; the changes of a link it carries are one deeper, and inside
+     * those changes an address through nested instances (`"outer/inner"`)
+     * deepens what it addresses by one per level.
+     *
+     * @param kind - what `data` is: a field value, a node, a link, or changes.
+     */
+    private static _keepInside(
+        data: unknown,
+        depth: number,
+        kind: "value" | "node" | "link" | "changes",
+    ): boolean {
+        if (data === null || typeof data !== "object") return false;
+        let left = false;
+
+        if (kind === "node") {
+            const node = data as SerializedGameObject;
+            for (const component of node.components ?? []) {
+                if (Prefab._keepInside(component.fields, depth, "value")) left = true;
+            }
+            for (const child of node.children ?? []) {
+                if (Prefab._keepInside(child, depth, "node")) left = true;
+            }
+            if (node.prefab !== undefined && Prefab._keepInside(node.prefab, depth, "link")) left = true;
+            return left;
+        }
+
+        if (kind === "link") {
+            const link = data as SerializedPrefabLink;
+            if (Prefab._keepInside(link.changes, depth + 1, "changes")) left = true;
+            if (Prefab._keepInside(link.unused, depth + 1, "changes")) left = true;
+            return left;
+        }
+
+        if (kind === "changes") {
+            const changes = data as PrefabChanges;
+            changes.overrides = (changes.overrides ?? []).filter(o => {
+                const at = depth + Prefab._addressDepth(o.node);
+                if (o.component === null && o.field === "prefab") {
+                    if (Prefab._keepInside(o.value, at, "link")) left = true;
+                    return true;
+                }
+                if (!Prefab._keepInside(o.value, at, "value")) return true;
+                left = true;
+                return false;
+            });
+            for (const a of changes.addedChildren ?? []) {
+                if (Prefab._keepInside(a.node, depth + Prefab._addressDepth(a.parent), "node")) left = true;
+            }
+            for (const a of changes.addedComponents ?? []) {
+                const at = depth + Prefab._addressDepth(a.node);
+                if (Prefab._keepInside(a.component.fields, at, "value")) left = true;
+            }
+            return left;
+        }
+
+        if (Prefab._isOutward(data, depth)) return true;
+        const holder = data as Record<string, unknown>;
+        for (const key of Object.keys(holder)) {
+            const value = holder[key];
+            if (Prefab._isOutward(value, depth)) {
+                holder[key] = null;
+                left = true;
+            } else if (Prefab._keepInside(value, depth, "value")) {
+                left = true;
+            }
+        }
+        return left;
+    }
+
+    /** Whether a saved value is a reference that counts out further than `depth` links. */
+    private static _isOutward(value: unknown, depth: number): boolean {
+        if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
         const obj = value as Record<string, unknown>;
-        const isRef = obj["$type"] === "GameObjectRef" || obj["$type"] === "ComponentRef";
-        if (isRef && typeof obj["scope"] === "number" && obj["scope"] > 0) return true;
-        return Object.keys(obj).some(key => Prefab._leavesInstance(obj[key]));
+        if (obj["$type"] !== "GameObjectRef" && obj["$type"] !== "ComponentRef") return false;
+        const scope = obj["scope"];
+        return typeof scope === "number" && scope > depth;
     }
 
     /**

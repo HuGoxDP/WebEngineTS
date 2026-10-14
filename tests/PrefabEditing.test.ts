@@ -879,3 +879,95 @@ describe("what the outer prefab added to a nested instance", () => {
         warn.mockRestore();
     });
 });
+
+describe("applying a nested instance keeps every reference inside the prefab", () => {
+    /** Barrel (Aim -> itself) inside Turret (Aim -> Barrel) inside Tank (Hull, Turret). */
+    function world(): { barrel: Prefab; turret: Prefab; tank: Prefab } {
+        const barrel = prefabOf(() => {
+            const root = make("Barrel", "barrel");
+            root.addComponent(Aim).target = root;
+            return root;
+        }, "guid-barrel");
+        const turret = prefabOf(() => {
+            const nested = barrel.instantiate();
+            const root = make("Turret", "turret", nested);
+            root.addComponent(Aim).target = nested;
+            return root;
+        }, "guid-turret");
+        const tank = prefabOf(() => make("Tank", "tank", make("Hull", "hull"), turret.instantiate()), "guid-tank");
+        return { barrel, turret, tank };
+    }
+
+    test("an added child's reference out of the instance is applied as null", () => {
+        const { turret, tank } = world();
+        const instance = tank.instantiate();
+        const sight = new GameObject("Sight");
+        sight.transform.setParent(child(instance, 1).transform, false);
+        sight.addComponent(Aim).target = child(instance, 0);
+
+        turret.applyInstance(child(instance, 1));
+
+        expect(JSON.stringify(turret.toJSON())).not.toContain('"scope"');
+        const fresh = tank.instantiate();
+        expect(child(fresh, 1, 1).name).toBe("Sight");
+        expect(child(fresh, 1, 1).getComponent(Aim)!.target).toBeNull();
+        // The scene's own Sight still aims at the Hull, now as its own change.
+        expect(sight.getComponent(Aim)!.target).toBe(child(instance, 0));
+        clear();
+        turret.instantiate();
+        expect(saveLinked().roots[0].prefab!.changes).toEqual({ overrides: [] });
+    });
+
+    test("an added component's reference out of the instance is applied as null", () => {
+        const { turret, tank } = world();
+        const instance = tank.instantiate();
+        child(instance, 1, 0).addComponent(Part).part = child(instance, 0).getComponent(Tag);
+
+        turret.applyInstance(child(instance, 1));
+
+        expect(JSON.stringify(turret.toJSON())).not.toContain('"scope"');
+        const fresh = tank.instantiate();
+        const parts = child(fresh, 1, 0).getComponents(Part);
+        expect(parts).toHaveLength(1);
+        expect(parts[0].part).toBeNull();
+        clear();
+        turret.instantiate();
+        expect(saveLinked().roots[0].prefab!.changes).toEqual({ overrides: [] });
+    });
+
+    test("inside a prefab instance the scene added, a reference counts out from that instance", () => {
+        const { barrel, turret, tank } = world();
+        const instance = tank.instantiate();
+        const nested = child(instance, 1);
+        const inward = barrel.instantiate();
+        inward.transform.setParent(nested.transform, false);
+        inward.getComponent(Aim)!.target = nested;
+        const outward = barrel.instantiate();
+        outward.transform.setParent(nested.transform, false);
+        outward.getComponent(Aim)!.target = child(instance, 0);
+
+        turret.applyInstance(nested);
+
+        const fresh = turret.instantiate();
+        expect(fresh.transform.childCount).toBe(3);
+        // Out of the added Barrel to the Turret is inside the prefab: kept.
+        expect(child(fresh, 1).getComponent(Aim)!.target).toBe(fresh);
+        // Out of the added Barrel and out of the Turret: a change to a value
+        // the Barrel prefab has, so the Barrel prefab's own value stays.
+        expect(child(fresh, 2).getComponent(Aim)!.target).toBe(child(fresh, 2));
+        const scopes = JSON.stringify(turret.toJSON()).match(/"scope":\d+/g) ?? [];
+        expect(scopes).toEqual(['"scope":1']);
+    });
+
+    test("a changed value that points out of the instance leaves the prefab's own", () => {
+        const { turret, tank } = world();
+        const instance = tank.instantiate();
+        child(instance, 1).getComponent(Aim)!.target = child(instance, 0);
+
+        turret.applyInstance(child(instance, 1));
+
+        const fresh = turret.instantiate();
+        expect(fresh.getComponent(Aim)!.target).toBe(child(fresh, 0));
+        expect(JSON.stringify(turret.toJSON())).not.toContain('"scope"');
+    });
+});
