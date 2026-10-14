@@ -91,10 +91,14 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   the prefab itself. `Prefab.revertOverride` undoes one change in place, so untouched objects
   keep their identity and references to them stay valid; a removed child or component it
   builds again is what the instance's references point at again, wherever its prefabs say so
-  and the reference still holds the removed object (a reference from outside the instance is
-  the scene's, and stays as it is). A reference set to `null` is never re-pointed, since it may
-  be the scene's own change — so **a reference to a removed object that was saved and reloaded
-  in between stays null**. `Prefab.removeUnusedOverrides` drops
+  and the reference still holds the removed object — and so is what any reference elsewhere in
+  the scene that still held it points at, found by node id. A reference set to `null` is never
+  re-pointed, since it may be the scene's own change — so **a reference to a removed object that
+  was saved and reloaded in between stays null**. `Prefab.revert` keeps every reference from
+  elsewhere in the scene into the instance — from its twin in the same outer prefab, the instance
+  around it, or a plain scene object — pointing at the object that takes its place, as Unity's
+  revert keeps identity; one whose object the revert takes away is left empty, with a warning
+  naming the holder and field. `Prefab.removeUnusedOverrides` drops
   what no longer applies. `Prefab.fromGameObject(go, name, { connect: true })` makes `go` an
   instance of the prefab made from it, as Unity's Save As Prefab Asset And Connect does. Asked
   of a prefab nested inside another instance, each of these works against that prefab as the

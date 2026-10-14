@@ -1055,6 +1055,25 @@ itself, and nothing records which scene fields held the old one. Making the comp
 to the removed component was written as one to another of its type, so it never read as a
 change.
 
+*Corrected after verification (N4):* "nothing records which scene fields held the old one" is
+now done, so references from outside come back too. `Prefab.revert` (and reverting a whole-link
+override, which also destroys and rebuilds) walks every component of the instance's scene before
+it destroys anything (`SceneSerializer._heldReferences`, array slots and nested values included),
+and records each field that holds the instance root or something below it as the target's node-id
+path from the instance root, plus the component's type and occurrence. After the rebuild each is
+resolved against the new subtree — relative to the reverted root, never globally, since the
+interior ids of two instances of one nested prefab repeat — and assigned. One that no longer
+resolves (an object the instance added, which Revert All removes) is left null, with one warning
+naming every holder and field. `revertOverride` of a removed child or component does the same
+from the other end: the removal happened earlier, so it looks for fields still holding a destroyed
+object whose parents lead to the removed child (or, for a component, a destroyed component of the
+type being restored on that object), and points them at what is built again. A destroyed object
+has forgotten its components' order, so a component of a removed child is found again only when it
+is the one of its type there, and a removed component only when it is the one of its type removed;
+otherwise the field is left null with a warning. The prefab-value reconnect above still runs after
+it, for what the records cannot place. Components go by type and occurrence until they have ids of
+their own (Q2); the records are built so that switching them to component ids changes one field.
+
 The editor plan's own stage-14 row lives in another repository and is not changed from here.
 
 ### Stage 10 — Nested overrides, field by field

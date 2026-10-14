@@ -5,6 +5,7 @@ import { Transform } from "../Transform";
 import { SceneManager } from "../SceneManager";
 import { TypeRegistry } from "../reflection/TypeRegistry";
 import { getAllFields } from "../reflection/Decorators";
+import { FieldType } from "../reflection/Types";
 import { AssetDatabase } from "../assets/AssetDatabase";
 import { RenderSettings, FogMode } from "../RenderSettings";
 import { Cubemap } from "../graphics/Cubemap";
@@ -94,6 +95,21 @@ interface LoadCtx extends DeserializeContext {
 
 /** Root fields a link-mode shell carries itself, so they are never also overrides. */
 const SHELL_FIELDS: ReadonlySet<string> = new Set(["name", "transform.position", "transform.rotation"]);
+
+/**
+ * @internal
+ * A field — or one slot of an array in it — that holds a GameObject or a
+ * component, found by {@link SceneSerializer._heldReferences}. Not part of the
+ * API.
+ */
+export interface HeldReference<T> {
+    /** Puts a value where the reference was. */
+    readonly assign: (value: GameObject | Component | null) => void;
+    /** The holder's object, component and field, for a warning. */
+    readonly where: string;
+    /** What the caller made of the object it held. */
+    readonly target: T;
+}
 
 /** Serialized snapshot of a single GameObject (recursive). */
 export interface SerializedGameObject {
@@ -1627,6 +1643,86 @@ export class SceneSerializer {
     }
 
     // ==================== INTERNAL — EDITING AN INSTANCE IN PLACE ====================
+
+    /**
+     * @internal
+     * Every serialized field of every component under `roots` that holds a
+     * GameObject or a component `match` recognises — element by element
+     * through arrays and nested values — with a way to put another value
+     * there. What a revert records before it destroys a subtree, so that the
+     * references into it can be pointed at what replaces it.
+     *
+     * @param match - given the object held (and the component, when a
+     *   component is held), what to remember about it, or null to pass it by.
+     *   It may be called with destroyed objects.
+     * @param skip - holders not to look in: those inside what is rebuilt.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _heldReferences<T>(
+        roots: ReadonlyArray<GameObject>,
+        match: (go: GameObject, component: Component | null) => T | null,
+        skip: (holder: GameObject) => boolean,
+    ): HeldReference<T>[] {
+        const out: HeldReference<T>[] = [];
+        const seen = new Set<object>();
+        const visit = (
+            value: unknown,
+            assign: (value: GameObject | Component | null) => void,
+            where: string,
+            type: FieldType | undefined,
+            elementType: FieldType | undefined,
+        ): void => {
+            if (value === null || typeof value !== "object") return;
+            if (Array.isArray(value)) {
+                value.forEach((item, i) => visit(item, v => { value[i] = v; }, `${where}[${i}]`, elementType, undefined));
+                return;
+            }
+            const held = SceneSerializer._heldObject(value);
+            if (held !== null) {
+                const target = match(held.go, held.component);
+                if (target !== null) out.push({ assign, where, target });
+                return;
+            }
+            // A value of a kind of its own — a vector, an asset, a curve — holds
+            // no scene object; a registered struct may.
+            if (type !== undefined && type !== FieldType.Object) return;
+            if (seen.has(value) || TypeRegistry.getTypeName(value) === null) return;
+            seen.add(value);
+            for (const f of getAllFields(value.constructor as any)) {
+                if (!f.serialize) continue;
+                visit((value as Record<string, unknown>)[f.name], v => SceneSerializer._assign(value, f.name, v),
+                    `${where}.${f.name}`, f.type, f.elementType);
+            }
+        };
+
+        const walk = (go: GameObject): void => {
+            if (!skip(go)) {
+                for (const component of SceneSerializer._componentsOf(go)) {
+                    if (component instanceof Transform || component instanceof MissingComponent) continue;
+                    const name = `${go.name}.${SceneSerializer._typeNameOf(component) ?? component.constructor.name}`;
+                    for (const f of getAllFields(component.constructor as any)) {
+                        if (!f.serialize) continue;
+                        visit((component as unknown as Record<string, unknown>)[f.name],
+                            v => SceneSerializer._assign(component, f.name, v),
+                            `${name}.${f.name}`, f.type, f.elementType);
+                    }
+                }
+            }
+            for (const child of SceneSerializer._childrenOf(go)) walk(child);
+        };
+        for (const root of roots) walk(root);
+        return out;
+    }
+
+    /** A GameObject, or a component with its GameObject, or null for anything else. */
+    private static _heldObject(value: object): { go: GameObject; component: Component | null } | null {
+        if (value instanceof Component) return { go: value.gameObject, component: value };
+        const transform = (value as { transform?: unknown }).transform;
+        return transform instanceof Transform && (transform.gameObject as object) === value
+            ? { go: value as GameObject, component: null }
+            : null;
+    }
 
     /**
      * @internal

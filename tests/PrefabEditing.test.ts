@@ -38,6 +38,12 @@ class Part extends Behaviour {
     public part: object | null = null;
 }
 
+@Serializable({ typeName: "EditingSpec.Aims" })
+class Aims extends Behaviour {
+    @SerializedField({ type: FieldType.Array, elementType: FieldType.GameObject })
+    public targets: GameObject[] = [];
+}
+
 function clear(): void {
     for (const root of [...SceneManager.activeScene.getRootGameObjects()]) root.destroyImmediate();
 }
@@ -1013,5 +1019,110 @@ describe("applying a nested instance keeps every reference inside the prefab", (
         const fresh = turret.instantiate();
         expect(fresh.getComponent(Aim)!.target).toBe(child(fresh, 0));
         expect(JSON.stringify(turret.toJSON())).not.toContain('"scope"');
+    });
+});
+
+describe("a revert keeps the references into what it builds again", () => {
+    /** Barrel (Tag) inside Turret (Aim -> Barrel), twice inside Tank (Hull, TurretL, TurretR). */
+    function world(): { turret: Prefab; tank: Prefab } {
+        const turret = prefabOf(() => {
+            const root = make("Turret", "turret", make("Barrel", "barrel"));
+            root.addComponent(Aim).target = child(root, 0);
+            return root;
+        }, "guid-turret");
+        const tank = prefabOf(
+            () => make("Tank", "tank", make("Hull", "hull"), turret.instantiate(), turret.instantiate()),
+            "guid-tank",
+        );
+        return { turret, tank };
+    }
+
+    test("one nested instance aiming into its twin keeps aiming at the rebuilt object", () => {
+        const { turret, tank } = world();
+        const instance = tank.instantiate();
+        child(instance, 2).getComponent(Aim)!.target = child(instance, 1, 0);
+        child(instance, 1, 0).getComponent(Tag)!.label = "dirty";
+
+        const fresh = turret.revert(child(instance, 1));
+
+        expect(child(fresh, 0).getComponent(Tag)!.label).toBe("barrel");
+        expect(child(instance, 2).getComponent(Aim)!.target).toBe(child(fresh, 0));
+        // Resolved inside the reverted Turret: the twin has a Barrel with the same id.
+        expect(child(instance, 2).getComponent(Aim)!.target).not.toBe(child(instance, 2, 0));
+        expect(tank.getChanges(instance).overrides.map(o => o.field)).toEqual(["target"]);
+    });
+
+    test("a scene object pointing into a reverted instance keeps pointing at the rebuilt objects", () => {
+        const { turret, tank } = world();
+        const player = new GameObject("Player");
+        const instance = tank.instantiate();
+        const nested = child(instance, 1);
+        player.addComponent(Aim).target = child(nested, 0);
+        player.addComponent(Part).part = child(nested, 0).getComponent(Tag);
+        player.addComponent(Aims).targets = [nested, child(instance, 0), child(nested, 0)];
+
+        const fresh = turret.revert(nested);
+
+        expect(player.getComponent(Aim)!.target).toBe(child(fresh, 0));
+        expect(player.getComponent(Part)!.part).toBe(child(fresh, 0).getComponent(Tag));
+        expect(player.getComponent(Aims)!.targets).toEqual([fresh, child(instance, 0), child(fresh, 0)]);
+        expect(player.getComponent(Aims)!.targets[0]).toBe(fresh);
+    });
+
+    test("so does one pointing into a reverted instance that is not nested", () => {
+        const { turret } = world();
+        const player = new GameObject("Player");
+        const instance = turret.instantiate();
+        player.addComponent(Aim).target = child(instance, 0);
+        player.addComponent(Part).part = instance.getComponent(Aim);
+
+        const fresh = turret.revert(instance);
+
+        expect(player.getComponent(Aim)!.target).toBe(child(fresh, 0));
+        expect(player.getComponent(Part)!.part).toBe(fresh.getComponent(Aim));
+    });
+
+    test("a reference to something the revert takes away is left empty, with a warning naming it", () => {
+        const { turret } = world();
+        const player = new GameObject("Player");
+        const instance = turret.instantiate();
+        const flag = new GameObject("Flag");
+        flag.transform.setParent(instance.transform, false);
+        player.addComponent(Aim).target = flag;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        turret.revert(instance);
+
+        expect(player.getComponent(Aim)!.target).toBeNull();
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain("Player.EditingSpec.Aim.target");
+        warn.mockRestore();
+    });
+
+    test("bringing back a removed child keeps a scene object's reference to it", () => {
+        const { tank } = world();
+        const player = new GameObject("Player");
+        const instance = tank.instantiate();
+        player.addComponent(Aim).target = child(instance, 1, 0);
+        player.addComponent(Part).part = child(instance, 1, 0).getComponent(Tag);
+        child(instance, 1, 0).destroyImmediate();
+
+        tank.revertOverride(instance, tank.getChanges(instance).removedChildren![0]);
+
+        expect(player.getComponent(Aim)!.target).toBe(child(instance, 1, 0));
+        expect(player.getComponent(Part)!.part).toBe(child(instance, 1, 0).getComponent(Tag));
+    });
+
+    test("bringing back a removed component keeps a scene object's reference to it", () => {
+        const { tank } = world();
+        const player = new GameObject("Player");
+        const instance = tank.instantiate();
+        const barrel = child(instance, 1, 0);
+        player.addComponent(Part).part = barrel.getComponent(Tag);
+        barrel.removeComponent(barrel.getComponent(Tag)!);
+
+        tank.revertOverride(instance, tank.getChanges(instance).removedComponents![0]);
+
+        expect(player.getComponent(Part)!.part).toBe(barrel.getComponent(Tag));
     });
 });
