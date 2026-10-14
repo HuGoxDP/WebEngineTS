@@ -6,6 +6,7 @@ import { UnlitMaterial } from "../graphics/UnlitMaterial";
 import { PhysicMaterial } from "../../physics/PhysicMaterial";
 import { Prefab, type SerializedPrefab } from "./Prefab";
 import { SceneSerializer, type SerializedAssetFile } from "./SceneSerializer";
+import type { FormatKind } from "./UnsupportedFormatError";
 
 /**
  * Materials, physic materials and prefabs as files.
@@ -164,8 +165,14 @@ function parse(bytes: Uint8Array): unknown {
     return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-async function decodeAssetFile(bytes: Uint8Array, path: string): Promise<object> {
+/**
+ * Reads a material or physic material file. These carry `version: 1` and no
+ * other is read: the version is checked before anything the file refers to is
+ * loaded, and the writers (`SceneSerializer.serializeAsset`) are unchanged.
+ */
+async function decodeAssetFile(bytes: Uint8Array, path: string, what: FormatKind): Promise<object> {
     const file = parse(bytes) as SerializedAssetFile;
+    SceneSerializer._refuseUnknownVersion(file, what);
     await asDecode(path, self => loadReferences(file, self));
 
     const asset = SceneSerializer.deserializeAsset(file);
@@ -176,7 +183,7 @@ async function decodeAssetFile(bytes: Uint8Array, path: string): Promise<object>
 }
 
 async function decodeMaterial(bytes: Uint8Array, path: string): Promise<Material> {
-    const asset = await decodeAssetFile(bytes, path);
+    const asset = await decodeAssetFile(bytes, path, "material");
     if (!(asset instanceof Material)) {
         throw new Error(`[AssetFiles] "${asset.constructor.name}" is not a material.`);
     }
@@ -184,7 +191,7 @@ async function decodeMaterial(bytes: Uint8Array, path: string): Promise<Material
 }
 
 async function decodePhysicMaterial(bytes: Uint8Array, path: string): Promise<PhysicMaterial> {
-    const asset = await decodeAssetFile(bytes, path);
+    const asset = await decodeAssetFile(bytes, path, "physicMaterial");
     if (!(asset instanceof PhysicMaterial)) {
         throw new Error(`[AssetFiles] "${asset.constructor.name}" is not a physic material.`);
     }
@@ -193,10 +200,13 @@ async function decodePhysicMaterial(bytes: Uint8Array, path: string): Promise<Ph
 
 /**
  * Reads a prefab file, after loading what it refers to — the prefabs nested
- * inside it included, so that instantiating it rebuilds them in full.
+ * inside it included, so that instantiating it rebuilds them in full. A file of
+ * a version this build does not read is refused first, so that nothing it
+ * refers to is loaded for nothing.
  */
 async function decodePrefab(bytes: Uint8Array, path: string): Promise<Prefab> {
     const json = parse(bytes) as SerializedPrefab;
+    SceneSerializer._refuseUnknownVersion(json, "prefab");
     // A tree carries its inline assets at its root; a variant carries its
     // base's id and its changes, and both are what it refers to.
     await asDecode(path, self => loadReferences((json.snapshot ?? json) as object, self));

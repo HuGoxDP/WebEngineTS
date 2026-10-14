@@ -291,8 +291,9 @@ export class Prefab {
      * A variant saved with its base is read as a variant of that base, found
      * through `AssetDatabase` when it is first needed.
      *
-     * @throws if the file is of a format version this build cannot read, or
-     *   has neither a tree nor a base.
+     * @throws `UnsupportedFormatError` if the file is of a format version
+     *   this build cannot read.
+     * @throws if the file has neither a tree nor a base.
      */
     public static fromJSON(json: {
         name?: string;
@@ -301,7 +302,7 @@ export class Prefab {
         base?: string;
         changes?: PrefabChanges;
     }): Prefab {
-        SceneSerializer._refuseUnknownVersion(json.version, "prefab");
+        SceneSerializer._refuseUnknownVersion(json, "prefab");
         if (typeof json.base === "string") {
             return new Prefab(null, json.name, json.base, json.changes ?? { overrides: [] });
         }

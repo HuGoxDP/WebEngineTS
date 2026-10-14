@@ -30,6 +30,10 @@ import {
     type DeserializeContext,
     type RefScope,
 } from "./ValueSerializer";
+import { UnsupportedFormatError, type FormatKind } from "./UnsupportedFormatError";
+
+/** The one version a material or physic material file is written in and read as. */
+const ASSET_FILE_VERSIONS: readonly number[] = Object.freeze([1]);
 
 /**
  * The writer's context for one pass. Module-private: not part of the API.
@@ -296,6 +300,52 @@ export interface SerializedScene {
  */
 export class SceneSerializer {
 
+    // ==================== FORMAT VERSIONS ====================
+
+    /**
+     * The `version`s of a scene, prefab or GameObject file this build reads.
+     *
+     * @remarks
+     * Every reader checks a file against this before it loads anything the file
+     * refers to, and refuses one outside it with {@link UnsupportedFormatError}.
+     * `2` is the format that holds prefab instances saved as links. Material and
+     * physic material files are a separate, older format and are read as
+     * version 1 only; their writers have always stated it.
+     */
+    public static readonly readableVersions: readonly number[] = Object.freeze([1, 2]);
+
+    /**
+     * The format version a saved file states.
+     *
+     * @remarks
+     * An absent `version` is `1`, the format before the key existed. Anything
+     * else that is not a whole number of 1 or more — `"2"`, `0`, `null`, `1.5`,
+     * `-1` — is not a version at all, and so is `null`, as is a value that is not
+     * a JSON object.
+     *
+     * @returns the version, or `null` when the file states none that can be read.
+     */
+    public static versionOf(json: unknown): number | null {
+        if (json === null || typeof json !== "object" || Array.isArray(json)) return null;
+        const version = (json as { version?: unknown }).version;
+        if (version === undefined) return 1;
+        return typeof version === "number" && Number.isInteger(version) && version >= 1 ? version : null;
+    }
+
+    /**
+     * Whether this build reads a scene, prefab or GameObject file: its
+     * {@link versionOf} is one of {@link readableVersions}.
+     *
+     * @remarks
+     * The question every reader asks first, exposed so a host can ask it before
+     * handing the file over — an editor deciding whether to offer to open it.
+     * Material and physic material files read version 1 only.
+     */
+    public static canRead(json: unknown): boolean {
+        const version = SceneSerializer.versionOf(json);
+        return version !== null && SceneSerializer.readableVersions.includes(version);
+    }
+
     // ==================== SCENE ====================
 
     /** Serializes every root GameObject in the scene to a JSON tree. */
@@ -321,9 +371,12 @@ export class SceneSerializer {
      * Reconstructs GameObjects from a scene snapshot.
      * The target scene is NOT cleared first — callers that want a
      * clean load should destroy existing objects themselves.
+     *
+     * @throws {@link UnsupportedFormatError} if the scene states a version this
+     *   build does not read ({@link readableVersions}); nothing is built.
      */
     public static deserializeScene(json: SerializedScene, scene?: Scene): GameObject[] {
-        SceneSerializer._refuseUnknownVersion(json.version, "scene");
+        SceneSerializer._refuseUnknownVersion(json, "scene");
         let prevActive: Scene | null = null;
         if (scene && scene !== SceneManager.activeScene) {
             prevActive = SceneManager.activeScene;
@@ -453,8 +506,15 @@ export class SceneSerializer {
      * Reconstructs a GameObject and its descendants from a snapshot.
      * If `scene` is provided it is temporarily made active so the new
      * GameObjects register there; the previous active scene is restored.
+     *
+     * @remarks
+     * {@link serializeGameObject} states no `version`, which reads as 1. A
+     * snapshot that does state one is checked like a scene's.
+     *
+     * @throws {@link UnsupportedFormatError} if the snapshot states a version this build does not read.
      */
     public static deserializeGameObject(json: SerializedGameObject, scene?: Scene): GameObject {
+        SceneSerializer._refuseUnknownVersion(json, "gameObject");
         return SceneSerializer._deserializeTree(json, scene, []);
     }
 
@@ -533,11 +593,13 @@ export class SceneSerializer {
      * field null and is listed in {@link pendingAssetGuids}.
      *
      * @returns the asset, or null if its class is not registered.
+     * @throws {@link UnsupportedFormatError} if the file states a version other than 1.
      */
     public static deserializeAsset(file: SerializedAssetFile): object | null {
         if (file.format !== ASSET_FILE_FORMAT) {
             throw new Error(`[SceneSerializer] Not an asset file (format "${String(file.format)}").`);
         }
+        SceneSerializer._refuseUnknownVersion(file, file.type === "PhysicMaterial" ? "physicMaterial" : "material");
 
         const ctx = SceneSerializer._newContext();
         SceneSerializer._materializeAssets(file.assets, ctx);
@@ -664,18 +726,22 @@ export class SceneSerializer {
 
     /**
      * @internal
-     * Throws for a file format version this build does not know. Absent means
-     * 1; 1 and 2 are read.
+     * Throws {@link UnsupportedFormatError} unless this build reads the version
+     * the file states: one of {@link readableVersions} for a scene, prefab or
+     * GameObject, version 1 for a material or physic material. Absent means 1.
      *
      * **NEVER use in user-facing code.**
      */
-    public static _refuseUnknownVersion(version: unknown, what: string): void {
-        if (typeof version === "number" && version > 2) {
-            throw new Error(
-                `[SceneSerializer] This ${what} was written in format version ${version}, which this ` +
-                `build of the engine cannot read (it reads versions 1 and 2). Update the engine.`,
-            );
-        }
+    public static _refuseUnknownVersion(json: unknown, what: FormatKind): void {
+        const asset = what === "material" || what === "physicMaterial";
+        const readable = asset ? ASSET_FILE_VERSIONS : SceneSerializer.readableVersions;
+        const version = SceneSerializer.versionOf(json);
+        if (version !== null && readable.includes(version)) return;
+
+        const stated = json !== null && typeof json === "object" && !Array.isArray(json)
+            ? (json as { version?: unknown }).version
+            : json;
+        throw new UnsupportedFormatError(what, stated, readable);
     }
 
     private static _newContext(chain: readonly string[] = []): LoadCtx {

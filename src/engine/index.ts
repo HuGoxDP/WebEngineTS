@@ -80,6 +80,8 @@ export {
 export { ValueSerializer } from "./core/serialization/ValueSerializer";
 export type { SerializeContext, DeserializeContext, PendingGORef, RefScope } from "./core/serialization/ValueSerializer";
 export { SceneSerializer } from "./core/serialization/SceneSerializer";
+export { UnsupportedFormatError } from "./core/serialization/UnsupportedFormatError";
+export type { FormatKind } from "./core/serialization/UnsupportedFormatError";
 export { MissingComponent, MissingValue } from "./core/serialization/MissingComponent";
 export type {
     SerializedGameObject,
@@ -398,6 +400,7 @@ import {
 } from "./core/reflection/Decorators";
 import { ValueSerializer } from "./core/serialization/ValueSerializer";
 import { SceneSerializer } from "./core/serialization/SceneSerializer";
+import { UnsupportedFormatError } from "./core/serialization/UnsupportedFormatError";
 import { MissingComponent, MissingValue } from "./core/serialization/MissingComponent";
 import { Prefab } from "./core/serialization/Prefab";
 import { AssetFiles } from "./core/serialization/AssetFiles";
@@ -583,7 +586,7 @@ const WebEngineTS = {
     FieldType, TypeRegistry,
     Serializable, SerializedField, Range, Header, Tooltip, HideInInspector,
     getClassMeta, getAllFields,
-    ValueSerializer, SceneSerializer, MissingComponent, MissingValue, Prefab, AssetFiles,
+    ValueSerializer, SceneSerializer, UnsupportedFormatError, MissingComponent, MissingValue, Prefab, AssetFiles,
 
     // Math
     Mathf, AnimationCurve, Keyframe, WrapMode, WeightedMode,
