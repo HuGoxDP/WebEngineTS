@@ -94,6 +94,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The same two checks as ci.yml: a release ships the standalone bundle,
+      # so it must not go out over its size budget or with a minifier that
+      # renamed a class. See the comments on those steps in ci.yml.
+      - name: Bundle size
+        run: npm run size
+
+      - name: Standalone bundle smoke test
+        run: npx vitest run tests/StandaloneBundle.test.ts
+
       - name: Pack
         id: pack
         run: |

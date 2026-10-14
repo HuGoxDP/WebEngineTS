@@ -106,6 +106,7 @@ virtual-lab pins a tagged release URL instead; from then on, delete the committe
 npm run build          # Rollup → dist/ (ESM, CJS, standalone, .d.ts)
 npm run dev            # Rollup watch mode
 npm run typecheck      # tsc --noEmit (strict mode)
+npm run size           # after a build: gzip size of the standalone bundle against its budget (CI runs it)
 npm run clean          # rm -rf dist
 ```
 
@@ -115,7 +116,7 @@ npm run clean          # rm -rf dist
 
 - Entry point: `src/engine/index.ts`
 - Build config: `rollup.config.mjs` + `tsconfig.build.json`
-- Output: `dist/WebEngineTS.esm.js`, `dist/WebEngineTS.cjs.js`, `dist/WebEngineTS.standalone.js` (Three.js bundled), `dist/WebEngineTS.d.ts`
+- Output: `dist/WebEngineTS.esm.js`, `dist/WebEngineTS.cjs.js`, `dist/WebEngineTS.standalone.js` (Three.js bundled, minified with class/function names kept), `dist/WebEngineTS.d.ts`
 - Tests: Vitest (`npm test` → `vitest run`); specs live in `tests/*.test.ts`
 
 ## Source Layout

@@ -63,6 +63,20 @@ jobs:
       - name: Build
         run: npm run build
 
+      # dist/WebEngineTS.standalone.js is what every student downloads. Fails
+      # when its gzip size passes the budget in scripts/check-bundle-size.mjs,
+      # which catches a minifier setting lost in a config edit and a new import
+      # that drags a large dependency in.
+      - name: Bundle size
+        run: npm run size
+
+      # Its own step, after Build, because it loads the files Build just wrote:
+      # in the Test step above there is no dist/ yet and the suite skips itself.
+      # It is the only test that looks at the minified bundle rather than the
+      # sources.
+      - name: Standalone bundle smoke test
+        run: npx vitest run tests/StandaloneBundle.test.ts
+
       # The name is read from npm's own report rather than rebuilt from
       # package.json, so it cannot drift from what npm actually wrote.
       - name: Pack

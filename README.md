@@ -60,6 +60,7 @@ The public entry point is `src/engine/index.ts`.
 npm run dev         # Rollup watch mode — rebuilds dist/ on change
 npm run typecheck   # tsc --noEmit (strict mode), no emit
 npm test            # Run the Vitest unit-test suite once
+npm run size        # After a build: fail if the standalone bundle's gzip size passes its budget
 npm run docs        # Generate API docs into docs/ via TypeDoc
 npm run clean       # Remove dist/
 ```
