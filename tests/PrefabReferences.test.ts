@@ -353,6 +353,16 @@ describe("an override or an added child names its place by id alone", () => {
         });
     }
 
+    test("an override that gives neither a node id nor a position is not applied to the root", () => {
+        const handMade = scene(node("Tank", { prefab: { guid: "guid-tank", changes: { overrides: [
+            { component: "RefSpec.Aim", componentIndex: 0, field: "target", value: null },
+        ] } } }));
+
+        const [tank] = SceneSerializer.deserializeScene(handMade);
+
+        expect(tank.getComponent(Aim)!.target).toBe(child(tank, 0));
+    });
+
     test("a position an older file wrote beside the node id is read past, and not written again", () => {
         const older = scene(node("Tank", { prefab: { guid: "guid-tank", changes: { overrides: [
             // A stale position: the node id is what counts.

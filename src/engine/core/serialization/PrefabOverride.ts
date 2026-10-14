@@ -16,11 +16,13 @@ export interface PrefabOverride {
      * Child indices from the instance root down to the owning GameObject, in the
      * prefab's own tree. Empty for the root itself.
      *
-     * Written only where {@link node} is absent — a prefab whose nodes have no
-     * ids. Where `node` is present the node is found by id, so a position
-     * would only move whenever the prefab gains or loses a child in front,
-     * rewriting files whose instances did not change; it is not written, and
-     * one read from an older file is ignored.
+     * Written only where {@link node} is absent: a prefab whose nodes have no
+     * ids, or a node inside a nested instance held in full, whose ids belong
+     * to another prefab. Where `node` is present the node is found by id, so
+     * a position would only move whenever the prefab gains or loses a child
+     * in front, rewriting files whose instances did not change; it is not
+     * written, and one read from an older file is ignored. An override with
+     * neither is addressed to no object, and is not applied.
      */
     path?: number[];
     /**
@@ -484,6 +486,8 @@ export class PrefabDiff {
 
         for (const override of changes.overrides) {
             if (override.node !== undefined && splitNested(override.node) !== null) continue;
+            // Addressed to no object, as only a hand-edited file is: not taken for the root.
+            if (override.node === undefined && override.path === undefined) continue;
 
             const node = override.node !== undefined
                 ? byId.get(override.node)?.node

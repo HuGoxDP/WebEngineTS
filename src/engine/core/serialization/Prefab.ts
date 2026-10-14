@@ -1391,7 +1391,7 @@ export class Prefab {
 
     /** Whether an override is one of the root fields an instance never takes from its prefab. */
     private static _isDefaultOverride(o: PrefabOverride, tree: SerializedGameObject): boolean {
-        const atRoot = o.node !== undefined ? o.node === tree.id : (o.path ?? []).length === 0;
+        const atRoot = o.node !== undefined ? o.node === tree.id : o.path !== undefined && o.path.length === 0;
         return atRoot && o.component === null
             && (o.field === "name" || o.field === "transform.position" || o.field === "transform.rotation");
     }

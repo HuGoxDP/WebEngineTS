@@ -1420,8 +1420,11 @@ New in `MissingComponent.test.ts`:
   a scene nobody touched write the new position into every such override. *Decided before the
   format freezes:* `path` is not written where `node` is present, and is optional in the exported
   `PrefabOverride` type. Readers still accept it from older files and go by `node`; every reader of
-  an override's `path` in the serializer falls back to it only for a prefab without ids. An
-  unchanged scene now re-saves byte-identically after its prefab grows.
+  an override's `path` in the serializer falls back to it only where `node` is absent — a prefab
+  without ids, or a node inside a nested instance held in full, whose ids belong to another prefab
+  (*corrected after review (A1)*: this said "a prefab without ids" alone, and those overrides still
+  move with their prefab). One with neither is addressed to no object, and is skipped rather than
+  taken for the root. An unchanged scene now re-saves byte-identically after its prefab grows.
 - **An added child's `index` follows the prefab** (found in the A1 review; decided there). With
   `after` in place, `addedChildren[].index` was still written "for older readers and debugging",
   and it moved whenever the prefab gained a child in front — the same churn as `path`. No

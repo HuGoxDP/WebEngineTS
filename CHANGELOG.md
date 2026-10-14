@@ -204,8 +204,10 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 - **`PrefabOverride.path` is optional, and not written where `node` is.** An override addresses
   its object by node id; the position written beside it changed whenever the prefab gained or
   lost a child in front, so a link save of a scene nobody touched rewrote every such override and
-  showed a diff in version control. It is now written only for a prefab whose nodes have no ids;
-  one read from an older file is accepted and ignored. Code that reads `path` from what
+  showed a diff in version control. It is now written only where `node` is absent — a prefab
+  whose nodes have no ids, or a node inside a nested instance held in full, whose ids belong to
+  another prefab; one read beside a `node` from an older file is accepted and ignored, and an
+  override that gives neither is not applied. Code that reads `path` from what
   `getOverrides`, `getChanges` or `compareChanges` return must allow for its absence and use
   `node` (`GameObject.prefabNodeId` maps it to the live object).
 - **`Texture2D.fromKTX2ArrayBuffer` warns once per run** when `maxSize` is set, because the cap
