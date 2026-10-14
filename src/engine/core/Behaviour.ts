@@ -160,17 +160,22 @@ export abstract class Behaviour extends Component {
      * subclasses (including user scripts) can safely override `onDestroy`
      * without calling `super.onDestroy()` and still get correct
      * `onDisable` behavior.
+     *
+     * A throwing `onDisable` does not stop the destruction: `onDestroy` still
+     * runs and the component still ends destroyed, then the error reaches the
+     * caller — the same promise a throwing `onDestroy` makes.
      */
     public override _destroyImmediate(): void {
-        // Fire onDisable before destruction if the component was active
-        if (this._wasActiveAndEnabled) {
-            this._wasActiveAndEnabled = false;
-            this.onDisable();
+        try {
+            if (this._wasActiveAndEnabled) {
+                this._wasActiveAndEnabled = false;
+                this.onDisable();
+            }
+        } finally {
+            // Continue normal destruction chain (calls onDestroy → marks destroyed →
+            // unregisters → leaves the GameObject's component list)
+            super._destroyImmediate();
         }
-
-        // Continue normal destruction chain (calls onDestroy → marks destroyed →
-        // unregisters → leaves the GameObject's component list)
-        super._destroyImmediate();
     }
 
     // ==================== LIFECYCLE HOOKS ====================

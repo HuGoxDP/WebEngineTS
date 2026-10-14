@@ -94,6 +94,14 @@ export class EngineObject {
     /** Internal destruction flag */
     private _isDestroyed: boolean = false;
 
+    /**
+     * Set when destruction starts, before `onDestroy` runs, and never cleared.
+     * `_isDestroyed` cannot play this part: it stays false until `onDestroy`
+     * returns so that the callback can still read a live object, and so it
+     * cannot tell a second request to destroy from the first.
+     */
+    private _isDestroying: boolean = false;
+
 // ==================== CONSTRUCTOR ====================
 
     /**
@@ -201,6 +209,10 @@ export class EngineObject {
      * In Unity, this is achieved via implicit bool operator.
      * TypeScript cannot override operators, so we use a method.
      *
+     * Still `true` while `onDestroy` runs, so the callback can read the object;
+     * `false` once it has returned or thrown. Asking to destroy an object that
+     * is in that callback does nothing.
+     *
      * @example
      * if (myObject.exists()) {
      *     // Safe to use
@@ -266,19 +278,38 @@ export class EngineObject {
      * @internal
      * Immediately destroys the object without delay.
      * Called by the static Destroy methods.
+     *
+     * @remarks
+     * An object that is already being destroyed, or is destroyed, is left alone,
+     * so `onDestroy` runs once however often it is asked for — including by
+     * itself, or by an object it destroys in turn.
+     *
+     * A throwing `onDestroy` still ends in a destroyed object, as in Unity: the
+     * object leaves the registry and the persistent set whatever the callback
+     * did, and the error then reaches the caller. Leaving it alive would strand
+     * a component nobody can destroy again — its GameObject no longer lists it.
      */
     public _destroyImmediate(): void {
-        if (this._isDestroyed) return;
+        if (this._isDestroyed || this._isDestroying) return;
+        this._isDestroying = true;
 
-        // Call cleanup hook
-        this._invokeOnDestroy();
+        try {
+            this._invokeOnDestroy();
+        } finally {
+            this._isDestroyed = true;
+            EngineObject._registry.delete(this._instanceID);
+            EngineObject._persistentObjects.delete(this._instanceID);
+        }
+    }
 
-        // Mark as destroyed
-        this._isDestroyed = true;
-
-        // Remove from registry
-        EngineObject._registry.delete(this._instanceID);
-        EngineObject._persistentObjects.delete(this._instanceID);
+    /**
+     * @internal
+     * Whether destruction has started: true from the moment `_destroyImmediate`
+     * begins, through `onDestroy`, and after. Overrides that do work around the
+     * base call test it so that a repeated request does that work once.
+     */
+    protected get _destroyStarted(): boolean {
+        return this._isDestroying || this._isDestroyed;
     }
 
     /**
@@ -373,7 +404,15 @@ export class EngineObject {
 
         for (let i = 0; i < due.length; i++) {
             const obj = due[i].obj;
-            if (obj.exists()) obj._destroyImmediate();
+            if (!obj.exists()) continue;
+            // One object's failing onDestroy must not strand the ones due after
+            // it: they have already left the pending list, so nothing would
+            // destroy them again. It also must not end the frame loop.
+            try {
+                obj._destroyImmediate();
+            } catch (err) {
+                console.error(`[EngineObject] error while destroying "${obj.name}":`, err);
+            }
         }
         due.length = 0;
     }

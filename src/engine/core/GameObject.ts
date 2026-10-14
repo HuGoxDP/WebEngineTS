@@ -926,6 +926,11 @@ export class GameObject extends EngineObject {
      * 2. Destroy all children recursively
      * 3. Unregister from scene
      * 4. Destroy the Transform (removes from Three.js hierarchy)
+     *
+     * A component whose `onDisable` or `onDestroy` throws is logged and does
+     * not stop the rest, as in Unity: the other components, the children and the
+     * Transform are destroyed all the same. Rethrowing instead would leave the
+     * object half torn down, still registered with the scene.
      */
     protected override onDestroy(): void {
         // 1. Destroy all components. Each takes itself out of the list as it
@@ -935,7 +940,14 @@ export class GameObject extends EngineObject {
         for (let next = [...this._components]; next.length > 0; next = this._components.filter(c => !asked.has(c))) {
             for (const component of next) {
                 asked.add(component);
-                component.destroyImmediate();
+                try {
+                    component.destroyImmediate();
+                } catch (err) {
+                    console.error(
+                        `[GameObject] error while destroying ${component.constructor.name} on "${this.name}":`,
+                        err,
+                    );
+                }
             }
         }
         this._components = [];
