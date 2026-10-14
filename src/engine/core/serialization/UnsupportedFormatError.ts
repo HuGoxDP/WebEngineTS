@@ -51,6 +51,11 @@ export class UnsupportedFormatError extends Error {
     /** What kind of file was being read. */
     public readonly what: FormatKind;
 
+    /**
+     * @param what - the kind of file being read.
+     * @param version - the `version` the file stated, as read.
+     * @param readable - the versions the reader reads.
+     */
     constructor(what: FormatKind, version: unknown, readable: readonly number[]) {
         const label = LABELS[what];
         const known = typeof version === "number" && Number.isInteger(version) && version >= 1;
