@@ -154,6 +154,18 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   only one had a number, so "retaining more textures" and "estimating the same ones differently"
   could not be told apart.
 
+- **The engine says which file versions it reads.** `SceneSerializer.readableVersions` (frozen
+  `[1, 2]`), `SceneSerializer.versionOf(json)` — the version a file states: `1` when absent, a
+  whole number of 1 or more when present, `null` for anything else (`"2"`, `0`, `null`, `1.5`,
+  `-1`, or a value that is not an object) — and `SceneSerializer.canRead(json)`. Every refusal
+  throws the new `UnsupportedFormatError`, exported by name and on the default namespace, with
+  `version` (what the file stated), `readable` (what the reader reads) and `what` (`"scene"`,
+  `"prefab"`, `"gameObject"`, `"material"` or `"physicMaterial"`, the exported `FormatKind`), so
+  a host can word the message itself instead of parsing a string. A host that wants to know
+  before it hands a file over (an editor deciding whether to offer to open it) asks `canRead`.
+  Material and physic material files are read as version 1 only; their writers state
+  `version: 1` as before and are unchanged.
+
 ### Changed
 
 - **`Prefab.revert` leaves the instance where it was.** The fresh instance keeps the old one's
@@ -178,6 +190,24 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   writes back, as it read them, a placeholder's link or data whose paths name nodes by id — an
   unknown component's from a prefab file, or changes kept as unused. A reader that refuses
   version 2 therefore cannot always reopen a default-mode save either.
+- **A scene, prefab, GameObject, material or physic material file whose `version` is not an
+  integer this build reads is refused with `UnsupportedFormatError`** (before: `"3"`, `0`, `null`
+  and the like were accepted, a lone GameObject was not checked, and a prefab file's references
+  were loaded before its version was looked at). `deserializeScene`, `deserializeGameObject`,
+  `Prefab.fromJSON`, `SceneSerializer.deserializeAsset` and the `Resources` decoders for
+  prefabs, materials and physic materials all apply the one rule, and the decoders apply it
+  before they load anything the file refers to. A snapshot from `serializeGameObject` states no
+  version and reads as 1, as before. The error's message is reworded (it names the kind of file
+  and the versions read); a caller that matched on `/version 3/` still finds it.
+- **A scenario manifest whose `manifestVersion` major is not 1 is refused.** `Scenario` accepted
+  any present value, so a manifest written for a newer engine loaded and was misread. `"1"`,
+  `"1.0"`, `"1.2"`, `"1.0.0"` and the number `1` are read; `"2.0"` is refused as asking for a
+  newer engine, and `"v1"` or `"1.0abc"` as not a version number — the rule the platform
+  applies at upload. The manifest converted from a streaming manifest passes through the same
+  check. An `engineVersion` in the manifest is never a reason to refuse; one whose `major.minor`
+  is newer than the running build's logs a single warning naming both (pre-release stamps such
+  as `0.1.0-local.<timestamp>` are ignored, and an engine running from its sources compares
+  nothing).
 - **`Prefab.getOverrides` compares an instance in the form a prefab is stored in**: nested
   prefab instances as links, references naming prefab nodes by id — the form `Prefab.getChanges`
   reads it in too. An untouched instance therefore has no overrides, nested instances included.

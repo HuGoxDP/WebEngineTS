@@ -378,8 +378,17 @@ still version 2 when it writes back verbatim what holds a link or an id path (§
 editor can meet version 2 before it opts into link mode, as soon as it loads a placeholder or a
 legacy prefab whose unknown component holds a reference (§11).
 
-- The reader accepts 1 and 2 (absent means 1) and refuses anything higher with an error that
-  names the version.
+- The reader accepts 1 and 2 (absent means 1) and refuses anything else with an error that
+  names the version. *Made one rule and public in A4:* `SceneSerializer.readableVersions`
+  (`[1, 2]`), `versionOf(json)` and `canRead(json)` state it, and every reader throws
+  `UnsupportedFormatError` (`version`, `readable`, `what`) — `deserializeScene`,
+  `deserializeGameObject`, `Prefab.fromJSON`, `deserializeAsset` and the `Resources` decoders,
+  the prefab and material ones **before** they load what the file refers to. A version is absent
+  or a whole number of 1 or more; `"3"`, `0`, `null`, `1.5` and `-1` are refused, where the first
+  gate (`version > 2`) accepted the lot. Material and physic material files are version 1 only;
+  their writers already state it. A scenario manifest's `manifestVersion` is held to the same
+  standard (major 1, as the platform's `player-formats.js` has it), and an `engineVersion` newer
+  than the running build only warns.
 - That cannot protect an engine that already shipped, because `deserializeScene` has never
   checked versions. Two things limit the exposure:
   - the editor's `_loadSceneText` already refuses any version except 1;
@@ -1359,7 +1368,9 @@ New in `MissingComponent.test.ts`:
 - **"a prefab file lists the prefabs nested in it, and loading it loads them."**
 - **"two prefab files that contain each other load without hanging."**
 - **"a scene with a link is written as version 2; one without stays version 1."**
-- **"a file of a version the engine does not know is refused."**
+- **"a file of a version the engine does not know is refused."** (`FormatVersions.test.ts` holds
+  the whole matrix: every reader, every malformed version, and that a version-3 prefab loads
+  nothing it refers to.)
 - **"a linked instance does not copy its prefab's inline material into the scene."**
 
 ### Stage 8
@@ -1438,6 +1449,13 @@ New in `MissingComponent.test.ts`:
 
 ### Settled from this list
 
+- **The version gate accepted what it should refuse** (review #19, closed in A4). The first gate
+  threw only for a number above 2, so `"3"`, `0`, `-1`, `1.5` and `null` were read as if they
+  were version 1, a lone `GameObject` was never checked, and a prefab file's references were
+  loaded before its version was looked at. The rule is now one — absent, or a whole number of 1
+  or more that the build reads — applied by every reader before it builds or loads anything
+  (§5.4). Readers state it (`readableVersions`, `versionOf`, `canRead`) so that the editor can
+  ask instead of hard-coding `data.version !== 1`, and refuse with `UnsupportedFormatError`.
 - **An override's `path` follows the prefab** (found in review, verified; settled in A1, review
   #10). `PrefabOverride.path` was the node's position in the prefab's own tree, computed afresh
   on every save and only informational wherever `node` is present, so a prefab gaining a child in
