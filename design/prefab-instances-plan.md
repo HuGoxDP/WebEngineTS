@@ -257,9 +257,9 @@ Read in full at `9ffd1d1`. The WIP is coherent; it is unfinished, not wrong.
    texts are now stale: `unity-parity-plan.md` Stage 4 ("structural changes are not overrides",
    "prefabs have no ids yet") and the `_createGameObject` JSDoc ("`_clone` round-trips through
    `Prefab`").
-6. **Five defects that exist without this feature**, all verified at HEAD with the Stage 1
+6. **Six defects that exist without this feature**, all verified at HEAD with the Stage 1
    fixes applied, and all in this feature's path (D3 was found while Stage 1 was written, D4 in
-   review):
+   review, D5 by the E11 verifier):
    - **D1 — a destroyed child stays in its parent's child list, and is saved.**
      `GameObject.onDestroy` ends in `Transform.onDestroy`, which removes only the Three.js object.
      `Transform._children` still holds the dead transform. After `child.destroyImmediate()`,
@@ -294,6 +294,21 @@ Read in full at `9ffd1d1`. The WIP is coherent; it is unfinished, not wrong.
      reopened pointing at the first component of the same type on that object. For E11 it hides a
      removed component's references from the diff: they compare equal to the prefab's. It is now
      written as `null`, as a reference to a destroyed GameObject always was.
+   - **D5 — a destroyed component stays in its object's component list, and is saved.** The
+     component twin of D1 (found by the E11 verifier, present at `bde23fc`). `removeComponent`
+     spliced the component out of `GameObject._components`; `destroy()` and `destroyImmediate()`
+     did not. With two `UIImage` on one object and `Button.targetGraphic` the second,
+     `second.destroyImmediate()` made `exists()` false but left `getComponents(UIImage).length` at 2,
+     saved `[UIImage, RectTransform, UIImage, Button]` with `targetGraphic` as
+     `{"$type":"ComponentRef","path":[0],"component":"UIImage","index":1}`, and the reload had two
+     `UIImage`.
+     - The editor deletes with `destroyImmediate`, so **a deleted component came back on the next
+       save or undo.**
+     - For E11, a component deleted that way was never reported in `removedComponents`, and
+       reappeared on the next save or undo of the instance.
+     - Fixed in `Component._destroyImmediate`, which every route to destruction passes through: it
+       calls `GameObject._detachComponent` after `onDisable` and `onDestroy` have run, so D4's
+       `componentIndex` of -1 now also holds for a component destroyed by any path.
 
 ## 5. Backward compatibility
 
