@@ -271,3 +271,168 @@ describe("what onDestroy can still see", () => {
         expect(reader.sawExists).toBe(true);
     });
 });
+
+class Counter extends ScriptableBehaviour {
+    public updates = 0;
+    public fixedUpdates = 0;
+    public lateUpdates = 0;
+    public disabled = 0;
+    public pings = 0;
+    public onTick: (() => void) | null = null;
+    public onDisableTick: (() => void) | null = null;
+    public onPing: (() => void) | null = null;
+
+    public override update(): void { this.updates++; this.fire("onTick"); }
+    public override fixedUpdate(): void { this.fixedUpdates++; this.fire("onTick"); }
+    public override lateUpdate(): void { this.lateUpdates++; this.fire("onTick"); }
+    public override onDisable(): void { this.disabled++; this.fire("onDisableTick"); }
+    public ping(): void { this.pings++; this.fire("onPing"); }
+
+    public reset(): void { this.updates = this.fixedUpdates = this.lateUpdates = 0; }
+
+    /** Runs a hook once: it destroys things, which is only interesting the first time. */
+    private fire(hook: "onTick" | "onDisableTick" | "onPing"): void {
+        const run = this[hook];
+        this[hook] = null;
+        run?.();
+    }
+}
+
+/** A parent with three children, each carrying a Counter, all already started. */
+function family(): { parent: GameObject; kids: [Counter, Counter, Counter] } {
+    const parent = new GameObject("parent");
+    const kids = [0, 1, 2].map(i => {
+        const go = new GameObject(`kid${i}`);
+        go.transform.setParent(parent.transform);
+        return go.addComponent(Counter);
+    }) as [Counter, Counter, Counter];
+    parent._systemUpdate();
+    for (const kid of kids) kid.reset();
+    return { parent, kids };
+}
+
+const phases: [string, (go: GameObject) => void, (c: Counter) => number][] = [
+    ["update", go => go._systemUpdate(), c => c.updates],
+    ["fixedUpdate", go => go._systemFixedUpdate(), c => c.fixedUpdates],
+    ["lateUpdate", go => go._systemLateUpdate(), c => c.lateUpdates],
+];
+
+describe.each(phases)("a child destroyed during its parent's %s loop", (_name, run, count) => {
+    const counts = (kids: Counter[]): number[] => kids.map(count);
+
+    test("a later sibling does not run, and the others run once", () => {
+        const { parent, kids } = family();
+        kids[0].onTick = () => kids[2].gameObject.destroyImmediate();
+
+        expect(() => run(parent)).not.toThrow();
+        expect(counts(kids)).toEqual([1, 1, 0]);
+
+        run(parent);
+        expect(counts(kids)).toEqual([2, 2, 0]);
+        expect(parent.transform.childCount).toBe(2);
+    });
+
+    test("an earlier sibling is not run again, and the later ones still run once", () => {
+        const { parent, kids } = family();
+        kids[1].onTick = () => kids[0].gameObject.destroyImmediate();
+
+        expect(() => run(parent)).not.toThrow();
+        expect(counts(kids)).toEqual([1, 1, 1]);
+
+        run(parent);
+        expect(counts(kids)).toEqual([1, 2, 2]);
+    });
+
+    test("itself: the others run once, and it does not run again", () => {
+        const { parent, kids } = family();
+        kids[1].onTick = () => kids[1].gameObject.destroyImmediate();
+
+        expect(() => run(parent)).not.toThrow();
+        expect(counts(kids)).toEqual([1, 1, 1]);
+
+        run(parent);
+        expect(counts(kids)).toEqual([2, 1, 2]);
+    });
+
+    test("a child that moved to a parent walked later runs once, not under both", () => {
+        const root = new GameObject("root");
+        const first = family();
+        const second = family();
+        first.parent.transform.setParent(root.transform);
+        second.parent.transform.setParent(root.transform);
+        first.kids[0].onTick = () => first.kids[2].transform.setParent(second.parent.transform);
+
+        expect(() => run(root)).not.toThrow();
+
+        expect(first.parent.transform.childCount).toBe(2);
+        expect(second.parent.transform.childCount).toBe(4);
+        expect(counts(first.kids)).toEqual([1, 1, 1]);
+        expect(counts(second.kids)).toEqual([1, 1, 1]);
+    });
+
+    test("a child created during the loop joins the next frame, and a quiet frame copies nothing", () => {
+        const { parent, kids } = family();
+        const children = parent.transform._internalChildren;
+        let late: Counter | null = null;
+        kids[0].onTick = () => {
+            const go = new GameObject("late");
+            go.transform.setParent(parent.transform);
+            late = go.addComponent(Counter);
+        };
+
+        run(parent);
+        expect(counts(kids)).toEqual([1, 1, 1]);
+        expect(parent.transform.childCount).toBe(4);
+
+        late!.gameObject._systemUpdate();
+        late!.reset();
+        run(parent);
+        expect(count(late!)).toBe(1);
+
+        const settled = parent.transform._internalChildren;
+        run(parent);
+        run(parent);
+        expect(parent.transform._internalChildren).toBe(settled);
+        expect(children).not.toBe(settled);
+    });
+});
+
+describe("a child destroyed while its parent's children are being told something", () => {
+    test("setActive(false) on the parent still reaches the children after a destroyed earlier sibling", () => {
+        const { parent, kids } = family();
+        kids[1].onDisableTick = () => kids[0].gameObject.destroyImmediate();
+
+        expect(() => parent.setActive(false)).not.toThrow();
+
+        expect(kids.map(k => k.disabled)).toEqual([1, 1, 1]);
+    });
+
+    test("so does deactivating an ancestor, one level further down", () => {
+        const { parent, kids } = family();
+        const root = new GameObject("root");
+        parent.transform.setParent(root.transform);
+        kids[1].onDisableTick = () => kids[0].gameObject.destroyImmediate();
+
+        expect(() => root.setActive(false)).not.toThrow();
+
+        expect(kids.map(k => k.disabled)).toEqual([1, 1, 1]);
+    });
+
+    test("broadcastMessage still reaches the children after a destroyed earlier sibling", () => {
+        const { parent, kids } = family();
+        kids[1].onPing = () => kids[0].gameObject.destroyImmediate();
+
+        expect(() => parent.broadcastMessage("ping")).not.toThrow();
+
+        expect(kids.map(k => k.pings)).toEqual([1, 1, 1]);
+    });
+
+    test("broadcastMessage skips a later sibling destroyed on the way", () => {
+        const { parent, kids } = family();
+        kids[0].onPing = () => kids[2].gameObject.destroyImmediate();
+
+        expect(() => parent.broadcastMessage("ping")).not.toThrow();
+
+        expect(kids.map(k => k.pings)).toEqual([1, 1, 0]);
+    });
+});

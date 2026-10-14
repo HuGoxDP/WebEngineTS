@@ -113,8 +113,18 @@ export class Transform extends Component {
     /** Parent Transform, or null if root-level. */
     private _parent: Transform | null = null;
 
-    /** Direct children of this Transform. */
+    /**
+     * Direct children of this Transform.
+     *
+     * Copy-on-write while lent: a walk that runs user code holds the array it
+     * was given ({@link _lendChildren}), so a change made meanwhile goes to a
+     * copy and the walk keeps seeing the list it started with. Every write
+     * reaches the list through {@link _writableChildren}.
+     */
     private _children: Transform[] = [];
+
+    /** Whether {@link _children} has been handed to a walk that may still be running. */
+    private _childrenLent: boolean = false;
 
     // ==================== CONSTRUCTOR ====================
 
@@ -362,7 +372,7 @@ export class Transform extends Component {
         if (this._parent) {
             const index = this._parent._children.indexOf(this);
             if (index !== -1) {
-                this._parent._children.splice(index, 1);
+                this._parent._writableChildren().splice(index, 1);
             }
         }
 
@@ -371,7 +381,7 @@ export class Transform extends Component {
         const willBeRoot = (newParent === null);
 
         if (newParent) {
-            newParent._children.push(this);
+            newParent._writableChildren().push(this);
             newParent._object3D.add(this._object3D);
         } else {
             this._object3D.removeFromParent();
@@ -492,8 +502,9 @@ export class Transform extends Component {
             const from = siblings.indexOf(this);
             const to = Math.max(0, Math.min(index, siblings.length - 1));
             if (from === -1 || to === from) return;
-            siblings.splice(from, 1);
-            siblings.splice(to, 0, this);
+            const writable = this._parent._writableChildren();
+            writable.splice(from, 1);
+            writable.splice(to, 0, this);
         } else {
             this.gameObject.scene._moveRoot(this.gameObject, index);
         }
@@ -594,8 +605,40 @@ export class Transform extends Component {
     /**
      * @internal
      * Direct access to children array. Used by GameObject.onDestroy.
+     *
+     * @remarks
+     * A live view: it changes under the caller if a child comes or goes. Use
+     * {@link _lendChildren} to walk it while running code that might do that.
      */
     public get _internalChildren(): readonly Transform[] {
+        return this._children;
+    }
+
+    /**
+     * @internal
+     * The child list, for a walk that runs user code — `update`, `onDisable`, a
+     * message handler — and so may see a child destroyed, moved or added
+     * before it finishes.
+     *
+     * @remarks
+     * Nothing is copied here: the array is marked as lent, and the first change
+     * made to the list afterwards writes to a copy instead, leaving the walk
+     * its own list to finish over. A frame in which nothing changes therefore
+     * allocates nothing, and one that does pays a single copy, only where a
+     * walk had been. Entries of a lent list may have been destroyed or moved
+     * since it was taken, so a walk tests each before using it.
+     */
+    public _lendChildren(): readonly Transform[] {
+        this._childrenLent = true;
+        return this._children;
+    }
+
+    /** The child list to change: the current one, or a copy if a walk still holds it. */
+    private _writableChildren(): Transform[] {
+        if (this._childrenLent) {
+            this._children = this._children.slice();
+            this._childrenLent = false;
+        }
         return this._children;
     }
 
@@ -1159,9 +1202,8 @@ export class Transform extends Component {
     protected override onDestroy(): void {
         _dirtySet.delete(this);
         if (this._parent !== null) {
-            const siblings = this._parent._children;
-            const at = siblings.indexOf(this);
-            if (at !== -1) siblings.splice(at, 1);
+            const at = this._parent._children.indexOf(this);
+            if (at !== -1) this._parent._writableChildren().splice(at, 1);
             Transform._hierarchyEpoch++;
         }
         this._object3D.clear();

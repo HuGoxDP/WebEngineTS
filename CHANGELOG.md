@@ -301,6 +301,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   components each asking the other — used to recurse without bound, because `exists()` is still
   `true` during `onDestroy` (so that it can read its object). It runs once now. `exists()` during
   `onDestroy` is unchanged.
+- **A child destroyed during its parent's update loop no longer breaks the loop.** `update`,
+  `fixedUpdate` and `lateUpdate` walked a GameObject's children by index over a count taken
+  before the first one ran, so a child that destroyed a later sibling, an earlier one or itself
+  made the walk throw `RangeError: Transform.getChild: index 2 out of range [0, 2)` — and the
+  rest of the frame's scripts did not run. They now walk the list as it stood when the walk began
+  and skip any child destroyed since, or moved to another parent (which runs it there, once). The
+  same holds for the walks that tell children about a change: `setActive` and `broadcastMessage`
+  no longer skip the sibling after a destroyed one. `Transform`'s child list is copy-on-write
+  while a walk holds it, so a frame in which nothing changes allocates nothing, and a child
+  created during a walk joins the next frame.
 - **A material with no file stays in the scene on every save, under one id.** A scene carries a
   material built in code in its `assets` table. Loading the scene gave the material that id, and
   the next save then took the id for a file: it wrote a bare reference and dropped the table
