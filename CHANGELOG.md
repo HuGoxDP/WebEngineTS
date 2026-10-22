@@ -267,6 +267,24 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Fixed
 
+- **A UI object reloaded with two RectTransforms and lost its saved layout.** `go.addComponent(UIImage)`
+  — the usual way to make a UI object — lists `[UIImage, RectTransform]`, because the graphic's
+  `awake` adds the rect it needs. A load added the UIImage first, so that `awake` added a fresh
+  default RectTransform and the saved one came in beside it: the graphic bound to the default, **the
+  layout the author set was gone**, the object held two rects, and an instance of a prefab made from
+  such an object reported a RectTransform in `Prefab.getChanges.addedComponents` that nobody had
+  added. Every Canvas UI scene the editor saves had this shape. A load now builds every component of
+  an object before the first of them wakes, so the graphic finds the saved rect, and an object keeps
+  the component list it was saved with. Each component then wakes and takes its fields in list order,
+  as before; the one difference a script can see is that, during a load, its `awake` and `onEnable`
+  find a component listed after it (`getComponent` answered `null`), which has not woken yet.
+  Fields are still written after a component wakes, not before as in Unity: a built-in setter that
+  runs before its `onAwake` loses the value (`DirectionalLight.shadowDistance` read back 200 for a
+  saved 75). A scene already saved with two RectTransforms on one object — each reload added one —
+  now loads with one: the extra copies are folded into the first, the later saved values winning,
+  since those are the ones that carry the original layout, with a warning naming the object. Saving
+  again writes one. The other places that add a missing sibling (`LayoutGroup`, `RectMask2D`,
+  `Animator`) do it on first use rather than in `awake`, so a load does not reach them.
 - **A destroyed child is gone from its parent.** Destroying a GameObject removed its Three.js
   object but left its `Transform` in the parent's child list, so `childCount`, `getChild` and
   sibling indices still counted it, and the serializer still wrote it. The editor deletes objects
