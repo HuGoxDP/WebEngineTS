@@ -261,8 +261,14 @@ export abstract class Component extends EngineObject {
      * (at the end of the frame or after its delay), `destroyImmediate`,
      * {@link GameObject.removeComponent} and the destruction of the GameObject
      * itself — so the list is left exactly once however it is asked.
+     *
+     * A request that arrives while destruction is already under way — a script
+     * destroying itself from its own `onDestroy`, say — returns at once. It
+     * must not reach the `finally`: that would take the component out of the
+     * list in the middle of its own `onDestroy`.
      */
     public override _destroyImmediate(): void {
+        if (this._destroyStarted) return;
         try {
             super._destroyImmediate();
         } finally {

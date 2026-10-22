@@ -284,7 +284,33 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   is being destroyed. Removal replaces the list instead of splicing it, so `removeComponent`
   called from `update` no longer makes the next component skip its update that frame. A
   component whose `onDestroy` throws still leaves the list, as it already did through
-  `removeComponent`. The `Transform` is not part of the list and is untouched.
+  `removeComponent`, and now ends destroyed too (see the next entry). The `Transform` is not
+  part of the list and is untouched.
+- **A component whose `onDestroy` throws is destroyed anyway, and destroying an object from its
+  own `onDestroy` is a no-op.** The object was marked destroyed only after `onDestroy` returned,
+  so one that threw stayed `exists()` and was found by `FindObjectsOfType` — yet no longer listed
+  on its GameObject, so destroying that object never reached it again. Nothing could destroy it.
+  Unity logs the exception and destroys the object regardless; so now does the engine: the
+  object leaves the registry and the persistent set whatever its `onDestroy` did, and
+  `destroyImmediate` then rethrows the error to the caller as before. A throwing `onDisable`
+  keeps the same promise — `onDestroy` still runs. Destroying a GameObject whose component
+  throws logs the error and goes on destroying the other components, the children and the
+  Transform, instead of aborting half way and leaving the object registered with its scene; a
+  timed `destroy(delay)` that throws no longer strands the objects due after it, nor ends the
+  frame loop. Asking an object to destroy itself from inside its own `onDestroy` — or two
+  components each asking the other — used to recurse without bound, because `exists()` is still
+  `true` during `onDestroy` (so that it can read its object). It runs once now. `exists()` during
+  `onDestroy` is unchanged.
+- **A child destroyed during its parent's update loop no longer breaks the loop.** `update`,
+  `fixedUpdate` and `lateUpdate` walked a GameObject's children by index over a count taken
+  before the first one ran, so a child that destroyed a later sibling, an earlier one or itself
+  made the walk throw `RangeError: Transform.getChild: index 2 out of range [0, 2)` — and the
+  rest of the frame's scripts did not run. They now walk the list as it stood when the walk began
+  and skip any child destroyed since, or moved to another parent (which runs it there, once). The
+  same holds for the walks that tell children about a change: `setActive` and `broadcastMessage`
+  no longer skip the sibling after a destroyed one. `Transform`'s child list is copy-on-write
+  while a walk holds it, so a frame in which nothing changes allocates nothing, and a child
+  created during a walk joins the next frame.
 - **A material with no file stays in the scene on every save, under one id.** A scene carries a
   material built in code in its `assets` table. Loading the scene gave the material that id, and
   the next save then took the id for a file: it wrote a bare reference and dropped the table

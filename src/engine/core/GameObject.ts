@@ -399,9 +399,11 @@ export class GameObject extends EngineObject {
         }
 
         // 3. Propagate to children (their activeInHierarchy changes)
-        for (let i = 0; i < this.transform.childCount; i++) {
-            const child = this.transform.getChild(i);
-            child.gameObject._onParentActiveStateChanged();
+        const transform = this.transform;
+        const children = transform._lendChildren();
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (GameObject._isLiveChild(transform, child)) child.gameObject._onParentActiveStateChanged();
         }
     }
 
@@ -424,9 +426,11 @@ export class GameObject extends EngineObject {
         }
 
         // Recurse to children (they inherit our active state)
-        for (let i = 0; i < this.transform.childCount; i++) {
-            const child = this.transform.getChild(i);
-            child.gameObject._onParentActiveStateChanged();
+        const transform = this.transform;
+        const children = transform._lendChildren();
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (GameObject._isLiveChild(transform, child)) child.gameObject._onParentActiveStateChanged();
         }
     }
 
@@ -822,8 +826,11 @@ export class GameObject extends EngineObject {
         this.sendMessage(methodName, value);
 
         // Children (recursive)
-        for (let i = 0; i < this.transform.childCount; i++) {
-            this.transform.getChild(i).gameObject.broadcastMessage(methodName, value);
+        const transform = this.transform;
+        const children = transform._lendChildren();
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (GameObject._isLiveChild(transform, child)) child.gameObject.broadcastMessage(methodName, value);
         }
     }
 
@@ -852,6 +859,21 @@ export class GameObject extends EngineObject {
     // ==================== UPDATE LOOPS ====================
 
     /**
+     * Whether a child taken from a lent child list ({@link Transform._lendChildren})
+     * is still a child of `parent` and still exists.
+     *
+     * @remarks
+     * A walk that runs user code holds the list as it was when it began, and
+     * what it runs may have destroyed a later sibling or moved one to another
+     * parent in the meantime. A destroyed child must not run, and a moved one
+     * belongs to the walk of its new parent, which would otherwise run it a
+     * second time in the same frame.
+     */
+    private static _isLiveChild(parent: Transform, child: Transform): boolean {
+        return child.parent === parent && child.gameObject.exists();
+    }
+
+    /**
      * @internal
      * Runs the Update loop on this GameObject and its children.
      * Called by {@link Scene._update} for root objects.
@@ -867,9 +889,11 @@ export class GameObject extends EngineObject {
             component._systemUpdate();
         }
 
-        const count = this.transform.childCount;
-        for (let i = 0; i < count; i++) {
-            this.transform.getChild(i).gameObject._systemUpdate(order);
+        const transform = this.transform;
+        const children = transform._lendChildren();
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (GameObject._isLiveChild(transform, child)) child.gameObject._systemUpdate(order);
         }
     }
 
@@ -888,9 +912,11 @@ export class GameObject extends EngineObject {
             component._systemFixedUpdate();
         }
 
-        const count = this.transform.childCount;
-        for (let i = 0; i < count; i++) {
-            this.transform.getChild(i).gameObject._systemFixedUpdate(order);
+        const transform = this.transform;
+        const children = transform._lendChildren();
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (GameObject._isLiveChild(transform, child)) child.gameObject._systemFixedUpdate(order);
         }
     }
 
@@ -909,9 +935,11 @@ export class GameObject extends EngineObject {
             component._systemLateUpdate();
         }
 
-        const count = this.transform.childCount;
-        for (let i = 0; i < count; i++) {
-            this.transform.getChild(i).gameObject._systemLateUpdate(order);
+        const transform = this.transform;
+        const children = transform._lendChildren();
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (GameObject._isLiveChild(transform, child)) child.gameObject._systemLateUpdate(order);
         }
     }
 
@@ -926,6 +954,11 @@ export class GameObject extends EngineObject {
      * 2. Destroy all children recursively
      * 3. Unregister from scene
      * 4. Destroy the Transform (removes from Three.js hierarchy)
+     *
+     * A component whose `onDisable` or `onDestroy` throws is logged and does
+     * not stop the rest, as in Unity: the other components, the children and the
+     * Transform are destroyed all the same. Rethrowing instead would leave the
+     * object half torn down, still registered with the scene.
      */
     protected override onDestroy(): void {
         // 1. Destroy all components. Each takes itself out of the list as it
@@ -935,7 +968,14 @@ export class GameObject extends EngineObject {
         for (let next = [...this._components]; next.length > 0; next = this._components.filter(c => !asked.has(c))) {
             for (const component of next) {
                 asked.add(component);
-                component.destroyImmediate();
+                try {
+                    component.destroyImmediate();
+                } catch (err) {
+                    console.error(
+                        `[GameObject] error while destroying ${component.constructor.name} on "${this.name}":`,
+                        err,
+                    );
+                }
             }
         }
         this._components = [];
