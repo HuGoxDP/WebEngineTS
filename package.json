@@ -25,6 +25,7 @@
     "test": "vitest run",
     "size": "node scripts/check-bundle-size.mjs",
     "release:local": "node scripts/release-local.mjs",
+    "player-smoke": "node scripts/player-smoke/run.mjs",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
     "prepublishOnly": "npm run clean && npm run build"
