@@ -17,7 +17,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-    E2E_LAYOUTS, candidateE2eDirs, locatePlaywrightE2e,
+    E2E_LAYOUTS, candidateE2eDirs, loadPlaywright, locatePlaywrightE2e,
 } from "../scripts/player-smoke/locate-playwright.mjs";
 
 let workspace: string;
@@ -113,6 +113,24 @@ describe("locatePlaywrightE2e", () => {
 
         expect(() => locatePlaywrightE2e(scriptDir("WebEngineTS/scripts/player-smoke"), {}))
             .toThrow(/npm ci/);
+    });
+});
+
+describe("loadPlaywright", () => {
+    test("resolves the playwright module from the located e2e/ directory", () => {
+        const dir = e2e("virtual-lab/e2e");
+        const pkg = join(dir, "node_modules", "playwright");
+        writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "playwright", main: "index.js" }));
+        writeFileSync(join(pkg, "index.js"), "module.exports = { marker: 'from-located-e2e' };");
+
+        const loaded = loadPlaywright(scriptDir("WebEngineTS/scripts/player-smoke"), {});
+
+        expect(loaded).toEqual({ marker: "from-located-e2e" });
+    });
+
+    test("propagates the locator's 'Playwright not found' error", () => {
+        expect(() => loadPlaywright(scriptDir("WebEngineTS/scripts/player-smoke"), {}))
+            .toThrow(/Playwright not found/);
     });
 });
 

@@ -5,7 +5,7 @@ measured 2026-10-24. Inputs: the research `.code-foundations/research/2026-10-24
 (its §4 proved blob modules, WebGL2 and the CSP behaviour with toy modules; this document repeats the
 measurement with the **real standalone bundle**, a real ZIP and everything the toys did not touch).
 
-Everything below comes from `npm run player-smoke -- --spike` (plain `npm run player-smoke` runs the shipped player since Phase 3). The tables are its output, pasted unedited. The
+Everything below comes from `npm run player-smoke -- --spike` (plain `npm run player-smoke` runs the shipped player since Phase 3). The tables are its output, pasted as produced (later sections extend them with analysis and appendices). The
 prose says what they mean for Phases 2 and 3.
 
 - [1. Verdict](#1-verdict)
@@ -55,7 +55,7 @@ npm run player-smoke -- --dirty        # plus the removal run in §5, §6 and th
 
 # narrower runs
 npm run player-smoke -- --spike --browsers chromium
-npm run player-smoke -- --dirty --only "unsafe-eval,connect-src:blob" --browsers firefox
+npm run player-smoke -- --dirty --only "-script-src:'unsafe-eval',-connect-src:blob:" --browsers firefox   # --only matches ablation ids by substring
 npm run player-smoke -- --spike --markdown out.md --json out.json   # keep the tables / the raw runs
 PLAYER_SMOKE_DEBUG=1 npm run player-smoke -- --spike --browsers webkit   # print every console message
 
