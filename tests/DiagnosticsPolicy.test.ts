@@ -42,12 +42,12 @@ function installRenderer(): void {
 }
 
 beforeEach(() => {
-    MemoryProfiler.diagnosticsAllowed = true;
+    MemoryProfiler._resetDiagnosticsPolicy();
     installRenderer();
 });
 
 afterEach(() => {
-    MemoryProfiler.diagnosticsAllowed = true;
+    MemoryProfiler._resetDiagnosticsPolicy();
     delete (globalThis as Record<string, unknown>).__webengine_application__;
 });
 
@@ -77,6 +77,46 @@ describe("MemoryProfiler.diagnosticsAllowed", () => {
     test("closing it reports closed", () => {
         MemoryProfiler.diagnosticsAllowed = false;
         expect(MemoryProfiler.diagnosticsAllowed).toBe(false);
+    });
+
+    test("DW-2.2 true after false is ignored: stays false, overlay closed, warning logged", () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        MemoryProfiler.diagnosticsAllowed = false;
+
+        MemoryProfiler.diagnosticsAllowed = true;
+        MemoryProfiler.showOverlay();
+
+        expect(MemoryProfiler.diagnosticsAllowed).toBe(false);
+        expect(MemoryProfiler.isOverlayVisible).toBe(false);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toMatch(/^\[MemoryProfiler\]/);
+        warn.mockRestore();
+    });
+
+    test("DW-2.2 false after false is idempotent and silent", () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        MemoryProfiler.diagnosticsAllowed = false;
+        MemoryProfiler.diagnosticsAllowed = false;
+
+        expect(MemoryProfiler.diagnosticsAllowed).toBe(false);
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+    });
+
+    test("true after true does not warn while the lock is open", () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        MemoryProfiler.diagnosticsAllowed = true;
+
+        expect(MemoryProfiler.diagnosticsAllowed).toBe(true);
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+    });
+
+    test("DW-2.3 _resetDiagnosticsPolicy reopens a closed lock", () => {
+        MemoryProfiler.diagnosticsAllowed = false;
+        MemoryProfiler._resetDiagnosticsPolicy();
+
+        expect(MemoryProfiler.diagnosticsAllowed).toBe(true);
     });
 
     test("the numbers stay readable — only the panel is withheld", () => {

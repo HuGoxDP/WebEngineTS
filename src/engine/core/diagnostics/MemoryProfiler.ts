@@ -439,7 +439,11 @@ export class MemoryProfiler {
      * Whether diagnostics may be displayed at all in this deployment.
      *
      * A host sets this **once, before loading any scenario**, and scenario code
-     * cannot get past it: {@link showOverlay}, {@link toggleOverlay} and
+     * cannot get past it. The lock is **one-way**: once `false` it stays `false`
+     * for the page's lifetime — assigning `true` afterwards is ignored with a
+     * `console.warn`. That is policy, not a security boundary: scenario code in
+     * the same realm can still reach engine internals; only an isolated frame
+     * (the sandboxed player) is a boundary.{@link showOverlay}, {@link toggleOverlay} and
      * {@link enableToggle} all do nothing while it is `false`, and an overlay
      * already on screen is taken down.
      *
@@ -464,6 +468,12 @@ export class MemoryProfiler {
     }
 
     public static set diagnosticsAllowed(value: boolean) {
+        if (value && !MemoryProfiler._diagnosticsAllowed) {
+            console.warn(
+                "[MemoryProfiler] diagnosticsAllowed was closed and cannot be reopened for this page's lifetime; ignoring."
+            );
+            return;
+        }
         MemoryProfiler._diagnosticsAllowed = value;
         if (!value) {
             MemoryProfiler.disableToggle();
@@ -473,6 +483,14 @@ export class MemoryProfiler {
 
     /** Backing field for {@link diagnosticsAllowed}. Open unless a host says otherwise. */
     private static _diagnosticsAllowed: boolean = true;
+
+    /**
+     * Reopens the lock. For tests only — production code has no way back.
+     * @internal
+     */
+    public static _resetDiagnosticsPolicy(): void {
+        MemoryProfiler._diagnosticsAllowed = true;
+    }
 
     public static showOverlay(): void {
         if (!MemoryProfiler._diagnosticsAllowed) return;

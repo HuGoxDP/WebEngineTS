@@ -38,6 +38,29 @@ const _RELATIVE_IMPORT_RE =
     /(?:import|export)\s+(?:[\s\S]*?\s+from\s+|)(["'])(\.\.?\/[^"']+)\1/g;
 
 /**
+ * Captures a bare `"WebEngineTS"` specifier, with its introducing keyword, in:
+ * `import x from`, `import x, { y } from`, `import * as n from`,
+ * `export { y } from`, `export * from` (all via the `from` keyword),
+ * side-effect `import "…"` and dynamic `import("…")`; single or double quotes.
+ *
+ * Group 1 = the introducing `from` / `import` / `import(` text (kept as is).
+ * Group 2 = the opening quote (the closing quote must match).
+ *
+ * It matches the specifier token, not the grammar: a line inside a string
+ * literal, template or comment that *looks* like `from "WebEngineTS"` is
+ * rewritten too (harmless text inside a blob, but not skipped). `.from(` is
+ * excluded by the lookbehind. `"WebEngineTS/sub"` and `"WebEngineTSx"` never
+ * match because the closing quote must follow the name.
+ *
+ * @internal
+ */
+const _ENGINE_IMPORT_RE =
+    /(?<![\w$.])(from\s*|import\s*\(?\s*)(["'])WebEngineTS\2/g;
+
+/** Characters that must never reach the spliced module URL (see `engineModuleUrl`). */
+const _UNSAFE_URL_CHARS_RE = new RegExp("[\"'`\\\\<>\\s\\u0000-\\u001f\\u2028\\u2029]");
+
+/**
  * A loaded scenario instance.
  *
  * Manages the full lifecycle: download → parse → execute entry point →
@@ -102,6 +125,62 @@ export class Scenario extends EngineObject {
     /** Returns the currently running scenario, or null. */
     public static get current(): Scenario | null {
         return Scenario._current;
+    }
+
+    private static _engineModuleUrl: string | null = null;
+
+    /**
+     * Absolute URL of the running engine module. While set, the pre-linker
+     * rewrites a scenario's bare `"WebEngineTS"` import to it, so the scenario
+     * shares this engine instance. While `null` (the default) scripts are left
+     * byte-for-byte untouched and the host's import map resolves the name.
+     *
+     * **Host timing:** set once at startup, **before** any `loadScenarioFrom*`
+     * call — scripts are rewritten when a scenario loads, not afterwards.
+     * Intended for the sandboxed player, which has no import map.
+     *
+     * Must be an absolute `http:` / `https:` / `blob:` URL without quotes,
+     * backticks, backslashes, `<`, `>`, whitespace or control characters; the
+     * setter throws on anything else, because the value is spliced into
+     * untrusted source. Pass `null` to switch the rewrite off.
+     *
+     * @remarks
+     * Only the import *specifier token* is matched, not JavaScript grammar: text
+     * inside a string literal or comment that looks like `from "WebEngineTS"`
+     * is rewritten as well. Subpaths (`"WebEngineTS/x"`) are not rewritten.
+     */
+    public static get engineModuleUrl(): string | null {
+        return Scenario._engineModuleUrl;
+    }
+
+    public static set engineModuleUrl(value: string | null) {
+        if (value !== null) {
+            let protocol: string;
+            try {
+                protocol = new URL(value).protocol;
+            } catch {
+                throw new Error(`[Scenario] engineModuleUrl must be an absolute URL, got "${String(value)}".`);
+            }
+            if (!/^(https?|blob):$/.test(protocol) || _UNSAFE_URL_CHARS_RE.test(value)) {
+                throw new Error(
+                    "[Scenario] engineModuleUrl must be an absolute http(s): or blob: URL " +
+                    "without quotes, backslashes, '<', '>' or whitespace."
+                );
+            }
+        }
+        Scenario._engineModuleUrl = value;
+    }
+
+    /**
+     * Rewrites bare `"WebEngineTS"` specifiers in `code` to `url`.
+     * With a `null` url the input is returned unchanged.
+     *
+     * @internal
+     */
+    public static _rewriteEngineImports(code: string, url: string | null): string {
+        if (url === null) return code;
+        const literal = JSON.stringify(url);
+        return code.replace(_ENGINE_IMPORT_RE, (_m: string, head: string) => `${head}${literal}`);
     }
 
     // ==================== INSTANCE STATE ====================
@@ -779,7 +858,7 @@ export class Scenario extends EngineObject {
         // Rewrite relative imports to Blob URLs
         _RELATIVE_IMPORT_RE.lastIndex = 0;
 
-        const rewritten = code.replace(
+        const relinked = code.replace(
             _RELATIVE_IMPORT_RE,
             (fullMatch: string, quote: string, specifier: string) => {
                 const target = Scenario._resolveRelativeImport(zipPath, specifier);
@@ -796,6 +875,8 @@ export class Scenario extends EngineObject {
                 return fullMatch;
             }
         );
+
+        const rewritten = Scenario._rewriteEngineImports(relinked, Scenario._engineModuleUrl);
 
         // Create Blob URL
         const blob = new Blob([rewritten], { type: "application/javascript" });
