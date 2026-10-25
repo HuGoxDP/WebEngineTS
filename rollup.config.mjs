@@ -8,6 +8,12 @@
 //   dist/WebEngineTS.cjs.js         — CommonJS (three external, for Node.js tooling, SSR)
 //   dist/WebEngineTS.standalone.js  — ES module, minified (three BUNDLED, for browser import maps)
 //   dist/WebEngineTS.d.ts           — Single bundled type declaration
+//   dist/player-host.js (+ .d.ts)   — `WebEngineTS/player-host`: the host-page client of the sandboxed player.
+//                                     No engine code in it (size/symbol check: scripts/check-bundle-size.mjs)
+//   dist/player/player.js           — the player script that runs inside the sandboxed frame (minified; the
+//                                     engine is imported at run time, never bundled)
+//   dist/player/player.html         — copied from src/player/static
+//   dist/player/player.nginx.conf   — copied from src/player/static: every header the player must be served with
 //
 // The standalone build is used by the host page's <script type="importmap">
 // so that scenario scripts loaded as Blob URLs can resolve `from "WebEngineTS"`
@@ -15,7 +21,7 @@
 //
 // ============================================
 
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import typescript from "@rollup/plugin-typescript";
 import resolve from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
@@ -214,4 +220,64 @@ const dtsBuild = {
   onwarn,
 };
 
-export default [jsBuild, standaloneBuild, dtsBuild];
+// ─── Player: host client, player script, static files ───
+//
+// The player is its own set of artifacts (src/player/, tsconfig.player.json), never part of an engine bundle:
+// the host client runs on the platform's origin and must stay tiny and engine-free; the player script runs in
+// the sandboxed frame and imports the engine by URL.
+function playerPlugins({ sourceMap }) {
+  return [
+    resolve({ browser: true, preferBuiltins: false, extensions: [".ts", ".js", ".mjs"] }),
+    typescript({
+      tsconfig: "./tsconfig.player.json",
+      declaration: false,
+      declarationMap: false,
+      declarationDir: undefined,
+      sourceMap,
+    }),
+  ];
+}
+
+/** Copies the player's static files (page + nginx snippet) beside player.js once it is written. */
+function copyPlayerStatics() {
+  return {
+    name: "copy-player-statics",
+    writeBundle() {
+      mkdirSync("dist/player", { recursive: true });
+      for (const file of ["player.html", "player.nginx.conf"]) {
+        copyFileSync(`src/player/static/${file}`, `dist/player/${file}`);
+      }
+    },
+  };
+}
+
+// Readable on purpose, like the ESM build: the consumer's bundler minifies it, and a stack trace through the
+// host client stays legible. Its budget is checked on the gzip size of this file.
+export const playerHostBuild = {
+  input: "src/player/host/index.ts",
+  output: { file: "dist/player-host.js", format: "es", sourcemap: true },
+  external: [],
+  plugins: playerPlugins({ sourceMap: true }),
+  onwarn,
+};
+
+export const playerBuild = {
+  input: "src/player/player/entry.ts",
+  output: { file: "dist/player/player.js", format: "es", sourcemap: false },
+  external: [],
+  plugins: [
+    ...playerPlugins({ sourceMap: false }),
+    terser({ format: { comments: false } }),
+    copyPlayerStatics(),
+  ],
+  onwarn,
+};
+
+export const playerHostDtsBuild = {
+  input: "src/player/host/index.ts",
+  output: { file: "dist/player-host.d.ts", format: "es" },
+  plugins: [dts({ tsconfig: "./tsconfig.player.json" })],
+  onwarn,
+};
+
+export default [jsBuild, standaloneBuild, dtsBuild, playerHostBuild, playerBuild, playerHostDtsBuild];

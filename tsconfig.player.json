@@ -1,0 +1,14 @@
+{
+  /* The player and its host client (src/player/). Separate from tsconfig.build.json because they ship as
+   * their own artifacts and must never be pulled into the engine builds. The player references the engine
+   * by TYPE only (`typeof import(...)`, erased at build), which is what keeps engine code out of the bundle. */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "declaration": true,
+    "declarationDir": "./dist/types",
+    "noEmit": true
+  },
+  "include": ["src/player/**/*.ts", "src/engine/**/*.d.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+}

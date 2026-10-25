@@ -6,10 +6,12 @@
 //
 //   npm run release:local              build, pack, copy tgz, reinstall the dep
 //   npm run release:local -- --no-install   just build/pack/copy (skip npm install)
+//   npm run release:local -- --dry-run      print where it WOULD deliver and stop: no build, no pack, no copy
 //
 // Consumers:
 //   ScenarioCreator            file:WebEngineTS-0.1.0.tgz   (builds scenarios)
-//   testv/virtual-lab/frontend file:WebEngineTS-0.1.0.tgz   (Angular auto-copies
+//   virtual-lab/frontend       file:WebEngineTS-0.1.0.tgz   (also found at testv/virtual-lab/frontend;
+//                                Angular auto-copies
 //                                the standalone bundle to /assets via angular.json)
 //   WebEngineTSEditor/app      WebEngineTS-0.1.0.tgz        (packed, like the rest)
 //   WebEngineTS-Benchmarks     engine/WebEngineTS.standalone.js  (plain bundle copy,
@@ -37,66 +39,33 @@ import { execSync } from "node:child_process";
 import { existsSync, copyFileSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { copyTarball, findWorkspaceParent, missingFromTarball, planTargets } from "./lib/release-targets.mjs";
 
 const ENGINE = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const PARENT = resolve(ENGINE, "..");
+const PARENT = findWorkspaceParent(ENGINE);
 const PKG_PATH = join(ENGINE, "package.json");
 const TGZ = "WebEngineTS-0.1.0.tgz";
 const noInstall = process.argv.includes("--no-install");
+const dryRun = process.argv.includes("--dry-run");
 
+// Where each consumer lives (virtual-lab at the workspace root or under testv/) is decided by
+// scripts/lib/release-targets.mjs, which is unit-tested over fake trees.
+//
 // `spec` is installed EXPLICITLY (`npm install <spec>`) as defense in depth
-// alongside the unique-version stamp above — a plain `npm install` can still
+// alongside the unique-version stamp above - a plain `npm install` can still
 // skip re-resolving an unchanged dependency line in some npm versions/lockfile
 // states, so we always force it explicitly.
-/** @type {{name:string, dir:string, copyTgz:boolean, spec:string}[]} */
-const consumers = [
-    { name: "ScenarioCreator", dir: join(PARENT, "ScenarioCreator"), copyTgz: true, spec: `./${TGZ}` },
-    { name: "virtual-lab frontend", dir: join(PARENT, "testv", "virtual-lab", "frontend"), copyTgz: true, spec: `./${TGZ}` },
-    { name: "WebEngineTSEditor app", dir: join(PARENT, "WebEngineTSEditor", "app"), copyTgz: true, spec: `./${TGZ}` },
-];
-
-/**
- * The Basis/KTX2 transcoder every host has to serve itself.
- *
- * It is NOT bundled into the engine — `KTX2Loader` fetches it at runtime from
- * whatever `Texture2D.ktx2TranscoderPath` points at. It is also versioned
- * together with `three`: a transcoder older than the loader fails at runtime in
- * ways that look like a corrupt texture. Copying it from the engine's own
- * `node_modules/three` on every release is what keeps the two in lockstep, and
- * stops hosts hand-vendoring a copy that quietly goes stale.
- *
- * `dest` is the directory the host *serves* it from; the path a host then sets
- * as `ktx2TranscoderPath` is its own URL for that directory.
- * @type {{name:string, dest:string}[]}
- */
-const transcoderTargets = [
-    {
-        name: "virtual-lab frontend",
-        dest: join(PARENT, "testv", "virtual-lab", "frontend", "src", "assets", "basis"),
-    },
-    {
-        name: "WebEngineTS-Benchmarks",
-        dest: join(PARENT, "WebEngineTS-Benchmarks", "public", "basis"),
-    },
-];
-
-/**
- * Consumers that take a plain copy of the standalone bundle instead of a
- * package. The benchmark suite is one: it resolves "WebEngineTS" through an
- * import map, so it needs the built files and nothing else. Left out of the
- * sync it would silently keep benchmarking whatever engine it was last given.
- * @type {{name:string, dir:string, dest:string, files:string[]}[]}
- */
-const bundleConsumers = [
-    {
-        name: "WebEngineTS-Benchmarks",
-        dir: join(PARENT, "WebEngineTS-Benchmarks"),
-        dest: join(PARENT, "WebEngineTS-Benchmarks", "engine"),
-        // The declaration file rides along so the harness can be typechecked
-        // and rebuilt there without reaching back into this repo.
-        files: ["WebEngineTS.standalone.js", "WebEngineTS.d.ts"],
-    },
-];
+//
+// The Basis/KTX2 transcoder every host has to serve itself (`transcoderTargets`) is NOT bundled into the engine -
+// `KTX2Loader` fetches it at runtime from whatever `Texture2D.ktx2TranscoderPath` points at. It is also versioned
+// together with `three`: a transcoder older than the loader fails at runtime in ways that look like a corrupt
+// texture. Copying it from the engine's own `node_modules/three` on every release is what keeps the two in
+// lockstep. `dest` is the directory the host *serves* it from. Only a directory the host already has is
+// refreshed: creating one where the host does not serve static files would be a copy nobody can fetch.
+//
+// `bundleConsumers` take a plain copy of the standalone bundle instead of a package (the benchmark suite resolves
+// "WebEngineTS" through an import map). Left out of the sync it would silently keep benchmarking an old engine.
+const { lab, consumers, transcoderTargets, bundleConsumers } = planTargets(PARENT, TGZ);
 
 const run = (cmd, cwd, env) =>
     execSync(cmd, { cwd, stdio: "inherit", env: env ? { ...process.env, ...env } : process.env });
@@ -108,6 +77,16 @@ const runJson = (cmd, cwd) => JSON.parse(execSync(cmd, { cwd }).toString());
 // it separately in each place would let a bundle claim a version no tarball ever
 // carried — which is exactly the "which build is this?" confusion the stamping
 // exists to end.
+if (dryRun) {
+    const state = p => (existsSync(p) ? "found" : "absent");
+    console.log(`virtual-lab: ${lab ? `${lab.dir} (layout "${lab.layout}")` : "not found"}`);
+    for (const ignored of lab?.ignored ?? []) console.log(`  also present, NOT used: ${ignored}`);
+    for (const c of consumers) console.log(`tarball -> ${c.name}: ${c.dir} (${state(c.dir)})`);
+    for (const c of bundleConsumers) console.log(`bundle  -> ${c.name}: ${c.dest} (${state(c.dir)})`);
+    for (const t of transcoderTargets) console.log(`basis   -> ${t.name}: ${t.dest} (${state(t.dest)})`);
+    process.exit(0);
+}
+
 const originalPkgText = readFileSync(PKG_PATH, "utf8");
 const basePkgVersion = JSON.parse(originalPkgText).version;
 const stampedVersion = `${basePkgVersion}-local.${Date.now()}`;
@@ -125,6 +104,10 @@ try {
 
     const [result] = runJson("npm pack --json", ENGINE);
     packedFilename = result.filename;
+
+    // A tarball without the player would reach every consumer and fail only when someone tries to host it.
+    const missing = missingFromTarball(result.files.map(f => f.path));
+    if (missing.length) throw new Error(`[release-local] the packed tarball lacks ${missing.join(", ")}. Did the build run, and does package.json "files" still include dist?`);
 } finally {
     // Always restore, even if packing failed — the committed version must never
     // be left mutated on disk.
@@ -145,10 +128,7 @@ for (const c of consumers) {
         continue;
     }
 
-    if (c.copyTgz) {
-        copyFileSync(stableTgzPath, join(c.dir, TGZ));
-        console.log(`  copied ${TGZ}`);
-    }
+    if (copyTarball(c, stableTgzPath, TGZ) === "copied") console.log(`  copied ${TGZ}`);
 
     const installed = existsSync(join(c.dir, "node_modules"));
     if (noInstall) {

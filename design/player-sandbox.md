@@ -5,7 +5,7 @@ measured 2026-10-24. Inputs: the research `.code-foundations/research/2026-10-24
 (its §4 proved blob modules, WebGL2 and the CSP behaviour with toy modules; this document repeats the
 measurement with the **real standalone bundle**, a real ZIP and everything the toys did not touch).
 
-Everything below comes from `npm run player-smoke`. The tables are its output, pasted unedited. The
+Everything below comes from `npm run player-smoke -- --spike` (plain `npm run player-smoke` runs the shipped player since Phase 3). The tables are its output, pasted unedited. The
 prose says what they mean for Phases 2 and 3.
 
 - [1. Verdict](#1-verdict)
@@ -50,14 +50,16 @@ which is desktop Chrome's default; headless builds relax it), Firefox 153.0, Web
 ```bash
 cd WebEngineTS
 npm run build                          # dist/WebEngineTS.standalone.js
-npm run player-smoke                   # the capability tables below (about 3 minutes, three browsers, exit code 0)
+npm run player-smoke -- --spike        # the capability tables below (about 3 minutes, three browsers, exit code 0)
 npm run player-smoke -- --dirty        # plus the removal run in §5, §6 and the appendix (about 35 minutes)
 
 # narrower runs
-npm run player-smoke -- --browsers chromium
+npm run player-smoke -- --spike --browsers chromium
 npm run player-smoke -- --dirty --only "unsafe-eval,connect-src:blob" --browsers firefox
-npm run player-smoke -- --markdown out.md --json out.json   # keep the tables / the raw runs
-PLAYER_SMOKE_DEBUG=1 npm run player-smoke -- --browsers webkit   # print every console message
+npm run player-smoke -- --spike --markdown out.md --json out.json   # keep the tables / the raw runs
+PLAYER_SMOKE_DEBUG=1 npm run player-smoke -- --spike --browsers webkit   # print every console message
+
+# Phase 3: plain `npm run player-smoke` now runs the SHIPPED artifacts instead (see "Phase 3" at the end)
 ```
 
 The exit code is 1 if a capability that should pass does not. A capability that also fails with no sandbox
@@ -374,3 +376,42 @@ First evidence for each removal, from the browser's own message or the harness's
 | serve the engine bundle without `Access-Control-Allow-Origin` | `TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:56081/engine/WebEngineTS.standalone.js` | `TypeError: error loading dynamically imported module: http://127.0.0.1:56081/engine/WebEngineTS.standalone.js` | `TypeError: Cross-origin script load denied by Cross-Origin Resource Sharing policy.` |
 | serve `player.js` without `Access-Control-Allow-Origin` | `no hello from the frame; console: Access to script at 'http://127.0.0.1:56081/player.js' from origin 'null' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.` | `no hello from the frame; console: [JavaScript Error: "Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at http://127.0.0.1:56081/player.js. (Reason: CORS header ‘Access-Control-Allow-Origin’ missing). Status code` | `no hello from the frame; console: Origin null is not allowed by Access-Control-Allow-Origin. Status code: 200` |
 | serve the basis transcoder without `Access-Control-Allow-Origin` | `Failed to fetch` | `NetworkError when attempting to fetch resource.` | `Load failed` |
+
+## Phase 3: what shipped, and how it is checked
+
+Phase 3 turned the spike into artifacts the engine tarball carries:
+
+| File | What it is |
+|---|---|
+| `dist/player/player.html` | the page; one module script, no inline script or style |
+| `dist/player/player.js` | the player (about 2.6 KB gzipped); imports the engine by URL, never bundles it |
+| `dist/player/player.nginx.conf` | every header the player needs, §5 and §7 as `add_header` lines, repeated per `location` because nginx does not inherit them |
+| `dist/player-host.js` + `.d.ts` | `WebEngineTS/player-host`: `PlayerHost`, `PLAYER_PROTOCOL_VERSION`, `PlayerMessage`, `PlayerMetrics`; engine-free, about 6 KB gzipped |
+
+Sources are `src/player/`; the wire (envelope `{v: 1, type, ...}`, both parsers, the sandbox tokens as constants) is
+`src/player/protocol.ts`.
+
+**Plain `npm run player-smoke` is now the shipped run** (`scripts/player-smoke/shipped.mjs`): it serves
+`dist/player/*` with the headers it *parses out of `player.nginx.conf`* (so the snippet is what is tested, not a copy),
+drives `PlayerHost` from a small host page, and runs a ZIP whose scripts say a bare `from "WebEngineTS"` (the
+player's `Scenario.engineModuleUrl` makes it resolve). Twelve checks per browser: handshake and states, the iframe's
+exact `sandbox`/`allow`, progress, metrics, pause/resume, **restart gives a new frame** (the old element is detached),
+running again after the restart, no errors, and dispose removing the frame. Chromium 151, Firefox 153 and WebKit 26.5
+all pass them. The Phase 1 spike stays behind `--spike` / `--dirty`.
+
+Decisions that are not in the plan text:
+
+- The host checks **both** the origin the browser stamped on the `hello` (`event.origin`) and the one the player
+  reports about itself, and both must equal `expectedOrigin`. Either alone is weaker: the self-report is the A+
+  runtime check, the stamp is what a hostile script cannot forge.
+- After the handshake the host stops listening on `window` altogether. A script in the frame can still post to it.
+- Text from the other side is truncated to 500 characters; a URL is rejected, not truncated, past 2 048, because a cut
+  URL names a different resource. A non-finite number drops the message; a finite out-of-range one is clamped.
+- `loadTimeoutMs` (default 60 s, reset by every `progress`) is a host option beyond the plan's list: §8.3 showed a
+  blocked transcoder hangs the load instead of rejecting.
+- The host absolutises `engineUrl`, `transcoderPath` and `playerUrl` against its own document: inside an opaque
+  frame a relative URL would resolve against the player's URL, not the host page.
+- Variant C changes only: the iframe URL (`playerUrl`), the CSP in `player.nginx.conf` (drop `sandbox`),
+  `expectedOrigin`, and `PLAYER_EXPECTED_ORIGIN` in `PlayerRuntime.ts`.
+- `release:local` finds virtual-lab at `<workspace>/virtual-lab` or `<workspace>/testv/virtual-lab`, finds the
+  workspace from inside a worktree, refuses to ship a tarball that lacks the player files, and has `--dry-run`.

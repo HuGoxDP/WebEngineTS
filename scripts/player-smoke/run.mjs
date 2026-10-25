@@ -3,15 +3,18 @@
 // Player smoke: runs the real standalone engine bundle inside an opaque-origin
 // sandboxed iframe, in Chromium, Firefox and WebKit, and reports what works.
 //
-//   npm run build                       # once: produces dist/WebEngineTS.standalone.js
-//   npm run player-smoke                # capabilities, per browser
-//   npm run player-smoke -- --dirty     # also remove each CSP directive / token in turn
+//   npm run build                       # once: produces dist/ (engine, player-host, player/)
+//   npm run player-smoke                # DEFAULT: a ZIP through the SHIPPED player artifacts (shipped.mjs)
 //   npm run player-smoke -- --browsers chromium --markdown out.md --json out.json
 //
-// Phase 1 of the player-isolation plan uses it to MEASURE the player's minimal
-// CSP and sandbox/allow tokens (design/player-sandbox.md); Phase 3 re-runs the
-// capability table against the real player as a regression check. Exit code 1
-// means a capability that should pass did not.
+//   npm run player-smoke -- --spike     # Phase 1 spike: capability table of the spike player, per browser
+//   npm run player-smoke -- --dirty     # spike, plus: remove each CSP directive / token in turn
+//   (--only and --no-real also select the spike)
+//
+// Phase 1 of the player-isolation plan used the spike to MEASURE the player's minimal
+// CSP and sandbox/allow tokens (design/player-sandbox.md). Phase 3 made the shipped run the
+// default: the real host client, the real player and the real nginx snippet. Exit code 1
+// means a capability or check that should pass did not.
 //
 // Playwright is borrowed from virtual-lab's e2e/ (locate-playwright.mjs).
 // ============================================================
@@ -19,7 +22,9 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { BROWSER_NAMES, launchBrowser } from "./browsers.mjs";
 import { loadPlaywright } from "./locate-playwright.mjs";
+import { runShipped } from "./shipped.mjs";
 import { buildRealZip, buildStreamedFiles, buildSyntheticZip, REPO } from "./fixtures.mjs";
 import { ablations, allowAttribute, basePolicy, sandboxAttribute, withoutAllow } from "./policy.mjs";
 import { startServer } from "./server.mjs";
@@ -35,23 +40,20 @@ const EXPECTED_FAILURES = {
     webkit: [],
 };
 
-const CHROMIUM_ARGS = ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist",
-    // Desktop Chrome's default. Headless builds relax it, which would make every audio result read "running".
-    "--autoplay-policy=document-user-activation-required"];
-
 // ── arguments ─────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-    const args = { browsers: ["chromium", "firefox", "webkit"], dirty: false, json: null, markdown: null, real: true, only: null };
+    const args = { browsers: BROWSER_NAMES, spike: false, dirty: false, json: null, markdown: null, real: true, only: null };
     for (let i = 0; i < argv.length; i++) {
         const flag = argv[i];
-        if (flag === "--dirty") args.dirty = true;
-        else if (flag === "--no-real") args.real = false;
-        else if (flag === "--only") args.only = argv[++i].split(",");
+        if (flag === "--spike") args.spike = true;
+        else if (flag === "--dirty") args.spike = args.dirty = true;
+        else if (flag === "--no-real") { args.spike = true; args.real = false; }
+        else if (flag === "--only") { args.spike = true; args.only = argv[++i].split(","); }
         else if (flag === "--browsers") args.browsers = argv[++i].split(",");
         else if (flag === "--json") args.json = resolve(argv[++i]);
         else if (flag === "--markdown") args.markdown = resolve(argv[++i]);
-        else throw new Error(`[player-smoke] Unknown argument ${flag}. Known: --dirty --no-real --only id,id --browsers a,b --json file --markdown file`);
+        else throw new Error(`[player-smoke] Unknown argument ${flag}. Known: --spike --dirty --no-real --only id,id --browsers a,b --json file --markdown file`);
     }
     return args;
 }
@@ -385,6 +387,10 @@ function renderMarkdown(results, meta) {
 
 async function main() {
     const args = parseArgs(process.argv.slice(2));
+    if (!args.spike) {
+        process.exitCode = await runShipped(args);
+        return;
+    }
     if (!existsSync(ENGINE_FILE)) throw new Error(`[player-smoke] ${ENGINE_FILE} not found. Run \`npm run build\` first.`);
 
     const playwright = loadPlaywright(HERE);
@@ -407,7 +413,7 @@ async function main() {
     let regressions = 0;
     try {
         for (const name of args.browsers) {
-            const browser = await playwright[name].launch(name === "chromium" ? { args: CHROMIUM_ARGS } : {});
+            const browser = await launchBrowser(playwright, name);
             try {
                 const runs = await capabilityRuns(browser, name, server, base, hasReal, !!args.only);
                 const { unobservable, ...rest } = runs;

@@ -12,6 +12,12 @@
 //   foreign origin /exfil       a third party; every request that reaches it is a leak the policy failed to stop
 //   POST /__report              where the host sends what it observed (see `waitFor`)
 //
+// With `shipped`, it also serves the artifacts the engine ships, unmodified:
+//   /shipped-host.html, .js     a smoke host page that drives `PlayerHost`
+//   /player-host.js             dist/player-host.js (the `WebEngineTS/player-host` client)
+//   /player/player.html, .js    dist/player/*, each with the headers of dist/player/player.nginx.conf
+//                               for that path - `$scheme` / `$http_host` expanded like nginx does
+//
 // Everything the opaque frame fetches carries `Access-Control-Allow-Origin: *`:
 // an opaque origin is cross-origin to everything, including the server that
 // served it. The research spike showed a module without it fails with a CORS
@@ -24,6 +30,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cspHeader } from "./policy.mjs";
+import { headersFor, parseNginxLocations } from "./nginx-headers.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CORS = { "Access-Control-Allow-Origin": "*" };
@@ -38,9 +45,9 @@ function listen(server) {
 
 /**
  * Starts both servers.
- * @param {{ engineFile: string, basisDir: string }} options
+ * @param {{ engineFile: string, basisDir: string, shipped?: { playerDir: string, hostFile: string } }} options
  */
-export async function startServer({ engineFile, basisDir }) {
+export async function startServer({ engineFile, basisDir, shipped }) {
     const events = new Map();
     const exfil = [];
     const waiters = new Map();
@@ -57,6 +64,16 @@ export async function startServer({ engineFile, basisDir }) {
         "/player.js": () => [readFileSync(join(HERE, "player.js")), ".js", cors("player")],
         "/engine/WebEngineTS.standalone.js": () => [readFileSync(engineFile), ".js", cors("engine")],
     };
+
+    if (shipped) {
+        const locations = parseNginxLocations(readFileSync(join(shipped.playerDir, "player.nginx.conf"), "utf8"));
+        const served = path => [readFileSync(join(shipped.playerDir, path.slice("/player/".length))), path.slice(path.lastIndexOf(".")), headersFor(locations, path, origin)];
+        files["/shipped-host.html"] = () => [readFileSync(join(HERE, "shipped-host.html")), ".html", { "Content-Security-Policy": HOST_CSP }];
+        files["/shipped-host.js"] = () => [readFileSync(join(HERE, "shipped-host.js")), ".js", {}];
+        files["/player-host.js"] = () => [readFileSync(shipped.hostFile), ".js", {}];
+        files["/player/player.html"] = () => served("/player/player.html");
+        files["/player/player.js"] = () => served("/player/player.js");
+    }
 
     const deliver = ({ runId, kind, data }) => {
         events.set(`${runId}/${kind}`, data);
