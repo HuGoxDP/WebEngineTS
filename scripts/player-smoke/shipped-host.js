@@ -2,8 +2,8 @@
 // ============================================================
 // A host page that drives the SHIPPED artifacts: `PlayerHost` from dist/player-host.js
 // embeds dist/player/player.html (served with the headers of player.nginx.conf) and
-// runs a ZIP through it, then pauses, resumes, measures, restarts into a NEW frame,
-// measures again and disposes. It records what it saw as plain data and POSTs it to
+// runs a ZIP through it, then pauses, resumes, has the runner press Space in the focused frame
+// (pause, then resume), measures, restarts into a NEW frame, measures again and disposes. It records what it saw as plain data and POSTs it to
 // the runner (the runner never evaluates script in this page).
 //
 // Nothing here knows the protocol: it is what a platform viewer would write.
@@ -70,6 +70,23 @@ try {
     host.resume();
     await until("paused=false", () => seen.paused.at(-1) === false);
     check("pause-resume", true, seen.paused.join(","));
+
+    // ── Space in the focused frame (DW-5.U1) ──────────────────────────
+    // The platform viewer focuses the frame after load, so a key reaches only the frame's document. A page cannot make a
+    // trusted key press for itself: it signals the runner (shipped.mjs `pressSpaceOnCue`), which presses Space.
+    first[0].focus();
+    first[0].contentWindow.focus();
+    const pressSpace = async cue => {
+        const from = seen.paused.length;
+        await report(cue, {});
+        await until(`a paused report after ${cue}`, () => seen.paused.length > from, 10_000).catch(() => undefined); // recorded by the check below
+        await sleep(400); // a second toggle from the same press would have arrived by now
+        return seen.paused.slice(from).join(",") || "nothing";
+    };
+    const afterFirstPress = await pressSpace("space-press-1");
+    const afterSecondPress = await pressSpace("space-press-2");
+    check("space-pauses-focused-frame", afterFirstPress === "true", `reported after one press: ${afterFirstPress}`);
+    check("space-resumes-focused-frame", afterSecondPress === "false", `reported after the next press: ${afterSecondPress}`);
 
     // ── restart: a NEW frame, same source ─────────────────────────────
     const fpsBefore = seen.fps.length;

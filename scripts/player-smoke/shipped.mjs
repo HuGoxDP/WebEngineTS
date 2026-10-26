@@ -7,7 +7,9 @@
 // What it proves that the unit tests cannot: that the snippet's CSP and `ACAO: *` are enough for the real
 // player to boot in an opaque origin, import the real engine, run a real archive whose scripts say a bare
 // `from "WebEngineTS"` (the player's `Scenario.engineModuleUrl` makes that resolve), and that a restart gives
-// a NEW frame which runs again. The page that drives it is shipped-host.js; it records checks as data.
+// a NEW frame which runs again, and that Space pauses and resumes once per press with the frame focused (the key is
+// pressed here, by Playwright, because a page cannot make a trusted one). The page that drives it is shipped-host.js;
+// it records checks as data.
 //
 // Exit code 1 if any check fails in any browser.
 // ============================================================
@@ -30,6 +32,17 @@ const clip = text => String(text).replace(/\s+/g, " ").slice(0, 240);
 /** Messages that are a browser's unsupported-feature note, not evidence. */
 const NOISE = /feature policy: skipping unsupported/i;
 
+/**
+ * Presses Space each time the host page says the frame is focused (a trusted key, which a page cannot make for itself).
+ * Runs beside the wait for "done"; if the page never cues it, the page's own check records that.
+ */
+async function pressSpaceOnCue(page, server, runId) {
+    for (const cue of ["space-press-1", "space-press-2"]) {
+        if (!(await server.waitFor(runId, cue, 30_000))) return;
+        await page.keyboard.press("Space");
+    }
+}
+
 /** Loads the host page, waits for its "done" report, returns it with what the browser logged. */
 async function runOnce(browser, server, runId, zipName) {
     const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
@@ -44,6 +57,7 @@ async function runOnce(browser, server, runId, zipName) {
             transcoderPath: `${server.origin}/basis/`,
         };
         await page.goto(`${server.origin}/shipped-host.html#${encodeURIComponent(JSON.stringify(hostOptions))}`);
+        pressSpaceOnCue(page, server, runId).catch(error => logged.push(clip(`space press failed: ${error.message}`)));
         const done = await server.waitFor(runId, "done", 120_000);
         return { done, logged: [...new Set(logged)].slice(0, 6) };
     } finally {

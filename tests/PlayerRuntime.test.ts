@@ -434,3 +434,222 @@ describe("driving the engine", () => {
         expect(p.fromPlayer).toEqual([]);
     });
 });
+
+// ============================================================
+// DW-5.U1 (owner decision #23): with the scenario frame focused the host page never sees a key, so the player itself
+// toggles pause on Space and reports `paused`, over the same port message the host's pause/resume produces.
+// ============================================================
+
+type Player = ReturnType<typeof startPlayer>;
+
+const keyEvent = (over: Record<string, unknown> = {}) => ({
+    code: "Space", repeat: false, ctrlKey: false, altKey: false, metaKey: false, shiftKey: false,
+    target: { tagName: "CANVAS" }, preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(), ...over,
+});
+
+/** One key press as a browser delivers it: down the capture path, the frame's window first, then its document. */
+function press(p: Player, over: Record<string, unknown> = {}) {
+    const event = keyEvent(over);
+    p.win.dispatch("keydown", event);
+    p.document.dispatch("keydown", event);
+    return event;
+}
+
+const pausedValues = (p: Player) => p.fromPlayer.filter(m => m.type === "paused").map(m => m.value);
+
+describe("DW-5.U1: Space pauses and resumes inside the frame", () => {
+    test("DW_5_U1 Space toggles pause: paused true then false is posted, timeScale is zeroed then restored", async () => {
+        const p = await runningPlayer();
+        p.e.state.timeScale = 0.5;
+        p.fromPlayer.length = 0;
+
+        const first = press(p);
+        await vi.waitFor(() => expect(p.fromPlayer).toHaveLength(1));
+        expect(p.fromPlayer[0]).toEqual({ v: 1, type: "paused", value: true });
+        expect(p.e.state.timeScale).toBe(0);
+
+        const second = press(p);
+        await vi.waitFor(() => expect(p.fromPlayer).toHaveLength(2));
+        expect(p.fromPlayer[1]).toEqual({ v: 1, type: "paused", value: false });
+        expect(p.e.state.timeScale).toBe(0.5);
+
+        // The key is consumed as a shortcut but not hidden from the scenario: the engine's Input still sees it.
+        for (const event of [first, second]) {
+            expect(event.preventDefault).toHaveBeenCalledTimes(1);
+            expect(event.stopPropagation).not.toHaveBeenCalled();
+            expect(event.stopImmediatePropagation).not.toHaveBeenCalled();
+        }
+    });
+
+    test("DW_5_U1 Space and the host's pause/resume share one state, so neither double-toggles the other", async () => {
+        const p = await runningPlayer();
+        p.fromPlayer.length = 0;
+
+        press(p);
+        await vi.waitFor(() => expect(pausedValues(p)).toEqual([true]));
+        p.channel.port1.postMessage({ v: 1, type: "resume" });
+        await vi.waitFor(() => expect(pausedValues(p)).toEqual([true, false]));
+        p.channel.port1.postMessage({ v: 1, type: "pause" });
+        await vi.waitFor(() => expect(pausedValues(p)).toEqual([true, false, true]));
+        press(p);
+        await vi.waitFor(() => expect(pausedValues(p)).toEqual([true, false, true, false]));
+        expect(p.e.state.timeScale).toBe(1);
+    });
+
+    test("DW_5_U1 one key press toggles exactly once on the full capture path, with a single Space handler registered", async () => {
+        const p = await runningPlayer();
+        p.fromPlayer.length = 0;
+
+        expect(p.win.listenerCount("keydown")).toBe(1);
+        expect(p.document.listenerCount("keydown")).toBe(1); // the audio unlock, not a second pause handler
+        press(p);
+        await flush();
+
+        expect(pausedValues(p)).toEqual([true]);
+    });
+
+    test("DW_5_U1 Space is ignored before the scenario runs: not yet loaded, and while it is still loading", async () => {
+        const idle = startPlayer();
+        idle.offerPort();
+        expect(idle.win.listenerCount("keydown")).toBe(0);
+        const idleEvent = press(idle);
+        await flush();
+        expect(idle.fromPlayer).toEqual([]);
+        expect(idle.e.state.timeScale).toBe(1);
+        expect(idleEvent.preventDefault).not.toHaveBeenCalled();
+
+        const loading = startPlayer({ importEngine: () => new Promise<PlayerEngine>(() => undefined) });
+        loading.offerPort();
+        loading.channel.port1.postMessage(loadMessage());
+        await vi.waitFor(() => expect(loading.importEngine).toHaveBeenCalled());
+        press(loading);
+        await flush();
+        expect(loading.win.listenerCount("keydown")).toBe(0);
+        expect(loading.fromPlayer).toEqual([]);
+        expect(loading.e.state.timeScale).toBe(1);
+    });
+
+    test("DW_5_U1 Space with Ctrl, Alt, Meta or Shift held is ignored and left to the browser", async () => {
+        const p = await runningPlayer();
+        p.fromPlayer.length = 0;
+
+        for (const modifier of ["ctrlKey", "altKey", "metaKey", "shiftKey"]) {
+            const event = press(p, { [modifier]: true });
+            expect(event.preventDefault).not.toHaveBeenCalled();
+        }
+        await flush();
+        expect(p.fromPlayer).toEqual([]);
+        expect(p.e.state.timeScale).toBe(1);
+
+        press(p); // the ignored presses left the state alone: a plain Space still pauses
+        await vi.waitFor(() => expect(pausedValues(p)).toEqual([true]));
+    });
+
+    test("DW_5_U1 a held Space (event.repeat) toggles once, and its repeats do not toggle back", async () => {
+        const p = await runningPlayer();
+        p.fromPlayer.length = 0;
+
+        press(p);
+        const repeats = [press(p, { repeat: true }), press(p, { repeat: true }), press(p, { repeat: true })];
+        await flush();
+        expect(pausedValues(p)).toEqual([true]);
+        expect(p.e.state.timeScale).toBe(0);
+        // The whole held key is consumed, so no default action fires between the first press and the release.
+        for (const event of repeats) expect(event.preventDefault).toHaveBeenCalledTimes(1);
+
+        press(p); // a new press after the release
+        await vi.waitFor(() => expect(pausedValues(p)).toEqual([true, false]));
+    });
+
+    test("DW_5_U1 Space in an editable element is ignored and reaches the field untouched", async () => {
+        const p = await runningPlayer();
+        p.fromPlayer.length = 0;
+        const editable = [
+            { tagName: "INPUT" }, { tagName: "input" }, { tagName: "TEXTAREA" }, { tagName: "SELECT" },
+            { tagName: "DIV", isContentEditable: true }, // a contenteditable host, or any child of one
+        ];
+
+        for (const target of editable) {
+            const event = press(p, { target });
+            expect(event.preventDefault).not.toHaveBeenCalled();
+        }
+        await flush();
+        expect(p.fromPlayer).toEqual([]);
+        expect(p.e.state.timeScale).toBe(1);
+    });
+
+    test("DW_5_U1 Space on a non-editable target (canvas, body, document, no target) still toggles", async () => {
+        const p = await runningPlayer();
+        p.fromPlayer.length = 0;
+        const targets = [{ tagName: "CANVAS" }, { tagName: "BODY" }, { tagName: "DIV", isContentEditable: false }, {}, null];
+
+        for (const target of targets) press(p, { target });
+        await vi.waitFor(() => expect(pausedValues(p)).toHaveLength(targets.length));
+
+        expect(pausedValues(p)).toEqual([true, false, true, false, true]);
+    });
+
+    test("DW_5_U1 other keys, and an event with no code at all, are ignored without throwing", async () => {
+        const p = await runningPlayer();
+        p.fromPlayer.length = 0;
+
+        for (const code of ["KeyP", "Enter", "Escape", "Tab", "NumpadEnter", "space", ""]) {
+            const event = press(p, { code });
+            expect(event.preventDefault).not.toHaveBeenCalled();
+        }
+        expect(() => { p.win.dispatch("keydown", {}); p.document.dispatch("keydown", {}); }).not.toThrow();
+        await flush();
+
+        expect(p.fromPlayer).toEqual([]);
+        expect(p.e.state.timeScale).toBe(1);
+    });
+
+    test("DW_5_U1 the Space listener is removed when the frame goes away, together with any pending audio unlock", async () => {
+        const p = await runningPlayer();
+        expect(p.win.listenerCount("keydown")).toBe(1);
+        p.fromPlayer.length = 0;
+
+        p.win.dispatch("pagehide", {});
+        p.win.dispatch("pagehide", {}); // a second signal is harmless
+
+        expect(p.win.listenerCount("keydown")).toBe(0);
+        expect(p.document.listenerCount("keydown")).toBe(0);
+        expect(p.document.listenerCount("pointerdown")).toBe(0);
+        const event = press(p);
+        await flush();
+        expect(p.fromPlayer).toEqual([]);
+        expect(p.e.state.timeScale).toBe(1);
+        expect(event.preventDefault).not.toHaveBeenCalled();
+        expect(p.e.engine.AudioManager.resume).not.toHaveBeenCalled();
+    });
+
+    test("DW_5_U1 the audio unlock still fires on the first Space, once, and Space keeps toggling afterwards", async () => {
+        const p = await runningPlayer();
+        p.fromPlayer.length = 0;
+
+        press(p);
+        expect(p.e.engine.AudioManager.resume).toHaveBeenCalledTimes(1);
+        expect(p.document.listenerCount("keydown")).toBe(0);
+        expect(p.document.listenerCount("pointerdown")).toBe(0);
+        press(p);
+        await vi.waitFor(() => expect(pausedValues(p)).toEqual([true, false]));
+
+        expect(p.e.engine.AudioManager.resume).toHaveBeenCalledTimes(1);
+        expect(p.win.listenerCount("keydown")).toBe(1);
+    });
+
+    test("DW_5_U1 a key the pause handler ignores still unlocks audio, and a pointer unlock does not pause", async () => {
+        const modified = await runningPlayer();
+        press(modified, { ctrlKey: true });
+        press(modified, { target: { tagName: "INPUT" } });
+        expect(modified.e.engine.AudioManager.resume).toHaveBeenCalledTimes(1);
+
+        const pointer = await runningPlayer();
+        pointer.fromPlayer.length = 0;
+        pointer.document.dispatch("pointerdown", {});
+        await flush();
+        expect(pointer.e.engine.AudioManager.resume).toHaveBeenCalledTimes(1);
+        expect(pointer.fromPlayer).toEqual([]);
+        expect(pointer.win.listenerCount("keydown")).toBe(1);
+    });
+});

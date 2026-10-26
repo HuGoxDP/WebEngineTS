@@ -18,6 +18,10 @@
 //     the second wall);
 //   - a port from anything but `parent`, a second port, a second load;
 //   - any message that does not parse (protocol.ts).
+//
+// Keyboard: with the frame focused the host page never sees a key, so Space (no modifier, not a repeat, not in an
+// editable element) toggles pause here and reports `paused` over the port - the same message the host's own
+// pause/resume produces. It is not swallowed: the engine's Input still sees it.
 // ============================================================
 
 import {
@@ -60,6 +64,12 @@ export type BootResult = { ok: true } | { ok: false; reason: string };
 
 const errorText = (error: unknown): string =>
     (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).slice(0, MAX_TEXT_LENGTH);
+
+/** True where Space belongs to the element: form fields (any `input` type) and contenteditable content. */
+function isEditable(target: EventTarget | null): boolean {
+    const element = target as Partial<HTMLElement> | null;
+    return !!element && (/^(input|textarea|select)$/i.test(element.tagName ?? "") || element.isContentEditable === true);
+}
 
 /** Starts the player, or says why it refused. A refusal sends nothing to anyone. */
 export function bootPlayer(env: PlayerEnv): BootResult {
@@ -232,6 +242,14 @@ class PlayerSession {
         win.document.addEventListener("pointerdown", unlock, true);
         win.document.addEventListener("keydown", unlock, true);
 
+        // The frame's only teardown signal is its document going away; drop the input listeners with it.
+        win.addEventListener("keydown", this._onKeyDown, true);
+        win.addEventListener("pagehide", () => {
+            win.removeEventListener("keydown", this._onKeyDown, true);
+            win.document.removeEventListener("pointerdown", unlock, true);
+            win.document.removeEventListener("keydown", unlock, true);
+        }, { once: true });
+
         const baseline = Time.frameCount;
         let lastFrames = baseline;
         let lastAt = this._now();
@@ -244,6 +262,17 @@ class PlayerSession {
             lastAt = at;
         }, FPS_INTERVAL_MS);
     }
+
+    /**
+     * Space toggles pause. Registered only once the scenario runs, so a key during load does nothing. The default action
+     * is consumed for every plain Space, repeats included, so one held key is one toggle and no stray default fires;
+     * with a modifier or in an editable element the key is left untouched.
+     */
+    private readonly _onKeyDown = (event: KeyboardEvent): void => {
+        if (event.code !== "Space" || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || isEditable(event.target)) return;
+        event.preventDefault();
+        if (!event.repeat) this._setPaused(!this._paused);
+    };
 
     private _setPaused(paused: boolean): void {
         const engine = this._engine;
