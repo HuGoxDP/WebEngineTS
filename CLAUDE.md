@@ -42,9 +42,9 @@ consume the engine; the engine never imports from or depends on any of them.
   the packed tarball, as every consumer does); `design/` is the JSX/CSS mockup guiding its redesign.
 - **testv/virtual-lab** — the educational platform (own git repo): Angular `frontend`
   ("university-mock") + `backend` + `db` + `nginx` + docker-compose. The frontend is the
-  scenario catalog + viewer; it downloads scenario ZIPs and runs them via
-  `Application.loadScenarioFromBuffer`, resolving `"WebEngineTS"` through an import map to
-  `WebEngineTS.standalone.js`. Consumes the engine tarball.
+  scenario catalog + viewer; it downloads scenario ZIPs and hands them to the engine's sandboxed
+  player (`dist/player/`) through `WebEngineTS/player-host`; the engine runs in that frame, not in
+  the page, and there is no import map on the platform page. Consumes the engine tarball.
 - **WebEngineTS-Benchmarks** — the reproducible benchmark suite: the `run.ts` harness, the
   deterministic scenes, `aggregate.mjs`, the RUNBOOK and the recorded results. Moved
   out of this repo on 2026-08-04. It runs over the standalone bundle in `engine/`, refreshed
@@ -82,6 +82,8 @@ reach a consumer. It builds, packs, and pushes to all three consumers above in o
    is still skipped until it has a `node_modules/`.
 
 `--no-install` builds/packs/copies without reinstalling (useful to just refresh the tarball).
+virtual-lab is found at `virtual-lab/` or `testv/virtual-lab/` (the root one wins when both exist), and the pack
+is refused if the tarball lacks `dist/player/*` or `dist/player-host.*`, so no consumer receives an engine it cannot host.
 One-directional; the engine still imports from no consumer.
 
 **`release:local` is for local development; anything deployed pins a tagged release.**
@@ -117,6 +119,13 @@ npm run clean          # rm -rf dist
 - Entry point: `src/engine/index.ts`
 - Build config: `rollup.config.mjs` + `tsconfig.build.json`
 - Output: `dist/WebEngineTS.esm.js`, `dist/WebEngineTS.cjs.js`, `dist/WebEngineTS.standalone.js` (Three.js bundled, minified with class/function names kept), `dist/WebEngineTS.d.ts`
+- **The sandboxed player ships in the tarball too** (`files: ["dist"]`): `dist/player/player.html`, `dist/player/player.js`
+  and `dist/player/player.nginx.conf` (the headers it must be served with), plus `dist/player-host.js` / `.d.ts`,
+  the engine-free host client behind the `WebEngineTS/player-host` export (`PlayerHost`, protocol v1). Sources:
+  `src/player/{host,player,static,protocol.ts}`. `player-host.js` and `player.js` contain no engine code (`npm run size`
+  enforces it and a size budget); the player imports the engine at run time by URL. `npm run player-smoke` runs real
+  archives through the shipped files in Chromium, Firefox and WebKit. The measured CSP and sandbox tokens are in
+  `design/player-sandbox.md`; never add `allow-same-origin` to the frame.
 - Tests: Vitest (`npm test` → `vitest run`); specs live in `tests/*.test.ts`
 
 ## Source Layout
@@ -293,7 +302,7 @@ Each step runs components first, then the active scenario.
   consumer. Pinned by `tests/MaxSizeScope.test.ts`
 - **ImageBitmap leak**: Three.js `dispose()` does not call `.close()` on ImageBitmap sources — engine handles this in `Texture.onDestroy()`
 - **Batch loading**: `Resources.tryLoad()` wraps individual loads instead of `Promise.all` (which fails entire batch on single missing asset)
-- **Scenario script pre-linking**: All `.js` files in a scenario ZIP are topologically sorted by dependency, relative import specifiers are rewritten to Blob URLs, bare specifiers (e.g. `"WebEngineTS"`) are left for the host import map. Entry point brand-checked via `__scenarioBehaviour` marker (not `instanceof`, which breaks across bundle copies)
+- **Scenario script pre-linking**: All `.js` files in a scenario ZIP are topologically sorted by dependency, relative import specifiers are rewritten to Blob URLs, bare specifiers (e.g. `"WebEngineTS"`) are left for the host import map **unless `Scenario.engineModuleUrl` is set** — then a bare `"WebEngineTS"` is rewritten to that absolute URL in every import/export form (the sandboxed player sets it; it has no import map). The rewrite is a token match, so the same text inside a string or comment is rewritten too. Entry point brand-checked via `__scenarioBehaviour` marker (not `instanceof`, which breaks across bundle copies)
 - **Circular deps**: Use `import type` for engine asset types in interfaces. When a value is
   genuinely needed across a would-be cycle, the **lower** layer declares a hook and the
   **upper** layer installs it at load — `Texture._onDestroyed`, `Rigidbody._onEnabled`,

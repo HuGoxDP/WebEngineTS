@@ -166,7 +166,66 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   Material and physic material files are read as version 1 only; their writers state
   `version: 1` as before and are unchanged.
 
+- **A sandboxed player for scenario code, shipped with the engine.** `dist/player/` holds
+  `player.html`, `player.js` and `player.nginx.conf`: a page that runs a scenario in an `<iframe sandbox>`
+  document on an opaque origin, so the scenario's own scripts cannot reach the host page's storage,
+  tokens, DOM or `top`. A host serves the three files under one path (`player.nginx.conf` carries every
+  header the page must have: the CSP, `sandbox`, `frame-ancestors 'self'` and `Access-Control-Allow-Origin: *`,
+  which the frame needs to read the engine bundle and transcoder from `Origin: null`), and keeps its
+  own page free of an import map and of `blob:` in `script-src`. The page refuses to start when it is
+  opened top-level or on a non-opaque origin, loads the engine by URL, and runs KTX2 inside the frame (with
+  `'unsafe-eval'`, which only the frame's CSP grants). It resumes the `AudioContext` on the first key or
+  pointer event inside the frame, because the engine never does. The measured CSP, the `sandbox`/`allow`
+  tokens and the capabilities per browser are in `design/player-sandbox.md`.
+- **`WebEngineTS/player-host`: the host side of that player, with no engine in it.** `import { PlayerHost,
+  PLAYER_PROTOCOL_VERSION, type PlayerMessage, type PlayerMetrics } from "WebEngineTS/player-host"`.
+  `new PlayerHost(container, { playerUrl, engineUrl, transcoderPath?, expectedOrigin?, callbacks? })` puts the
+  frame in `container`, checks that the player reports origin `"null"` and protocol `v1` before it sends a
+  byte, then talks over a private `MessageChannel`. `load({ kind: "blob" | "manifest", … }, { diag })`,
+  `restart()` (always a fresh frame), `pause()`, `resume()`, `toggleDiagnostics()`, `measure(seconds)` and
+  `dispose()`; progress, FPS, pause state, errors and context loss come back as callbacks. Everything the
+  frame sends is parsed and capped (text 500 characters, numbers finite and in range). The handshake times
+  out after 10 s and a load after 60 s, reset on each progress report. `npm run size` now also holds
+  `player-host.js` and `player.js` to a size budget and fails if either contains engine code.
+- **`Scenario.engineModuleUrl`: a scenario's bare `"WebEngineTS"` import can resolve to the running engine
+  without an import map.** A static `string | null`, `null` by default; set it before a load and the
+  scenario pre-linker rewrites every form of the bare specifier (`import x from`, `import * as`,
+  `export … from`, `export * from`, side-effect `import "…"`, dynamic `import("…")`, single or double
+  quotes) to that URL. Subpaths and lookalikes (`"WebEngineTS/x"`, `"WebEngineTSx"`) are left alone. The
+  setter throws for anything but an absolute `http(s):` or `blob:` URL, and for quotes, backslashes,
+  whitespace and `<`, `>` or backtick, because the URL is spliced into untrusted source. The rewrite
+  is a token match, not a parser: a `from "WebEngineTS"` inside a string or a comment is rewritten too.
+  With it unset the output is byte for byte what it was, so a host that keeps its import map is unaffected.
+  The player sets it.
+- **Space pauses and resumes inside the player.** With the scenario's frame focused, Space toggles
+  pause and the player reports it, so a host's HUD follows without handling the key itself. It is ignored with
+  a modifier held, in a text field, and for key repeats; the scenario's own `Input` still sees the key.
+- **`npm run player-smoke`.** Runs a real scenario archive through the shipped files themselves
+  (`player-host.js`, `dist/player/*`, served with the headers of `player.nginx.conf`) in Chromium, Firefox
+  and WebKit: the player boots on an opaque origin, imports the real engine, runs a scenario whose
+  script imports bare `"WebEngineTS"`, restarts into a new frame, and pauses once per Space press. `-- --spike`
+  and `-- --dirty` run the capability table and the remove-one-directive checks `design/player-sandbox.md` was
+  measured with. It borrows Playwright from virtual-lab's `e2e/` in either layout. WebKit's pointer lock and
+  audio cannot be observed headless on Windows and need a manual Safari run.
+
 ### Changed
+
+- **`MemoryProfiler.diagnosticsAllowed` is a one-way latch.** Once it has been set to `false` it stays
+  `false` for the page's lifetime: assigning `true` afterwards is ignored and logs a
+  `console.warn("[MemoryProfiler] …")`, and an overlay already on screen stays closed. Before this a scenario
+  could reopen the gate its host had closed. It is policy, not a security boundary — scenario code in the same
+  realm can still reach engine internals; only the sandboxed player is a boundary. A host that closes the
+  gate and later reopens it (a benchmark run that hides the overlay for one phase, a test) no longer can:
+  set it once, before the first scenario. Tests use the `@internal` `MemoryProfiler._resetDiagnosticsPolicy()`.
+  Setting `false` twice, or `true` before any `false`, behaves as it did.
+- **`release:local` finds virtual-lab at `virtual-lab/` or at `testv/virtual-lab/`, and refuses a tarball
+  without the player.** When both exist the one at the workspace root is used and the other is reported,
+  never written to. Packing now fails, before anything is copied to a consumer, if `dist/player/*` or
+  `dist/player-host.js` is missing from the tarball.
+- **The tarball is larger by the player files.** `dist/player/*` and `dist/player-host.js` ship in the
+  existing `dist` list. Nothing here runs in the engine's frame loop or changes rendered output, so no
+  measured number is expected to move; that was not measured. The `diagnosticsAllowed` latch can change what
+  a benchmark that reopens the overlay shows, not what it measures.
 
 - **`Prefab.revert` leaves the instance where it was.** The fresh instance keeps the old one's
   place among its siblings and its name, local position and rotation — what an instance never
