@@ -6,6 +6,7 @@ import { ScenarioAssets } from "./ScenarioAssets.ts";
 import { SceneManager } from "../SceneManager.ts";
 import { ScenarioBehaviour } from "./ScenarioBehaviour.ts";
 import type {
+    IScenarioResult,
     IScenarioManifest,
     IScenarioContext,
     IScenarioLoadProgress,
@@ -126,6 +127,21 @@ export class Scenario extends EngineObject {
     public static get current(): Scenario | null {
         return Scenario._current;
     }
+
+    /**
+     * Host hook: receives every result the running scenario reports through
+     * {@link ScenarioBehaviour.reportResult} (already clamped and de-duplicated).
+     * `null` (the default) discards them. Set once at startup; the sandboxed
+     * player installs it and forwards the result to its host page.
+     *
+     * A handler that throws is logged and does not reach the scenario.
+     *
+     * @example
+     * ```ts
+     * Scenario.onResult = r => console.log(`score ${r.score}, done: ${r.completed}`);
+     * ```
+     */
+    public static onResult: ((result: IScenarioResult) => void) | null = null;
 
     private static _engineModuleUrl: string | null = null;
 
@@ -541,6 +557,8 @@ export class Scenario extends EngineObject {
             // Load and instantiate the entry point
             this._entryPoint = await this._loadEntryPoint();
 
+            this._entryPoint._systemSetResultSink(result => this._deliverResult(result));
+
             // Awake — the scenario builds its world here (may be async)
             await this._entryPoint._systemInit(context);
 
@@ -559,6 +577,16 @@ export class Scenario extends EngineObject {
             this._loadState = ScenarioLoadState.Error;
 
             throw error;
+        }
+    }
+
+    /** Hands a result to the host hook, if this is the active scenario. */
+    private _deliverResult(result: IScenarioResult): void {
+        if (Scenario._current !== this || !Scenario.onResult) return;
+        try {
+            Scenario.onResult(result);
+        } catch (error) {
+            console.error("[Scenario] onResult handler threw:", error);
         }
     }
 

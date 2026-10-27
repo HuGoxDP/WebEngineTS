@@ -186,6 +186,7 @@ class PlayerSession {
             this._diag = message.diag;
             engine.Texture2D.ktx2TranscoderPath = message.transcoderPath;
             engine.Scenario.engineModuleUrl = message.engineUrl;
+            engine.Scenario.onResult = result => this._post({ v: 1, type: "result", score: result.score, completed: result.completed });
 
             const canvas = this._createCanvas();
             const app = new engine.Application(canvas);

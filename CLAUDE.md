@@ -126,6 +126,9 @@ npm run clean          # rm -rf dist
   enforces it and a size budget); the player imports the engine at run time by URL. `npm run player-smoke` runs real
   archives through the shipped files in Chromium, Firefox and WebKit. The measured CSP and sandbox tokens are in
   `design/player-sandbox.md`; never add `allow-same-origin` to the frame.
+  **Scenario results:** `ScenarioBehaviour.reportResult` (guarded: clamp, drop non-finite, ignore outside
+  start..destroy, de-duplicate) -> `Scenario.onResult` (host hook, installed by the player) -> protocol `result`
+  message -> `PlayerHost` `callbacks.onResult`. Pinned by `tests/ScenarioResult.test.ts` and the player tests.
 - Tests: Vitest (`npm test` → `vitest run`); specs live in `tests/*.test.ts`
 
 ## Source Layout

@@ -3,5 +3,5 @@
 // scenarios in the sandboxed player. Imports no engine code.
 export { PlayerHost, PLAYER_PROTOCOL_VERSION } from "./PlayerHost";
 export type {
-    PlayerCallbacks, PlayerHostOptions, PlayerMessage, PlayerMetrics, PlayerProgress, PlayerError, PlayerState, PlayerLoadSource,
+    PlayerCallbacks, PlayerHostOptions, PlayerMessage, PlayerMetrics, PlayerProgress, PlayerResult, PlayerError, PlayerState, PlayerLoadSource,
 } from "./PlayerHost";

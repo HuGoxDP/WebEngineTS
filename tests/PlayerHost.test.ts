@@ -22,14 +22,14 @@ let ports: MessagePort[] = [];
 interface Rig {
     container: FakeContainer;
     host: PlayerHost;
-    calls: { state: string[]; errors: { code: string; message: string }[]; fps: number[]; paused: boolean[]; progress: any[]; contextLost: number };
+    calls: { state: string[]; errors: { code: string; message: string }[]; fps: number[]; paused: boolean[]; progress: any[]; contextLost: number; results: any[] };
     /** What the "player" received over its port, once a handshake happened. */
     received: any[];
 }
 
 function rig(options: Partial<PlayerHostOptions> = {}): Rig {
     const container = new FakeContainer(BASE);
-    const calls: Rig["calls"] = { state: [], errors: [], fps: [], paused: [], progress: [], contextLost: 0 };
+    const calls: Rig["calls"] = { state: [], errors: [], fps: [], paused: [], progress: [], contextLost: 0, results: [] };
     const callbacks: Partial<PlayerCallbacks> = {
         onState: s => calls.state.push(s),
         onError: e => calls.errors.push(e),
@@ -37,6 +37,7 @@ function rig(options: Partial<PlayerHostOptions> = {}): Rig {
         onPaused: v => calls.paused.push(v),
         onProgress: p => calls.progress.push(p),
         onContextLost: () => { calls.contextLost++; },
+        onResult: r => calls.results.push(r),
     };
     const host = new PlayerHost(container as unknown as HTMLElement, {
         playerUrl: "/player/player.html", engineUrl: "/engine/WebEngineTS.standalone.js", callbacks, ...options,
@@ -471,6 +472,73 @@ describe("load lifecycle", () => {
         port.postMessage({ v: 1, type: "fps", value: 99 }); // the old port is closed: nothing arrives from it
         await flush();
         expect(r.calls.fps).toEqual([]);
+    });
+});
+
+describe("DW-1.3: result", () => {
+    test("DW_1_3 a valid result from the player port reaches onResult, clamped", async () => {
+        const r = rig();
+        const port = await running(r);
+        port.postMessage({ v: 1, type: "result", score: 0.5, completed: false });
+        port.postMessage({ v: 1, type: "result", score: 9, completed: true });
+        await vi.waitFor(() => expect(r.calls.results).toHaveLength(2));
+        expect(r.calls.results).toEqual([{ score: 0.5, completed: false }, { score: 1, completed: true }]);
+    });
+
+    test("DW_1_3 malformed results (NaN score, bad completed, wrong version) never reach onResult", async () => {
+        const r = rig();
+        const port = await running(r);
+        port.postMessage({ v: 1, type: "result", score: Number.NaN, completed: true });
+        port.postMessage({ v: 1, type: "result", score: 1, completed: "yes" });
+        port.postMessage({ v: 2, type: "result", score: 1, completed: true });
+        port.postMessage({ v: 1, type: "result" });
+        port.postMessage({ v: 1, type: "fps", value: 7 });
+        await vi.waitFor(() => expect(r.calls.fps).toEqual([7]));
+        expect(r.calls.results).toEqual([]);
+    });
+
+    test("DW_1_3 a result posted on the window, by the frame or by a foreign source, is ignored before and after the handshake", async () => {
+        const r = rig();
+        const result = { v: 1, type: "result", score: 1, completed: true };
+        const loaded = r.host.load(blobSource(), { diag: false });
+        loaded.catch(() => undefined);
+        sayHello(r, { data: result });
+        sayHello(r, { source: new FakeWindow(), data: result });
+        sayHello(r);
+        const port = playerPort(r);
+        await vi.waitFor(() => expect(r.received.some(m => m.type === "load")).toBe(true));
+        port.postMessage({ v: 1, type: "running" });
+        await loaded;
+        r.container.window.dispatch("message", messageEvent(r.container.frame.contentWindow, result));
+        r.container.window.dispatch("message", messageEvent(new FakeWindow(), result));
+        await flush();
+        expect(r.calls.results).toEqual([]);
+    });
+
+    test("a result that arrives during loading is delivered", async () => {
+        const r = rig();
+        const { port, loaded } = await startLoad(r);
+        loaded.catch(() => undefined);
+        port.postMessage({ v: 1, type: "result", score: 0.25, completed: false });
+        await vi.waitFor(() => expect(r.calls.results).toEqual([{ score: 0.25, completed: false }]));
+    });
+
+    test("a result after the player failed is ignored, and a throwing onResult is isolated", async () => {
+        const r = rig();
+        const port = await running(r);
+        port.postMessage({ v: 1, type: "error", message: "scenario threw" });
+        await vi.waitFor(() => expect(r.calls.errors).toHaveLength(1));
+        port.postMessage({ v: 1, type: "result", score: 1, completed: true });
+        await flush();
+        expect(r.calls.results).toEqual([]);
+
+        const t = rig({ callbacks: { onResult: () => { throw new Error("app bug"); }, onFps: v => t.calls.fps.push(v) } });
+        const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        const tport = await running(t);
+        tport.postMessage({ v: 1, type: "result", score: 1, completed: true });
+        tport.postMessage({ v: 1, type: "fps", value: 3 });
+        await vi.waitFor(() => expect(t.calls.fps).toEqual([3]));
+        expect(spy).toHaveBeenCalled();
     });
 });
 

@@ -1,6 +1,6 @@
 // path: src/engine/core/scenario/ScenarioBehaviour.ts
 
-import type { IScenarioContext } from "./ScenarioTypes.ts";
+import type { IScenarioContext, IScenarioResult } from "./ScenarioTypes.ts";
 
 /**
  * Base class for scenario entry points.
@@ -99,6 +99,19 @@ export class ScenarioBehaviour {
      */
     private _started: boolean = false;
 
+    /**
+     * Whether {@link reportResult} is currently accepted: from the moment
+     * {@link start} begins until the scenario is destroyed.
+     * @internal
+     */
+    private _acceptingResults: boolean = false;
+
+    /** Where accepted results go; installed by the Scenario that owns this entry point. @internal */
+    private _resultSink: ((result: IScenarioResult) => void) | null = null;
+
+    /** The last result handed to the sink, for de-duplication. @internal */
+    private _lastResult: IScenarioResult | null = null;
+
     // ==================== PUBLIC PROPERTIES ====================
 
     /**
@@ -125,6 +138,47 @@ export class ScenarioBehaviour {
             );
         }
         return this._context;
+    }
+
+    // ==================== RESULT REPORTING ====================
+
+    /**
+     * Reports the learner's result to the host (a platform gradebook, for instance).
+     *
+     * Call it whenever the score changes; the host keeps the latest one. The engine
+     * guards the call so a scenario can be careless:
+     * - `score` is clamped into 0..1; a non-finite or non-number score is dropped (with a warning).
+     * - a report made before {@link start} begins, or after the scenario is destroyed, is ignored.
+     * - a report identical to the previous one is not sent again.
+     *
+     * @param result.score — progress or grade, 0 (nothing) to 1 (full marks).
+     * @param result.completed — `true` once the learner has finished; default `false`.
+     *
+     * @example
+     * ```ts
+     * update(): void {
+     *     if (this._answered && !this._reported) {
+     *         this._reported = true;
+     *         this.reportResult({ score: this._correct / this._total, completed: true });
+     *     }
+     * }
+     * ```
+     */
+    protected reportResult(result: { score: number; completed?: boolean }): void {
+        if (!this._acceptingResults || !this._resultSink) return;
+        const score = (result as { score?: unknown } | null)?.score;
+        if (typeof score !== "number" || !Number.isFinite(score)) {
+            console.warn("[ScenarioBehaviour] reportResult ignored: score must be a finite number.");
+            return;
+        }
+        const next: IScenarioResult = {
+            score: Math.min(1, Math.max(0, score)),
+            completed: (result as { completed?: unknown }).completed === true,
+        };
+        const last = this._lastResult;
+        if (last && last.score === next.score && last.completed === next.completed) return;
+        this._lastResult = next;
+        this._resultSink({ ...next });
     }
 
     // ==================== USER LIFECYCLE HOOKS ====================
@@ -259,6 +313,7 @@ export class ScenarioBehaviour {
      */
     public _systemUpdate(): void {
         if (!this._started) {
+            this._acceptingResults = this._resultSink !== null;
             this.start();
             this._started = true;
         }
@@ -294,6 +349,16 @@ export class ScenarioBehaviour {
      * Called by Scenario.unload() before the scene is destroyed.
      */
     public _systemDestroy(): void {
+        this._acceptingResults = false;
+        this._resultSink = null;
         this.onDestroy();
+    }
+
+    /**
+     * @internal
+     * Called by Scenario.run() before awake(): where {@link reportResult} delivers.
+     */
+    public _systemSetResultSink(sink: (result: IScenarioResult) => void): void {
+        this._resultSink = sink;
     }
 }

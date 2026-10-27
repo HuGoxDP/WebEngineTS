@@ -12,7 +12,7 @@
 //   player -> host  (window)  hello    { origin }                  once, targetOrigin "*"
 //   host   -> player (window) port     MessagePort, transferred    once
 //   host   -> player (port)   load | pause | resume | toggle-diagnostics | measure
-//   player -> host   (port)   progress | running | context-lost | error | fps | paused | metrics
+//   player -> host   (port)   progress | running | context-lost | error | fps | paused | metrics | result
 //
 // Every message is the envelope `{ v: 1, type, ... }`.
 // ============================================================
@@ -56,6 +56,12 @@ export interface PlayerMetrics {
     engineBuild: string;
 }
 
+export interface PlayerResult {
+    /** 0..1. */
+    score: number;
+    completed: boolean;
+}
+
 export type PlayerLoadSource = { kind: "blob"; blob: Blob } | { kind: "manifest"; url: string };
 
 /** What the player reports to the host over the port. */
@@ -66,7 +72,8 @@ export type PlayerMessage =
     | { v: 1; type: "error"; message: string }
     | { v: 1; type: "fps"; value: number }
     | { v: 1; type: "paused"; value: boolean }
-    | { v: 1; type: "metrics"; metrics: PlayerMetrics };
+    | { v: 1; type: "metrics"; metrics: PlayerMetrics }
+    | { v: 1; type: "result"; score: number; completed: boolean };
 
 /** What the host asks of the player over the port. */
 export type HostMessage =
@@ -153,6 +160,11 @@ export function parsePlayerMessage(data: unknown): Parsed<PlayerMessage> {
             const m = isRecord(data.metrics) ? data.metrics : {};
             const metrics: PlayerMetrics | null = readMetrics(m);
             return metrics === null ? fail("metrics incomplete", type) : ok({ v: 1, type, metrics });
+        }
+        case "result": {
+            const score = readNumber(data.score, 0, 1);
+            if (score === null || typeof data.completed !== "boolean") return fail("result without a finite score and boolean completed", type);
+            return ok({ v: 1, type, score, completed: data.completed });
         }
         default:
             return fail(`unknown type ${String(type)}`, type);

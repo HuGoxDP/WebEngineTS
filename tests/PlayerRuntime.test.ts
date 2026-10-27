@@ -51,7 +51,7 @@ function makeEngine(options: { frameCount?: number } = {}) {
         toggleOverlay: vi.fn(),
         snapshot: () => ({ renderer: { estimatedTextureVramBytes: 100, estimatedGeometryVramBytes: 20, estimatedRenderTargetVramBytes: 3 } }),
     };
-    const scenario = { set engineModuleUrl(url: string | null) { log.push(`engineModuleUrl=${url}`); } };
+    const scenario: { onResult: ((r: { score: number; completed: boolean }) => void) | null; engineModuleUrl: string | null } = { onResult: null, set engineModuleUrl(url: string | null) { log.push(`engineModuleUrl=${url}`); } };
     const texture = { set ktx2TranscoderPath(path: string) { log.push(`ktx2=${path}`); } };
     const load = vi.fn(async (_input: unknown, onProgress: (p: { progress: number; currentOperation: string }) => void) => {
         log.push("scenario-loading");
@@ -72,7 +72,7 @@ function makeEngine(options: { frameCount?: number } = {}) {
             set timeScale(value: number) { state.timeScale = value; },
         },
     };
-    return { engine: engine as unknown as PlayerEngine, log, state, profiler, load };
+    return { engine: engine as unknown as PlayerEngine, log, state, profiler, load, scenario };
 }
 
 let openPorts: MessagePort[] = [];
@@ -339,6 +339,14 @@ describe("driving the engine", () => {
         const on = await runningPlayer({ diag: true });
         on.channel.port1.postMessage({ v: 1, type: "toggle-diagnostics" });
         await vi.waitFor(() => expect(on.e.profiler.toggleOverlay).toHaveBeenCalledTimes(1));
+    });
+
+    test("DW_1_3 a scenario result is posted as a protocol result message, installed before scenario code runs", async () => {
+        const p = await runningPlayer();
+        expect(p.e.scenario.onResult).toBeTypeOf("function");
+        p.e.scenario.onResult!({ score: 0.5, completed: true });
+        await vi.waitFor(() => expect(p.fromPlayer.some(m => m.type === "result")).toBe(true));
+        expect(p.fromPlayer.find(m => m.type === "result")).toEqual({ v: 1, type: "result", score: 0.5, completed: true });
     });
 
     test("the first pointer or key event in the frame resumes audio, once", async () => {

@@ -72,6 +72,19 @@ describe("parsePlayerMessage", () => {
         for (const bad of [null, undefined, 3, "running", []]) expect(parsePlayerMessage(bad).ok).toBe(false);
     });
 
+    test("DW_1_2 result: a valid message parses and the score is clamped into 0..1", () => {
+        expect(parsePlayerMessage({ v: 1, type: "result", score: 0.25, completed: true })).toEqual({ ok: true, message: { v: 1, type: "result", score: 0.25, completed: true } });
+        expect(parsePlayerMessage({ v: 1, type: "result", score: 5, completed: false })).toMatchObject({ ok: true, message: { score: 1 } });
+        expect(parsePlayerMessage({ v: 1, type: "result", score: -5, completed: false })).toMatchObject({ ok: true, message: { score: 0 } });
+    });
+
+    test("DW_1_2 result: NaN/Infinity/non-number score, non-boolean or missing completed, wrong version are dropped", () => {
+        for (const score of [Number.NaN, Infinity, -Infinity, "1", null, undefined]) expect(parsePlayerMessage({ v: 1, type: "result", score, completed: true }).ok).toBe(false);
+        for (const completed of ["true", 1, null, undefined]) expect(parsePlayerMessage({ v: 1, type: "result", score: 1, completed }).ok).toBe(false);
+        expect(parsePlayerMessage({ v: 2, type: "result", score: 1, completed: true }).ok).toBe(false);
+        expect(parsePlayerMessage({ v: 1, type: "result" })).toMatchObject({ ok: false, type: "result" });
+    });
+
     test("metrics: every field clamped, the error count floored, text capped; one missing field rejects the lot", () => {
         const parsed = parsePlayerMessage({
             v: 1, type: "metrics",

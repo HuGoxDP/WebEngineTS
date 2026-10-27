@@ -149,6 +149,27 @@ export interface IScenarioManifest {
 
     /** Arbitrary key-value metadata for host application use. */
     metadata?: Record<string, unknown>;
+
+    /**
+     * Whether the scenario reports a result through {@link ScenarioBehaviour.reportResult}.
+     *
+     * @remarks
+     * A hint for the host (a platform offering a submit button, a gradebook link). The engine
+     * never reads it: the loader passes it through untouched and `reportResult` works either way.
+     */
+    graded?: boolean;
+}
+
+/**
+ * A scenario's result as the host receives it.
+ *
+ * @see ScenarioBehaviour.reportResult
+ */
+export interface IScenarioResult {
+    /** Score in the range 0..1. */
+    score: number;
+    /** Whether the learner has finished the scenario. */
+    completed: boolean;
 }
 
 // ==================== LOAD STATE ====================

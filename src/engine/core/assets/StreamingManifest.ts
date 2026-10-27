@@ -136,6 +136,8 @@ export interface IStreamingManifest {
     name?: string;
     /** Short description, for a host that lists scenarios. */
     description?: string;
+    /** Whether the scenario reports a result; carried to {@link IScenarioManifest.graded} untouched. */
+    graded?: boolean;
     /** Content version, bumped by the packaging tool. */
     version?: number;
     /** Base every asset and script URL is resolved against. */
@@ -217,6 +219,7 @@ export function parseStreamingManifest(json: unknown): IStreamingManifest {
     if (typeof root.baseUrl === "string") manifest.baseUrl = root.baseUrl;
     if (typeof root.name === "string") manifest.name = root.name;
     if (typeof root.description === "string") manifest.description = root.description;
+    if (typeof root.graded === "boolean") manifest.graded = root.graded;
 
     if (root.scripts !== undefined) {
         manifest.scripts = _parseScripts(root.scripts);
@@ -276,6 +279,7 @@ export function toScenarioManifest(manifest: IStreamingManifest): IScenarioManif
         assets,
     };
     if (manifest.description) scenario.description = manifest.description;
+    if (manifest.graded !== undefined) scenario.graded = manifest.graded;
     return scenario;
 }
 

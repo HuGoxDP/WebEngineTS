@@ -33,10 +33,11 @@ import {
     type PlayerMessage,
     type PlayerMetrics,
     type PlayerProgress,
+    type PlayerResult,
     type PlayerState,
 } from "../protocol";
 
-export type { PlayerError, PlayerMessage, PlayerMetrics, PlayerProgress, PlayerState, PlayerLoadSource };
+export type { PlayerError, PlayerMessage, PlayerMetrics, PlayerProgress, PlayerResult, PlayerState, PlayerLoadSource };
 export { PLAYER_PROTOCOL_VERSION };
 
 export interface PlayerCallbacks {
@@ -46,6 +47,8 @@ export interface PlayerCallbacks {
     onPaused(paused: boolean): void;
     onError(error: PlayerError): void;
     onContextLost(): void;
+    /** The scenario reported a result (score 0..1). Only fires from the player's private port, while loading or running. */
+    onResult(result: PlayerResult): void;
 }
 
 export interface PlayerHostOptions {
@@ -298,6 +301,9 @@ export class PlayerHost {
                 break;
             case "metrics":
                 this._settleMeasure(session, null, message.metrics);
+                break;
+            case "result":
+                if (session.state === "loading" || session.state === "running") this._emit("onResult", { score: message.score, completed: message.completed });
                 break;
         }
     }

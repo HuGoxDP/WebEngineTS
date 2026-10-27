@@ -18,6 +18,17 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Added
 
+- **A scenario can report a result, and the host page receives it from the sandboxed player.**
+  `ScenarioBehaviour.reportResult({ score, completed? })` (protected) sends a score in 0..1 to the
+  host: out-of-range scores are clamped, a non-finite one is dropped, a report before `start()` or
+  after the scenario is destroyed is ignored, and a repeat of the previous report is not re-sent.
+  `Scenario.onResult` is the engine-side hook a host installs; the player installs it and forwards
+  a new protocol-v1 message `{ v: 1, type: "result", score, completed }`, which `PlayerHost` parses
+  like every other player message (never cast) and delivers to the new
+  `callbacks.onResult({ score, completed })`. The manifest gains an optional `graded?: boolean`
+  (a hint for the host; the loader passes it through and the engine never reads it).
+  `IScenarioResult` and `PlayerResult` are exported. Additive: protocol version stays 1.
+
 - **Prefab instances know their prefab, and keep knowing it through a save.**
   `GameObject.isPrefabInstance`, `prefabSource` and `prefabNodeId` say whether an object is the
   root of a prefab instance, which prefab, and which node of it each object is;
