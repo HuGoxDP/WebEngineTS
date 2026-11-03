@@ -27,6 +27,7 @@ export { Transform, Space } from "./core/Transform";
 export { Scene } from "./core/Scene";
 export { SceneManager, LoadSceneMode } from "./core/SceneManager";
 export { Application, GraphicsPowerPreference } from "./core/Application";
+export type { CaptureFrameOptions } from "./core/Application";
 export { BuildInfo } from "./core/BuildInfo";
 export type { IEngineBuildInfo } from "./core/BuildInfo";
 export { GraphicsAPI } from "./core/rendering/RenderBackend";

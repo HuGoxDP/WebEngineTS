@@ -19,14 +19,21 @@
 // ============================================================
 
 import {
+    DEFAULT_CAPTURE_QUALITY,
+    DEFAULT_CAPTURE_WIDTH,
+    MAX_CAPTURE_BYTES,
+    MAX_CAPTURE_WIDTH,
     MAX_TEXT_LENGTH,
+    PLAYER_FEATURE_CAPTURE,
     PLAYER_ALLOW,
     PLAYER_PROTOCOL_VERSION,
     PLAYER_SANDBOX_TOKENS,
     parseHello,
+    hasImageSignature,
     parsePlayerMessage,
     readUrl,
     type HostMessage,
+    type PlayerCaptureType,
     type PlayerError,
     type PlayerErrorCode,
     type PlayerLoadSource,
@@ -37,7 +44,7 @@ import {
     type PlayerState,
 } from "../protocol";
 
-export type { PlayerError, PlayerMessage, PlayerMetrics, PlayerProgress, PlayerResult, PlayerState, PlayerLoadSource };
+export type { PlayerCaptureType, PlayerError, PlayerMessage, PlayerMetrics, PlayerProgress, PlayerResult, PlayerState, PlayerLoadSource };
 export { PLAYER_PROTOCOL_VERSION };
 
 export interface PlayerCallbacks {
@@ -49,6 +56,15 @@ export interface PlayerCallbacks {
     onContextLost(): void;
     /** The scenario reported a result (score 0..1). Only fires from the player's private port, while loading or running. */
     onResult(result: PlayerResult): void;
+}
+
+export interface PlayerCaptureOptions {
+    /** `"image/png"` (default) or `"image/jpeg"`. */
+    type?: PlayerCaptureType;
+    /** Widest the image may be in pixels; larger frames are scaled down, aspect kept. Default 1920, at most 4096. */
+    maxWidth?: number;
+    /** JPEG quality 0..1; ignored for PNG. Default 0.92. */
+    quality?: number;
 }
 
 export interface PlayerHostOptions {
@@ -69,6 +85,8 @@ export interface PlayerHostOptions {
 
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 const DEFAULT_LOAD_TIMEOUT_MS = 60_000;
+/** How long a capture may take, from request to reply. */
+const CAPTURE_TIMEOUT_MS = 10_000;
 /** Slack added to a measurement's own length before the host gives up on its result. */
 const MEASURE_SLACK_MS = 15_000;
 
@@ -92,6 +110,8 @@ interface Session {
     state: PlayerState;
     load: Deferred<void>;
     measure: Deferred<PlayerMetrics> | null;
+    capture: { id: number; mime: PlayerCaptureType; pending: Deferred<Blob>; timer: ReturnType<typeof setTimeout> } | null;
+    features: readonly string[];
     timer: ReturnType<typeof setTimeout> | null;
     measureTimer: ReturnType<typeof setTimeout> | null;
     onWindowMessage: (event: MessageEvent) => void;
@@ -125,6 +145,7 @@ export class PlayerHost {
     private _session: Session | null = null;
     private _last: { source: PlayerLoadSource; diag: boolean } | null = null;
     private _disposed = false;
+    private _captureId = 0;
 
     /** @throws TypeError if `playerUrl`, `engineUrl` or `transcoderPath` is not an http(s) URL. */
     constructor(container: HTMLElement, options: PlayerHostOptions) {
@@ -190,6 +211,38 @@ export class PlayerHost {
         return pending.promise;
     }
 
+    /**
+     * Takes a still image of the scenario as it is now, paused or running, and resolves with a PNG (or JPEG) `Blob`.
+     * The image is data from the untrusted frame: it is size-capped (20 MB), checked against the file signature of
+     * the requested type, and re-wrapped with that type; it is never decoded here.
+     * Rejects when the scenario is not running, the host is disposed, a capture is already in flight, the player
+     * build predates capture, the options are invalid, the player reports a failure, the reply is unusable, or 10 s pass.
+     */
+    capture(options: PlayerCaptureOptions = {}): Promise<Blob> {
+        if (this._disposed) return Promise.reject(new Error("[PlayerHost] disposed."));
+        const session = this._session;
+        if (!session || session.state !== "running" || !session.port) return Promise.reject(new Error("[PlayerHost] capture() needs a running scenario."));
+        if (session.capture) return Promise.reject(new Error("[PlayerHost] a capture is already in progress."));
+        if (!session.features.includes(PLAYER_FEATURE_CAPTURE)) {
+            return Promise.reject(new Error("[PlayerHost] this player build does not support capture(); deploy a player from the same engine version as the host."));
+        }
+        const mime = options.type ?? "image/png";
+        if (mime !== "image/png" && mime !== "image/jpeg") return Promise.reject(new TypeError(`[PlayerHost] capture(): type must be "image/png" or "image/jpeg", got "${String(mime)}".`));
+        const maxWidth = options.maxWidth ?? DEFAULT_CAPTURE_WIDTH;
+        const quality = options.quality ?? DEFAULT_CAPTURE_QUALITY;
+        if (!Number.isFinite(maxWidth) || maxWidth < 1) return Promise.reject(new RangeError("[PlayerHost] capture(): maxWidth must be a finite number of at least 1."));
+        if (!Number.isFinite(quality)) return Promise.reject(new RangeError("[PlayerHost] capture(): quality must be finite."));
+
+        const id = this._captureId++;
+        const pending = defer<Blob>();
+        const timer = setTimeout(() => this._settleCapture(session, new Error(`[PlayerHost] the player did not answer capture() within ${CAPTURE_TIMEOUT_MS} ms.`)), CAPTURE_TIMEOUT_MS);
+        session.capture = { id, mime, pending, timer };
+        session.port.postMessage({
+            v: 1, type: "capture", id, mime, maxWidth: Math.min(MAX_CAPTURE_WIDTH, Math.round(maxWidth)), quality: Math.min(1, Math.max(0, quality)),
+        } satisfies HostMessage);
+        return pending.promise;
+    }
+
     /** Removes the frame and closes the channel. Pending promises reject; safe to call again. */
     dispose(): void {
         if (this._disposed) return;
@@ -206,7 +259,7 @@ export class PlayerHost {
 
         const frame = PlayerHost._createFrame(this._container, this._playerUrl);
         const session: Session = {
-            frame, port: null, state: "handshake", load: defer<void>(), measure: null,
+            frame, port: null, state: "handshake", load: defer<void>(), measure: null, capture: null, features: [],
             timer: null, measureTimer: null, onWindowMessage: event => this._onWindowMessage(session, event), warnedMalformed: false,
         };
         this._session = session;
@@ -245,6 +298,7 @@ export class PlayerHost {
             return this._fail(session, "origin", `the player reported origin "${hello.message.origin}" (message origin "${event.origin}"), expected "${this._expectedOrigin}".`);
         }
 
+        session.features = hello.message.features ?? [];
         const target = session.frame.contentWindow;
         if (!target) return this._fail(session, "handshake", "the player frame has no window.");
         this._window.removeEventListener("message", session.onWindowMessage);
@@ -305,6 +359,12 @@ export class PlayerHost {
             case "result":
                 if (session.state === "loading" || session.state === "running") this._emit("onResult", { score: message.score, completed: message.completed });
                 break;
+            case "capture":
+                void this._acceptCapture(session, message.id, message.blob);
+                break;
+            case "capture-failed":
+                if (session.capture?.id === message.id) this._settleCapture(session, new Error(`[PlayerHost] capture failed: ${message.message}`));
+                break;
         }
     }
 
@@ -330,6 +390,7 @@ export class PlayerHost {
         this._window.removeEventListener("message", session.onWindowMessage);
         this._clearTimer(session);
         this._settleMeasure(session, reason);
+        this._settleCapture(session, reason);
         if (session.port) {
             session.port.onmessage = null;
             session.port.close();
@@ -364,6 +425,35 @@ export class PlayerHost {
     private _clearTimer(session: Session): void {
         if (session.timer !== null) clearTimeout(session.timer);
         session.timer = null;
+    }
+
+    /** Checks a reply from the untrusted frame against the request it claims to answer, then hands the bytes over. */
+    private async _acceptCapture(session: Session, id: number, blob: Blob): Promise<void> {
+        const request = session.capture;
+        if (!request || request.id !== id) return;
+        try {
+            if (blob.size === 0 || blob.size > MAX_CAPTURE_BYTES) throw new Error(`the image is ${blob.size} bytes; the accepted range is 1..${MAX_CAPTURE_BYTES}.`);
+            const head = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+            if (!hasImageSignature(head, request.mime)) throw new Error(`the reply is not a ${request.mime} file.`);
+            // The frame chose the Blob's type string; the host decides it.
+            this._settleCapture(session, null, new Blob([blob], { type: request.mime }), id);
+        } catch (error) {
+            this._settleCapture(session, new Error(`[PlayerHost] capture rejected: ${error instanceof Error ? error.message : String(error)}`), undefined, id);
+        }
+    }
+
+    /** `id` guards the asynchronous path: a verdict for request N must not settle request N+1. */
+    private _settleCapture(session: Session, error: Error | null, image?: Blob, id?: number): void {
+        const request = session.capture;
+        if (!request || (id !== undefined && request.id !== id)) return;
+        session.capture = null;
+        clearTimeout(request.timer);
+        if (error) {
+            request.pending.reject(error);
+            request.pending.promise.catch(() => undefined);
+        } else if (image) {
+            request.pending.resolve(image);
+        }
     }
 
     private _settleMeasure(session: Session, error: Error | null, metrics?: PlayerMetrics): void {

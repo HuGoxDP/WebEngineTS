@@ -19,6 +19,9 @@
 //   - a port from anything but `parent`, a second port, a second load;
 //   - any message that does not parse (protocol.ts).
 //
+// Capture: `capture` renders the scenario once on demand (Application.captureFrame), so a paused frame is the real last
+// frame and normal rendering pays nothing; the image goes back as a Blob over the same port.
+//
 // Keyboard: with the frame focused the host page never sees a key, so Space (no modifier, not a repeat, not in an
 // editable element) toggles pause here and reports `paused` over the port - the same message the host's own
 // pause/resume produces. It is not swallowed: the engine's Input still sees it.
@@ -26,7 +29,9 @@
 
 import {
     PLAYER_PROTOCOL_VERSION,
+    MAX_CAPTURE_BYTES,
     MAX_TEXT_LENGTH,
+    PLAYER_FEATURE_CAPTURE,
     parseHostMessage,
     type HostMessage,
     type PlayerLoadSource,
@@ -92,7 +97,7 @@ export function bootPlayer(env: PlayerEnv): BootResult {
     };
     win.addEventListener("message", onWindowMessage);
     session.watchErrors();
-    win.parent.postMessage({ v: PLAYER_PROTOCOL_VERSION, type: "hello", origin: win.origin }, "*");
+    win.parent.postMessage({ v: PLAYER_PROTOCOL_VERSION, type: "hello", origin: win.origin, features: [PLAYER_FEATURE_CAPTURE] }, "*");
     return { ok: true };
 }
 
@@ -105,6 +110,8 @@ class PlayerSession {
     private _savedTimeScale = 1;
     private _diag = false;
     private _measuring = false;
+    private _app: InstanceType<PlayerEngine["Application"]> | null = null;
+    private _capturing = false;
     private _consoleErrors = 0;
     private _reportedRuntimeErrors = 0;
     private _loadStartedAt = 0;
@@ -168,6 +175,9 @@ class PlayerSession {
             case "measure":
                 if (this._running && !this._measuring) void this._measure(message.seconds);
                 break;
+            case "capture":
+                void this._capture(message);
+                break;
         }
     }
 
@@ -190,6 +200,7 @@ class PlayerSession {
 
             const canvas = this._createCanvas();
             const app = new engine.Application(canvas);
+            this._app = app;
             const onProgress = (p: { progress: number; currentOperation: string }): void =>
                 this._post({ v: 1, type: "progress", progress: p.progress, operation: p.currentOperation });
             await PlayerSession._run(app, message.source, onProgress);
@@ -286,6 +297,25 @@ class PlayerSession {
         }
         this._paused = paused;
         this._post({ v: 1, type: "paused", value: paused });
+    }
+
+    /** Answers every request, success or not: the host is waiting on this id. */
+    private async _capture(message: Extract<HostMessage, { type: "capture" }>): Promise<void> {
+        const { id } = message;
+        const fail = (text: string): void => this._post({ v: 1, type: "capture-failed", id, message: text.slice(0, MAX_TEXT_LENGTH) });
+        const app = this._app;
+        if (!app || !this._running) return fail("no scenario is running.");
+        if (this._capturing) return fail("a capture is already in progress.");
+        this._capturing = true;
+        try {
+            const blob = await app.captureFrame({ maxWidth: message.maxWidth, type: message.mime, quality: message.quality });
+            if (blob.size > MAX_CAPTURE_BYTES) fail(`the image is ${blob.size} bytes, over the ${MAX_CAPTURE_BYTES} byte limit; ask for a smaller maxWidth or JPEG.`);
+            else this._post({ v: 1, type: "capture", id, blob });
+        } catch (error) {
+            fail(errorText(error));
+        } finally {
+            this._capturing = false;
+        }
     }
 
     private async _measure(seconds: number): Promise<void> {

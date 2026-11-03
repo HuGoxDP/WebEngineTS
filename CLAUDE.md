@@ -129,6 +129,13 @@ npm run clean          # rm -rf dist
   **Scenario results:** `ScenarioBehaviour.reportResult` (guarded: clamp, drop non-finite, ignore outside
   start..destroy, de-duplicate) -> `Scenario.onResult` (host hook, installed by the player) -> protocol `result`
   message -> `PlayerHost` `callbacks.onResult`. Pinned by `tests/ScenarioResult.test.ts` and the player tests.
+  **Frame capture:** `PlayerHost.capture({ type?, maxWidth?, quality? }): Promise<Blob>` -> protocol `capture` ->
+  `PlayerSession._capture` -> `Application.captureFrame` (renders once on demand, copies in the same task, composites the
+  UI canvases; works while paused; no `preserveDrawingBuffer`) -> `capture` reply carrying a `Blob`. Additive in protocol
+  v1: the player advertises `hello.features: ["capture"]`, the host refuses to send to a player that did not. The reply is
+  untrusted: 20 MB cap, PNG/JPEG signature checked, MIME re-assigned by the host, request ids so a late reply never
+  settles a newer capture. Pinned by `tests/PlayerHost.test.ts`, `PlayerRuntime.test.ts`, `PlayerProtocol.test.ts`,
+  `ApplicationCaptureFrame.test.ts`. Design: `design/player-capture-discovery.md`.
 - Tests: Vitest (`npm test` → `vitest run`); specs live in `tests/*.test.ts`
 
 ## Source Layout

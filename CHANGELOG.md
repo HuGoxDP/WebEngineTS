@@ -18,6 +18,22 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Added
 
+- **The host page can take a still image of the running scenario.** `PlayerHost.capture(options?)` resolves with a
+  PNG `Blob` (or JPEG with `{ type: "image/jpeg", quality }`), scaled down to `maxWidth` (default 1920, at most 4096,
+  aspect kept, never upscaled). It works while the scenario is **paused**, which is how a frame is chosen: the player
+  renders the scene once on demand and copies it in the same task, so the picture is the real last frame, not a blank
+  drawing buffer, and normal rendering pays nothing (no `preserveDrawingBuffer`). The 2D UI canvases are composited
+  over the 3D view. It rejects when no scenario is running, after `dispose()`, while another capture is in flight, when
+  the player answers nothing within 10 s, when the player reports a failure, and when the reply is unusable. The image
+  is data from the untrusted frame: the host caps it at 20 MB, checks the PNG/JPEG signature against the requested
+  type, re-wraps it with that MIME and never decodes it. The engine side is the new public
+  `Application.captureFrame(options?)` (`CaptureFrameOptions` is exported). **Additive: protocol version stays 1.**
+  New messages `capture` (host to player) and `capture` / `capture-failed` (player to host); the player's `hello`
+  gains `features: ["capture"]`, and a host rejects `capture()` at once, with a clear error, when the player did not
+  list it (a player built before this change would drop the message and let it time out). An older host with a newer
+  player just never asks. Deploy `player.html`/`player.js` and `player-host` from the same engine version to use it.
+  No change to `player.nginx.conf`, the sandbox tokens or the CSP.
+
 - **A scenario can report a result, and the host page receives it from the sandboxed player.**
   `ScenarioBehaviour.reportResult({ score, completed? })` (protected) sends a score in 0..1 to the
   host: out-of-range scores are clamped, a non-finite one is dropped, a report before `start()` or

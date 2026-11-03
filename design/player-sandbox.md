@@ -399,6 +399,11 @@ exact `sandbox`/`allow`, progress, metrics, pause/resume, **restart gives a new 
 running again after the restart, no errors, and dispose removing the frame. Chromium 151, Firefox 153 and WebKit 26.5
 all pass them. The Phase 1 spike stays behind `--spike` / `--dirty`.
 
+**Frame capture (added later, still protocol v1).** `PlayerHost.capture()` asks the player for a still image; the
+design, the compatibility decision (`hello.features`, no version bump) and the trust rules for the reply are in
+[`player-capture-discovery.md`](player-capture-discovery.md). It needs nothing from the headers above: the image is a
+`Blob` structured-cloned over the private port, never a navigation, a `fetch` or a `blob:` URL.
+
 Decisions that are not in the plan text:
 
 - The host checks **both** the origin the browser stamped on the `hello` (`event.origin`) and the one the player

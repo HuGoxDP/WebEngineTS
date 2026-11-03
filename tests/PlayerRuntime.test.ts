@@ -41,6 +41,8 @@ function makeWindow(over: { origin?: string; topLevel?: boolean } = {}) {
     return { win, parent, timers, canvases, document, consoleError };
 }
 
+const PNG_HEAD = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
 function makeEngine(options: { frameCount?: number } = {}) {
     const log: string[] = [];
     const state = { frameCount: options.frameCount ?? 0, timeScale: 1 };
@@ -57,8 +59,10 @@ function makeEngine(options: { frameCount?: number } = {}) {
         log.push("scenario-loading");
         onProgress({ progress: 0.5, currentOperation: "halfway" });
     });
+    const captureFrame = vi.fn(async (_options: unknown) => new Blob([PNG_HEAD, "pixels"], { type: "image/png" }));
     class Application {
         constructor(public canvas: unknown) { log.push("app"); }
+        captureFrame = captureFrame;
         loadScenarioFromBuffer = load;
         loadScenarioFromManifest = load;
     }
@@ -72,7 +76,7 @@ function makeEngine(options: { frameCount?: number } = {}) {
             set timeScale(value: number) { state.timeScale = value; },
         },
     };
-    return { engine: engine as unknown as PlayerEngine, log, state, profiler, load, scenario };
+    return { engine: engine as unknown as PlayerEngine, log, state, profiler, load, scenario, captureFrame };
 }
 
 let openPorts: MessagePort[] = [];
@@ -142,7 +146,7 @@ describe("DW-3.2: the handshake, player side", () => {
         const p = startPlayer();
 
         expect(p.result).toEqual({ ok: true });
-        expect(p.parent.posted).toEqual([{ data: { v: 1, type: "hello", origin: "null" }, targetOrigin: "*", transfer: [] }]);
+        expect(p.parent.posted).toEqual([{ data: { v: 1, type: "hello", origin: "null", features: ["capture"] }, targetOrigin: "*", transfer: [] }]);
         expect(p.win.listenerCount("message")).toBe(1);
     });
 
@@ -659,5 +663,91 @@ describe("DW-5.U1: Space pauses and resumes inside the frame", () => {
         expect(pointer.e.engine.AudioManager.resume).toHaveBeenCalledTimes(1);
         expect(pointer.fromPlayer).toEqual([]);
         expect(pointer.win.listenerCount("keydown")).toBe(1);
+    });
+});
+
+describe("frame capture", () => {
+    const request = (id: number, over: Record<string, unknown> = {}) => ({ v: 1, type: "capture", id, maxWidth: 1280, mime: "image/jpeg", quality: 0.8, ...over });
+    const replies = (p: { fromPlayer: any[] }) => p.fromPlayer.filter(m => m.type === "capture" || m.type === "capture-failed");
+
+    test("capture renders through Application.captureFrame with the requested options and replies with the blob, by id", async () => {
+        const p = await runningPlayer();
+        p.channel.port1.postMessage(request(7));
+        await vi.waitFor(() => expect(replies(p)).toHaveLength(1));
+
+        expect(p.e.captureFrame).toHaveBeenCalledWith({ maxWidth: 1280, type: "image/jpeg", quality: 0.8 });
+        expect(replies(p)[0]).toMatchObject({ v: 1, type: "capture", id: 7 });
+        expect(replies(p)[0].blob).toBeInstanceOf(Blob);
+    });
+
+    test("capture works while paused: it neither resumes the scenario nor changes timeScale", async () => {
+        const p = await runningPlayer();
+        p.channel.port1.postMessage({ v: 1, type: "pause" });
+        await vi.waitFor(() => expect(p.fromPlayer.some(m => m.type === "paused" && m.value)).toBe(true));
+        p.channel.port1.postMessage(request(1));
+        await vi.waitFor(() => expect(replies(p)).toHaveLength(1));
+
+        expect(replies(p)[0].type).toBe("capture");
+        expect(p.e.state.timeScale).toBe(0);
+        expect(p.fromPlayer.filter(m => m.type === "paused")).toHaveLength(1);
+    });
+
+    test("capture before the scenario runs is answered with capture-failed, not silence", async () => {
+        const p = startPlayer();
+        p.offerPort();
+        p.channel.port1.postMessage(request(3));
+        await vi.waitFor(() => expect(replies(p)).toHaveLength(1));
+
+        expect(replies(p)[0]).toMatchObject({ type: "capture-failed", id: 3 });
+        expect(p.e.captureFrame).not.toHaveBeenCalled();
+    });
+
+    test("a second capture while one is encoding fails; the first still completes", async () => {
+        let release!: (blob: Blob) => void;
+        const e = makeEngine();
+        e.captureFrame.mockImplementationOnce(() => new Promise<Blob>(resolve => { release = resolve; }));
+        const p = await runningPlayer({ engine: e });
+        p.channel.port1.postMessage(request(1));
+        await vi.waitFor(() => expect(e.captureFrame).toHaveBeenCalledTimes(1));
+        p.channel.port1.postMessage(request(2));
+        await vi.waitFor(() => expect(replies(p)).toHaveLength(1));
+        expect(replies(p)[0]).toMatchObject({ type: "capture-failed", id: 2 });
+
+        release(new Blob([PNG_HEAD]));
+        await vi.waitFor(() => expect(replies(p)).toHaveLength(2));
+        expect(replies(p)[1]).toMatchObject({ type: "capture", id: 1 });
+    });
+
+    test("an encoder failure is reported as capture-failed and the next capture can succeed", async () => {
+        const e = makeEngine();
+        e.captureFrame.mockRejectedValueOnce(new Error("context lost"));
+        const p = await runningPlayer({ engine: e });
+        p.channel.port1.postMessage(request(1));
+        await vi.waitFor(() => expect(replies(p)).toHaveLength(1));
+        expect(replies(p)[0]).toMatchObject({ type: "capture-failed", id: 1 });
+        expect(replies(p)[0].message).toContain("context lost");
+
+        p.channel.port1.postMessage(request(2));
+        await vi.waitFor(() => expect(replies(p)).toHaveLength(2));
+        expect(replies(p)[1]).toMatchObject({ type: "capture", id: 2 });
+    });
+
+    test("an image over the size cap is not sent", async () => {
+        const e = makeEngine();
+        e.captureFrame.mockResolvedValueOnce({ size: 21 * 1024 * 1024 } as unknown as Blob);
+        const p = await runningPlayer({ engine: e });
+        p.channel.port1.postMessage(request(1));
+        await vi.waitFor(() => expect(replies(p)).toHaveLength(1));
+        expect(replies(p)[0]).toMatchObject({ type: "capture-failed", id: 1 });
+    });
+
+    test("a malformed capture request is dropped without calling the engine", async () => {
+        vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const p = await runningPlayer();
+        p.channel.port1.postMessage(request(1, { mime: "text/html" }));
+        p.channel.port1.postMessage(request(-1));
+        await flush();
+        expect(p.e.captureFrame).not.toHaveBeenCalled();
+        expect(replies(p)).toEqual([]);
     });
 });

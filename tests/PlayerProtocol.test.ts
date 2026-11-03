@@ -8,7 +8,7 @@
 import { describe, expect, test } from "vitest";
 import {
     MAX_TEXT_LENGTH, MAX_URL_LENGTH, PLAYER_ALLOW, PLAYER_SANDBOX_TOKENS, parseHello, parseHostMessage, parsePlayerMessage,
-    readNumber, readText, readUrl,
+    readNumber, readText, readUrl, hasImageSignature, MAX_CAPTURE_WIDTH,
 } from "../src/player/protocol";
 
 describe("field readers", () => {
@@ -146,5 +146,58 @@ describe("parseHostMessage", () => {
         expect(parseHostMessage({ v: 2, type: "pause" }).ok).toBe(false);
         expect(parseHostMessage({ v: 1, type: "format-disk" }).ok).toBe(false);
         for (const bad of [null, 5, "pause", []]) expect(parseHostMessage(bad).ok).toBe(false);
+    });
+});
+
+describe("capture messages", () => {
+    const req = { v: 1, type: "capture", id: 4, maxWidth: 800, mime: "image/png", quality: 0.5 };
+
+    test("host capture request parses; maxWidth is clamped and rounded, quality clamped", () => {
+        expect(parseHostMessage(req)).toEqual({ ok: true, message: req });
+        expect(parseHostMessage({ ...req, maxWidth: 1e9, quality: 7 })).toMatchObject({ ok: true, message: { maxWidth: MAX_CAPTURE_WIDTH, quality: 1 } });
+        expect(parseHostMessage({ ...req, maxWidth: 0, quality: -1 })).toMatchObject({ ok: true, message: { maxWidth: 16, quality: 0 } });
+        expect(parseHostMessage({ ...req, maxWidth: 99.6 })).toMatchObject({ ok: true, message: { maxWidth: 100 } });
+    });
+
+    test("host capture request with a bad id, mime or number is rejected", () => {
+        for (const bad of [{ id: -1 }, { id: 1.5 }, { id: "1" }, { id: undefined }, { mime: "image/gif" }, { mime: undefined }, { maxWidth: Number.NaN }, { maxWidth: "9" }, { quality: Infinity }]) {
+            expect(parseHostMessage({ ...req, ...bad }).ok).toBe(false);
+        }
+    });
+
+    test("player capture reply parses with a Blob; a non-Blob body for a valid id becomes capture-failed", () => {
+        const blob = new Blob(["x"]);
+        expect(parsePlayerMessage({ v: 1, type: "capture", id: 2, blob })).toEqual({ ok: true, message: { v: 1, type: "capture", id: 2, blob } });
+        for (const body of ["data:image/png;base64,AAAA", { size: 5 }, null, new ArrayBuffer(8)]) {
+            expect(parsePlayerMessage({ v: 1, type: "capture", id: 2, blob: body })).toMatchObject({ ok: true, message: { type: "capture-failed", id: 2 } });
+        }
+        expect(parsePlayerMessage({ v: 1, type: "capture", id: -3, blob }).ok).toBe(false);
+        expect(parsePlayerMessage({ v: 1, type: "capture", blob }).ok).toBe(false);
+    });
+
+    test("capture-failed needs an id and a message, and truncates the text", () => {
+        expect(parsePlayerMessage({ v: 1, type: "capture-failed", id: 1, message: "x".repeat(9999) })).toMatchObject({ ok: true, message: { id: 1 } });
+        expect((parsePlayerMessage({ v: 1, type: "capture-failed", id: 1, message: "x".repeat(9999) }) as any).message.message).toHaveLength(MAX_TEXT_LENGTH);
+        expect(parsePlayerMessage({ v: 1, type: "capture-failed", id: 1 }).ok).toBe(false);
+        expect(parsePlayerMessage({ v: 1, type: "capture-failed", message: "m" }).ok).toBe(false);
+    });
+
+    test("hello features: absent stays absent, a list is kept bounded and string-only", () => {
+        expect(parseHello({ v: 1, type: "hello", origin: "null", features: ["capture", 5, null] })).toEqual({ ok: true, message: { v: 1, origin: "null", features: ["capture"] } });
+        expect(parseHello({ v: 1, type: "hello", origin: "null", features: "capture" })).toEqual({ ok: true, message: { v: 1, origin: "null" } });
+        const many = parseHello({ v: 1, type: "hello", origin: "null", features: Array.from({ length: 100 }, () => "x".repeat(500)) });
+        expect(many.ok && many.message.features).toHaveLength(16);
+        expect(many.ok && many.message.features![0]).toHaveLength(64);
+    });
+
+    test("hasImageSignature recognises PNG and JPEG headers and nothing else", () => {
+        const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+        const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+        expect(hasImageSignature(png, "image/png")).toBe(true);
+        expect(hasImageSignature(jpg, "image/jpeg")).toBe(true);
+        expect(hasImageSignature(jpg, "image/png")).toBe(false);
+        expect(hasImageSignature(png, "image/jpeg")).toBe(false);
+        expect(hasImageSignature(new TextEncoder().encode("<html><script>"), "image/png")).toBe(false);
+        expect(hasImageSignature(new Uint8Array([0x89, 0x50]), "image/png")).toBe(false);
     });
 });

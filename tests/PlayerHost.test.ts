@@ -629,3 +629,199 @@ describe("commands and measure", () => {
         await settled;
     });
 });
+
+describe("capture()", () => {
+    const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    const png = (extra = 4, type = "image/png") => new Blob([new Uint8Array([...PNG, ...new Array(extra).fill(7)])], { type });
+    const jpeg = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2])], { type: "image/jpeg" });
+
+    /** A running host whose player advertised `capture` (or `features`, when given). */
+    async function capturing(features: unknown = ["capture"]): Promise<{ r: Rig; port: MessagePort }> {
+        const r = rig();
+        const loaded = r.host.load(blobSource(), { diag: false });
+        loaded.catch(() => undefined);
+        sayHello(r, { data: { v: 1, type: "hello", origin: "null", ...(features === null ? {} : { features }) } });
+        const port = playerPort(r);
+        await vi.waitFor(() => expect(r.received.some(m => m.type === "load")).toBe(true));
+        port.postMessage({ v: 1, type: "running" });
+        await loaded;
+        r.received.length = 0;
+        return { r, port };
+    }
+    const lastRequest = async (r: Rig) => {
+        await vi.waitFor(() => expect(r.received.some(m => m.type === "capture")).toBe(true));
+        return r.received.find(m => m.type === "capture");
+    };
+
+    test("happy path: sends a PNG request with the defaults and resolves with the image", async () => {
+        const { r, port } = await capturing();
+        const result = r.host.capture();
+        const request = await lastRequest(r);
+        expect(request).toEqual({ v: 1, type: "capture", id: request.id, mime: "image/png", maxWidth: 1920, quality: 0.92 });
+
+        port.postMessage({ v: 1, type: "capture", id: request.id, blob: png() });
+        const image = await result;
+        expect(image).toBeInstanceOf(Blob);
+        expect(image.type).toBe("image/png");
+        expect(image.size).toBe(PNG.length + 4);
+    });
+
+    test("options: JPEG, maxWidth and quality are forwarded, bounded and rounded", async () => {
+        const { r, port } = await capturing();
+        const pending = r.host.capture({ type: "image/jpeg", maxWidth: 99_999, quality: 5 });
+        const request = await lastRequest(r);
+        expect(request).toMatchObject({ mime: "image/jpeg", maxWidth: 4096, quality: 1 });
+        port.postMessage({ v: 1, type: "capture", id: request.id, blob: jpeg() });
+        expect((await pending).type).toBe("image/jpeg");
+    });
+
+    test("works while the scenario is paused", async () => {
+        const { r, port } = await capturing();
+        r.host.pause();
+        port.postMessage({ v: 1, type: "paused", value: true });
+        await vi.waitFor(() => expect(r.calls.paused).toEqual([true]));
+
+        const pending = r.host.capture();
+        const request = await lastRequest(r);
+        port.postMessage({ v: 1, type: "capture", id: request.id, blob: png() });
+        expect((await pending).size).toBeGreaterThan(0);
+    });
+
+    test("ids differ between captures, and the reply type string from the frame is not trusted", async () => {
+        const { r, port } = await capturing();
+        const first = r.host.capture();
+        const a = await lastRequest(r);
+        port.postMessage({ v: 1, type: "capture", id: a.id, blob: png(4, "text/html") });
+        expect((await first).type).toBe("image/png");
+
+        r.received.length = 0;
+        const second = r.host.capture();
+        const b = await lastRequest(r);
+        expect(b.id).not.toBe(a.id);
+        port.postMessage({ v: 1, type: "capture", id: b.id, blob: png() });
+        await second;
+    });
+
+    test("rejects when no scenario is running (before load, while loading)", async () => {
+        const r = rig();
+        await expect(r.host.capture()).rejects.toThrow(/running scenario/);
+        void r.host.load(blobSource(), { diag: false }).catch(() => undefined);
+        await expect(r.host.capture()).rejects.toThrow(/running scenario/);
+    });
+
+    test("rejects after dispose, and a pending capture rejects when the host is disposed", async () => {
+        const { r } = await capturing();
+        const pending = r.host.capture();
+        await lastRequest(r);
+        r.host.dispose();
+        await expect(pending).rejects.toThrow(/disposed/);
+        await expect(r.host.capture()).rejects.toThrow(/disposed/);
+    });
+
+    test("rejects a second capture while one is in flight, without disturbing the first", async () => {
+        const { r, port } = await capturing();
+        const first = r.host.capture();
+        const request = await lastRequest(r);
+        await expect(r.host.capture()).rejects.toThrow(/already in progress/);
+        port.postMessage({ v: 1, type: "capture", id: request.id, blob: png() });
+        await expect(first).resolves.toBeInstanceOf(Blob);
+        expect(r.received.filter(m => m.type === "capture")).toHaveLength(1);
+    });
+
+    test("rejects after 10 s, and a late reply cannot satisfy the next capture", async () => {
+        const { r, port } = await capturing();
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        const first = r.host.capture();
+        const assertion = expect(first).rejects.toThrow(/within 10000 ms/);
+        await vi.advanceTimersByTimeAsync(10_000);
+        await assertion;
+        vi.useRealTimers();
+
+        const stale = (await lastRequest(r)).id;
+        r.received.length = 0;
+        const second = r.host.capture();
+        const fresh = await lastRequest(r);
+        expect(fresh.id).not.toBe(stale);
+        port.postMessage({ v: 1, type: "capture", id: stale, blob: png() });
+        await flush();
+        port.postMessage({ v: 1, type: "capture", id: fresh.id, blob: jpeg().slice(0, 0) });
+        await expect(second).rejects.toThrow(/capture rejected/);
+    });
+
+    test("a player that did not advertise capture is refused at once, without sending anything", async () => {
+        for (const features of [null, [], ["other"]]) {
+            const { r } = await capturing(features);
+            await expect(r.host.capture()).rejects.toThrow(/does not support capture/);
+            await flush();
+            expect(r.received.some(m => m.type === "capture")).toBe(false);
+        }
+    });
+
+    test("invalid options reject and send nothing", async () => {
+        const { r } = await capturing();
+        await expect(r.host.capture({ type: "image/gif" as never })).rejects.toThrow(TypeError);
+        await expect(r.host.capture({ maxWidth: Number.NaN })).rejects.toThrow(RangeError);
+        await expect(r.host.capture({ maxWidth: 0 })).rejects.toThrow(RangeError);
+        await expect(r.host.capture({ quality: Infinity })).rejects.toThrow(RangeError);
+        await flush();
+        expect(r.received.some(m => m.type === "capture")).toBe(false);
+        const ok = r.host.capture();
+        await lastRequest(r);
+        void ok.catch(() => undefined);
+    });
+
+    test("capture-failed from the player rejects with its message; a failure for another id is ignored", async () => {
+        const { r, port } = await capturing();
+        const pending = r.host.capture();
+        const request = await lastRequest(r);
+        port.postMessage({ v: 1, type: "capture-failed", id: request.id + 100, message: "other" });
+        port.postMessage({ v: 1, type: "capture-failed", id: request.id, message: "context lost" });
+        await expect(pending).rejects.toThrow(/capture failed: context lost/);
+        // The host is usable again afterwards.
+        const again = r.host.capture();
+        await vi.waitFor(() => expect(r.received.filter(m => m.type === "capture")).toHaveLength(2));
+        void again.catch(() => undefined);
+    });
+
+    test("an oversized image is rejected (20 MB cap)", async () => {
+        const { r, port } = await capturing();
+        const pending = r.host.capture();
+        const request = await lastRequest(r);
+        const big = new Uint8Array(20 * 1024 * 1024 + 1);
+        big.set(PNG);
+        port.postMessage({ v: 1, type: "capture", id: request.id, blob: new Blob([big], { type: "image/png" }) });
+        await expect(pending).rejects.toThrow(/capture rejected: the image is 20971521 bytes/);
+    });
+
+    test("a reply that is not the requested image type is rejected: HTML, wrong signature, empty", async () => {
+        for (const bad of [new Blob(["<script>alert(1)</script>"], { type: "image/png" }), jpeg(), new Blob([])]) {
+            const { r, port } = await capturing();
+            const pending = r.host.capture({ type: "image/png" });
+            const request = await lastRequest(r);
+            port.postMessage({ v: 1, type: "capture", id: request.id, blob: bad });
+            await expect(pending).rejects.toThrow(/capture rejected/);
+        }
+    });
+
+    test("a reply whose image is not a Blob (data URL, buffer) rejects fast instead of timing out", async () => {
+        const { r, port } = await capturing();
+        const pending = r.host.capture();
+        const request = await lastRequest(r);
+        port.postMessage({ v: 1, type: "capture", id: request.id, blob: "data:image/png;base64,iVBOR" });
+        await expect(pending).rejects.toThrow(/not an image blob/);
+    });
+
+    test("a reply with no valid id, or with no capture pending, is ignored", async () => {
+        vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const { r, port } = await capturing();
+        port.postMessage({ v: 1, type: "capture", id: 0, blob: png() });
+        port.postMessage({ v: 1, type: "capture", blob: png() });
+        await flush();
+        const pending = r.host.capture();
+        const request = await lastRequest(r);
+        port.postMessage({ v: 1, type: "capture", id: "x", blob: png() });
+        await flush();
+        port.postMessage({ v: 1, type: "capture", id: request.id, blob: png() });
+        await expect(pending).resolves.toBeInstanceOf(Blob);
+    });
+});

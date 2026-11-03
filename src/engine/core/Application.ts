@@ -46,6 +46,16 @@ export { GraphicsPowerPreference } from "./rendering/RenderBackend.ts";
 /** Cleared to this when the scene has no camera, so a blank screen is legible. */
 const _noCameraColor = new Color(0, 0, 0.13, 1);
 
+/** Options of {@link Application.captureFrame}. */
+export interface CaptureFrameOptions {
+    /** Widest the image may be, in pixels; a larger frame is scaled down with its aspect kept, never up. Default 1920. */
+    maxWidth?: number;
+    /** Encoding. Default `"image/png"`. */
+    type?: "image/png" | "image/jpeg";
+    /** JPEG quality 0..1; ignored for PNG. Default 0.92. */
+    quality?: number;
+}
+
 /**
  * The main engine entry point and game loop.
  *
@@ -274,6 +284,62 @@ export class Application {
 
         // Expose to diagnostics (MemoryProfiler) without circular imports
         (globalThis as any).__webengine_application__ = this;
+    }
+
+    // ==================== PUBLIC: FRAME CAPTURE ====================
+
+    /**
+     * Takes a still image of what the scenario currently shows: the 3D view with the UI canvases composited on top.
+     *
+     * @remarks
+     * Renders the scene once, right now, and copies the result in the same task. A WebGL drawing buffer is cleared
+     * once the browser has shown it, so reading the canvas at an arbitrary moment (while the scenario is paused, say)
+     * would give a blank image; rendering on demand needs no `preserveDrawingBuffer`, which would tax every frame of
+     * every session. Costs nothing between captures.
+     *
+     * @returns a PNG (or JPEG) {@link Blob}.
+     * @throws (as a rejection) when there is no DOM, the canvas has no size, or the graphics context is lost.
+     */
+    public captureFrame(options: CaptureFrameOptions = {}): Promise<Blob> {
+        try {
+            return this._capture(options);
+        } catch (error) {
+            return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+        }
+    }
+
+    private _capture(options: CaptureFrameOptions): Promise<Blob> {
+        if (typeof document === "undefined") throw new Error("[Application] captureFrame() needs a DOM.");
+        const source = this.canvas;
+        if (!(source.width > 0 && source.height > 0)) throw new Error("[Application] captureFrame(): the canvas has no size.");
+        if (this._internalThreeRenderer?.getContext().isContextLost()) throw new Error("[Application] captureFrame(): the graphics context is lost.");
+
+        const type = options.type === "image/jpeg" ? "image/jpeg" : "image/png";
+        const maxWidth = Number.isFinite(options.maxWidth) && options.maxWidth! >= 1 ? options.maxWidth! : 1920;
+        const scale = Math.min(1, maxWidth / source.width);
+        const width = Math.max(1, Math.round(source.width * scale));
+        const height = Math.max(1, Math.round(source.height * scale));
+
+        const out = document.createElement("canvas");
+        out.width = width;
+        out.height = height;
+        const ctx = out.getContext("2d");
+        if (!ctx) throw new Error("[Application] captureFrame(): no 2D context to compose the image.");
+
+        this._render();
+        Canvas._renderAll();
+        if (type === "image/jpeg") {
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, width, height);
+        }
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(source, 0, 0, width, height);
+        for (const surface of Canvas._overlaySurfaces()) ctx.drawImage(surface, 0, 0, width, height);
+
+        const quality = Number.isFinite(options.quality) ? Math.min(1, Math.max(0, options.quality!)) : 0.92;
+        return new Promise<Blob>((resolve, reject) => {
+            out.toBlob(blob => (blob ? resolve(blob) : reject(new Error("[Application] captureFrame(): the browser could not encode the image."))), type, quality);
+        });
     }
 
     // ==================== PUBLIC: GAME LOOP ====================

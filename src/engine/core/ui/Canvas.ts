@@ -160,6 +160,19 @@ export class Canvas extends Behaviour {
 
     /**
      * @internal
+     * The 2D surfaces of the active canvases, back-to-front — what a frame capture composites over the 3D image.
+     * Allocates; for on-demand use only, never the frame loop.
+     */
+    public static _overlaySurfaces(): HTMLCanvasElement[] {
+        const surfaces: HTMLCanvasElement[] = [];
+        for (const c of Canvas._sortedInstances()) {
+            if (c.isActiveAndEnabled && c._htmlCanvas) surfaces.push(c._htmlCanvas);
+        }
+        return surfaces;
+    }
+
+    /**
+     * @internal
      * Active canvases ordered back-to-front by {@link sortingOrder}.
      */
     public static _sortedInstances(): readonly Canvas[] {
