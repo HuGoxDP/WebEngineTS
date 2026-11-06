@@ -185,6 +185,20 @@ npm run clean          # rm -rf dist
   reads it: `LayoutGroup` → `ContentSizeFitter` → `ScrollRect` → `EventSystem` →
   `Selectable` (transitions) → `Canvas._renderAll`.
 
+## Knowledge graph (graphify)
+
+Applies only if `graphify-out/graph.json` exists in this checkout (git-ignored, code-only AST graph). Query it before grepping; run from here:
+
+- `graphify explain "SceneSerializer.ts::SceneSerializer"` — file + line + connections of one symbol
+- `graphify affected "<symbol>" --relation calls` — its callers, and the tests that pin it
+- `graphify query "how is a scene deserialized" --context calls` — related code for a concept
+- `graphify path "<A>" "<B>" --context calls` — shortest call path; `graphify god-nodes --top 20` — the hubs
+
+Freshness: the graph reflects the last commit (git hooks rebuild it), so read files listed by `git status` directly.
+Rebuild: only `graphify update .` inside this main checkout, and only on request; never from the workspace root or a worktree.
+Gotchas: use the `File.ts::Symbol` suffix form (a bare label is ambiguous across files); `--budget` defaults to 2000 tokens and
+truncates; `--context calls` drops `contains`/`imports` noise.
+
 ## Architecture — Critical Rules
 
 ### Three.js Isolation (MOST IMPORTANT)

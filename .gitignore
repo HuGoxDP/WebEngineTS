@@ -26,3 +26,6 @@ docs
 *.njsproj
 *.sln
 *.sw?
+
+# graphify code graph (local, rebuilt by git hooks)
+graphify-out/
