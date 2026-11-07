@@ -2397,22 +2397,79 @@ export class SceneSerializer {
         saved: readonly SerializedComponent[],
     ): Array<{ component: Component; saved: SerializedComponent[] }> {
         const built: Array<{ component: Component; saved: SerializedComponent[] }> = [];
+        const folded = new Set<string>();
         for (const json of saved) {
             const ctor = TypeRegistry.get(json.type);
-            const first = ctor !== null && (ctor as unknown as typeof Component)._allowMultiple === false
+            const first = SceneSerializer._isSingleCopy(ctor)
                 ? built.find(b => b.component.constructor === ctor)
                 : undefined;
             if (first) {
-                console.warn(
-                    `[SceneSerializer] "${go.name}" was saved with more than one ${json.type}; ` +
-                    `they are read as one, the later values winning.`,
-                );
+                folded.add(json.type);
                 first.saved.push(json);
                 continue;
             }
             built.push({ component: SceneSerializer._attachComponent(json, go), saved: [json] });
         }
+        for (const type of folded) SceneSerializer._warnFolded(`"${go.name}"`, type);
         return built;
+    }
+
+    /**
+     * @internal
+     * Folds the extra saved copies of a type that allows one per object
+     * ({@link Component._allowMultiple}) in a tree read from a file, in place:
+     * each node keeps the first copy, at its position, with every copy's
+     * fields merged into it in file order — the later values winning, as a
+     * load of the same list does.
+     *
+     * @remarks
+     * A load already reads such a list as one component. A prefab file needs
+     * it done to the tree itself, because the tree is what its instances are
+     * compared with: a prefab made from an object a load had doubled held two
+     * `RectTransform`s, so every instance, built with one, reported the second
+     * as removed, and reverting that removal added it back.
+     *
+     * A node that is a nested prefab instance holds no components of its own
+     * and is left alone; its prefab is folded when it is read.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _foldSingleCopies(tree: SerializedGameObject, owner: string): SerializedGameObject {
+        const walk = (node: SerializedGameObject): void => {
+            if (node.prefab?.changes !== undefined) return;
+            const kept: SerializedComponent[] = [];
+            const folded = new Set<string>();
+            for (const json of node.components) {
+                const first = SceneSerializer._isSingleCopy(TypeRegistry.get(json.type))
+                    ? kept.find(k => k.type === json.type)
+                    : undefined;
+                if (first === undefined) {
+                    kept.push(json);
+                    continue;
+                }
+                first.fields = { ...first.fields, ...json.fields };
+                folded.add(json.type);
+            }
+            if (folded.size > 0) {
+                node.components = kept;
+                for (const type of folded) SceneSerializer._warnFolded(`${owner}: "${node.name}"`, type);
+            }
+            node.children.forEach(walk);
+        };
+        walk(tree);
+        return tree;
+    }
+
+    /** Whether `ctor` is a component type that allows one per object. */
+    private static _isSingleCopy(ctor: AnyConstructor | null): boolean {
+        return ctor !== null && (ctor as unknown as typeof Component)._allowMultiple === false;
+    }
+
+    private static _warnFolded(where: string, type: string): void {
+        console.warn(
+            `[SceneSerializer] ${where} was saved with more than one ${type}; ` +
+            `they are read as one, the later values winning.`,
+        );
     }
 
     private static _attachComponent(json: SerializedComponent, go: GameObject): Component {

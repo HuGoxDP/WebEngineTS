@@ -291,6 +291,12 @@ export class Prefab {
      * A variant saved with its base is read as a variant of that base, found
      * through `AssetDatabase` when it is first needed.
      *
+     * A tree holding more than one copy of a type that allows one per object —
+     * a UI object saved while a load had given it a second `RectTransform` —
+     * is read with one, the later saved values winning, as a scene load reads
+     * it. Kept as two, every instance would differ from its prefab by the copy
+     * it cannot have.
+     *
      * @throws `UnsupportedFormatError` if the file is of a format version
      *   this build cannot read.
      * @throws if the file has neither a tree nor a base.
@@ -310,6 +316,7 @@ export class Prefab {
             throw new Error(`[Prefab] "${json.name ?? "?"}" has neither a tree nor a base.`);
         }
         const snapshot = JSON.parse(JSON.stringify(json.snapshot)) as SerializedGameObject;
+        SceneSerializer._foldSingleCopies(snapshot, `Prefab "${json.name ?? snapshot.name}"`);
         return new Prefab(PrefabDiff.ensureIds(snapshot, true), json.name);
     }
 
