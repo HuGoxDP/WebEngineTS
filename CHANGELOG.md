@@ -443,6 +443,14 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   as a consequence:** a root created during the walk — `new GameObject()` or `Instantiate` from an
   `update` — first runs on the next frame instead of the current one, as a child created during
   its parent's walk already did.
+- **An object that has already run this frame no longer runs again after moving under a parent
+  walked later.** The update passes walk the hierarchy, so a script that reparented its own object
+  — or another one that had already run — under a later sibling's subtree or a later root was
+  reached twice and got a second `update` in the same frame; the same for `fixedUpdate` and
+  `lateUpdate`, and for that object's children. Each walk is now numbered and every GameObject
+  remembers the walk its components last ran in, so a callback runs at most once per pass, as in
+  Unity. Each execution order is a pass of its own, as before. A number per GameObject, no
+  allocation; the per-frame cost is within measurement noise.
 - **An error from a deferred `destroy()` is logged, and a throwing `onDisable` is no longer lost
   when `onDestroy` throws too.** `destroy()` with no delay runs on a microtask, where nothing
   catches: a throwing `onDestroy` surfaced as an uncaught error without saying which object
@@ -563,12 +571,6 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Known issues
 
-- **An object that has already run this frame and then moves under a parent walked later runs
-  again in the same frame.** The update walks skip an object moved away before its turn, but the
-  hierarchy walk has no record of who already ran, so a script that reparents its own object (or
-  an already-updated one) under a later sibling's subtree gets a second `update` — and the same
-  for `fixedUpdate` and `lateUpdate`. Unity's update does not walk the hierarchy and never does
-  this. Tracked as a follow-up of the A13 review.
 - **The streamed path has been reported to hold ~2.9× the texture VRAM of the ZIP path** for the
   same scenario. Not reproduced from the engine side — `Resources` plus either source type give
   identical cache entries and identical estimates, pinned by `tests/SourceVramParity.test.ts`.

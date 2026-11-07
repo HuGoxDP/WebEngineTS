@@ -8,6 +8,7 @@ import { Behaviour } from "./Behaviour.ts";
 import { ScriptableBehaviour } from "./ScriptableBehaviour.ts";
 import { EngineSettings } from "./EngineSettings.ts";
 import { getExecutionOrder } from "./reflection/Decorators.ts";
+import { _beginUpdateWalk } from "./_UpdateWalk.ts";
 import { TypeRegistry } from "./reflection/TypeRegistry.ts";
 import { Prefab } from "./serialization/Prefab.ts";
 import { SceneSerializer } from "./serialization/SceneSerializer.ts";
@@ -83,6 +84,14 @@ export class GameObject extends EngineObject {
 
     /** The scene this GameObject is registered with. */
     private _scene: Scene;
+
+    /**
+     * The walk (`_beginUpdateWalk`) in which this object's own components last
+     * ran. A walk that reaches the object again — because it was moved under a
+     * parent the walk visits later — finds its own number here and does not
+     * run them a second time.
+     */
+    private _ranInWalk: number = 0;
 
     /**
      * @internal
@@ -904,69 +913,87 @@ export class GameObject extends EngineObject {
      * @internal
      * Runs the Update loop on this GameObject and its children.
      * Called by {@link Scene._update} for root objects.
+     *
+     * @param order - the execution order this pass runs, or `null` for all.
+     * @param walk - the walk this call belongs to; children are passed the
+     * same number. An object whose components already ran in it — one that
+     * moved under a parent the walk visits later — does not run them again,
+     * though its children are still visited. Omitted, the call is a walk of
+     * its own.
      */
-    public _systemUpdate(order: number | null = null): void {
+    public _systemUpdate(order: number | null = null, walk: number = _beginUpdateWalk()): void {
         if (!this._activeSelf) return;
 
-        for (const component of this._components) {
-            if (!(component instanceof ScriptableBehaviour)) continue;
-            // `null` means "every order in one pass" — the default, and the only
-            // path taken until a scenario declares an @ExecutionOrder.
-            if (order !== null && getExecutionOrder(component) !== order) continue;
-            component._systemUpdate();
+        if (this._ranInWalk !== walk) {
+            this._ranInWalk = walk;
+            for (const component of this._components) {
+                if (!(component instanceof ScriptableBehaviour)) continue;
+                // `null` means "every order in one pass" — the default, and the only
+                // path taken until a scenario declares an @ExecutionOrder.
+                if (order !== null && getExecutionOrder(component) !== order) continue;
+                component._systemUpdate();
+            }
         }
 
         const transform = this.transform;
         const children = transform._lendChildren();
         for (let i = 0; i < children.length; i++) {
             const child = children[i];
-            if (GameObject._isLiveChild(transform, child)) child.gameObject._systemUpdate(order);
+            if (GameObject._isLiveChild(transform, child)) child.gameObject._systemUpdate(order, walk);
         }
     }
 
     /**
      * @internal
-     * Runs the FixedUpdate loop on this GameObject and its children.
+     * Runs the FixedUpdate loop on this GameObject and its children; `order` and
+     * `walk` as in {@link _systemUpdate}.
      */
-    public _systemFixedUpdate(order: number | null = null): void {
+    public _systemFixedUpdate(order: number | null = null, walk: number = _beginUpdateWalk()): void {
         if (!this._activeSelf) return;
 
-        for (const component of this._components) {
-            if (!(component instanceof ScriptableBehaviour)) continue;
-            // `null` means "every order in one pass" — the default, and the only
-            // path taken until a scenario declares an @ExecutionOrder.
-            if (order !== null && getExecutionOrder(component) !== order) continue;
-            component._systemFixedUpdate();
+        if (this._ranInWalk !== walk) {
+            this._ranInWalk = walk;
+            for (const component of this._components) {
+                if (!(component instanceof ScriptableBehaviour)) continue;
+                // `null` means "every order in one pass" — the default, and the only
+                // path taken until a scenario declares an @ExecutionOrder.
+                if (order !== null && getExecutionOrder(component) !== order) continue;
+                component._systemFixedUpdate();
+            }
         }
 
         const transform = this.transform;
         const children = transform._lendChildren();
         for (let i = 0; i < children.length; i++) {
             const child = children[i];
-            if (GameObject._isLiveChild(transform, child)) child.gameObject._systemFixedUpdate(order);
+            if (GameObject._isLiveChild(transform, child)) child.gameObject._systemFixedUpdate(order, walk);
         }
     }
 
     /**
      * @internal
-     * Runs the LateUpdate loop on this GameObject and its children.
+     * Runs the LateUpdate loop on this GameObject and its children; `order` and
+     * `walk` as in {@link _systemUpdate}.
      */
-    public _systemLateUpdate(order: number | null = null): void {
+    public _systemLateUpdate(order: number | null = null, walk: number = _beginUpdateWalk()): void {
         if (!this._activeSelf) return;
 
-        for (const component of this._components) {
-            if (!(component instanceof ScriptableBehaviour)) continue;
-            // `null` means "every order in one pass" — the default, and the only
-            // path taken until a scenario declares an @ExecutionOrder.
-            if (order !== null && getExecutionOrder(component) !== order) continue;
-            component._systemLateUpdate();
+        if (this._ranInWalk !== walk) {
+            this._ranInWalk = walk;
+            for (const component of this._components) {
+                if (!(component instanceof ScriptableBehaviour)) continue;
+                // `null` means "every order in one pass" — the default, and the only
+                // path taken until a scenario declares an @ExecutionOrder.
+                if (order !== null && getExecutionOrder(component) !== order) continue;
+                component._systemLateUpdate();
+            }
         }
 
         const transform = this.transform;
         const children = transform._lendChildren();
         for (let i = 0; i < children.length; i++) {
             const child = children[i];
-            if (GameObject._isLiveChild(transform, child)) child.gameObject._systemLateUpdate(order);
+            if (GameObject._isLiveChild(transform, child)) child.gameObject._systemLateUpdate(order, walk);
         }
     }
 

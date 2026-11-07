@@ -2,6 +2,7 @@
 
 import * as THREE from "three";
 import { _executionOrderPasses } from "./reflection/Decorators.ts";
+import { _beginUpdateWalk } from "./_UpdateWalk.ts";
 import type { GameObject } from "./GameObject.ts";
 import type { Component } from "./Component.ts";
 
@@ -401,9 +402,10 @@ export class Scene {
         // every component belongs to the same group and none has to be checked.
         if (passes.length === 1) {
             const roots = this._lendRoots();
+            const walk = _beginUpdateWalk();
             for (let i = 0; i < roots.length; i++) {
                 const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemFixedUpdate(null);
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemFixedUpdate(null, walk);
             }
             return;
         }
@@ -412,9 +414,10 @@ export class Scene {
         // order the walk is unchanged, so hierarchy order still decides.
         for (let p = 0; p < passes.length; p++) {
             const roots = this._lendRoots();
+            const walk = _beginUpdateWalk();
             for (let i = 0; i < roots.length; i++) {
                 const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemFixedUpdate(passes[p]);
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemFixedUpdate(passes[p], walk);
             }
         }
     }
@@ -423,6 +426,10 @@ export class Scene {
      * @internal
      * Runs Update on all active root GameObjects (and their children recursively).
      * Called by Application once per frame.
+     *
+     * Each walk of the hierarchy — one per execution order — is numbered, so
+     * an object that already ran and is then moved under a root or parent
+     * visited later in the same walk does not run a second time.
      */
     public _update(): void {
         const passes = _executionOrderPasses();
@@ -431,9 +438,10 @@ export class Scene {
         // every component belongs to the same group and none has to be checked.
         if (passes.length === 1) {
             const roots = this._lendRoots();
+            const walk = _beginUpdateWalk();
             for (let i = 0; i < roots.length; i++) {
                 const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemUpdate(null);
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemUpdate(null, walk);
             }
             return;
         }
@@ -442,9 +450,10 @@ export class Scene {
         // order the walk is unchanged, so hierarchy order still decides.
         for (let p = 0; p < passes.length; p++) {
             const roots = this._lendRoots();
+            const walk = _beginUpdateWalk();
             for (let i = 0; i < roots.length; i++) {
                 const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemUpdate(passes[p]);
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemUpdate(passes[p], walk);
             }
         }
     }
@@ -461,9 +470,10 @@ export class Scene {
         // every component belongs to the same group and none has to be checked.
         if (passes.length === 1) {
             const roots = this._lendRoots();
+            const walk = _beginUpdateWalk();
             for (let i = 0; i < roots.length; i++) {
                 const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemLateUpdate(null);
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemLateUpdate(null, walk);
             }
             return;
         }
@@ -472,9 +482,10 @@ export class Scene {
         // order the walk is unchanged, so hierarchy order still decides.
         for (let p = 0; p < passes.length; p++) {
             const roots = this._lendRoots();
+            const walk = _beginUpdateWalk();
             for (let i = 0; i < roots.length; i++) {
                 const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemLateUpdate(passes[p]);
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemLateUpdate(passes[p], walk);
             }
         }
     }
