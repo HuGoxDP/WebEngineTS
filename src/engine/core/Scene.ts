@@ -2,9 +2,15 @@
 
 import * as THREE from "three";
 import { _executionOrderPasses } from "./reflection/Decorators.ts";
-import { _beginUpdateWalk } from "./_UpdateWalk.ts";
+import { _beginUpdateWalk, _movedInWalk, _recordMovesFor } from "./_UpdateWalk.ts";
 import type { GameObject } from "./GameObject.ts";
 import type { Component } from "./Component.ts";
+
+/** Which per-frame callback a walk runs. */
+type UpdatePass = 0 | 1 | 2;
+const PASS_FIXED_UPDATE = 0;
+const PASS_UPDATE = 1;
+const PASS_LATE_UPDATE = 2;
 
 /**
  * A container for all {@link GameObject GameObjects} in a scene.
@@ -396,30 +402,7 @@ export class Scene {
      * Called by Application at a fixed timestep.
      */
     public _fixedUpdate(): void {
-        const passes = _executionOrderPasses();
-
-        // One pass is the default: no class has declared an @ExecutionOrder, so
-        // every component belongs to the same group and none has to be checked.
-        if (passes.length === 1) {
-            const roots = this._lendRoots();
-            const walk = _beginUpdateWalk();
-            for (let i = 0; i < roots.length; i++) {
-                const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemFixedUpdate(null, walk);
-            }
-            return;
-        }
-
-        // Otherwise the hierarchy is walked once per order, ascending. Within an
-        // order the walk is unchanged, so hierarchy order still decides.
-        for (let p = 0; p < passes.length; p++) {
-            const roots = this._lendRoots();
-            const walk = _beginUpdateWalk();
-            for (let i = 0; i < roots.length; i++) {
-                const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemFixedUpdate(passes[p], walk);
-            }
-        }
+        this._runPass(PASS_FIXED_UPDATE);
     }
 
     /**
@@ -429,33 +412,12 @@ export class Scene {
      *
      * Each walk of the hierarchy — one per execution order — is numbered, so
      * an object that already ran and is then moved under a root or parent
-     * visited later in the same walk does not run a second time.
+     * visited later in the same walk does not run a second time, and one moved
+     * before its turn under a parent already walked is caught up at the end
+     * of the walk (see {@link _walk}).
      */
     public _update(): void {
-        const passes = _executionOrderPasses();
-
-        // One pass is the default: no class has declared an @ExecutionOrder, so
-        // every component belongs to the same group and none has to be checked.
-        if (passes.length === 1) {
-            const roots = this._lendRoots();
-            const walk = _beginUpdateWalk();
-            for (let i = 0; i < roots.length; i++) {
-                const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemUpdate(null, walk);
-            }
-            return;
-        }
-
-        // Otherwise the hierarchy is walked once per order, ascending. Within an
-        // order the walk is unchanged, so hierarchy order still decides.
-        for (let p = 0; p < passes.length; p++) {
-            const roots = this._lendRoots();
-            const walk = _beginUpdateWalk();
-            for (let i = 0; i < roots.length; i++) {
-                const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemUpdate(passes[p], walk);
-            }
-        }
+        this._runPass(PASS_UPDATE);
     }
 
     /**
@@ -464,29 +426,71 @@ export class Scene {
      * Called by Application once per frame, after Update.
      */
     public _lateUpdate(): void {
+        this._runPass(PASS_LATE_UPDATE);
+    }
+
+    /** One per-frame pass: a single walk, or one walk per execution order. */
+    private _runPass(pass: UpdatePass): void {
         const passes = _executionOrderPasses();
 
         // One pass is the default: no class has declared an @ExecutionOrder, so
         // every component belongs to the same group and none has to be checked.
         if (passes.length === 1) {
-            const roots = this._lendRoots();
-            const walk = _beginUpdateWalk();
-            for (let i = 0; i < roots.length; i++) {
-                const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemLateUpdate(null, walk);
-            }
+            this._walk(pass, null);
             return;
         }
 
         // Otherwise the hierarchy is walked once per order, ascending. Within an
         // order the walk is unchanged, so hierarchy order still decides.
-        for (let p = 0; p < passes.length; p++) {
-            const roots = this._lendRoots();
-            const walk = _beginUpdateWalk();
+        for (let p = 0; p < passes.length; p++) this._walk(pass, passes[p]);
+    }
+
+    /**
+     * Walks the hierarchy once for `pass` and `order`, then catches up the
+     * objects the walk missed.
+     *
+     * @remarks
+     * The walk reaches objects through their parents, so one moved — before
+     * its turn — under a parent the walk had already left, or made a root
+     * after the root list was taken, is never reached. Unity's update does not
+     * follow the hierarchy: a behaviour that existed when the pass began runs
+     * in it once wherever it was moved. While the walk is open,
+     * `Transform.setParent` records every moved object that has not run yet;
+     * after the roots, each one that is still unrun, alive, in this scene and
+     * active in the hierarchy is run with its subtree, under the same walk
+     * number, so nothing runs twice. An object created during the walk is
+     * never caught up — it starts next frame, as before.
+     *
+     * Nothing is allocated: the record is one shared array that grows only
+     * when something is reparented mid-walk, and is emptied back to where
+     * this walk found it.
+     */
+    private _walk(pass: UpdatePass, order: number | null): void {
+        const roots = this._lendRoots();
+        const walk = _beginUpdateWalk();
+        const outer = _recordMovesFor(walk);
+        const firstMoved = _movedInWalk.length;
+        try {
             for (let i = 0; i < roots.length; i++) {
                 const go = roots[i];
-                if (go.activeSelf && this._isLiveRoot(go)) go._systemLateUpdate(passes[p], walk);
+                if (go.activeSelf && this._isLiveRoot(go)) Scene._runObject(go, pass, order, walk);
             }
+            // Catching up can move more objects; they are appended and caught up too.
+            for (let i = firstMoved; i < _movedInWalk.length; i++) {
+                const go = _movedInWalk[i];
+                if (go.scene === this && go._missedWalk(walk)) Scene._runObject(go, pass, order, walk);
+            }
+        } finally {
+            _movedInWalk.length = firstMoved;
+            _recordMovesFor(outer);
+        }
+    }
+
+    private static _runObject(go: GameObject, pass: UpdatePass, order: number | null, walk: number): void {
+        switch (pass) {
+            case PASS_FIXED_UPDATE: go._systemFixedUpdate(order, walk); break;
+            case PASS_UPDATE: go._systemUpdate(order, walk); break;
+            case PASS_LATE_UPDATE: go._systemLateUpdate(order, walk); break;
         }
     }
 
