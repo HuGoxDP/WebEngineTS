@@ -12,11 +12,10 @@ import { Rigidbody } from "../src/engine/physics/Rigidbody";
  * What a load does with an object's components, as a sequence.
  *
  * Every component of an object is built before the first one wakes, so that an
- * `awake` which looks for a sibling finds it. Each component then wakes and
- * takes its saved fields in list order, exactly as it did when a load added
- * them one at a time: only whether the siblings exist during that sequence has
- * changed. Fields are not written before the wake, though Unity does, because
- * a built-in whose setter needs what its `onAwake` creates drops the value.
+ * `awake` which looks for a sibling finds it. Since M0.2a every component also
+ * takes its saved fields before any script wakes, as in Unity; then each wakes
+ * and enables in list order. A built-in still runs its `onAwake` before its own
+ * fields, because its setters write into what `onAwake` creates.
  */
 
 const log: string[] = [];
@@ -77,14 +76,14 @@ beforeEach(() => {
 afterEach(clear);
 
 describe("the sequence of a load", () => {
-    test("each component wakes, enables and takes its fields in list order", () => {
+    test("every component takes its fields, then each wakes and enables in list order", () => {
         SceneSerializer.deserializeScene(sceneWith(true, a(5, 9), b(7)));
 
-        // `n` is read by awake before the fields are written; that is the order
-        // a load has always had, kept deliberately.
+        // Unity's order: awake reads the saved values.
         expect(log).toEqual([
-            "A.awake n=1 sees=2", "A.onEnable", "A.v=9",
-            "B.awake n=1", "B.onEnable",
+            "A.v=9",
+            "A.awake n=5 sees=2", "A.onEnable",
+            "B.awake n=7", "B.onEnable",
         ]);
     });
 
@@ -109,7 +108,7 @@ describe("the sequence of a load", () => {
         const [go] = SceneSerializer.deserializeScene(sceneWith(true, a(1, 1), b(1)));
 
         expect(go.getComponent(A)).not.toBeNull();
-        expect(log[0]).toBe("A.awake n=1 sees=2");
+        expect(log.find(l => l.startsWith("A.awake"))).toBe("A.awake n=1 sees=2");
     });
 
     test("an inactive object wakes nothing until it is activated, then in list order", () => {

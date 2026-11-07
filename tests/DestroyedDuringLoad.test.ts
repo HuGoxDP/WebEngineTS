@@ -21,10 +21,10 @@ import { AssetDatabase } from "../src/engine/core/assets/AssetDatabase";
  * running destroys its own GameObject. Unity builds a whole hierarchy before
  * the first `Awake`, so a `DestroyImmediate(gameObject)` there removes the
  * children too, before any of them wakes — they get no `Awake`, no `OnEnable`
- * and no `OnDestroy`. A load here builds an object's children after its own
- * components wake, so the same outcome is "the children are never built".
- * They were built, woken and enabled, then parented under the dead object,
- * where nothing could reach them again (follow-up M0.2c of the A12 review).
+ * and no `OnDestroy`. A load here does the same since M0.2a/M0.2d: the whole
+ * tree is built and parented first, then woken. Before M0.2c the children
+ * were built, woken and enabled, then parented under the dead object, where
+ * nothing could reach them again (follow-up M0.2c of the A12 review).
  *
  * `destroy()` is deferred to the end of the frame, in Unity as here: the
  * object is alive for the rest of the load, its children wake as usual, and
@@ -42,7 +42,7 @@ class Log extends ScriptableBehaviour {
 
 /**
  * Destroys its own GameObject in `awake` while armed: the singleton pattern.
- * Static switches, not saved fields: a load writes fields after `awake`.
+ * Static switches, not saved fields, so arming one needs no change to the files.
  */
 @Serializable({ typeName: "DestroyedDuringLoad.Singleton" })
 class Singleton extends ScriptableBehaviour {
@@ -148,7 +148,7 @@ function expectNothingOfTheChildren(during: readonly string[] = log): void {
 }
 
 describe("an object that destroys itself immediately during its own load", () => {
-    test("a scene load builds none of its children", () => {
+    test("a scene load wakes none of its children", () => {
         Singleton.armed = true;
         const [holder] = SceneSerializer.deserializeScene(scene(holderTree()));
 
@@ -156,7 +156,7 @@ describe("an object that destroys itself immediately during its own load", () =>
         expectNothingOfTheChildren();
     });
 
-    test("Prefab.instantiate builds none of its children", () => {
+    test("Prefab.instantiate wakes none of its children", () => {
         const prefab = Prefab.fromGameObject(buildHolder());
         clear();
         log.length = 0;
@@ -168,7 +168,7 @@ describe("an object that destroys itself immediately during its own load", () =>
         expectNothingOfTheChildren();
     });
 
-    test("EngineObject.Instantiate builds none of its children", () => {
+    test("EngineObject.Instantiate wakes none of its children", () => {
         const source = buildHolder();
         log.length = 0;
 
@@ -181,7 +181,7 @@ describe("an object that destroys itself immediately during its own load", () =>
         expectNothingOfTheChildren(during);
     });
 
-    test("a prefab instance saved as a link builds none of its children", () => {
+    test("a prefab instance saved as a link wakes none of its children", () => {
         const prefab = new Prefab(holderTree());
         AssetDatabase._bindGuid("guid-holder", prefab);
         try {
@@ -250,14 +250,17 @@ describe("a child that destroys itself immediately during its own load", () => {
         ));
 
         const [toDead, toSibling] = holder.getComponents(Pointer);
-        expect(toDead.target).toBeNull();
+        // References resolve before any awake, as Unity's do, so this one holds
+        // the object its own awake then destroyed: a destroyed object, not null.
+        expect(toDead.target!.name).toBe("Dead");
+        expect(toDead.target!.exists()).toBe(false);
         expect(toSibling.target).toBe(live("Sibling")[0]);
         expect(holder.transform.childCount).toBe(1);
     });
 });
 
 describe("an ancestor destroyed immediately by a descendant's awake", () => {
-    test("takes the part already built with it and builds no more", () => {
+    test("takes the whole tree with it and wakes no more", () => {
         Singleton.armed = true;
         SceneSerializer.deserializeScene(scene(
             node("Holder", [logC], [
@@ -266,16 +269,17 @@ describe("an ancestor destroyed immediately by a descendant's awake", () => {
             ]),
         ));
 
-        // Holder, Child and Grandchild had woken, so each gets its onDestroy;
-        // Late and Later were never built.
+        // The whole tree is built and parented before the first awake, so the
+        // Holder takes everything with it. Holder and Child had woken, so each
+        // gets its onDestroy; Grandchild's Log, Late and Later never woke, so
+        // they get nothing — Unity's "OnDestroy only after Awake".
         expect(log.filter(l => !l.endsWith(".onDestroy"))).toEqual([
             "Holder.awake", "Holder.onEnable",
             "Child.awake", "Child.onEnable",
             "Grandchild.kills Holder",
-            "Grandchild.awake", "Grandchild.onEnable",
         ]);
         expect(log.filter(l => l.endsWith(".onDestroy")).sort()).toEqual(
-            ["Child.onDestroy", "Grandchild.onDestroy", "Holder.onDestroy"],
+            ["Child.onDestroy", "Holder.onDestroy"],
         );
         for (const name of ["Holder", "Child", "Grandchild", "Late", "Later"]) {
             expect(anywhere(name)).toEqual([]);

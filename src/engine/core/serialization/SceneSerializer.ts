@@ -97,17 +97,16 @@ interface LoadCtx extends DeserializeContext {
     chain: string[];
     /**
      * The children each object built by this load was saved with, in saved
-     * order, including any the load destroyed. A saved path counts children in
-     * that order, so a child destroyed during its own load — never attached —
-     * still holds its place, and the siblings after it keep their indices.
+     * order. A saved path counts children in that order.
      */
     loadedChildren: Map<GameObject, GameObject[]>;
     /**
-     * The objects whose children are being built, outermost first. A child
-     * is attached only once it is built, so a destroyed ancestor does not
-     * reach it through the hierarchy; this is how the load sees it instead.
+     * Every object this load built, parents before children (the saved
+     * order, depth first), with the components it built for it in list
+     * order: what {@link SceneSerializer._awakeLoaded} wakes once the whole
+     * tree, its fields and its references are in place.
      */
-    building: GameObject[];
+    toAwake: Array<{ go: GameObject; components: Component[] }>;
 }
 
 /** Root fields a link-mode shell carries itself, so they are never also overrides. */
@@ -398,14 +397,16 @@ export class SceneSerializer {
         try {
             const ctx = SceneSerializer._newContext();
             SceneSerializer._materializeAssets(json.assets, ctx);
-            const roots = json.roots.map(r => SceneSerializer._deserializeGO(r, ctx));
+            const roots = json.roots.map(r => SceneSerializer._deserializeGO(r, ctx, null));
             // Global, not per scene: only the scene that is (becoming) the active
-            // one gets to set it. Before _resolveRefs, which publishes the pending
-            // list the sky may join.
+            // one gets to set it. Before _publishPending, which publishes the
+            // pending list the sky may join.
             if (json.renderSettings && prevActive === null) {
                 SceneSerializer._applyRenderSettings(json.renderSettings, ctx);
             }
-            SceneSerializer._resolveRefs(ctx, roots);
+            SceneSerializer._resolveObjectRefs(ctx, roots);
+            SceneSerializer._awakeLoaded(ctx);
+            SceneSerializer._publishPending(ctx);
             return roots;
         } finally {
             if (prevActive) SceneManager.setActiveScene(prevActive);
@@ -552,8 +553,10 @@ export class SceneSerializer {
         try {
             const ctx = SceneSerializer._newContext(chain);
             SceneSerializer._materializeAssets(json.assets, ctx);
-            const root = SceneSerializer._deserializeGO(json, ctx);
-            SceneSerializer._resolveRefs(ctx, [root]);
+            const root = SceneSerializer._deserializeGO(json, ctx, null);
+            SceneSerializer._resolveObjectRefs(ctx, [root]);
+            SceneSerializer._awakeLoaded(ctx);
+            SceneSerializer._publishPending(ctx);
             return root;
         } finally {
             if (prevActive) SceneManager.setActiveScene(prevActive);
@@ -766,7 +769,7 @@ export class SceneSerializer {
             scopeStack: [],
             chain: [...chain],
             loadedChildren: new Map(),
-            building: [],
+            toAwake: [],
             pendingGORefs: [],
             pendingComponentRefs: [],
             pendingAssetRefs: [],
@@ -1970,9 +1973,8 @@ export class SceneSerializer {
         chain: string[],
     ): GameObject {
         return SceneSerializer._restore(scopes, assets, chain, ctx => {
-            const child = SceneSerializer._deserializeGO(SceneSerializer._cloneJson(json), ctx);
-            SceneSerializer._attachLoaded(child, parent);
-            if (child.exists()) child.transform.setSiblingIndex(index);
+            const child = SceneSerializer._deserializeGO(SceneSerializer._cloneJson(json), ctx, parent);
+            child.transform.setSiblingIndex(index);
             return child;
         });
     }
@@ -2169,6 +2171,7 @@ export class SceneSerializer {
         SceneSerializer._materializeAssets(assets, ctx);
         const result = build(ctx);
         SceneSerializer._resolveObjectRefs(ctx, [scopes[0]]);
+        SceneSerializer._awakeLoaded(ctx);
         SceneSerializer._pending.push(...ctx.pendingAssetRefs);
         return result;
     }
@@ -2197,7 +2200,15 @@ export class SceneSerializer {
      */
     public static _createGameObject: ((name: string) => GameObject) | null = null;
 
-    private static _deserializeGO(json: SerializedGameObject, ctx: LoadCtx): GameObject {
+    /**
+     * Builds an object and everything below it, under `parent`, without waking
+     * any script: see {@link _buildContents}.
+     */
+    private static _deserializeGO(
+        json: SerializedGameObject,
+        ctx: LoadCtx,
+        parent: GameObject | null,
+    ): GameObject {
         const create = SceneSerializer._createGameObject;
         if (!create) {
             // Only reachable if this module was used without GameObject ever
@@ -2209,10 +2220,10 @@ export class SceneSerializer {
         }
 
         if (json.prefab?.changes !== undefined) {
-            return SceneSerializer._deserializeLink(json, ctx, create);
+            return SceneSerializer._deserializeLink(json, ctx, create, parent);
         }
 
-        const go = create(json.name);
+        const go = SceneSerializer._createUnder(create, json.name, parent);
         go.setActive(json.active);
         SceneSerializer._applyPose(go, json.transform);
         SceneSerializer._buildContents(go, json, ctx);
@@ -2230,69 +2241,83 @@ export class SceneSerializer {
     }
 
     /**
-     * Builds an object's components, then its children, from saved JSON.
+     * Builds an object's components, then its children, from saved JSON,
+     * without waking any script: Unity's load contract.
      *
      * @remarks
-     * Every component exists before the first one wakes, so a component whose
-     * `awake` looks for a sibling or adds the one it needs — a UI graphic
-     * wants a `RectTransform` — finds the saved one instead of adding its own
-     * beside it. Each component then wakes and takes its fields in list order,
-     * as before. Fields are deliberately not written first, though Unity does:
-     * a setter that runs before `onAwake` loses its value in any built-in whose
-     * backing object `onAwake` creates (`DirectionalLight.shadowDistance` came
-     * back as 200, saved as 75).
+     * Unity deserializes the whole hierarchy — every object, every component,
+     * every saved field and reference, every parent link — before the first
+     * `Awake`. A load here does the same in two passes. This one builds: every
+     * component of the object is attached before any is initialised, so a
+     * built-in whose `onAwake` looks for a sibling — a UI graphic wants a
+     * `RectTransform` — finds the saved one instead of adding its own. Then, in
+     * list order, each built-in runs its `onAwake` and every component takes
+     * its saved fields. Each child is created under the object before its own
+     * contents are built, so it is never a scene root, not even for a moment.
+     * {@link _awakeLoaded} then runs `awake` and `onEnable` for the whole load,
+     * after the references are resolved.
      *
-     * An object destroyed while it loads — the singleton whose `awake` calls
-     * `destroyImmediate()` on its own GameObject — builds no children. Unity
-     * has the whole hierarchy before the first `Awake`, so destroying the
-     * object there takes its children with it before any of them wakes; not
-     * building them is the same outcome. The same holds when the destroyer is
-     * one of the children: what was built so far goes with the object, and the
-     * rest is not built. `destroy()` is deferred to the end of the frame, so it
-     * changes nothing here, as in Unity.
+     * A built-in's `onAwake` runs before its own fields on purpose. It is where
+     * Camera, Light and the renderers create their backing Three.js objects,
+     * and their setters write into those (`DirectionalLight.shadowDistance`
+     * written first came back as 200, saved as 75). It is construction, not
+     * user code: no script runs during this pass, so no script can observe the
+     * difference, and nothing can be destroyed in it.
      */
     private static _buildContents(go: GameObject, json: SerializedGameObject, ctx: LoadCtx): void {
+        const components: Component[] = [];
+        ctx.toAwake.push({ go, components });
         for (const { component, saved } of SceneSerializer._attachAll(go, json.components)) {
-            if (!component.exists()) continue;
-            go._wakeComponent(component);
+            go._initializeComponent(component);
             for (const fields of saved) SceneSerializer._applyFields(component, fields, ctx);
+            components.push(component);
         }
-        if (!go.exists()) return;
 
         const loaded: GameObject[] = [];
         ctx.loadedChildren.set(go, loaded);
-        ctx.building.push(go);
-        try {
-            for (const childJson of json.children) {
-                if (ctx.building.some(ancestor => !ancestor.exists())) return;
-                const child = SceneSerializer._deserializeGO(childJson, ctx);
-                loaded.push(child);
-                SceneSerializer._attachLoaded(child, go);
-            }
-        } finally {
-            ctx.building.pop();
+        for (const childJson of json.children) {
+            loaded.push(SceneSerializer._deserializeGO(childJson, ctx, go));
         }
     }
 
     /**
-     * Puts a child this load built under its parent, unless the load destroyed
-     * one of them.
+     * Runs `awake` and `onEnable` for everything a load built, parents before
+     * children and each object's components in list order.
      *
      * @remarks
-     * A child destroyed during its own load is not attached: a destroyed
-     * Transform in the parent's list would be a dead child every walk of the
-     * hierarchy meets. A parent destroyed while the child loaded — by the
-     * child's `awake` or one below it — takes the child with it, as it would
-     * have if the child had been attached already.
+     * Runs once the whole tree has its fields and references, so an `awake`
+     * sees saved values, a write from one `awake` into any sibling's saved
+     * field stays, and a child's `awake` sees its parent. A script under an
+     * inactive object waits for activation, as one added at run time does.
+     *
+     * A script's `awake` may destroy what is still to wake — the singleton
+     * whose `awake` calls `destroyImmediate()` on its own GameObject. The
+     * hierarchy already exists, so the destruction takes the children with
+     * it, and nothing destroyed is woken: as in Unity, they get no `awake`,
+     * `onEnable` or `onDestroy`. `destroy()` is deferred to the end of the
+     * frame, so it changes nothing here.
      */
-    private static _attachLoaded(child: GameObject, parent: GameObject): void {
-        if (!parent.exists()) {
-            child.destroyImmediate();
-            return;
+    private static _awakeLoaded(ctx: LoadCtx): void {
+        for (const { go, components } of ctx.toAwake) {
+            for (const component of components) {
+                if (!go.exists()) break;
+                go._awakeComponent(component);
+            }
         }
-        // The saved pose is already local; keeping the world pose instead
-        // would subtract the parent's from it.
-        if (child.exists()) child.transform.setParent(parent.transform, false);
+        ctx.toAwake.length = 0;
+    }
+
+    /** A new, empty GameObject, already under `parent` when there is one. */
+    private static _createUnder(
+        create: (name: string) => GameObject,
+        name: string,
+        parent: GameObject | null,
+    ): GameObject {
+        const go = create(name);
+        // The saved pose is local; keeping the world pose instead would
+        // subtract the parent's from it.
+        if (parent !== null) go.transform.setParent(parent.transform, false);
+        return go;
     }
 
     /**
@@ -2310,6 +2335,7 @@ export class SceneSerializer {
         json: SerializedGameObject,
         ctx: LoadCtx,
         create: (name: string) => GameObject,
+        parent: GameObject | null,
     ): GameObject {
         const link = json.prefab!;
         const guid = link.guid;
@@ -2319,7 +2345,7 @@ export class SceneSerializer {
                 `[SceneSerializer] "${json.name}" is an instance of a prefab that contains itself ` +
                 `(${guid}). It is kept as a placeholder instead of being rebuilt without end.`,
             );
-            return SceneSerializer._placeholder(json, create);
+            return SceneSerializer._placeholder(json, create, parent);
         }
 
         const source = SceneSerializer._prefabById(guid);
@@ -2340,7 +2366,7 @@ export class SceneSerializer {
                 );
             }
         }
-        if (source === null || base === null) return SceneSerializer._placeholder(json, create);
+        if (source === null || base === null) return SceneSerializer._placeholder(json, create, parent);
 
         const all = SceneSerializer._mergeChanges(link.changes!, link.unused);
         const tree = PrefabDiff.applyChanges(base, all, SceneSerializer._prefabTree);
@@ -2356,7 +2382,7 @@ export class SceneSerializer {
 
         SceneSerializer._materializeAssets(tree.assets, ctx);
 
-        const go = create(json.name);
+        const go = SceneSerializer._createUnder(create, json.name, parent);
         go.setActive(tree.active);
         SceneSerializer._applyPose(go, {
             position: json.transform.position,
@@ -2399,8 +2425,9 @@ export class SceneSerializer {
     private static _placeholder(
         json: SerializedGameObject,
         create: (name: string) => GameObject,
+        parent: GameObject | null,
     ): GameObject {
-        const go = create(json.name);
+        const go = SceneSerializer._createUnder(create, json.name, parent);
         go.setActive(json.active);
         SceneSerializer._applyPose(go, json.transform);
         go._prefabNodeId = typeof json.id === "string" ? json.id : null;
@@ -2424,14 +2451,16 @@ export class SceneSerializer {
         t.localScale    = t.localScale.set(s.x, s.y, s.z);
     }
 
+    /** Builds one component on a live object; {@link _awakeLoaded} wakes it. */
     private static _deserializeComponent(
         json: SerializedComponent,
         go: GameObject,
-        ctx: DeserializeContext,
+        ctx: LoadCtx,
     ): Component | null {
         const comp = SceneSerializer._attachComponent(json, go);
-        go._wakeComponent(comp);
+        go._initializeComponent(comp);
         SceneSerializer._applyFields(comp, json, ctx);
+        ctx.toAwake.push({ go, components: [comp] });
         return comp;
     }
 
@@ -2670,9 +2699,13 @@ export class SceneSerializer {
 
     private static _pending: DeserializeContext["pendingAssetRefs"] = [];
 
-    /** Walks every collected reference and assigns what it resolved to. */
-    private static _resolveRefs(ctx: LoadCtx, roots: ReadonlyArray<GameObject>): void {
-        SceneSerializer._resolveObjectRefs(ctx, roots);
+    /**
+     * Makes this load's unresolved asset references the ones
+     * {@link pendingAssetGuids} reports. Called after the load's `awake`s, so
+     * a load nested in one of them (an `Instantiate` in `awake`) does not
+     * replace the outer load's list, as it never did.
+     */
+    private static _publishPending(ctx: LoadCtx): void {
         SceneSerializer._pending = ctx.pendingAssetRefs.slice();
     }
 
@@ -2855,7 +2888,8 @@ export class SceneSerializer {
      *
      * @param loaded - the children each object was loaded with, when the step
      *   resolves a reference read by that load: an index then counts the saved
-     *   children, and one the load destroyed reads as null.
+     *   children. References resolve before the load wakes anything, so none of
+     *   them can have been destroyed yet; one that has reads as null.
      */
     private static _step(
         from: GameObject,
