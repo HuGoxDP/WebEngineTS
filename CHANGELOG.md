@@ -277,6 +277,15 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   update. Code that relied on writing a later sibling's field in `awake` being overwritten, or on
   `awake` seeing defaults, behaves differently. Pinned by `tests/LoadBeforeWake.test.ts`; expectations
   that pinned the old order changed in `tests/RestoreOrder.test.ts` and `tests/DestroyedDuringLoad.test.ts`.
+
+- **`ScriptableBehaviour` no longer allocates a closure per callback.** `Update`, `LateUpdate` and `FixedUpdate`
+  were each wrapped in an arrow function for error isolation: one function object per script per phase per frame,
+  against the zero-allocation rule. The three entry points now run their body directly inside their own `try`/`catch`.
+  Behaviour is identical: same log line, same `callbackFailureLimit` disabling, same order, and
+  `isolateCallbackErrors = false` still lets the exception reach the loop. Measured with the optimizing compilers off
+  (a warmed-up run hides the closure): ~224 B per callback before, ~128 B after, the rest being the interpreter's own
+  cost; a hot run shows no growth either way. Pinned by `tests/ScriptableBehaviourAllocation.test.ts`.
+
 - **`MemoryProfiler.diagnosticsAllowed` is a one-way latch.** Once it has been set to `false` it stays
   `false` for the page's lifetime: assigning `true` afterwards is ignored and logs a
   `console.warn("[MemoryProfiler] …")`, and an overlay already on screen stays closed. Before this a scenario

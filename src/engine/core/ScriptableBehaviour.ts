@@ -369,19 +369,16 @@ export class ScriptableBehaviour extends Behaviour {
         // a sequence: disabling the script pauses the script, not the sequence.
         if (!this.exists() || !this.gameObject.activeInHierarchy) return;
 
-        this._guard("update", () => {
-            if (this.enabled) {
-                if (!this._started) {
-                    this.start();
-                    this._started = true;
-                }
-
-                this.update();
-            }
-
-            // Ticked whatever `enabled` says, after user Update (Unity order).
-            this._coroutineRunner?.tickUpdate();
-        });
+        if (!ScriptableBehaviour.isolateCallbackErrors) {
+            this._runUpdate();
+            return;
+        }
+        try {
+            this._runUpdate();
+            this._consecutiveFailures = 0;
+        } catch (error) {
+            this._onCallbackError("update", error);
+        }
     }
 
     /**
@@ -393,13 +390,16 @@ export class ScriptableBehaviour extends Behaviour {
     public _systemLateUpdate(): void {
         if (!this.exists() || !this.gameObject.activeInHierarchy) return;
 
-        this._guard("lateUpdate", () => {
-            if (this.enabled && this._started) this.lateUpdate();
-
-            // Resolve WaitForEndOfFrame — for a disabled behaviour too, or a
-            // coroutine still running on it would wait forever.
-            this._coroutineRunner?.tickLateUpdate();
-        });
+        if (!ScriptableBehaviour.isolateCallbackErrors) {
+            this._runLateUpdate();
+            return;
+        }
+        try {
+            this._runLateUpdate();
+            this._consecutiveFailures = 0;
+        } catch (error) {
+            this._onCallbackError("lateUpdate", error);
+        }
     }
 
     /**
@@ -411,48 +411,69 @@ export class ScriptableBehaviour extends Behaviour {
     public _systemFixedUpdate(): void {
         if (!this.exists() || !this.gameObject.activeInHierarchy) return;
 
-        this._guard("fixedUpdate", () => {
-            if (this.enabled && this._started) this.fixedUpdate();
+        if (!ScriptableBehaviour.isolateCallbackErrors) {
+            this._runFixedUpdate();
+            return;
+        }
+        try {
+            this._runFixedUpdate();
+            this._consecutiveFailures = 0;
+        } catch (error) {
+            this._onCallbackError("fixedUpdate", error);
+        }
+    }
 
-            // Resolve WaitForFixedUpdate — same reason as above.
-            this._coroutineRunner?.tickFixedUpdate();
-        });
+    private _runUpdate(): void {
+        if (this.enabled) {
+            if (!this._started) {
+                this.start();
+                this._started = true;
+            }
+
+            this.update();
+        }
+
+        // Ticked whatever `enabled` says, after user Update (Unity order).
+        this._coroutineRunner?.tickUpdate();
+    }
+
+    private _runLateUpdate(): void {
+        if (this.enabled && this._started) this.lateUpdate();
+
+        // Resolve WaitForEndOfFrame — for a disabled behaviour too, or a
+        // coroutine still running on it would wait forever.
+        this._coroutineRunner?.tickLateUpdate();
+    }
+
+    private _runFixedUpdate(): void {
+        if (this.enabled && this._started) this.fixedUpdate();
+
+        // Resolve WaitForFixedUpdate — same reason as above.
+        this._coroutineRunner?.tickFixedUpdate();
     }
 
     /**
-     * Runs one lifecycle callback under the isolation policy.
-     *
-     * @remarks
-     * The whole of F22 lives here. When {@link isolateCallbackErrors} is off
-     * the callback is invoked directly, so the exception reaches the loop and
-     * the behaviour is exactly what it was before the policy existed.
+     * The isolation policy's failure path (audit F22), shared by the three
+     * per-frame entry points. Each of them calls its body directly — inside its
+     * own try/catch, or bare when {@link isolateCallbackErrors} is off so the
+     * exception reaches the loop — because wrapping the body in a closure
+     * allocated one function object per script per phase per frame.
      *
      * @param phase - the callback's name, for the log line.
-     * @param body - the callback and whatever must run with it.
      */
-    private _guard(phase: string, body: () => void): void {
-        if (!ScriptableBehaviour.isolateCallbackErrors) {
-            body();
-            return;
-        }
+    private _onCallbackError(phase: string, error: unknown): void {
+        this._consecutiveFailures++;
+        const who = `${this.constructor.name} on "${this.gameObject.name}"`;
+        console.error(`[Engine] ${who} threw in ${phase}():`, error);
 
-        try {
-            body();
-            this._consecutiveFailures = 0;
-        } catch (error) {
-            this._consecutiveFailures++;
-            const who = `${this.constructor.name} on "${this.gameObject.name}"`;
-            console.error(`[Engine] ${who} threw in ${phase}():`, error);
-
-            const limit = ScriptableBehaviour.callbackFailureLimit;
-            if (limit > 0 && this._consecutiveFailures >= limit) {
-                this.enabled = false;
-                console.error(
-                    `[Engine] ${who} disabled after ${this._consecutiveFailures} ` +
-                    `consecutive failures. Fix the error and re-enable it, or set ` +
-                    `ScriptableBehaviour.callbackFailureLimit = 0 to keep it running.`,
-                );
-            }
+        const limit = ScriptableBehaviour.callbackFailureLimit;
+        if (limit > 0 && this._consecutiveFailures >= limit) {
+            this.enabled = false;
+            console.error(
+                `[Engine] ${who} disabled after ${this._consecutiveFailures} ` +
+                `consecutive failures. Fix the error and re-enable it, or set ` +
+                `ScriptableBehaviour.callbackFailureLimit = 0 to keep it running.`,
+            );
         }
     }
 }
