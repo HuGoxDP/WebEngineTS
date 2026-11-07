@@ -247,6 +247,36 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Changed
 
+- **A load builds the whole tree before any script wakes (Unity's order). This changes the observable
+  lifecycle order of every load.** A scene load, `Prefab.instantiate`, `EngineObject.Instantiate`, a
+  prefab instance saved as a link and a prefab revert now create every object, attach every component,
+  write every saved field, make every parent link and resolve every saved GameObject/component
+  reference first, and only then run `awake` and `onEnable` — parents before children, each object's
+  components in list order. What a script sees:
+  - `awake` reads its saved field values, not the class defaults (fields used to be written after
+    `awake` and `onEnable`), and its saved references are already set (they were `null` until the end
+    of the load);
+  - a value written from one `awake` into a sibling's saved field stays, whichever comes first in the
+    list (written into a *later* sibling it used to be replaced by the saved value);
+  - a child's `awake` sees its parent (`transform.parent` was `null`: a child woke as a scene root and
+    was parented afterwards), and a parent's `awake` sees its children;
+  - a script under an object saved inactive, or under an inactive ancestor, gets no `awake` or
+    `onEnable` until the object is activated. It used to get both during the load, with no `onDisable`
+    once it was parented under the inactive object;
+  - a script setter (`@SerializedField` on an accessor) runs before that script's `awake`.
+
+  Built-in components keep one ordering detail: a built-in's internal `onAwake`, which creates its
+  Three.js objects, still runs before its own fields are written, because its setters write into those
+  objects (an audit of every registered built-in found `DirectionalLight.shadowDistance` and
+  `shadowFrustumSize` lost otherwise). No script runs in between, so a script cannot tell. Built-ins'
+  `onEnable` moves to the second pass with the scripts'. The singleton pattern from the M0.2c entry under
+  *Fixed* keeps its outcome — children of an object destroyed in its own `awake` get no `awake`,
+  `onEnable` or `onDestroy` — but they are now built and destroyed with their parent rather than never
+  built, and a saved reference to an object destroyed during the load now holds that destroyed object
+  (`exists()` is false) instead of `null`, as a Unity reference does. `Start` still waits for the first
+  update. Code that relied on writing a later sibling's field in `awake` being overwritten, or on
+  `awake` seeing defaults, behaves differently. Pinned by `tests/LoadBeforeWake.test.ts`; expectations
+  that pinned the old order changed in `tests/RestoreOrder.test.ts` and `tests/DestroyedDuringLoad.test.ts`.
 - **`MemoryProfiler.diagnosticsAllowed` is a one-way latch.** Once it has been set to `false` it stays
   `false` for the page's lifetime: assigning `true` afterwards is ignored and logs a
   `console.warn("[MemoryProfiler] …")`, and an overlay already on screen stays closed. Before this a scenario
@@ -369,7 +399,7 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   waking and enabling the object's children anyway, then parenting them under the dead object, where
   they stayed alive and unreachable. Unity has the whole hierarchy before the first `Awake`, so
   destroying the object there removes its children before any of them wakes; a load now builds none
-  of them. A child destroyed during its own load is no longer attached to its parent (a dead Transform
+  of them (since the *Changed* entry on load order: builds them, and destroys them unwoken with the object). A child destroyed during its own load is no longer attached to its parent (a dead Transform
   was left in the parent's child list), and saved references still count its place, so the siblings
   after it resolve as saved and a reference to it reads null. An ancestor destroyed by a descendant's
   `awake` takes what was built with it and nothing more is built. `destroy()` is deferred to the end
@@ -391,7 +421,8 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   the component takes its fields; written into a component listed before it, the value stays.
   Fields are still written after a component wakes, not before as in Unity: a built-in setter that
   runs before its `onAwake` loses the value (`DirectionalLight.shadowDistance` read back 200 for a
-  saved 75). A scene already saved with two RectTransforms on one object — each reload added one —
+  saved 75). (Superseded by the *Changed* entry "A load builds the whole tree before any script
+  wakes": fields are now written before any script wakes.) A scene already saved with two RectTransforms on one object — each reload added one —
   now loads with one: the extra copies are folded into the first, the later saved values winning,
   since those are the ones that carry the original layout, with a warning naming the object. Saving
   again writes one. A prefab file made from such an object is read the same way by

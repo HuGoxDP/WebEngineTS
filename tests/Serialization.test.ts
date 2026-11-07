@@ -508,8 +508,8 @@ describe("SceneSerializer — format unchanged by prefab support", () => {
 
         expect(ctx.pendingGORefs[0].ref).toEqual({ stack: [], scope: 0 });
         (SceneSerializer as unknown as {
-            _resolveRefs(c: DeserializeContext, roots: GameObject[]): void;
-        })._resolveRefs(ctx, [anchor]);
+            _resolveObjectRefs(c: DeserializeContext, roots: GameObject[]): void;
+        })._resolveObjectRefs(ctx, [anchor]);
 
         expect(holder.target).toBe(tip);
         expect(holder.partner).toBe(anchor.getComponent(FormatMark));
