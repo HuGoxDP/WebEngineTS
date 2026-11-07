@@ -3,7 +3,7 @@ import { EngineObject } from "../src/engine/core/EngineObject";
 import { GameObject } from "../src/engine/core/GameObject";
 import { SceneManager } from "../src/engine/core/SceneManager";
 import { AssetDatabase } from "../src/engine/core/assets/AssetDatabase";
-import { Prefab } from "../src/engine/core/serialization/Prefab";
+import { Prefab, type SerializedPrefab } from "../src/engine/core/serialization/Prefab";
 import { SceneSerializer, type SerializedScene } from "../src/engine/core/serialization/SceneSerializer";
 import { RectTransform } from "../src/engine/core/ui/RectTransform";
 import { UIImage } from "../src/engine/core/ui/UIImage";
@@ -234,6 +234,13 @@ describe("a scene saved while a load added a second RectTransform", () => {
         expect(messages[0]).toContain("Panel");
     });
 
+    test("says so once for the object however many copies it folds", () => {
+        SceneSerializer.deserializeScene(sceneOf([image, addedByLoad, text, addedByLoad, authors]));
+
+        const messages = warn.mock.calls.map((c: unknown[]) => String(c[0])).filter((m: string) => m.includes("RectTransform"));
+        expect(messages).toHaveLength(1);
+    });
+
     test("writes one RectTransform when it is saved again", () => {
         const [panel] = SceneSerializer.deserializeScene(sceneOf([image, addedByLoad, authors]));
 
@@ -244,6 +251,83 @@ describe("a scene saved while a load added a second RectTransform", () => {
 
     test("a list that has one is read without a warning", () => {
         SceneSerializer.deserializeScene(sceneOf([image, authors]));
+
+        expect(warn).not.toHaveBeenCalled();
+    });
+});
+
+describe("a prefab saved while a load added a second RectTransform", () => {
+    /**
+     * The file such a prefab became: the object it was made from had been
+     * loaded with the default rect the graphic's awake added, then the saved
+     * one, and `fromGameObject` wrote both.
+     */
+    function doubledPrefabFile(): { file: SerializedPrefab; saved: ReturnType<typeof layoutOf> } {
+        const source = new GameObject("Panel");
+        source.addComponent(UIImage);
+        const rt = source.getComponent(RectTransform)!;
+        setLayout(rt);
+        const saved = layoutOf(rt);
+        const file = Prefab.fromGameObject(source).toJSON();
+        source.destroyImmediate();
+
+        const blank = new GameObject("Blank");
+        blank.addComponent(RectTransform);
+        const [byLoad] = SceneSerializer.serializeGameObject(blank).components;
+        blank.destroyImmediate();
+
+        const components = file.snapshot!.components;
+        const authors = components.findIndex(c => c.type === "RectTransform");
+        components.splice(authors, 0, byLoad);
+        return { file, saved };
+    }
+
+    let warn: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => { warn = vi.spyOn(console, "warn").mockImplementation(() => {}); });
+    afterEach(() => warn.mockRestore());
+
+    test("reads as one RectTransform, the later saved values winning", () => {
+        const { file, saved } = doubledPrefabFile();
+
+        const prefab = Prefab.fromJSON(file);
+
+        expect(prefab.toJSON().snapshot!.components.map(c => c.type)).toEqual(["UIImage", "RectTransform"]);
+        AssetDatabase._bindGuid("guid-ui", prefab);
+        const instance = prefab.instantiate();
+        expect(instance.getComponents(RectTransform)).toHaveLength(1);
+        expect(layoutOf(instance.getComponent(RectTransform)!)).toEqual(saved);
+    });
+
+    test("gives instances that have no changes, and a revert that keeps one rect", () => {
+        const { file } = doubledPrefabFile();
+        const prefab = Prefab.fromJSON(file);
+        AssetDatabase._bindGuid("guid-ui", prefab);
+        const instance = prefab.instantiate();
+
+        expect(prefab.getChanges(instance)).toEqual({ overrides: [] });
+
+        instance.removeComponent(instance.getComponent(UIImage)!);
+        prefab.revertOverride(instance, prefab.getChanges(instance).removedComponents![0]);
+
+        expect(instance.getComponents(RectTransform)).toHaveLength(1);
+        expect(prefab.getChanges(instance)).toEqual({ overrides: [] });
+    });
+
+    test("says so, once for the object, naming the type", () => {
+        Prefab.fromJSON(doubledPrefabFile().file);
+
+        const messages = warn.mock.calls.map((c: unknown[]) => String(c[0])).filter((m: string) => m.includes("RectTransform"));
+        expect(messages).toHaveLength(1);
+        expect(messages[0]).toContain("Panel");
+    });
+
+    test("a prefab that has one is read without a warning", () => {
+        const source = new GameObject("Panel");
+        source.addComponent(UIImage);
+        const file = Prefab.fromGameObject(source).toJSON();
+        source.destroyImmediate();
+
+        Prefab.fromJSON(file);
 
         expect(warn).not.toHaveBeenCalled();
     });
