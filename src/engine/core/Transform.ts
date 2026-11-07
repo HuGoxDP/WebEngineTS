@@ -6,6 +6,7 @@ import { Vector3 } from "./math/Vector3.ts";
 import { Quaternion } from "./math/Quaternion.ts";
 import type { GameObject } from "./GameObject.ts";
 import { SceneManager } from "./SceneManager.ts";
+import { _noteMoved } from "./_UpdateWalk.ts";
 import { Bounds } from "./math/Bounds.ts";
 import { Matrix4x4 } from "./math/Matrix4x4.ts";
 
@@ -386,6 +387,8 @@ export class Transform extends Component {
         } else {
             this._object3D.removeFromParent();
         }
+
+        _noteMoved(this.gameObject);
 
         // --- Notify scene about root status change ---
         if (wasRoot && !willBeRoot) {

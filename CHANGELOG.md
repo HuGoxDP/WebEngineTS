@@ -492,6 +492,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   remembers the walk its components last ran in, so a callback runs at most once per pass, as in
   Unity. Each execution order is a pass of its own, as before. A number per GameObject, no
   allocation; the per-frame cost is within measurement noise.
+- **An object moved before its turn under a parent already walked no longer misses the frame.**
+  The converse of the entry above: a script that moved a later object — a root, a child, or its
+  own children via `detachChildren` — under a root or parent the walk had already left, or made a
+  later child a root, left it unreached, so it skipped that `update` (or `fixedUpdate`,
+  `lateUpdate`) with its whole subtree. While a scene pass walks, `Transform.setParent` now
+  records each moved object that has not run yet; after the roots, every one still unrun, alive,
+  in the scene and active in the hierarchy runs once, with its subtree, under the same walk number
+  — so nothing runs twice, and each execution order catches up its own pass. An object created
+  during the pass is never caught up: it still starts next frame. No allocation on a frame
+  without reparenting; the per-frame cost is within measurement noise.
 - **An error from a deferred `destroy()` is logged, and a throwing `onDisable` is no longer lost
   when `onDestroy` throws too.** `destroy()` with no delay runs on a microtask, where nothing
   catches: a throwing `onDestroy` surfaced as an uncaught error without saying which object

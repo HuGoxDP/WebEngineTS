@@ -8,7 +8,7 @@ import { Behaviour } from "./Behaviour.ts";
 import { ScriptableBehaviour } from "./ScriptableBehaviour.ts";
 import { EngineSettings } from "./EngineSettings.ts";
 import { getExecutionOrder } from "./reflection/Decorators.ts";
-import { _beginUpdateWalk } from "./_UpdateWalk.ts";
+import { _beginUpdateWalk, _lastUpdateWalk } from "./_UpdateWalk.ts";
 import { TypeRegistry } from "./reflection/TypeRegistry.ts";
 import { Prefab } from "./serialization/Prefab.ts";
 import { SceneSerializer } from "./serialization/SceneSerializer.ts";
@@ -92,6 +92,14 @@ export class GameObject extends EngineObject {
      * run them a second time.
      */
     private _ranInWalk: number = 0;
+
+    /**
+     * The last walk started before this object was created. A walk with a
+     * higher number began after it existed; one at or below it did not, and
+     * does not catch the object up — an object created during a pass starts
+     * next frame.
+     */
+    private readonly _createdAfterWalk: number = _lastUpdateWalk();
 
     /**
      * @internal
@@ -933,6 +941,26 @@ export class GameObject extends EngineObject {
      */
     private static _isLiveChild(parent: Transform, child: Transform): boolean {
         return child.parent === parent && child.gameObject.exists();
+    }
+
+    /**
+     * @internal
+     * Whether this object could still be owed a run in `walk`: it existed
+     * before the walk began and its components have not run in it.
+     */
+    public _mayMissWalk(walk: number): boolean {
+        return this._ranInWalk !== walk && this._createdAfterWalk < walk;
+    }
+
+    /**
+     * @internal
+     * Whether `walk`, now finished with its roots, must still run this object:
+     * it existed before the walk, has not run in it, still exists and is
+     * active in the hierarchy. Used by `Scene` for objects moved under a
+     * parent the walk had already left.
+     */
+    public _missedWalk(walk: number): boolean {
+        return this._mayMissWalk(walk) && this.exists() && this.activeInHierarchy;
     }
 
     /**
