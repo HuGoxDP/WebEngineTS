@@ -436,3 +436,121 @@ describe("a child destroyed while its parent's children are being told something
         expect(kids.map(k => k.pings)).toEqual([1, 1, 0]);
     });
 });
+
+/** Three root GameObjects, each carrying a Counter, all already started. */
+function roots(): [Counter, Counter, Counter] {
+    const counters = [0, 1, 2].map(i => new GameObject(`root${i}`).addComponent(Counter)) as [Counter, Counter, Counter];
+    SceneManager.activeScene._update();
+    for (const c of counters) c.reset();
+    return counters;
+}
+
+const scenePhases: [string, () => void, (c: Counter) => number][] = [
+    ["update", () => SceneManager.activeScene._update(), c => c.updates],
+    ["fixedUpdate", () => SceneManager.activeScene._fixedUpdate(), c => c.fixedUpdates],
+    ["lateUpdate", () => SceneManager.activeScene._lateUpdate(), c => c.lateUpdates],
+];
+
+describe.each(scenePhases)("a root changed during the scene's %s loop", (_name, run, count) => {
+    const counts = (cs: Counter[]): number[] => cs.map(count);
+
+    test("destroying itself does not skip the next root", () => {
+        const rs = roots();
+        rs[0].onTick = () => rs[0].gameObject.destroyImmediate();
+
+        run();
+        expect(counts(rs)).toEqual([1, 1, 1]);
+    });
+
+    test("destroying an earlier root does not skip the next one", () => {
+        const rs = roots();
+        rs[1].onTick = () => rs[0].gameObject.destroyImmediate();
+
+        run();
+        expect(counts(rs)).toEqual([1, 1, 1]);
+
+        run();
+        expect(counts(rs)).toEqual([1, 2, 2]);
+    });
+
+    test("a later root destroyed on the way does not run, and the rest run once", () => {
+        const rs = roots();
+        rs[0].onTick = () => rs[1].gameObject.destroyImmediate();
+
+        run();
+        expect(counts(rs)).toEqual([1, 0, 1]);
+    });
+
+    test("a root moved to the end runs once, and the one after it is not skipped", () => {
+        const rs = roots();
+        rs[0].onTick = () => rs[0].transform.setSiblingIndex(2);
+
+        run();
+        expect(counts(rs)).toEqual([1, 1, 1]);
+        expect(SceneManager.activeScene.getRootGameObjects().map(g => g.name)).toEqual(["root1", "root2", "root0"]);
+    });
+
+    test("a root created during the loop joins the next frame, and a quiet frame copies nothing", () => {
+        const rs = roots();
+        let late: Counter | null = null;
+        rs[0].onTick = () => { late = new GameObject("late").addComponent(Counter); };
+
+        run();
+        expect(counts(rs)).toEqual([1, 1, 1]);
+        expect(late).not.toBeNull();
+        expect(count(late!)).toBe(0);
+
+        SceneManager.activeScene._update();
+        late!.reset();
+        run();
+        expect(count(late!)).toBe(1);
+
+        const scene = SceneManager.activeScene as unknown as { _rootGameObjects: GameObject[] };
+        const settled = scene._rootGameObjects;
+        run();
+        run();
+        expect(scene._rootGameObjects).toBe(settled);
+    });
+});
+
+describe("errors that nobody can catch are logged, not lost", () => {
+    test("a zero-delay destroy() whose onDestroy throws logs the error and still destroys", async () => {
+        const go = new GameObject("deferred");
+        const fragile = go.addComponent(Fragile);
+
+        fragile.destroy();
+        await Promise.resolve();
+
+        expect(fragile.calls).toBe(1);
+        expect(fragile.exists()).toBe(false);
+        expect(errors).toHaveBeenCalledTimes(1);
+        expect(String(errors.mock.calls[0][1])).toContain("cleanup failed");
+    });
+
+    test("when onDisable and onDestroy both throw, onDestroy's reaches the caller and onDisable's is logged", () => {
+        class Both extends Behaviour {
+            protected override onDisable(): void { throw new Error("disable failed"); }
+            protected override onDestroy(): void { throw new Error("destroy failed"); }
+        }
+        const go = new GameObject("both");
+        const both = go.addComponent(Both);
+
+        expect(() => both.destroyImmediate()).toThrow("destroy failed");
+
+        expect(both.exists()).toBe(false);
+        expect(errors).toHaveBeenCalledTimes(1);
+        expect(String(errors.mock.calls[0][1])).toContain("disable failed");
+    });
+
+    test("a throwing onDisable alone still reaches the caller", () => {
+        class DisableOnly extends Behaviour {
+            protected override onDisable(): void { throw new Error("disable failed"); }
+        }
+        const go = new GameObject("disable");
+        const comp = go.addComponent(DisableOnly);
+
+        expect(() => comp.destroyImmediate()).toThrow("disable failed");
+        expect(comp.exists()).toBe(false);
+        expect(errors).not.toHaveBeenCalled();
+    });
+});

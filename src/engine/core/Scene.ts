@@ -88,8 +88,17 @@ export class Scene {
     /**
      * Root-level GameObjects (those whose Transform has no parent).
      * Iterated by the update loops.
+     *
+     * Copy-on-write while lent, like `Transform`'s child list: an update loop
+     * holds the array it was given ({@link _lendRoots}), so a root destroyed,
+     * reparented, reordered or added meanwhile changes a copy and the loop
+     * keeps seeing the list it started with. Every write reaches the list
+     * through {@link _writableRoots}.
      */
     private _rootGameObjects: GameObject[] = [];
+
+    /** Whether {@link _rootGameObjects} has been handed to a loop that may still be running. */
+    private _rootsLent: boolean = false;
 
     /**
      * Flat registry of ALL GameObjects in this scene (including children).
@@ -173,7 +182,7 @@ export class Scene {
 
         // 2. If parentless, it's a root object
         if (go.transform.parent === null) {
-            this._rootGameObjects.push(go);
+            this._writableRoots().push(go);
             // Sync: add to Three.js scene root
             this._contentRoot.add(go.transform._internalObject3D);
         }
@@ -193,7 +202,7 @@ export class Scene {
         // 2. If it was a root, remove from root list
         const rootIndex = this._rootGameObjects.indexOf(go);
         if (rootIndex !== -1) {
-            this._rootGameObjects.splice(rootIndex, 1);
+            this._writableRoots().splice(rootIndex, 1);
         }
 
         // 3. Remove from Three.js scene (safe even if not a direct child)
@@ -212,7 +221,7 @@ export class Scene {
         if (isRootNow) {
             // Became a root → add to root list and Three.js scene
             if (!this._rootGameObjects.includes(go)) {
-                this._rootGameObjects.push(go);
+                this._writableRoots().push(go);
                 this._contentRoot.add(go.transform._internalObject3D);
             }
         } else {
@@ -220,7 +229,7 @@ export class Scene {
             // (Three.js auto-removes from old parent when added to new parent)
             const index = this._rootGameObjects.indexOf(go);
             if (index !== -1) {
-                this._rootGameObjects.splice(index, 1);
+                this._writableRoots().splice(index, 1);
             }
         }
     }
@@ -244,8 +253,44 @@ export class Scene {
         if (from === -1) return;
         const to = Math.max(0, Math.min(index, this._rootGameObjects.length - 1));
         if (to === from) return;
-        this._rootGameObjects.splice(from, 1);
-        this._rootGameObjects.splice(to, 0, go);
+        const roots = this._writableRoots();
+        roots.splice(from, 1);
+        roots.splice(to, 0, go);
+    }
+
+    /** The root list to change: the current one, or a copy if an update loop still holds it. */
+    private _writableRoots(): GameObject[] {
+        if (this._rootsLent) {
+            this._rootGameObjects = this._rootGameObjects.slice();
+            this._rootsLent = false;
+        }
+        return this._rootGameObjects;
+    }
+
+    /**
+     * The root list, for an update loop that runs user code and so may see a
+     * root destroyed, reparented, reordered, moved to another scene or created
+     * before it finishes.
+     *
+     * Nothing is copied here: the array is marked as lent, and the first change
+     * made afterwards writes to a copy (see {@link _writableRoots}). A frame in
+     * which no root changes therefore allocates nothing. Entries may have
+     * changed since the list was taken, so the loop tests each with
+     * {@link _isLiveRoot}; a root created during the loop joins the next one,
+     * as a child created during its parent's walk does.
+     */
+    private _lendRoots(): readonly GameObject[] {
+        this._rootsLent = true;
+        return this._rootGameObjects;
+    }
+
+    /**
+     * Whether a root taken from a lent list is still a live root of this scene.
+     * One destroyed meanwhile must not run; one that became a child, or moved
+     * to another scene, belongs to the walk of its new parent or scene.
+     */
+    private _isLiveRoot(go: GameObject): boolean {
+        return go.exists() && go.scene === this && go.transform.parent === null;
     }
 
     // ==================== GAMEOBJECT SEARCH (UNITY STYLE) ====================
@@ -355,9 +400,10 @@ export class Scene {
         // One pass is the default: no class has declared an @ExecutionOrder, so
         // every component belongs to the same group and none has to be checked.
         if (passes.length === 1) {
-            for (let i = 0; i < this._rootGameObjects.length; i++) {
-                const go = this._rootGameObjects[i];
-                if (go.activeSelf) go._systemFixedUpdate(null);
+            const roots = this._lendRoots();
+            for (let i = 0; i < roots.length; i++) {
+                const go = roots[i];
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemFixedUpdate(null);
             }
             return;
         }
@@ -365,9 +411,10 @@ export class Scene {
         // Otherwise the hierarchy is walked once per order, ascending. Within an
         // order the walk is unchanged, so hierarchy order still decides.
         for (let p = 0; p < passes.length; p++) {
-            for (let i = 0; i < this._rootGameObjects.length; i++) {
-                const go = this._rootGameObjects[i];
-                if (go.activeSelf) go._systemFixedUpdate(passes[p]);
+            const roots = this._lendRoots();
+            for (let i = 0; i < roots.length; i++) {
+                const go = roots[i];
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemFixedUpdate(passes[p]);
             }
         }
     }
@@ -383,9 +430,10 @@ export class Scene {
         // One pass is the default: no class has declared an @ExecutionOrder, so
         // every component belongs to the same group and none has to be checked.
         if (passes.length === 1) {
-            for (let i = 0; i < this._rootGameObjects.length; i++) {
-                const go = this._rootGameObjects[i];
-                if (go.activeSelf) go._systemUpdate(null);
+            const roots = this._lendRoots();
+            for (let i = 0; i < roots.length; i++) {
+                const go = roots[i];
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemUpdate(null);
             }
             return;
         }
@@ -393,9 +441,10 @@ export class Scene {
         // Otherwise the hierarchy is walked once per order, ascending. Within an
         // order the walk is unchanged, so hierarchy order still decides.
         for (let p = 0; p < passes.length; p++) {
-            for (let i = 0; i < this._rootGameObjects.length; i++) {
-                const go = this._rootGameObjects[i];
-                if (go.activeSelf) go._systemUpdate(passes[p]);
+            const roots = this._lendRoots();
+            for (let i = 0; i < roots.length; i++) {
+                const go = roots[i];
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemUpdate(passes[p]);
             }
         }
     }
@@ -411,9 +460,10 @@ export class Scene {
         // One pass is the default: no class has declared an @ExecutionOrder, so
         // every component belongs to the same group and none has to be checked.
         if (passes.length === 1) {
-            for (let i = 0; i < this._rootGameObjects.length; i++) {
-                const go = this._rootGameObjects[i];
-                if (go.activeSelf) go._systemLateUpdate(null);
+            const roots = this._lendRoots();
+            for (let i = 0; i < roots.length; i++) {
+                const go = roots[i];
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemLateUpdate(null);
             }
             return;
         }
@@ -421,9 +471,10 @@ export class Scene {
         // Otherwise the hierarchy is walked once per order, ascending. Within an
         // order the walk is unchanged, so hierarchy order still decides.
         for (let p = 0; p < passes.length; p++) {
-            for (let i = 0; i < this._rootGameObjects.length; i++) {
-                const go = this._rootGameObjects[i];
-                if (go.activeSelf) go._systemLateUpdate(passes[p]);
+            const roots = this._lendRoots();
+            for (let i = 0; i < roots.length; i++) {
+                const go = roots[i];
+                if (go.activeSelf && this._isLiveRoot(go)) go._systemLateUpdate(passes[p]);
             }
         }
     }
@@ -447,6 +498,7 @@ export class Scene {
         }
 
         this._rootGameObjects = [];
+        this._rootsLent = false;
         this._registry.clear();
         // Clears the content, not the mirror root itself — the scene keeps its
         // handedness conversion across an unload.

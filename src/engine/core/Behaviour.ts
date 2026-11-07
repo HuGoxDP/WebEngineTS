@@ -163,19 +163,37 @@ export abstract class Behaviour extends Component {
      *
      * A throwing `onDisable` does not stop the destruction: `onDestroy` still
      * runs and the component still ends destroyed, then the error reaches the
-     * caller — the same promise a throwing `onDestroy` makes.
+     * caller — the same promise a throwing `onDestroy` makes. When both throw,
+     * the `onDestroy` error reaches the caller and the `onDisable` one is
+     * logged, so neither is lost.
      */
     public override _destroyImmediate(): void {
-        try {
-            if (this._wasActiveAndEnabled) {
-                this._wasActiveAndEnabled = false;
+        let disableFailed = false;
+        let disableError: unknown;
+        if (this._wasActiveAndEnabled) {
+            this._wasActiveAndEnabled = false;
+            try {
                 this.onDisable();
+            } catch (err) {
+                disableFailed = true;
+                disableError = err;
             }
-        } finally {
+        }
+
+        try {
             // Continue normal destruction chain (calls onDestroy → marks destroyed →
             // unregisters → leaves the GameObject's component list)
             super._destroyImmediate();
+        } catch (destroyError) {
+            if (disableFailed) {
+                console.error(
+                    `[Behaviour] ${this.constructor.name} on "${this.gameObject.name}" threw in onDisable() while being destroyed:`,
+                    disableError,
+                );
+            }
+            throw destroyError;
         }
+        if (disableFailed) throw disableError;
     }
 
     // ==================== LIFECYCLE HOOKS ====================

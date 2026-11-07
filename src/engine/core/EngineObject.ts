@@ -348,6 +348,10 @@ export class EngineObject {
      * takes twice as long, and nothing fires at all while the loop is stopped.
      * It was a `setTimeout` and did none of that.
      *
+     * The destruction runs later, outside the caller, so an exception from the
+     * object's `onDestroy` cannot reach the caller: it is logged with the
+     * object's name, and the object ends destroyed all the same.
+     *
      * The delay is therefore resolved at frame granularity — an object asked to
      * die in 0.001s dies on the next frame, not 1 ms later.
      *
@@ -364,8 +368,14 @@ export class EngineObject {
         } else {
             // Queue for end of frame (simulated with microtask)
             queueMicrotask(() => {
-                if (obj.exists()) {
+                if (!obj.exists()) return;
+                // Nobody is left to catch a throwing onDestroy here: it would
+                // surface as an uncaught error with no word of which object
+                // failed. Log it the way a timed destroy does.
+                try {
                     obj._destroyImmediate();
+                } catch (err) {
+                    console.error(`[EngineObject] error while destroying "${obj.name}":`, err);
                 }
             });
         }
