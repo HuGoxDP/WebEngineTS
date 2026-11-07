@@ -95,6 +95,19 @@ interface LoadCtx extends DeserializeContext {
      * contains itself is caught against.
      */
     chain: string[];
+    /**
+     * The children each object built by this load was saved with, in saved
+     * order, including any the load destroyed. A saved path counts children in
+     * that order, so a child destroyed during its own load — never attached —
+     * still holds its place, and the siblings after it keep their indices.
+     */
+    loadedChildren: Map<GameObject, GameObject[]>;
+    /**
+     * The objects whose children are being built, outermost first. A child
+     * is attached only once it is built, so a destroyed ancestor does not
+     * reach it through the hierarchy; this is how the load sees it instead.
+     */
+    building: GameObject[];
 }
 
 /** Root fields a link-mode shell carries itself, so they are never also overrides. */
@@ -752,6 +765,8 @@ export class SceneSerializer {
         const ctx: LoadCtx = {
             scopeStack: [],
             chain: [...chain],
+            loadedChildren: new Map(),
+            building: [],
             pendingGORefs: [],
             pendingComponentRefs: [],
             pendingAssetRefs: [],
@@ -1956,8 +1971,8 @@ export class SceneSerializer {
     ): GameObject {
         return SceneSerializer._restore(scopes, assets, chain, ctx => {
             const child = SceneSerializer._deserializeGO(SceneSerializer._cloneJson(json), ctx);
-            child.transform.setParent(parent.transform, false);
-            child.transform.setSiblingIndex(index);
+            SceneSerializer._attachLoaded(child, parent);
+            if (child.exists()) child.transform.setSiblingIndex(index);
             return child;
         });
     }
@@ -2226,6 +2241,15 @@ export class SceneSerializer {
      * a setter that runs before `onAwake` loses its value in any built-in whose
      * backing object `onAwake` creates (`DirectionalLight.shadowDistance` came
      * back as 200, saved as 75).
+     *
+     * An object destroyed while it loads — the singleton whose `awake` calls
+     * `destroyImmediate()` on its own GameObject — builds no children. Unity
+     * has the whole hierarchy before the first `Awake`, so destroying the
+     * object there takes its children with it before any of them wakes; not
+     * building them is the same outcome. The same holds when the destroyer is
+     * one of the children: what was built so far goes with the object, and the
+     * rest is not built. `destroy()` is deferred to the end of the frame, so it
+     * changes nothing here, as in Unity.
      */
     private static _buildContents(go: GameObject, json: SerializedGameObject, ctx: LoadCtx): void {
         for (const { component, saved } of SceneSerializer._attachAll(go, json.components)) {
@@ -2233,12 +2257,42 @@ export class SceneSerializer {
             go._wakeComponent(component);
             for (const fields of saved) SceneSerializer._applyFields(component, fields, ctx);
         }
-        for (const childJson of json.children) {
-            const child = SceneSerializer._deserializeGO(childJson, ctx);
-            // The saved pose is already local; keeping the world pose instead
-            // would subtract the parent's from it.
-            child.transform.setParent(go.transform, false);
+        if (!go.exists()) return;
+
+        const loaded: GameObject[] = [];
+        ctx.loadedChildren.set(go, loaded);
+        ctx.building.push(go);
+        try {
+            for (const childJson of json.children) {
+                if (ctx.building.some(ancestor => !ancestor.exists())) return;
+                const child = SceneSerializer._deserializeGO(childJson, ctx);
+                loaded.push(child);
+                SceneSerializer._attachLoaded(child, go);
+            }
+        } finally {
+            ctx.building.pop();
         }
+    }
+
+    /**
+     * Puts a child this load built under its parent, unless the load destroyed
+     * one of them.
+     *
+     * @remarks
+     * A child destroyed during its own load is not attached: a destroyed
+     * Transform in the parent's list would be a dead child every walk of the
+     * hierarchy meets. A parent destroyed while the child loaded — by the
+     * child's `awake` or one below it — takes the child with it, as it would
+     * have if the child had been attached already.
+     */
+    private static _attachLoaded(child: GameObject, parent: GameObject): void {
+        if (!parent.exists()) {
+            child.destroyImmediate();
+            return;
+        }
+        // The saved pose is already local; keeping the world pose instead
+        // would subtract the parent's from it.
+        if (child.exists()) child.transform.setParent(parent.transform, false);
     }
 
     /**
@@ -2617,20 +2671,21 @@ export class SceneSerializer {
     private static _pending: DeserializeContext["pendingAssetRefs"] = [];
 
     /** Walks every collected reference and assigns what it resolved to. */
-    private static _resolveRefs(ctx: DeserializeContext, roots: ReadonlyArray<GameObject>): void {
+    private static _resolveRefs(ctx: LoadCtx, roots: ReadonlyArray<GameObject>): void {
         SceneSerializer._resolveObjectRefs(ctx, roots);
         SceneSerializer._pending = ctx.pendingAssetRefs.slice();
     }
 
     /** Resolves the collected GameObject and component references, leaving asset ones alone. */
-    private static _resolveObjectRefs(ctx: DeserializeContext, roots: ReadonlyArray<GameObject>): void {
+    private static _resolveObjectRefs(ctx: LoadCtx, roots: ReadonlyArray<GameObject>): void {
+        const loaded = ctx.loadedChildren;
         for (const ref of ctx.pendingGORefs) {
-            const target = SceneSerializer._lookupScoped(roots, ref);
+            const target = SceneSerializer._lookupScoped(roots, ref, loaded);
             SceneSerializer._writeRef(ref.component, ref.field, ref.arrayIndex, target);
         }
 
         for (const ref of ctx.pendingComponentRefs) {
-            const owner = SceneSerializer._lookupScoped(roots, ref);
+            const owner = SceneSerializer._lookupScoped(roots, ref, loaded);
             const target = owner === null
                 ? null
                 : SceneSerializer._findComponent(owner, ref.typeName, ref.index);
@@ -2647,10 +2702,13 @@ export class SceneSerializer {
      * instance `scope` levels out from where it was read, or the roots being
      * loaded when it counts out past every instance. A scope deeper than that
      * is a malformed file and resolves to null.
+     *
+     * @param loaded - the load's {@link LoadCtx.loadedChildren}.
      */
     private static _lookupScoped(
         roots: ReadonlyArray<GameObject>,
         ref: { component: object; field: string; path: Array<number | string>; ref?: RefScope },
+        loaded: ReadonlyMap<GameObject, readonly GameObject[]>,
     ): GameObject | null {
         const { stack, scope } = ref.ref ?? { stack: [], scope: 0 };
         let base: ReadonlyArray<GameObject>;
@@ -2658,8 +2716,8 @@ export class SceneSerializer {
         else if (scope === stack.length) base = roots;
         else return null;
 
-        const target = SceneSerializer._lookupByPath(base, ref.path);
-        if (target === null) SceneSerializer._warnIfIntoPlaceholder(base, ref);
+        const target = SceneSerializer._lookupByPath(base, ref.path, loaded);
+        if (target === null) SceneSerializer._warnIfIntoPlaceholder(base, ref, loaded);
         return target;
     }
 
@@ -2671,6 +2729,7 @@ export class SceneSerializer {
     private static _warnIfIntoPlaceholder(
         roots: ReadonlyArray<GameObject>,
         ref: { component: object; field: string; path: Array<number | string> },
+        loaded: ReadonlyMap<GameObject, readonly GameObject[]>,
     ): void {
         const path = ref.path;
         let cur = SceneSerializer._root(roots, path);
@@ -2679,7 +2738,7 @@ export class SceneSerializer {
                 SceneSerializer._warnLostToPlaceholder(ref, cur);
                 return;
             }
-            cur = SceneSerializer._step(cur, path[i]);
+            cur = SceneSerializer._step(cur, path[i], loaded);
         }
     }
 
@@ -2772,10 +2831,14 @@ export class SceneSerializer {
      * without entering a nested prefab instance — the same search the writer
      * checked the id against.
      */
-    private static _lookupByPath(roots: ReadonlyArray<GameObject>, path: Array<number | string>): GameObject | null {
+    private static _lookupByPath(
+        roots: ReadonlyArray<GameObject>,
+        path: Array<number | string>,
+        loaded?: ReadonlyMap<GameObject, readonly GameObject[]>,
+    ): GameObject | null {
         let cur = SceneSerializer._root(roots, path);
         for (let i = 1; cur !== null && i < path.length; i++) {
-            cur = SceneSerializer._step(cur, path[i]);
+            cur = SceneSerializer._step(cur, path[i], loaded);
         }
         return cur;
     }
@@ -2787,11 +2850,27 @@ export class SceneSerializer {
         return roots[first] ?? null;
     }
 
-    /** One step of a path: a child by index, or a descendant by node id. */
-    private static _step(from: GameObject, segment: number | string): GameObject | null {
+    /**
+     * One step of a path: a child by index, or a descendant by node id.
+     *
+     * @param loaded - the children each object was loaded with, when the step
+     *   resolves a reference read by that load: an index then counts the saved
+     *   children, and one the load destroyed reads as null.
+     */
+    private static _step(
+        from: GameObject,
+        segment: number | string,
+        loaded?: ReadonlyMap<GameObject, readonly GameObject[]>,
+    ): GameObject | null {
         if (typeof segment === "string") return findNodeById(from, segment, SceneSerializer._LIVE);
+        if (!Number.isInteger(segment) || segment < 0) return null;
+        const saved = loaded?.get(from);
+        if (saved !== undefined) {
+            const child = saved[segment];
+            return child !== undefined && child.exists() ? child : null;
+        }
         const t = from.transform;
-        if (!Number.isInteger(segment) || segment < 0 || segment >= t.childCount) return null;
+        if (segment >= t.childCount) return null;
         return t.getChild(segment).gameObject;
     }
 

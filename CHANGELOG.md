@@ -353,6 +353,19 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Fixed
 
+- **An object destroyed during its own load no longer leaves its children behind.** The singleton
+  pattern — an `awake` that calls `destroyImmediate()` on its own GameObject — left a scene load,
+  `Prefab.instantiate`, `EngineObject.Instantiate` and a prefab instance saved as a link building,
+  waking and enabling the object's children anyway, then parenting them under the dead object, where
+  they stayed alive and unreachable. Unity has the whole hierarchy before the first `Awake`, so
+  destroying the object there removes its children before any of them wakes; a load now builds none
+  of them. A child destroyed during its own load is no longer attached to its parent (a dead Transform
+  was left in the parent's child list), and saved references still count its place, so the siblings
+  after it resolve as saved and a reference to it reads null. An ancestor destroyed by a descendant's
+  `awake` takes what was built with it and nothing more is built. `destroy()` is deferred to the end
+  of the frame, as in Unity, and is unchanged: the children load and go with the object afterwards.
+  Pinned by `tests/DestroyedDuringLoad.test.ts`.
+
 - **A UI object reloaded with two RectTransforms and lost its saved layout.** `go.addComponent(UIImage)`
   — the usual way to make a UI object — lists `[UIImage, RectTransform]`, because the graphic's
   `awake` adds the rect it needs. A load added the UIImage first, so that `awake` added a fresh
