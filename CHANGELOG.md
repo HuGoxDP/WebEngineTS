@@ -415,6 +415,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   no longer skip the sibling after a destroyed one. `Transform`'s child list is copy-on-write
   while a walk holds it, so a frame in which nothing changes allocates nothing, and a child
   created during a walk joins the next frame.
+- **A root destroyed during the scene's update loop no longer makes the next root miss its
+  update.** The scene walked its roots by index over the live list, so a root that destroyed
+  itself or an earlier root shifted the list under the walk and the root after it did not run that
+  frame; one that moved itself to the end with `setSiblingIndex` skipped the next root and ran
+  twice. `update`, `fixedUpdate` and `lateUpdate` now walk the root list as it stood when the walk
+  began, copy-on-write like a `Transform`'s children, and skip a root destroyed since, made a
+  child, or moved to another scene. A frame in which no root changes allocates nothing. **Changed
+  as a consequence:** a root created during the walk — `new GameObject()` or `Instantiate` from an
+  `update` — first runs on the next frame instead of the current one, as a child created during
+  its parent's walk already did.
 - **A material with no file stays in the scene on every save, under one id.** A scene carries a
   material built in code in its `assets` table. Loading the scene gave the material that id, and
   the next save then took the id for a file: it wrote a bare reference and dropped the table
@@ -528,6 +538,12 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Known issues
 
+- **An object that has already run this frame and then moves under a parent walked later runs
+  again in the same frame.** The update walks skip an object moved away before its turn, but the
+  hierarchy walk has no record of who already ran, so a script that reparents its own object (or
+  an already-updated one) under a later sibling's subtree gets a second `update` — and the same
+  for `fixedUpdate` and `lateUpdate`. Unity's update does not walk the hierarchy and never does
+  this. Tracked as a follow-up of the A13 review.
 - **The streamed path has been reported to hold ~2.9× the texture VRAM of the ZIP path** for the
   same scenario. Not reproduced from the engine side — `Resources` plus either source type give
   identical cache entries and identical estimates, pinned by `tests/SourceVramParity.test.ts`.

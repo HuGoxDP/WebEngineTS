@@ -436,3 +436,79 @@ describe("a child destroyed while its parent's children are being told something
         expect(kids.map(k => k.pings)).toEqual([1, 1, 0]);
     });
 });
+
+/** Three root GameObjects, each carrying a Counter, all already started. */
+function roots(): [Counter, Counter, Counter] {
+    const counters = [0, 1, 2].map(i => new GameObject(`root${i}`).addComponent(Counter)) as [Counter, Counter, Counter];
+    SceneManager.activeScene._update();
+    for (const c of counters) c.reset();
+    return counters;
+}
+
+const scenePhases: [string, () => void, (c: Counter) => number][] = [
+    ["update", () => SceneManager.activeScene._update(), c => c.updates],
+    ["fixedUpdate", () => SceneManager.activeScene._fixedUpdate(), c => c.fixedUpdates],
+    ["lateUpdate", () => SceneManager.activeScene._lateUpdate(), c => c.lateUpdates],
+];
+
+describe.each(scenePhases)("a root changed during the scene's %s loop", (_name, run, count) => {
+    const counts = (cs: Counter[]): number[] => cs.map(count);
+
+    test("destroying itself does not skip the next root", () => {
+        const rs = roots();
+        rs[0].onTick = () => rs[0].gameObject.destroyImmediate();
+
+        run();
+        expect(counts(rs)).toEqual([1, 1, 1]);
+    });
+
+    test("destroying an earlier root does not skip the next one", () => {
+        const rs = roots();
+        rs[1].onTick = () => rs[0].gameObject.destroyImmediate();
+
+        run();
+        expect(counts(rs)).toEqual([1, 1, 1]);
+
+        run();
+        expect(counts(rs)).toEqual([1, 2, 2]);
+    });
+
+    test("a later root destroyed on the way does not run, and the rest run once", () => {
+        const rs = roots();
+        rs[0].onTick = () => rs[1].gameObject.destroyImmediate();
+
+        run();
+        expect(counts(rs)).toEqual([1, 0, 1]);
+    });
+
+    test("a root moved to the end runs once, and the one after it is not skipped", () => {
+        const rs = roots();
+        rs[0].onTick = () => rs[0].transform.setSiblingIndex(2);
+
+        run();
+        expect(counts(rs)).toEqual([1, 1, 1]);
+        expect(SceneManager.activeScene.getRootGameObjects().map(g => g.name)).toEqual(["root1", "root2", "root0"]);
+    });
+
+    test("a root created during the loop joins the next frame, and a quiet frame copies nothing", () => {
+        const rs = roots();
+        let late: Counter | null = null;
+        rs[0].onTick = () => { late = new GameObject("late").addComponent(Counter); };
+
+        run();
+        expect(counts(rs)).toEqual([1, 1, 1]);
+        expect(late).not.toBeNull();
+        expect(count(late!)).toBe(0);
+
+        SceneManager.activeScene._update();
+        late!.reset();
+        run();
+        expect(count(late!)).toBe(1);
+
+        const scene = SceneManager.activeScene as unknown as { _rootGameObjects: GameObject[] };
+        const settled = scene._rootGameObjects;
+        run();
+        run();
+        expect(scene._rootGameObjects).toBe(settled);
+    });
+});
