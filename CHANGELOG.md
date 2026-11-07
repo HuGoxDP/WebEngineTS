@@ -18,6 +18,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Added
 
+- **A scenario manifest's `entryScene` is read.** The field existed in the type and nothing used it. When the manifest
+  (ZIP `manifest.json`, or `entryScene` in a streaming `scenario.json`) names a scene, `Scenario.run()` builds it right after the
+  entry point's `awake()` returns: the file is read from the archive (path relative to `assets/`, `assets/` prefix accepted),
+  the files it refers to (prefabs, materials, physic materials, textures, models) are loaded through `Resources` first, and
+  `SceneSerializer.deserializeScene` builds it into the scenario's scene, so a scene that uses prefab or material files comes
+  out complete. A missing scene file or a format version this build does not read fails the run (and unloads it) before
+  anything is built. Archives without `entryScene` behave exactly as before. **A scenario that sets `entryScene` must not also
+  deserialize the same scene by hand**, or the world is built twice. New public helper `AssetFiles.loadReferencesOf(json, path)`
+  loads what a parsed scene or prefab refers to. Pinned by `tests/ScenarioEntryScene.test.ts`.
+
 - **The host page can take a still image of the running scenario.** `PlayerHost.capture(options?)` resolves with a
   PNG `Blob` (or JPEG with `{ type: "image/jpeg", quality }`), scaled down to `maxWidth` (default 1920, at most 4096,
   aspect kept, never upscaled). It works while the scenario is **paused**, which is how a frame is chosen: the player

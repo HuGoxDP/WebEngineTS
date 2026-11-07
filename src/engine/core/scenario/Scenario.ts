@@ -4,6 +4,8 @@ import JSZip from "jszip";
 import { EngineObject } from "../EngineObject.ts";
 import { ScenarioAssets } from "./ScenarioAssets.ts";
 import { SceneManager } from "../SceneManager.ts";
+import { AssetFiles } from "../serialization/AssetFiles.ts";
+import { SceneSerializer, type SerializedScene } from "../serialization/SceneSerializer.ts";
 import { ScenarioBehaviour } from "./ScenarioBehaviour.ts";
 import type {
     IScenarioResult,
@@ -512,6 +514,7 @@ export class Scenario extends EngineObject {
      * 3. Pre-links all scripts (rewrites relative imports → Blob URLs).
      * 4. Loads the entry point module.
      * 5. Calls `ScenarioBehaviour._systemInit(context)` (which invokes `awake()`).
+     * 6. Builds the manifest's `entryScene`, if it names one.
      */
     public async run(): Promise<void> {
         if (!this.isLoaded || !this._manifest || !this._scripts) {
@@ -562,6 +565,11 @@ export class Scenario extends EngineObject {
             // Awake — the scenario builds its world here (may be async)
             await this._entryPoint._systemInit(context);
 
+            // The manifest's own scene, after awake: the entry module (and
+            // whatever awake imported) has registered the component classes the
+            // scene names.
+            await this._loadEntryScene();
+
             console.log(`[Scenario] Running: ${this._manifest.name}`);
 
         } catch (error) {
@@ -578,6 +586,34 @@ export class Scenario extends EngineObject {
 
             throw error;
         }
+    }
+
+    /**
+     * Builds `manifest.entryScene` into the scenario's scene, with the files it
+     * refers to loaded first so the result is complete.
+     *
+     * @remarks
+     * Mirrors what a hand-written entry point does: read the file through
+     * `context.assets.getAsset`, parse, `SceneSerializer.deserializeScene` —
+     * plus the step a hand-written load tends to forget, loading
+     * {@link SceneSerializer.assetReferences} (prefabs, materials, ...) through
+     * `Resources`. Throws on a file that is missing or of a version this build
+     * does not read, before anything is built; `run()` then cleans up.
+     */
+    private async _loadEntryScene(): Promise<void> {
+        const path = this._manifest?.entryScene;
+        if (!path) return;
+
+        let json: SerializedScene;
+        try {
+            json = JSON.parse(await (await this._assets!.getAsset(path)).text()) as SerializedScene;
+        } catch (error) {
+            throw new Error(`[Scenario] Cannot read entryScene "${path}": ${error instanceof Error ? error.message : error}`);
+        }
+        SceneSerializer._refuseUnknownVersion(json, "scene");
+
+        await AssetFiles.loadReferencesOf(json, path.startsWith("assets/") ? path : `assets/${path}`);
+        SceneSerializer.deserializeScene(json);
     }
 
     /** Hands a result to the host hook, if this is the active scenario. */

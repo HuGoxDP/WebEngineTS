@@ -125,11 +125,23 @@ export interface IScenarioManifest {
     entryPoint: string;
 
     /**
-     * Path to a serialized scene to load before executing the entry point.
+     * Path of a serialized scene (`*.scene.json`) the loader builds for the
+     * scenario, relative to `assets/` (`"scenes/main.scene.json"`; an
+     * `assets/` prefix is accepted, as for `getAsset`).
      *
      * @remarks
-     * Reserved: scene serialization itself now exists (`SceneSerializer`), but
-     * nothing in the loader reads this field yet.
+     * Read by `Scenario.run()` **after** the entry point's `awake()` has
+     * returned — the entry module has been imported by then, so the component
+     * classes the scene names are registered, and `awake()` may still register
+     * more. The files the scene refers to (prefabs, materials, physic
+     * materials, textures, models) are loaded through `Resources` first, so the
+     * scene comes out complete. The objects land in the scenario's own scene.
+     *
+     * Absent: nothing is loaded for you and the entry point builds its own
+     * world, as before. A scenario that sets this must not also deserialize
+     * the same scene by hand, or the world is built twice. A scene that cannot
+     * be read (missing file, a format version this build does not read) fails
+     * the run.
      */
     entryScene?: string;
 
