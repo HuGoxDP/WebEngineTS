@@ -503,29 +503,55 @@ export class GameObject extends EngineObject {
      * @internal
      * Runs the lifecycle {@link addComponent} gives a new component: `awake`,
      * then `onEnable` if the object is active and the component enabled.
+     * {@link _initializeComponent} then {@link _awakeComponent}.
      *
      * **NEVER use in user-facing code.**
      */
     public _wakeComponent(component: Component): void {
+        this._initializeComponent(component);
+        this._awakeComponent(component);
+    }
+
+    /**
+     * @internal
+     * The part of a new component's wake that belongs to its construction: a
+     * built-in Behaviour's `onAwake`, where Camera, Light and the renderers
+     * create their backing Three.js objects. Runs whether or not the object is
+     * active — every built-in assumes those objects exist from the moment it
+     * is added, and its setters write into them. User scripts have nothing
+     * here; their `awake` is {@link _awakeComponent}'s.
+     *
+     * A load runs this, then writes the saved fields, for every component of
+     * the whole tree before any {@link _awakeComponent}.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _initializeComponent(component: Component): void {
+        if (!component.exists()) return;
+        if (component instanceof Behaviour && !(component instanceof ScriptableBehaviour)) {
+            component._internalInitialize();
+        }
+    }
+
+    /**
+     * @internal
+     * The user-visible part of a new component's wake: a script's `awake`,
+     * then `onEnable`, each only if the object is active in the hierarchy
+     * (and, for `onEnable`, the component enabled).
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _awakeComponent(component: Component): void {
         if (!component.exists()) return;
 
-        // Lifecycle: Awake
-        // - ScriptableBehaviour (user scripts) → _systemAwake() → public awake()
-        // - Built-in Behaviours (Camera, Light, etc.) → _internalInitialize() → protected onAwake()
         // A user script added to an inactive object waits: Unity's rule is "if
         // a GameObject is inactive during start up, Awake is not called until
         // it is made active", so `awake` runs shortly before the first
         // `onEnable` rather than during an assemble-hidden-then-reveal build.
-        // Built-in Behaviours initialise regardless — that is where Camera,
-        // Light and the renderers create their backing Three.js objects, and
-        // every one of them assumes it exists from the moment it is added.
-        if (component instanceof ScriptableBehaviour) {
-            if (this.activeInHierarchy) component._systemAwake();
-        } else if (component instanceof Behaviour) {
-            component._internalInitialize();
+        if (component instanceof ScriptableBehaviour && this.activeInHierarchy) {
+            component._systemAwake();
         }
 
-        // Lifecycle: OnEnable (if the GO is active in hierarchy and component is enabled)
         if (component instanceof Behaviour && this.activeInHierarchy && component.enabled) {
             component._onEnabledChanged();
         }
