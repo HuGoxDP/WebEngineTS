@@ -425,6 +425,13 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   as a consequence:** a root created during the walk — `new GameObject()` or `Instantiate` from an
   `update` — first runs on the next frame instead of the current one, as a child created during
   its parent's walk already did.
+- **An error from a deferred `destroy()` is logged, and a throwing `onDisable` is no longer lost
+  when `onDestroy` throws too.** `destroy()` with no delay runs on a microtask, where nothing
+  catches: a throwing `onDestroy` surfaced as an uncaught error without saying which object
+  failed. It is now logged with the object's name, as a timed `destroy(delay)` already was. A
+  component whose `onDisable` and `onDestroy` both threw while being destroyed reported only the
+  second error and dropped the first without a trace; the `onDisable` error is now logged and the
+  `onDestroy` one reaches the caller.
 - **A material with no file stays in the scene on every save, under one id.** A scene carries a
   material built in code in its `assets` table. Loading the scene gave the material that id, and
   the next save then took the id for a file: it wrote a bare reference and dropped the table

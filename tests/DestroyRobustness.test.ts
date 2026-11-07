@@ -512,3 +512,45 @@ describe.each(scenePhases)("a root changed during the scene's %s loop", (_name, 
         expect(scene._rootGameObjects).toBe(settled);
     });
 });
+
+describe("errors that nobody can catch are logged, not lost", () => {
+    test("a zero-delay destroy() whose onDestroy throws logs the error and still destroys", async () => {
+        const go = new GameObject("deferred");
+        const fragile = go.addComponent(Fragile);
+
+        fragile.destroy();
+        await Promise.resolve();
+
+        expect(fragile.calls).toBe(1);
+        expect(fragile.exists()).toBe(false);
+        expect(errors).toHaveBeenCalledTimes(1);
+        expect(String(errors.mock.calls[0][1])).toContain("cleanup failed");
+    });
+
+    test("when onDisable and onDestroy both throw, onDestroy's reaches the caller and onDisable's is logged", () => {
+        class Both extends Behaviour {
+            protected override onDisable(): void { throw new Error("disable failed"); }
+            protected override onDestroy(): void { throw new Error("destroy failed"); }
+        }
+        const go = new GameObject("both");
+        const both = go.addComponent(Both);
+
+        expect(() => both.destroyImmediate()).toThrow("destroy failed");
+
+        expect(both.exists()).toBe(false);
+        expect(errors).toHaveBeenCalledTimes(1);
+        expect(String(errors.mock.calls[0][1])).toContain("disable failed");
+    });
+
+    test("a throwing onDisable alone still reaches the caller", () => {
+        class DisableOnly extends Behaviour {
+            protected override onDisable(): void { throw new Error("disable failed"); }
+        }
+        const go = new GameObject("disable");
+        const comp = go.addComponent(DisableOnly);
+
+        expect(() => comp.destroyImmediate()).toThrow("disable failed");
+        expect(comp.exists()).toBe(false);
+        expect(errors).not.toHaveBeenCalled();
+    });
+});
