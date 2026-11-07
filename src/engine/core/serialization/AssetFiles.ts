@@ -55,7 +55,29 @@ export const AssetFiles = {
         }
         return JSON.stringify(SceneSerializer.serializeAsset(asset), null, 2);
     },
+
+    /**
+     * Loads, through `Resources`, every asset file a saved scene (or any other
+     * serialized tree) refers to, so the synchronous
+     * {@link SceneSerializer.deserializeScene} that follows finds them.
+     *
+     * @remarks
+     * What {@link SceneSerializer.assetReferences} lists is loaded; a reference
+     * that cannot be loaded is warned about and left null, exactly as it is for
+     * a prefab that refers to it. Ask {@link SceneSerializer.canRead} first: a
+     * file of a version this build does not read may refer to things this
+     * cannot see.
+     *
+     * @param json the parsed scene, prefab or asset file.
+     * @param path the file it was read from, as `Resources` addresses it; it lets
+     *   files that contain each other be told apart from a load that is
+     *   genuinely in progress.
+     */
+    async loadReferencesOf(json: object, path: string): Promise<void> {
+        await asDecode(path, self => loadReferences(json, self));
+    },
 } as const;
+
 
 /**
  * A file being decoded right now, and the files it is waiting on while it

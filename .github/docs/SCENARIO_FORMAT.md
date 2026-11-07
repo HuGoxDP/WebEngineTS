@@ -38,7 +38,7 @@ scenario.zip
     },
     "engineVersion": "0.1.0",
     "entryPoint": "main.js",
-    "entryScene": "main.scene.json",
+    "entryScene": "scenes/main.scene.json",
     "dependencies": [],
     "metadata": {
         "thumbnail": "assets/textures/thumbnail.png"

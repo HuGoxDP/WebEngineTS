@@ -150,6 +150,12 @@ export interface IStreamingManifest {
      * its own script list cannot run, and says so at parse time.
      */
     entry?: string;
+    /**
+     * The scene to build after the entry point's `awake()`, relative to
+     * `assets/`; carried to {@link IScenarioManifest.entryScene}. The scene file
+     * and what it refers to are listed in {@link assets} like any other asset.
+     */
+    entryScene?: string;
     /** The script modules, in the order the manifest listed them. */
     scripts?: IStreamedScript[];
     /** The assets, in the order the manifest listed them. */
@@ -230,6 +236,12 @@ export function parseStreamingManifest(json: unknown): IStreamingManifest {
         }
         manifest.entry = normalizeScriptPath(root.entry);
     }
+    if (root.entryScene !== undefined) {
+        if (typeof root.entryScene !== "string" || root.entryScene.length === 0) {
+            throw new Error("[StreamingManifest] 'entryScene' must be a non-empty string.");
+        }
+        manifest.entryScene = root.entryScene;
+    }
 
     _validateEntry(manifest);
     return manifest;
@@ -280,6 +292,7 @@ export function toScenarioManifest(manifest: IStreamingManifest): IScenarioManif
     };
     if (manifest.description) scenario.description = manifest.description;
     if (manifest.graded !== undefined) scenario.graded = manifest.graded;
+    if (manifest.entryScene) scenario.entryScene = manifest.entryScene;
     return scenario;
 }
 
