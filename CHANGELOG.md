@@ -419,6 +419,17 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Fixed
 
+- **Moving an object to another parent now fires the lifecycle a `setActive` would.** `Transform.setParent` (and the
+  `parent` setter, `detachChildren`) changed `activeInHierarchy` and fired nothing: an object moved under an inactive
+  parent kept running `onEnable`-registered state with no `onDisable`, and one moved out from under an inactive parent
+  became active with neither `awake` (if it had never woken) nor `onEnable`. Now, as in Unity, the whole moved subtree gets
+  `onDisable`, or `awake` for scripts that never woke followed by `onEnable`, parents first — the same path as
+  `setActive` on an ancestor, so UI graphics leave and rejoin their Canvas and a Canvas stops and resumes drawing.
+  The callbacks run after the move is complete (they see the new parent and world pose). In an update pass, an object
+  activated by a move starts on the next pass if the walk has already left its new parent — as one activated by
+  `setActive(true)` there does; the M0.3d catch-up is only for objects that were active when moved. Reordering siblings
+  changes no activity and fires nothing. Pinned by `tests/ReparentActivation.test.ts`.
+
 - **An object destroyed during its own load no longer leaves its children behind.** The singleton
   pattern — an `awake` that calls `destroyImmediate()` on its own GameObject — left a scene load,
   `Prefab.instantiate`, `EngineObject.Instantiate` and a prefab instance saved as a link building,

@@ -73,8 +73,10 @@ export function _recordMovesFor(walk: number): number {
 
 /**
  * @internal
- * Called by `Transform.setParent` after `go` changed parent. Outside a scene
- * walk this does nothing.
+ * Called by `Transform.setParent` after `go` changed parent, when `go` was
+ * active in the hierarchy before the move — one the move activates starts
+ * next pass, like one activated by `setActive`. Outside a scene walk this
+ * does nothing.
  */
 export function _noteMoved(go: GameObject): void {
     if (recording !== 0 && go._mayMissWalk(recording)) _movedInWalk.push(go);

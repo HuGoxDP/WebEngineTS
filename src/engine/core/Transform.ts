@@ -370,6 +370,9 @@ export class Transform extends Component {
             worldScl = this.lossyScale;
         }
 
+        const go = this.gameObject;
+        const wasActive = go.activeInHierarchy;
+
         // --- Detach from old parent ---
         const wasRoot = (this._parent === null);
 
@@ -391,7 +394,10 @@ export class Transform extends Component {
             this._object3D.removeFromParent();
         }
 
-        _noteMoved(this.gameObject);
+        // Only an object that was active can be owed a run in the open walk.
+        // One that this move activates starts running next pass, exactly like
+        // one activated by setActive under a parent the walk has already left.
+        if (wasActive) _noteMoved(go);
 
         // --- Notify scene about root status change ---
         if (wasRoot && !willBeRoot) {
@@ -425,6 +431,12 @@ export class Transform extends Component {
         this._object3D.updateWorldMatrix(true, true);
 
         Transform._hierarchyEpoch++;
+
+        // A move can activate or deactivate the whole subtree without any
+        // setActive call. Unity treats it as one: Awake for scripts that never
+        // woke, then OnEnable, or OnDisable. Last, so the callbacks see the
+        // object fully in place — new parent, world pose, hierarchy version.
+        if (go.activeInHierarchy !== wasActive && go.exists()) go._onParentActiveStateChanged();
     }
 
     /** Bumped by every re-parent. See {@link _hierarchyVersion}. */
