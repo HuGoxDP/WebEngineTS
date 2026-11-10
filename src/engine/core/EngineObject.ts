@@ -357,9 +357,14 @@ export class EngineObject {
      * `Time.deltaTime` once a frame, so `Time.timeScale = 0` postpones the
      * destruction instead of letting it happen behind a pause menu, half speed
      * takes twice as long, and nothing fires at all while the loop is stopped.
-     * It was a `setTimeout` and did none of that — and a zero delay now obeys
-     * the same stop rule rather than firing on a microtask whenever it was
-     * asked.
+     * It was a `setTimeout` and did none of that.
+     *
+     * A zero delay has no countdown to postpone, so it dies on the first frame
+     * that runs — including one from a paused game, where `Time.deltaTime` is 0
+     * — and, when no loop is running at all, from the microtask that stands in
+     * for a frame. Both cases are pinned by
+     * `tests/DestroyBeforeRender.test.ts` ("still destroys its object when no
+     * loop is running").
      *
      * The destruction runs later, outside the caller, so an exception from the
      * object's `onDestroy` cannot reach the caller: it is logged with the
@@ -388,10 +393,10 @@ export class EngineObject {
             // drawn one frame longer than it existed. A delayed destroy already
             // died at the right phase; this is the same phase.
             //
-            // `remaining` of 0 is due at the first drain, and the drain counts a
-            // frame of *game* time, so a zero-delay destroy no longer happens at
-            // all while the loop is stopped — the same rule a positive delay has
-            // always had, and the one the microtask ignored.
+            // `remaining` of 0 is due at the first drain that runs. A paused game
+            // reports deltaTime 0, and 0 - 0 is still <= 0, so a zero delay dies on
+            // the next frame even while `Time.timeScale` is 0 — it has no countdown
+            // to postpone. (A positive delay obeys the pause; this does not.)
             //
             // A frame that is running drains this entry itself (Application runs
             // the sweep after LateUpdate). The microtask stands in for the frame

@@ -665,6 +665,13 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Documentation
 
+- **`EngineObject.Destroy` no longer claims a zero delay stops with the loop.** The M0.3b entry
+  above moved a zero-delay destroy into the end-of-frame sweep, and the doc said it now "no longer
+  happens at all while the loop is stopped". With no loop running the microtask fallback still
+  destroys it — pinned by `tests/DestroyBeforeRender.test.ts` — and a paused game is not a stopped
+  loop either: a zero delay has no countdown, so `0 - 0` is due and it dies on the next frame even
+  with `Time.timeScale = 0`. The doc now says both, and the entry is due only where a frame runs it.
+
 - **`Texture2D.maxSize` states which loaders honour it.** It caps what the engine decodes itself
   — `fromArrayBuffer`, `Load`, and `Cubemap.fromEquirectangular` given a URL. It does **not**
   reach KTX2 (block-compressed data cannot be resized through a canvas) or textures inside a GLB
