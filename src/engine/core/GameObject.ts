@@ -473,7 +473,10 @@ export class GameObject extends EngineObject {
      *
      * @typeParam T — component subclass to add.
      * @param type — the component class/constructor.
-     * @returns the newly created component instance.
+     * @returns the newly created component instance — or, for a type an object
+     *          holds only once, the one it already has.
+     * @throws if the object holds a type that allows one per object and `type`
+     *         is a subclass of it that the held component is not.
      *
      * @remarks
      * Equivalent to Unity's `GameObject.AddComponent<T>()`.
@@ -483,11 +486,73 @@ export class GameObject extends EngineObject {
      * 2. `Awake()` fires — `_systemAwake()` for user scripts,
      *    `_internalInitialize()` for built-in components
      * 3. `OnEnable()` fires (if active and enabled)
+     *
+     * **One per object.** A type that allows one per object
+     * (`RectTransform`, `Transform`; Unity's `[DisallowMultipleComponent]`)
+     * is never added twice: when the object already holds one, nothing is
+     * added or woken, a warning names the object and the type, and the held
+     * component is returned. Unity logs an error and returns `null` there;
+     * this returns the component the caller can use, so
+     * `addComponent(RectTransform)` on an object whose graphic already added
+     * one edits the rect the graphic draws with. A component destroyed with
+     * `destroyImmediate` no longer counts; one destroyed with `destroy` counts
+     * until the frame ends, as in Unity.
      */
     public addComponent<T extends Component>(type: new (go: GameObject) => T): T {
+        const held = this._heldSingleCopy(type);
+        if (held !== null) return held;
         const component = this._attachComponent(type);
         this._wakeComponent(component);
         return component;
+    }
+
+    /**
+     * For a type that allows one per object, the copy this object already
+     * holds (after warning that none is added), else `null`.
+     */
+    private _heldSingleCopy<T extends Component>(type: new (go: GameObject) => T): T | null {
+        const family = GameObject._singleCopyFamily(type);
+        if (family === null) return null;
+
+        let held: Component | null = null;
+        if (family === Transform) {
+            held = this.transform;
+        } else {
+            for (const component of this._components) {
+                if (component instanceof family && component.exists()) {
+                    held = component;
+                    break;
+                }
+            }
+        }
+        if (held === null) return null;
+
+        if (!(held instanceof type)) {
+            throw new Error(
+                `[GameObject.addComponent] "${this.name}" already has a ${held.constructor.name}, ` +
+                `and an object holds one ${family.name}; a ${type.name} cannot be added beside it.`,
+            );
+        }
+        console.warn(
+            `[GameObject.addComponent] "${this.name}" already has a ${family.name}, and an object ` +
+            `holds only one; nothing was added, the existing one is returned.`,
+        );
+        return held;
+    }
+
+    /**
+     * The topmost class in `type`'s chain that allows one per object
+     * ({@link Component._allowMultiple} `false`), or `null` if `type` allows
+     * several. Every subclass of that class shares its one slot.
+     */
+    private static _singleCopyFamily(type: abstract new (go: GameObject) => Component): typeof Component | null {
+        let family: typeof Component | null = null;
+        let ctor = type as unknown as typeof Component;
+        while (ctor !== Component && ctor._allowMultiple !== undefined) {
+            if (ctor._allowMultiple === false) family = ctor;
+            ctor = Object.getPrototypeOf(ctor) as typeof Component;
+        }
+        return family;
     }
 
     /**
