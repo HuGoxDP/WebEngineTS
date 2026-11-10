@@ -1491,6 +1491,24 @@ export class PrefabDiff {
             return a.every((v, i) => PrefabDiff._equal(v, b[i]));
         }
 
+        const isRef = (v: unknown): boolean =>
+            typeof v === "object" && v !== null && (v as Record<string, unknown>).$type === "ComponentRef";
+        if (isRef(a) && isRef(b)) {
+            // A ComponentRef's cid names the component its type and index
+            // already name, and a file saved before component ids carries
+            // none: a reference written with it and one written without
+            // address the same component, so the id never makes two
+            // otherwise-equal references a change.
+            const left = { ...(a as object) } as Record<string, unknown>;
+            const right = { ...(b as object) } as Record<string, unknown>;
+            delete left.cid;
+            delete right.cid;
+            const ka = Object.keys(left);
+            const kb = Object.keys(right);
+            if (ka.length !== kb.length) return false;
+            return ka.every(k => PrefabDiff._equal(left[k], right[k]));
+        }
+
         const ka = Object.keys(a as object);
         const kb = Object.keys(b as object);
         if (ka.length !== kb.length) return false;

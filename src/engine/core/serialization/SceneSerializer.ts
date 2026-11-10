@@ -77,6 +77,12 @@ interface SceneCtx extends SerializeContext {
      * ever filled beside a {@link minted} entry for the owning node.
      */
     readonly mintedComponents: Map<Component, string>;
+    /**
+     * Nodes whose component ids this pass borrowed from a match tree rather
+     * than minted, so that {@link _mintComponentIds} leaves them as the
+     * match had them. Per-pass, since the borrow is.
+     */
+    readonly borrowedComponents: Set<GameObject>;
     /** Whether an id minted for an added node is stored on the live object. */
     readonly mintLive: boolean;
     /**
@@ -845,6 +851,7 @@ export class SceneSerializer {
             writtenAssets: outer ? outer.writtenAssets : new Map<string, object>(),
             minted: outer ? outer.minted : new Map<GameObject, string>(),
             mintedComponents: outer ? outer.mintedComponents : new Map<Component, string>(),
+            borrowedComponents: new Set<GameObject>(),
             mintLive: outer ? outer.mintLive : mintLive,
             prefabIds,
             locate: (go) => {
@@ -869,6 +876,9 @@ export class SceneSerializer {
                 }
                 return -1;
             },
+            componentId: link
+                ? (component) => SceneSerializer._componentIdOf(component as Component, ctxRef.value!)
+                : undefined,
             nestedValue: (value) => {
                 // A value whose class was not registered when the scene loaded is
                 // written back as it was read.
@@ -1432,6 +1442,7 @@ export class SceneSerializer {
      * so an object that borrowed its id gets them too.
      */
     private static _mintComponentIds(go: GameObject, ctx: SceneCtx): void {
+        if (ctx.borrowedComponents.has(go)) return;
         if (SceneSerializer._nodeIdOf(go, ctx) === null) return;
         for (const comp of SceneSerializer._componentsOf(go)) {
             if (comp instanceof Transform) continue;
@@ -1466,11 +1477,36 @@ export class SceneSerializer {
         SceneSerializer._childrenOf(root).forEach((child, i) => {
             const twin = match.children[i];
             if (twin === undefined) return;
-            if (twin.id !== undefined) SceneSerializer._giveId(child, twin.id, ctx);
+            if (twin.id !== undefined) {
+                SceneSerializer._giveId(child, twin.id, ctx);
+                // The node is the match's, so its components are too: an id
+                // minted here instead of borrowed would differ from the one
+                // the tree on the other side carries, and every reference and
+                // override of this component would read as changed.
+                SceneSerializer._borrowComponentIds(child, twin, ctx);
+            }
             if (!SceneSerializer._isWrittenInstance(child) && twin.prefab === undefined) {
                 SceneSerializer._borrowIds(child, twin, ctx);
             }
         });
+    }
+
+    /**
+     * Gives `go`'s components the ids the twin node's components carry, by
+     * position, and none where the twin has none: a tree from before
+     * component ids leaves its components without them, so nothing is minted
+     * for a node the pass borrows rather than makes.
+     */
+    private static _borrowComponentIds(go: GameObject, twin: SerializedGameObject, ctx: SceneCtx): void {
+        const components = SceneSerializer._componentsOf(go);
+        twin.components.forEach((json, i) => {
+            const comp = components[i];
+            if (comp === undefined || json.id === undefined || comp instanceof Transform) return;
+            SceneSerializer._giveComponentId(comp, json.id, ctx);
+        });
+        // Minted-on-sight must leave these alone: their ids are the twin's,
+        // and what the twin lacks is a component no file addresses.
+        ctx.borrowedComponents.add(go);
     }
 
     /** Stores a node id on the object, or beside it when the pass must leave objects alone. */
@@ -1609,7 +1645,7 @@ export class SceneSerializer {
         for (let i = 0; i < t.childCount; i++) {
             out.children.push(SceneSerializer._serializeGO(t.getChild(i).gameObject, ctx, under || instanceRoot));
         }
-        out.components = SceneSerializer._serializeComponents(go, ctx);
+        out.components = SceneSerializer._serializeComponents(go, ctx, under);
         return out;
     }
 
@@ -1686,7 +1722,7 @@ export class SceneSerializer {
             : null;
     }
 
-    private static _serializeComponents(go: GameObject, ctx: SerializeContext): SerializedComponent[] {
+    private static _serializeComponents(go: GameObject, ctx: SceneCtx, withId: boolean): SerializedComponent[] {
         const out: SerializedComponent[] = [];
         const components = (go as unknown as { _components: Component[] })._components;
         for (const comp of components) {
@@ -1698,6 +1734,7 @@ export class SceneSerializer {
                 out.push({
                     type: comp.originalType,
                     fields: SceneSerializer._cloneJson(comp.originalFields),
+                    ...(withId ? SceneSerializer._withComponentId(comp, ctx) : {}),
                 });
                 continue;
             }
@@ -1712,9 +1749,19 @@ export class SceneSerializer {
                     (comp as any)[f.name], f.type, ctx, f.elementType,
                 );
             }
-            out.push({ type: typeName, fields });
+            out.push({ type: typeName, fields, ...(withId ? SceneSerializer._withComponentId(comp, ctx) : {}) });
         }
         return out;
+    }
+
+    /**
+     * The `id` a component's JSON carries, when its node has one in this pass
+     * — nothing for a plain scene's, the prefab root's own or a Transform's,
+     * which is what keeps a plain scene byte for byte what it was.
+     */
+    private static _withComponentId(comp: Component, ctx: SceneCtx): { id?: string } {
+        const id = SceneSerializer._componentIdOf(comp, ctx);
+        return id !== null ? { id } : {};
     }
 
     private static _serializeRenderSettings(): SerializedRenderSettings {
