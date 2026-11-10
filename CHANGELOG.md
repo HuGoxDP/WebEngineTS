@@ -451,6 +451,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Fixed
 
+- **Reverting a prefab instance under a parent no longer wakes the fresh instance as a scene root.** `Prefab.revert`
+  rebuilt the instance by `instantiate()`-ing it into the scene — where it woke (`awake`, `onEnable`) as a root — and
+  only then moving it under the old instance's parent, so an instance under an **inactive** holder woke and was
+  immediately disabled again (`awake`, `onEnable`, `onDisable`) and its `awake` had seen the scene root, not the holder.
+  Unity never wakes a script that ends up under an inactive parent, and a nested instance reverting there and a load
+  have built their subtree in place since M0.2a. Now `revert` builds the fresh instance directly under the parent
+  before the wake pass (new `SceneSerializer._instantiatePrefabUnderParent`): under an inactive holder it never wakes and
+  waits for activation (same as any dormant object), and under an active holder its `awake` sees the parent. A true
+  scene-root instance (no parent) reverts exactly as before. Pinned by `tests/PrefabRevertUnderHolder.test.ts`.
+
 - **Moving an object to another parent now fires the lifecycle a `setActive` would.** `Transform.setParent` (and the
   `parent` setter, `detachChildren`) changed `activeInHierarchy` and fired nothing: an object moved under an inactive
   parent kept running `onEnable`-registered state with no `onDisable`, and one moved out from under an inactive parent
