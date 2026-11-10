@@ -262,6 +262,8 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   `Component._allowMultiple` (internal), now read by `addComponent` as well as by a load. Pinned by
   `tests/OnePerObject.test.ts`.
 
+- **Debug hard stop now covers destruction.** With `ScriptableBehaviour.isolateCallbackErrors = false`, the first error thrown by a component's `onDisable`/`onDestroy` while a GameObject is destroyed is rethrown once the destruction is complete (all components, all children, scene registration, Transform) instead of only being logged; later errors are logged. It reaches the caller of `destroyImmediate`, `SceneManager.loadScene`/`unloadScene` (the load or unload finishes first), the frame loop for a timed `destroy(delay)` (every due object is destroyed first), and surfaces as an unhandled error from the microtask for a zero-delay `destroy()`. The default mode (`true`) is unchanged: log and continue.
+
 - **A load builds the whole tree before any script wakes (Unity's order). This changes the observable
   lifecycle order of every load.** A scene load, `Prefab.instantiate`, `EngineObject.Instantiate`, a
   prefab instance saved as a link and a prefab revert now create every object, attach every component,

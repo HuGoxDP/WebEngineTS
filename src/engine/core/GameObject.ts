@@ -1132,11 +1132,18 @@ export class GameObject extends EngineObject {
      * not stop the rest, as in Unity: the other components, the children and the
      * Transform are destroyed all the same. Rethrowing instead would leave the
      * object half torn down, still registered with the scene.
+     *
+     * The debug hard stop (`ScriptableBehaviour.isolateCallbackErrors = false`)
+     * keeps that order and rethrows the first such error — from a component or
+     * from a child's destruction — once everything is destroyed. Later ones
+     * are logged.
      */
     protected override onDestroy(): void {
         // 1. Destroy all components. Each takes itself out of the list as it
         // goes, so walk a copy — and walk again for any a sibling added from its
         // onDisable or onDestroy, so that none outlives its object.
+        const hardStop = EngineObject._hardStopProbe();
+        let first: { err: unknown } | undefined;
         const asked = new Set<Component>();
         for (let next = [...this._components]; next.length > 0; next = this._components.filter(c => !asked.has(c))) {
             for (const component of next) {
@@ -1144,7 +1151,8 @@ export class GameObject extends EngineObject {
                 try {
                     component.destroyImmediate();
                 } catch (err) {
-                    console.error(
+                    if (hardStop && !first) first = { err };
+                    else console.error(
                         `[GameObject] error while destroying ${component.constructor.name} on "${this.name}":`,
                         err,
                     );
@@ -1157,7 +1165,14 @@ export class GameObject extends EngineObject {
         // Copy array because destroyImmediate modifies it via Transform._children
         const children = [...this.transform._internalChildren];
         for (const child of children) {
-            child.gameObject.destroyImmediate();
+            try {
+                child.gameObject.destroyImmediate();
+            } catch (err) {
+                // Only the hard stop lets a child's error out; the rest of the
+                // children and this object still have to be destroyed.
+                if (hardStop && !first) first = { err };
+                else console.error(`[GameObject] error while destroying child "${child.gameObject.name}" of "${this.name}":`, err);
+            }
         }
 
         // 3. Unregister from scene
@@ -1165,6 +1180,8 @@ export class GameObject extends EngineObject {
 
         // 4. Destroy Transform (clears Three.js objects)
         this.transform.destroyImmediate();
+
+        if (first) throw first.err;
     }
 
     // ==================== CLONING ====================

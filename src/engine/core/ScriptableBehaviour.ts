@@ -1,5 +1,6 @@
 // path: src/engine/core/ScriptableBehaviour.ts
 
+import { EngineObject } from "./EngineObject.ts";
 import { Behaviour } from "./Behaviour.ts";
 import { Coroutine, CoroutineRunner, YieldInstruction } from "./Coroutine.ts";
 import type { GameObject } from "./GameObject.ts";
@@ -102,6 +103,16 @@ export class ScriptableBehaviour extends Behaviour {
      * exception reaches `Application._loop` and the frame ends at the throw.
      * The engine stays consistent either way — the loop body is wrapped in a
      * `try`/`finally` so the frame's bookkeeping always completes.
+     *
+     * The hard stop covers destruction too: the first error thrown by a
+     * component's `onDisable`/`onDestroy` while a GameObject is destroyed is
+     * rethrown once the destruction has finished (every component, every
+     * child, the scene registration, the Transform) — never midway, so the
+     * object is not left half torn down. Through `destroyImmediate` and
+     * `SceneManager.loadScene`/`unloadScene` it reaches the caller; through a
+     * deferred `destroy()` it surfaces as an unhandled error in the microtask,
+     * or leaves the frame loop for a timed one. The remaining errors are
+     * logged.
      *
      * **Isolation does not mean silence.** Every failure is logged with the
      * script, its GameObject and the phase, and a script that fails
@@ -477,3 +488,5 @@ export class ScriptableBehaviour extends Behaviour {
         }
     }
 }
+
+EngineObject._hardStopProbe = () => !ScriptableBehaviour.isolateCallbackErrors;
