@@ -18,6 +18,22 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Added
 
+- **One-per-object can be read from outside the engine.** `Component.allowsMultiple` (read on the
+  class) says whether a type may be held more than once by a GameObject — `false` for
+  `RectTransform` and `Transform`, `true` for everything else, inherited by subclasses — and
+  `GameObject.hasComponent(type)` says whether this object already holds one. `getComponent` alone
+  cannot answer the first half of that: the `Transform` is never in the component list (it is part
+  of the object), so `hasComponent(Transform)` is `true` for every live object, and
+  `hasComponent(RectTransform)` on an object whose graphic added one is `true`. It answers exactly
+  what `addComponent` would do: a component destroyed with `destroy` still occupies its slot until
+  the frame ends, as adding a second one would be refused. The rule itself predates this — since
+  M0.2b `addComponent` on an object that already holds a one-per-object type adds nothing and warns
+  — but it lived behind the `@internal` `Component._allowMultiple`, so a host UI could not tell
+  which components of a menu were still addable. The editor's Add Component menu now greys out the
+  ones the object holds, and refuses the click. New public surface only; nothing that compiles today
+  changes behaviour, and `addComponent`'s warnings, refusal and returned component are unchanged.
+  Pinned by `tests/OnePerObjectRead.test.ts`.
+
 - **A scenario manifest's `entryScene` is read.** The field existed in the type and nothing used it. When the manifest
   (ZIP `manifest.json`, or `entryScene` in a streaming `scenario.json`) names a scene, `Scenario.run()` builds it right after the
   entry point's `awake()` returns: the file is read from the archive (path relative to `assets/`, `assets/` prefix accepted),
