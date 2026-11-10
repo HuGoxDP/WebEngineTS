@@ -18,6 +18,22 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Added
 
+- **One-per-object can be read from outside the engine.** `Component.allowsMultiple` (read on the
+  class) says whether a type may be held more than once by a GameObject — `false` for
+  `RectTransform` and `Transform`, `true` for everything else, inherited by subclasses — and
+  `GameObject.hasComponent(type)` says whether this object already holds one. `getComponent` alone
+  cannot answer the first half of that: the `Transform` is never in the component list (it is part
+  of the object), so `hasComponent(Transform)` is `true` for every live object, and
+  `hasComponent(RectTransform)` on an object whose graphic added one is `true`. It answers exactly
+  what `addComponent` would do: a component destroyed with `destroy` still occupies its slot until
+  the frame ends, as adding a second one would be refused. The rule itself predates this — since
+  M0.2b `addComponent` on an object that already holds a one-per-object type adds nothing and warns
+  — but it lived behind the `@internal` `Component._allowMultiple`, so a host UI could not tell
+  which components of a menu were still addable. The editor's Add Component menu now greys out the
+  ones the object holds, and refuses the click. New public surface only; nothing that compiles today
+  changes behaviour, and `addComponent`'s warnings, refusal and returned component are unchanged.
+  Pinned by `tests/OnePerObjectRead.test.ts`.
+
 - **A scenario manifest's `entryScene` is read.** The field existed in the type and nothing used it. When the manifest
   (ZIP `manifest.json`, or `entryScene` in a streaming `scenario.json`) names a scene, `Scenario.run()` builds it right after the
   entry point's `awake()` returns: the file is read from the archive (path relative to `assets/`, `assets/` prefix accepted),
@@ -247,6 +263,22 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Changed
 
+- **A zero-delay `Destroy` takes effect before the frame renders, as in Unity.** Unity's rule:
+  "Actual object destruction is always delayed until after the current Update loop, but always happens
+  before rendering." The engine's zero-delay destroy rode a `queueMicrotask`, which inside the frame
+  loop drains only after the *whole* frame body — after LateUpdate, after the render and after the UI
+  canvas paint. The probe that found it recorded
+  `["destroyer:update","victim:lateUpdate","loop:render","victim:onDestroy"]`: an object destroyed in
+  `update` was still laid out, audio-synced, LOD-selected, hit-tested by the event system and **drawn**
+  on the frame it died — a bullet that left the world still appeared on screen. A delayed
+  `destroy(delay)` already died at the right phase (the sweep Application runs after LateUpdate), so
+  the two disagreed about when "end of frame" is. A zero delay now reaches the same sweep with
+  `remaining = 0`, so `onDisable`/`onDestroy` run after LateUpdate, before the drivers that read final
+  state and before the render. With no loop running — a load's `awake`, a host's dispose, a test — the
+  microtask fallback still delivers the end-of-frame destroy, and the sweep having already run makes
+  it a no-op. A negative or non-finite delay is now treated as zero (it was already immediate).
+  Pinned by `tests/DestroyBeforeRender.test.ts`.
+
 - **`addComponent` holds one per object for `RectTransform` and `Transform` (Unity's
   `[DisallowMultipleComponent]`).** On an object that already has one, `addComponent(RectTransform)`
   (or `addComponent(Transform)`) adds and wakes nothing, logs a `console.warn` naming the object and
@@ -262,7 +294,7 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   `Component._allowMultiple` (internal), now read by `addComponent` as well as by a load. Pinned by
   `tests/OnePerObject.test.ts`.
 
-- **Debug hard stop now covers destruction.** With `ScriptableBehaviour.isolateCallbackErrors = false`, the first error thrown by a component's `onDisable`/`onDestroy` while a GameObject is destroyed is rethrown once the destruction is complete (all components, all children, scene registration, Transform) instead of only being logged; later errors are logged. It reaches the caller of `destroyImmediate`, `SceneManager.loadScene`/`unloadScene` (the load or unload finishes first), the frame loop for a timed `destroy(delay)` (every due object is destroyed first), and surfaces as an unhandled error from the microtask for a zero-delay `destroy()`. The default mode (`true`) is unchanged: log and continue.
+- **Debug hard stop now covers destruction.** With `ScriptableBehaviour.isolateCallbackErrors = false`, the first error thrown by a component's `onDisable`/`onDestroy` while a GameObject is destroyed is rethrown once the destruction is complete (all components, all children, scene registration, Transform) instead of only being logged; later errors are logged. It reaches the caller of `destroyImmediate`, `SceneManager.loadScene`/`unloadScene` (the load or unload finishes first), the frame loop for a timed `destroy(delay)` and for a zero-delay `destroy()` (every due object is destroyed first), and surfaces as an unhandled error from the microtask fallback for a zero-delay `destroy()` with no loop running. The default mode (`true`) is unchanged: log and continue.
 
 - **A load builds the whole tree before any script wakes (Unity's order). This changes the observable
   lifecycle order of every load.** A scene load, `Prefab.instantiate`, `EngineObject.Instantiate`, a
@@ -419,6 +451,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Fixed
 
+- **Reverting a prefab instance under a parent no longer wakes the fresh instance as a scene root.** `Prefab.revert`
+  rebuilt the instance by `instantiate()`-ing it into the scene — where it woke (`awake`, `onEnable`) as a root — and
+  only then moving it under the old instance's parent, so an instance under an **inactive** holder woke and was
+  immediately disabled again (`awake`, `onEnable`, `onDisable`) and its `awake` had seen the scene root, not the holder.
+  Unity never wakes a script that ends up under an inactive parent, and a nested instance reverting there and a load
+  have built their subtree in place since M0.2a. Now `revert` builds the fresh instance directly under the parent
+  before the wake pass (new `SceneSerializer._instantiatePrefabUnderParent`): under an inactive holder it never wakes and
+  waits for activation (same as any dormant object), and under an active holder its `awake` sees the parent. A true
+  scene-root instance (no parent) reverts exactly as before. Pinned by `tests/PrefabRevertUnderHolder.test.ts`.
+
 - **Moving an object to another parent now fires the lifecycle a `setActive` would.** `Transform.setParent` (and the
   `parent` setter, `detachChildren`) changed `activeInHierarchy` and fired nothing: an object moved under an inactive
   parent kept running `onEnable`-registered state with no `onDisable`, and one moved out from under an inactive parent
@@ -540,8 +582,9 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   during the pass is never caught up: it still starts next frame. No allocation on a frame
   without reparenting; the per-frame cost is within measurement noise.
 - **An error from a deferred `destroy()` is logged, and a throwing `onDisable` is no longer lost
-  when `onDestroy` throws too.** `destroy()` with no delay runs on a microtask, where nothing
-  catches: a throwing `onDestroy` surfaced as an uncaught error without saying which object
+  when `onDestroy` throws too.** `destroy()` with no delay reaches the end-of-frame sweep (with no
+  loop running it falls back to a microtask), where a throwing `onDestroy` used to surface as an
+  uncaught error without saying which object
   failed. It is now logged with the object's name, as a timed `destroy(delay)` already was. A
   component whose `onDisable` and `onDestroy` both threw while being destroyed reported only the
   second error and dropped the first without a trace; the `onDisable` error is now logged and the

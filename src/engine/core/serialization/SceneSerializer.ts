@@ -562,7 +562,27 @@ export class SceneSerializer {
         return SceneSerializer._deserializeTree(json, scene, guid === null ? [] : [guid]);
     }
 
-    private static _deserializeTree(json: SerializedGameObject, scene: Scene | undefined, chain: string[]): GameObject {
+    /**
+     * Builds a prefab instance already under `parent` at `index`, waking it
+     * there, instead of as a scene root that is moved afterwards.
+     *
+     * @internal
+     * The load contract (M0.2a) makes a tree built under an inactive parent
+     * never wake: an object created inactive-in-hierarchy waits for activation,
+     * as one added at run time does. A {@link Prefab.revert} of an instance
+     * under a parent uses this so the fresh instance takes the old one's place
+     * without first waking as a scene root (M0.2f).
+     */
+    public static _instantiatePrefabUnderParent(
+        json: SerializedGameObject, parent: GameObject, index: number, scene: Scene | undefined, guid: string | null,
+    ): GameObject {
+        return SceneSerializer._deserializeTree(json, scene, guid === null ? [] : [guid], parent, index);
+    }
+
+    private static _deserializeTree(
+        json: SerializedGameObject, scene: Scene | undefined, chain: string[],
+        parent: GameObject | null = null, index?: number,
+    ): GameObject {
         let prevActive: Scene | null = null;
         if (scene && scene !== SceneManager.activeScene) {
             prevActive = SceneManager.activeScene;
@@ -571,7 +591,11 @@ export class SceneSerializer {
         try {
             const ctx = SceneSerializer._newContext(chain);
             SceneSerializer._materializeAssets(json.assets, ctx);
-            const root = SceneSerializer._deserializeGO(json, ctx, null);
+            // Rooted under `parent` when one is given, so the whole tree is built
+            // in place — never a scene root, not even for a moment — and its wake
+            // pass then sees the parent's active state (M0.2a's load contract).
+            const root = SceneSerializer._deserializeGO(json, ctx, parent);
+            if (index !== undefined) root.transform.setSiblingIndex(index);
             SceneSerializer._resolveObjectRefs(ctx, [root]);
             SceneSerializer._awakeLoaded(ctx);
             SceneSerializer._publishPending(ctx);

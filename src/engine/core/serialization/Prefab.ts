@@ -390,6 +390,20 @@ export class Prefab {
     }
 
     /**
+     * Builds a fresh instance directly under `parent` at `index`, waking it
+     * there — the instance-takes-its-place path {@link revert} uses when the
+     * instance sits under a parent, so its scripts are judged by the parent's
+     * active state from the first: under an inactive holder the instance never
+     * wakes (M0.2f), as a load and a nested instance have not since M0.2a.
+     */
+    private _instantiateUnder(parent: GameObject, index: number, scene?: Scene): GameObject {
+        const target = scene ?? SceneManager.activeScene;
+        return this._stamp(SceneSerializer._instantiatePrefabUnderParent(
+            this._resolvedTree(), parent, index, target, AssetDatabase.guidOf(this),
+        ));
+    }
+
+    /**
      * Resets an instance to this prefab, discarding its own values.
      *
      * @remarks
@@ -452,9 +466,15 @@ export class Prefab {
         const rotation = instance.transform.localRotation.clone();
         instance.destroyImmediate();
 
-        const fresh = this.instantiate(scene);
-        fresh.transform.setParent(parent, false);
-        fresh.transform.setSiblingIndex(index);
+        // Build the fresh instance under the holder before the wake pass (M0.2f),
+        // not as a scene root that is moved afterwards. A top-level instance
+        // under a parent then takes its place the way a nested instance
+        // ({@link SceneSerializer._restoreChild}) and a load have since M0.2a:
+        // under an inactive holder it never wakes at all, and under an active one
+        // its awake sees the parent. A true scene root keeps `instantiate()`.
+        const fresh = parent !== null
+            ? this._instantiateUnder(parent.gameObject, index, scene)
+            : this.instantiate(scene);
         fresh._prefabNodeId = nodeId;
         fresh.name = name;
         fresh.transform.localPosition = position;

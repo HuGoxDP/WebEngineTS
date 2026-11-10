@@ -526,22 +526,10 @@ export class GameObject extends EngineObject {
      * holds (after warning that none is added), else `null`.
      */
     private _heldSingleCopy<T extends Component>(type: new (go: GameObject) => T): T | null {
-        const family = GameObject._singleCopyFamily(type);
-        if (family === null) return null;
-
-        let held: Component | null = null;
-        if (family === Transform) {
-            held = this.transform;
-        } else {
-            for (const component of this._components) {
-                if (component instanceof family && component.exists()) {
-                    held = component;
-                    break;
-                }
-            }
-        }
+        const held = this._singleCopyOf(type);
         if (held === null) return null;
 
+        const family = GameObject._singleCopyFamily(type)!;
         if (!(held instanceof type)) {
             throw new Error(
                 `[GameObject.addComponent] "${this.name}" already has a ${held.constructor.name}, ` +
@@ -556,11 +544,30 @@ export class GameObject extends EngineObject {
     }
 
     /**
+     * The single copy of `type` this object holds, or `null`. Silent: the
+     * lookup shared by {@link _heldSingleCopy} (which warns and refuses) and
+     * {@link hasComponent}, which only wants to know.
+     */
+    private _singleCopyOf<T extends Component>(type: abstract new (...args: never[]) => T): T | null {
+        const family = GameObject._singleCopyFamily(type);
+        if (family === null) return null;
+
+        // The Transform is never in the component list (GameObject's ctor), so
+        // it is read from the object it is part of.
+        if (family === Transform) return this.transform as unknown as T;
+
+        for (const component of this._components) {
+            if (component instanceof family && component.exists()) return component as T;
+        }
+        return null;
+    }
+
+    /**
      * The topmost class in `type`'s chain that allows one per object
      * ({@link Component._allowMultiple} `false`), or `null` if `type` allows
      * several. Every subclass of that class shares its one slot.
      */
-    private static _singleCopyFamily(type: abstract new (go: GameObject) => Component): typeof Component | null {
+    private static _singleCopyFamily(type: abstract new (...args: never[]) => Component): typeof Component | null {
         let family: typeof Component | null = null;
         let ctor = type as unknown as typeof Component;
         while (ctor !== Component && ctor._allowMultiple !== undefined) {
@@ -700,6 +707,37 @@ export class GameObject extends EngineObject {
         const remaining = this._components.slice();
         remaining.splice(at, 1);
         this._components = remaining;
+    }
+
+    /**
+     * Whether this object holds a component of the given type.
+     *
+     * @param type — the component class/constructor.
+     *
+     * @remarks
+     * The read {@link getComponent} cannot answer alone: it looks only at the
+     * component list, and the Transform is never in it (GameObject's
+     * constructor creates it as part of the object). So
+     * `hasComponent(Transform)` is `true` for every live object, and
+     * `hasComponent(RectTransform)` on an object whose graphic added one is
+     * `true` — the two cases an editor's Add Component menu has to know.
+     *
+     * It answers what {@link addComponent} would do: for a type that allows one
+     * per object it is the one it already holds, so a component destroyed with
+     * `destroy` counts until the frame ends (the slot is still taken), exactly
+     * as adding one more would be refused. For a type that allows several it is
+     * the presence in the list, which is what `getComponent` sees.
+     *
+     * @example
+     * RectTransform.allowsMultiple;            // false
+     * go.hasComponent(RectTransform);          // true after the graphic added it
+     */
+    public hasComponent<T extends Component>(type: new (...args: never[]) => T): boolean {
+        if (GameObject._singleCopyFamily(type) !== null) return this._singleCopyOf(type) !== null;
+        for (const comp of this._components) {
+            if (comp instanceof type) return true;
+        }
+        return false;
     }
 
     /**

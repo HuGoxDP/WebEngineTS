@@ -110,9 +110,9 @@ export class ScriptableBehaviour extends Behaviour {
      * child, the scene registration, the Transform) — never midway, so the
      * object is not left half torn down. Through `destroyImmediate` and
      * `SceneManager.loadScene`/`unloadScene` it reaches the caller; through a
-     * deferred `destroy()` it surfaces as an unhandled error in the microtask,
-     * or leaves the frame loop for a timed one. The remaining errors are
-     * logged.
+     * deferred `destroy()` it surfaces as an unhandled error from the microtask
+     * fallback (or from the sweep), and leaves the frame loop for a timed one.
+     * The remaining errors are logged.
      *
      * **Isolation does not mean silence.** Every failure is logged with the
      * script, its GameObject and the phase, and a script that fails
