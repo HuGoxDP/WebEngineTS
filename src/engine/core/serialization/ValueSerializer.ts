@@ -151,6 +151,13 @@ export interface DeserializeContext {
         path: Array<number | string>;
         typeName: string;
         index: number;
+        /**
+         * The component's id within its node's prefab, or null for a file
+         * written before component ids. Resolved first when present; a file
+         * whose component was removed after the reference was written reads
+         * as null, not as a neighbour.
+         */
+        cid: string | null;
         /** Slot to write into when the field is an array; null when it is not. */
         arrayIndex: number | null;
         /** Where the path is counted from. */
@@ -533,6 +540,7 @@ export class ValueSerializer {
                             path: (obj.path as Array<number | string>).slice(),
                             typeName: String(obj.component ?? ""),
                             index: Number(obj.index ?? 0),
+                            cid: typeof obj.cid === "string" ? obj.cid : null,
                             arrayIndex: ctx.currentArrayIndex,
                             ref: ValueSerializer._scopeOf(obj, ctx),
                         });
