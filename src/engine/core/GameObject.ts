@@ -287,6 +287,7 @@ export class GameObject extends EngineObject {
                 // Its id names it within the prefab being unpacked, which no
                 // longer holds it.
                 child._prefabNodeId = null;
+                GameObject._clearComponentIds(child);
                 if (child._prefabInfo !== null) {
                     // A nested instance owns the rest of its subtree's ids.
                     if (!completely) continue;
@@ -296,7 +297,21 @@ export class GameObject extends EngineObject {
             }
         };
         this._prefabNodeId = null;
+        GameObject._clearComponentIds(this);
         walk(this);
+    }
+
+    /**
+     * Cuts every component of `go` loose from the prefab node it came from,
+     * exactly where node ids are cut: an object that is no longer any
+     * prefab's node has no components addressable within one either.
+     *
+     * @internal
+     * Only the objects's own components — a caller that unwalks a subtree
+     * clears one object at a time.
+     */
+    public static _clearComponentIds(go: GameObject): void {
+        for (const component of go._components) component._prefabComponentId = null;
     }
 
     /** The nearest ancestor that is the root of a prefab instance, or null. */

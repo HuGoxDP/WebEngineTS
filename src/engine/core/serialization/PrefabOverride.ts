@@ -45,6 +45,14 @@ export interface PrefabOverride {
     /** Which component of that type on the GameObject. `0` unless duplicated. */
     componentIndex: number;
     /**
+     * Which component of {@link node} the field belongs to, in the prefab's id
+     * namespace — written only where nodes have ids, beside
+     * {@link componentIndex} as the readable fallback. A reader resolves it
+     * when it resolves on that node, and falls back to type + occurrence
+     * otherwise, so an older file with neither reads exactly as before.
+     */
+    componentId?: string;
+    /**
      * Field name, a transform path such as `transform.position`, or `prefab` for
      * a nested prefab instance's own link.
      */
@@ -98,6 +106,12 @@ export interface PrefabRemovedComponent {
     component: string;
     /** Which component of that type, in the prefab. */
     componentIndex: number;
+    /**
+     * Which component of {@link node} was removed, in the prefab's id
+     * namespace — written only where nodes have ids, beside
+     * {@link componentIndex} as the readable fallback.
+     */
+    componentId?: string;
 }
 
 /**
@@ -750,6 +764,31 @@ export class PrefabDiff {
         walk(snapshot, []);
         if (upgrade) PrefabDiff._rewritePositionalRefs(snapshot);
         return snapshot;
+    }
+
+    /**
+     * Gives every component of `node` that has none an id, now that `node` has
+     * one: a legacy `~c:<nodeId>:<type>:<occurrence>`, counted per type within
+     * the node, or a minted one. Ids already on a component are kept.
+     *
+     * Called from {@link ensureIds} once the readers write and read component
+     * ids (A5 Phase 3), so that a file read before them derives the same ones
+     * every time. Deriving earlier would put ids into files ahead of the
+     * writers that own the format: a minted id appears in a re-saved changes
+     * list, and a legacy one in a prefab file, and neither is idempotent until
+     * the writer and the reader agree — the state Phase 3 leaves them in.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _ensureComponentIds(node: SerializedGameObject, legacy: boolean): void {
+        if (node.id === undefined) return;
+        const seen = new Map<string, number>();
+        for (const json of node.components) {
+            if (json.id !== undefined) continue;
+            const occurrence = seen.get(json.type) ?? 0;
+            seen.set(json.type, occurrence + 1);
+            json.id = legacy ? `~c:${node.id}:${json.type}:${occurrence}` : mintNodeId();
+        }
     }
 
     // ── private ──────────────────────────────────────────────────────

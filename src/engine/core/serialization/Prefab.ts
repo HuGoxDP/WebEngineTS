@@ -1412,6 +1412,10 @@ export class Prefab {
      */
     private _stamp(go: GameObject): GameObject {
         go._prefabNodeId = null;
+        // The serializer reaches the list the same way: the field is the
+        // GameObject's own, and this file imports the type only.
+        const components = (go as unknown as { _components: Component[] })._components;
+        for (const comp of components) comp._prefabComponentId = null;
         go._prefabInfo = { source: this, guid: AssetDatabase.guidOf(this), raw: null, unused: null };
         return go;
     }
