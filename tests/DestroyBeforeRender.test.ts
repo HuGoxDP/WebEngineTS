@@ -146,6 +146,23 @@ describe("A zero-delay Destroy inside a running loop", () => {
         expect(go.exists()).toBe(false);
     });
 
+    test("dies on the next frame even while the game is paused", () => {
+        // A zero delay has no countdown to postpone: the entry is due at
+        // `remaining - deltaTime <= 0`, and a paused game reports deltaTime 0,
+        // so `0 - 0` is still due. A positive delay obeys the pause — its
+        // countdown simply does not advance.
+        const now = new GameObject("Now");
+        const later = new GameObject("Later");
+
+        EngineObject.Destroy(now, 0);
+        EngineObject.Destroy(later, 1);
+
+        EngineObject._updatePendingDestroys(0);
+
+        expect(now.exists()).toBe(false);
+        expect(later.exists()).toBe(true);
+    });
+
     test("a negative or non-finite delay is treated as zero", async () => {
         const negative = new GameObject("Negative");
         const infinite = new GameObject("Infinite");
