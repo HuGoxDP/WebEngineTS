@@ -1563,7 +1563,12 @@ export class SceneSerializer {
         twin.components.forEach((json, i) => {
             const comp = components[i];
             if (comp === undefined) return;
-            if (json.id !== undefined && !(comp instanceof Transform)) {
+            // Only what has no id of its own takes the twin's: a component the
+            // instance already carries an id for keeps it, and a list that
+            // lost one in front has shifted, so the twin at the same position
+            // is a different component.
+            if (json.id !== undefined && !(comp instanceof Transform)
+                && SceneSerializer._componentIdOf(comp, ctx) === null) {
                 SceneSerializer._giveComponentId(comp, json.id, ctx);
             }
             ctx.matchedComponents.add(comp);
