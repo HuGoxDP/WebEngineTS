@@ -12,6 +12,7 @@ import {
 } from "../src/engine/core/serialization/SceneSerializer";
 import { Prefab } from "../src/engine/core/serialization/Prefab";
 import { PrefabDiff } from "../src/engine/core/serialization/PrefabOverride";
+import { AssetDatabase } from "../src/engine/core/assets/AssetDatabase";
 
 /**
  * Component ids (A5, decision Q2): a component inside a prefab tree, a
@@ -199,5 +200,81 @@ describe("component ids on their own — data, minting, derivation, copies", () 
         SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(first)), scene);
         const second = SceneSerializer.serializeScene(scene);
         expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+    });
+});
+
+describe("component ids across a write and a read of a file from before them", () => {
+    /** A prefab file that has node ids but no component ids: the shape A5 found in the wild. */
+    const oldFile = (): Record<string, unknown> => ({
+        name: "Tank", version: 2,
+        snapshot: {
+            name: "Tank", active: true,
+            transform: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 } },
+            components: [], children: [{
+                name: "Hull", active: true, id: "k-hull",
+                transform: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 } },
+                components: [
+                    { type: "ComponentIdsSpec.Tag", fields: { label: "first" } },
+                    { type: "ComponentIdsSpec.Tag", fields: { label: "second" } },
+                ],
+                children: [],
+            }],
+        },
+    });
+
+    test("an unknown component keeps its id through a load and a save", () => {
+        const json = oldFile();
+        (json.snapshot as { children: Array<{ components: unknown[] }> }).children[0].components
+            .unshift({ type: "ComponentIdsSpec.Gone", fields: { lost: 1 }, id: "c-gone" });
+        const prefab = Prefab.fromJSON(json as never);
+
+        const instance = prefab.instantiate();
+        const gone = instance.transform.getChild(0).gameObject.getAllComponents()[0];
+        expect(gone._prefabComponentId).toBe("c-gone");
+
+        const written = JSON.parse(JSON.stringify(prefab.toJSON())) as {
+            snapshot: { children: Array<{ components: Array<{ id?: string; type: string }> }> };
+        };
+        const kept = written.snapshot.children[0].components;
+        expect(kept.find(c => c.type === "ComponentIdsSpec.Gone")!.id).toBe("c-gone");
+    });
+
+    test("the same file derives the same ids on every load, and writes them minted", () => {
+        const first = Prefab.fromJSON(oldFile() as never);
+        const second = Prefab.fromJSON(oldFile() as never);
+
+        const idsOf = (p: Prefab): string[] =>
+            p._resolvedTree().children[0].components.map(c => c.id!);
+        expect(idsOf(first)).toEqual(idsOf(second));
+        expect(idsOf(first)[0]).toMatch(/^~c:k-hull:/);
+
+        const written = first.toJSON();
+        const writtenIds = (JSON.parse(JSON.stringify(written)) as {
+            snapshot: { children: Array<{ components: Array<{ id: string }> }> };
+        }).snapshot.children[0].components.map(c => c.id);
+        expect(writtenIds.some(id => id.startsWith("~c:"))).toBe(false);
+        // The memo: a second write of the same tree writes the same ids.
+        const again = first.toJSON();
+        expect(JSON.stringify(again)).toBe(JSON.stringify(written));
+    });
+
+    test("a link save of an instance writes minted ids and is idempotent", () => {
+        const prefab = Prefab.fromJSON(oldFile() as never);
+        AssetDatabase._bindGuid("guid-ci-old", prefab);
+        const instance = prefab.instantiate();
+        instance.transform.getChild(0).gameObject
+            .removeComponent(instance.transform.getChild(0).gameObject.getAllComponents()[0]);
+
+        const first = SceneSerializer.serializeScene(SceneManager.activeScene, { prefabs: "link" });
+        const text = JSON.stringify(first);
+        expect(text).not.toContain('"~c:');
+        const changes = (first.roots[0] as { prefab: { changes: { removedComponents: Array<{ componentId?: string }> } } })
+            .prefab.changes;
+        expect(changes.removedComponents[0].componentId).not.toMatch(/^~c:/);
+
+        clear();
+        SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(first)));
+        expect(JSON.stringify(SceneSerializer.serializeScene(SceneManager.activeScene, { prefabs: "link" })))
+            .toBe(text);
     });
 });

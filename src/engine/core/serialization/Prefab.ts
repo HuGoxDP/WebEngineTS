@@ -11,6 +11,7 @@ import {
 } from "./SceneSerializer";
 import {
     PrefabDiff,
+    mintNodeId,
     joinNested,
     splitNested,
     type PrefabAddedChild,
@@ -144,6 +145,21 @@ export class Prefab {
         this._changes = Prefab._toChanges(changes);
         this.name = name ?? snapshot?.name ?? this._base?.name ?? "Prefab";
     }
+
+    /**
+     * The minted id a legacy component id is written under — the same one every
+     * time, so a file written from a tree read before component ids holds
+     * stable ids instead of deriving `~c:` ones on every read. The tree in
+     * memory keeps its own: readers match by what it holds.
+     */
+    public _mintedComponentId(legacy: string): string {
+        const existing = this._legacyUpgrades.get(legacy);
+        if (existing !== undefined) return existing;
+        const minted = mintNodeId();
+        this._legacyUpgrades.set(legacy, minted);
+        return minted;
+    }
+    private readonly _legacyUpgrades = new Map<string, string>();
 
     /** Values alone become changes with no shape; changes are copied. */
     private static _toChanges(changes: readonly PrefabOverride[] | PrefabChanges): PrefabChanges {
@@ -1464,11 +1480,17 @@ export class Prefab {
         }
 
         const snapshot = this._resolvedTree();
+        // A file read before component ids derived the same legacy ones on
+        // every load; written, they are minted — through a memo, so the same
+        // legacy id is written under the same minted one every time, and the
+        // tree itself keeps what the readers match by.
+        const written = JSON.parse(JSON.stringify(snapshot)) as SerializedGameObject;
+        PrefabDiff._mintLegacyIds(written, legacy => this._mintedComponentId(legacy));
         // Version 2 only when an older reader would misread the file: a nested
         // prefab kept as a link, or a reference that names a node by id.
-        return SceneSerializer._needsLinkReader(snapshot)
-            ? { name: this.name, version: 2, snapshot }
-            : { name: this.name, snapshot };
+        return SceneSerializer._needsLinkReader(written)
+            ? { name: this.name, version: 2, snapshot: written }
+            : { name: this.name, snapshot: written };
     }
 
     /** @internal The resolved tree (read-only). */

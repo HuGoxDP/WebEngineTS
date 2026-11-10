@@ -1284,6 +1284,12 @@ export class SceneSerializer {
     ): SerializedGameObject {
         const full = SceneSerializer._serializeNode(go, ctx, under, true);
         full.prefab = SceneSerializer._expandedLink(guid, info);
+        // Written in full, the tree holds component ids a reader from before
+        // them derived; those go out minted, the same ones the link form uses.
+        const source = ctx.link ? info.source : null;
+        if (source?._mintedComponentId !== undefined) {
+            PrefabDiff._mintLegacyIds(full, source._mintedComponentId.bind(source));
+        }
         return full;
     }
 
@@ -1356,6 +1362,12 @@ export class SceneSerializer {
         const out = SceneSerializer._serializeShell(go, outer, under);
         out.prefab = { guid, changes };
         if (info.unused !== null) out.prefab.unused = SceneSerializer._cloneJson(info.unused);
+        // A prefab read before component ids derived `~c:` ids in memory, which
+        // is what the comparison matched by; written, they are minted — through
+        // the prefab's own memo, so its file and every link to it agree.
+        if (source._mintedComponentId !== undefined) {
+            PrefabDiff._mintLegacyIds(out.prefab, source._mintedComponentId.bind(source));
+        }
         SceneSerializer._carryAssets(local, tree, out.prefab, outer);
         return out;
     }

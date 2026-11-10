@@ -163,6 +163,12 @@ export interface PrefabSource {
     readonly name: string;
     /** The tree this prefab describes, with a variant resolved against its base. */
     _resolvedTree(): SerializedGameObject;
+    /**
+     * The minted id a legacy component id is written under, the same one every
+     * time — so a file written from a tree read before component ids holds
+     * stable ids rather than deriving `~c:` ones on every read.
+     */
+    _mintedComponentId?(legacy: string): string;
 }
 
 /**
@@ -800,6 +806,31 @@ export class PrefabDiff {
             seen.set(json.type, occurrence + 1);
             json.id = legacy ? `~c:${node.id}:${json.type}:${occurrence}` : mintNodeId();
         }
+    }
+
+    /**
+     * Replaces every legacy component id in a serialized value with a minted
+     * one, through a memo so the same legacy id always mints the same new one.
+     *
+     * A file read before component ids derived the same `~c:` ids on every
+     * load, which is what made the readers resolve what the writers wrote;
+     * written out they are minted — once per legacy id, so the file stops
+     * deriving and a second write of the same tree writes the same ids.
+     * Applied to what is written, never to the tree it came from: the tree and
+     * the live components keep the ids the readers match by.
+     */
+    public static _mintLegacyIds(value: unknown, minted: (legacy: string) => string): void {
+        if (Array.isArray(value)) {
+            for (const item of value) PrefabDiff._mintLegacyIds(item, minted);
+            return;
+        }
+        if (value === null || typeof value !== "object") return;
+        const obj = value as Record<string, unknown>;
+        for (const key of ["id", "cid", "componentId"]) {
+            const at = obj[key];
+            if (typeof at === "string" && at.startsWith("~c:")) obj[key] = minted(at);
+        }
+        for (const item of Object.values(obj)) PrefabDiff._mintLegacyIds(item, minted);
     }
 
     // ── private ──────────────────────────────────────────────────────
