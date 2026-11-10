@@ -247,6 +247,21 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Changed
 
+- **`addComponent` holds one per object for `RectTransform` and `Transform` (Unity's
+  `[DisallowMultipleComponent]`).** On an object that already has one, `addComponent(RectTransform)`
+  (or `addComponent(Transform)`) adds and wakes nothing, logs a `console.warn` naming the object and
+  the type, and **returns the component the object already has**. It used to make a second
+  `RectTransform` that no UI component used — every graphic, layout group and mask binds to the
+  first — and that the next load folded away; a second `Transform` went into the component list.
+  So `addComponent(UIImage); addComponent(RectTransform).sizeDelta.set(…)` now sizes the rect the
+  image draws with. Unity logs an error and returns `null` here; the engine keeps `addComponent`'s
+  non-null return type instead, so no caller needs a null check. Adding a *subclass* of
+  `RectTransform` to an object that holds a plain one throws. A rect removed with `destroyImmediate`
+  can be added again; one removed with `destroy` counts until the frame ends, as in Unity. Objects
+  that add the rect first, or let a UI component add it, behave exactly as before. The rule is
+  `Component._allowMultiple` (internal), now read by `addComponent` as well as by a load. Pinned by
+  `tests/OnePerObject.test.ts`.
+
 - **A load builds the whole tree before any script wakes (Unity's order). This changes the observable
   lifecycle order of every load.** A scene load, `Prefab.instantiate`, `EngineObject.Instantiate`, a
   prefab instance saved as a link and a prefab revert now create every object, attach every component,

@@ -83,6 +83,9 @@ export enum Space {
  */
 export class Transform extends Component {
 
+    /** @internal Every GameObject has exactly one, made with it. */
+    public static override readonly _allowMultiple: boolean = false;
+
     // ==================== PRIVATE FIELDS ====================
 
     /**

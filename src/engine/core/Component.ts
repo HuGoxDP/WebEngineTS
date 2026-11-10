@@ -32,9 +32,11 @@ export abstract class Component extends EngineObject {
 
     /**
      * @internal
-     * Whether a GameObject may hold more than one of this type. A load reads
-     * it to keep the extra saved copies of a type that says no from becoming
-     * extra components; adding one by code is not stopped.
+     * Whether a GameObject may hold more than one of this type — Unity's
+     * `[DisallowMultipleComponent]`, inherited by subclasses. For a type that
+     * says no, {@link GameObject.addComponent} on an object that already holds
+     * one returns that one instead of adding another, and a load folds extra
+     * saved copies into the first.
      */
     public static readonly _allowMultiple: boolean = true;
 
