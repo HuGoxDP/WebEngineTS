@@ -40,6 +40,25 @@ export abstract class Component extends EngineObject {
      */
     public static readonly _allowMultiple: boolean = true;
 
+    /**
+     * Whether a GameObject may hold more than one of this type — the public
+     * read of the {@link Component._allowMultiple} flag.
+     *
+     * @remarks
+     * Read it on the class, and it answers for that class and every subclass:
+     * `RectTransform.allowsMultiple` is `false`, `UIImage.allowsMultiple` is
+     * `true`. An editor's Add Component menu uses it to grey out a type the
+     * object already holds its one of — and the test for "already holds" is
+     * {@link GameObject.hasComponent}, which knows the same family rules.
+     *
+     * @example
+     * RectTransform.allowsMultiple; // false
+     * UIImage.allowsMultiple;       // true
+     */
+    public static get allowsMultiple(): boolean {
+        return (this as typeof Component)._allowMultiple !== false;
+    }
+
     // ==================== CONSTRUCTOR ====================
 
     /**
