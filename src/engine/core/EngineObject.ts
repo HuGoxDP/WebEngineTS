@@ -349,13 +349,17 @@ export class EngineObject {
      * @param delay Optional delay in seconds of **game time** (default: 0)
      *
      * @remarks
-     * With no delay the object is destroyed after the current Update loop.
+     * With no delay the object is destroyed after the current Update loop and
+     * before the frame renders, as Unity's is: it is not laid out, audio-synced,
+     * hit-tested or drawn on the frame it dies.
      *
      * A delay counts **game time**, as Unity's does: it is decremented by
      * `Time.deltaTime` once a frame, so `Time.timeScale = 0` postpones the
      * destruction instead of letting it happen behind a pause menu, half speed
      * takes twice as long, and nothing fires at all while the loop is stopped.
-     * It was a `setTimeout` and did none of that.
+     * It was a `setTimeout` and did none of that — and a zero delay now obeys
+     * the same stop rule rather than firing on a microtask whenever it was
+     * asked.
      *
      * The destruction runs later, outside the caller, so an exception from the
      * object's `onDestroy` cannot reach the caller: it is logged with the
@@ -375,30 +379,40 @@ export class EngineObject {
         if (Number.isFinite(delay) && delay > 0) {
             EngineObject._pendingDestroys.push({ obj, remaining: delay });
         } else {
-            // Queue for end of frame (simulated with microtask)
-            queueMicrotask(() => {
-                if (!obj.exists()) return;
-                // Nobody is left to catch a throwing onDestroy here: it would
-                // surface as an uncaught error with no word of which object
-                // failed. Log it the way a timed destroy does — except in the
-                // debug hard stop, where the destruction has already finished
-                // and the error is left to surface as an unhandled error.
-                try {
-                    obj._destroyImmediate();
-                } catch (err) {
-                    if (EngineObject._hardStopProbe()) throw err;
-                    console.error(`[EngineObject] error while destroying "${obj.name}":`, err);
-                }
-            });
+            // End of frame, and *before* the frame renders: Unity's rule for
+            // delay 0 ("Actual object destruction is always delayed until after
+            // the current Update loop, but always happens before rendering").
+            // It used to ride a microtask, which drains only after the whole
+            // frame body — LateUpdate, render and UI included — so an object
+            // destroyed in `update` was laid out, audio-synced, hit-tested and
+            // drawn one frame longer than it existed. A delayed destroy already
+            // died at the right phase; this is the same phase.
+            //
+            // `remaining` of 0 is due at the first drain, and the drain counts a
+            // frame of *game* time, so a zero-delay destroy no longer happens at
+            // all while the loop is stopped — the same rule a positive delay has
+            // always had, and the one the microtask ignored.
+            //
+            // A frame that is running drains this entry itself (Application runs
+            // the sweep after LateUpdate). The microtask stands in for the frame
+            // when none is running — a load's `awake`, a host's dispose, a test
+            // — and is a no-op there, because the sweep has already removed the
+            // entry. `Number.NEGATIVE_INFINITY` and `NaN` both land in this
+            // branch, and both are due like delay 0 was.
+            EngineObject._pendingDestroys.push({ obj, remaining: 0 });
+            queueMicrotask(() => { EngineObject._updatePendingDestroys(0); });
         }
     }
 
     /**
      * @internal
-     * Advances every pending timed {@link Destroy} by one frame of game time and
-     * destroys whatever has run out. Called once per frame by `Application`,
-     * after LateUpdate and before the drivers that read final state, so an
-     * object never gets laid out or audio-synced on the frame it dies.
+     * Advances every pending {@link Destroy} by one frame of game time and
+     * destroys whatever has run out — which is every zero-delay entry, plus
+     * whatever timed countdown has expired. Called once per frame by
+     * `Application`, after LateUpdate and before the drivers that read final
+     * state, so an object never gets laid out or audio-synced on the frame it
+     * dies. The zero-delay path calls it with `0` only from its microtask
+     * fallback, so that a no-loop caller still gets its end-of-frame destroy.
      *
      * @param deltaTime - scaled game seconds since the previous frame
      *                    (`Time.deltaTime`, so a paused game does not count down).
