@@ -247,6 +247,22 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Changed
 
+- **A zero-delay `Destroy` takes effect before the frame renders, as in Unity.** Unity's rule:
+  "Actual object destruction is always delayed until after the current Update loop, but always happens
+  before rendering." The engine's zero-delay destroy rode a `queueMicrotask`, which inside the frame
+  loop drains only after the *whole* frame body — after LateUpdate, after the render and after the UI
+  canvas paint. The probe that found it recorded
+  `["destroyer:update","victim:lateUpdate","loop:render","victim:onDestroy"]`: an object destroyed in
+  `update` was still laid out, audio-synced, LOD-selected, hit-tested by the event system and **drawn**
+  on the frame it died — a bullet that left the world still appeared on screen. A delayed
+  `destroy(delay)` already died at the right phase (the sweep Application runs after LateUpdate), so
+  the two disagreed about when "end of frame" is. A zero delay now reaches the same sweep with
+  `remaining = 0`, so `onDisable`/`onDestroy` run after LateUpdate, before the drivers that read final
+  state and before the render. With no loop running — a load's `awake`, a host's dispose, a test — the
+  microtask fallback still delivers the end-of-frame destroy, and the sweep having already run makes
+  it a no-op. A negative or non-finite delay is now treated as zero (it was already immediate).
+  Pinned by `tests/DestroyBeforeRender.test.ts`.
+
 - **`addComponent` holds one per object for `RectTransform` and `Transform` (Unity's
   `[DisallowMultipleComponent]`).** On an object that already has one, `addComponent(RectTransform)`
   (or `addComponent(Transform)`) adds and wakes nothing, logs a `console.warn` naming the object and
@@ -262,7 +278,7 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   `Component._allowMultiple` (internal), now read by `addComponent` as well as by a load. Pinned by
   `tests/OnePerObject.test.ts`.
 
-- **Debug hard stop now covers destruction.** With `ScriptableBehaviour.isolateCallbackErrors = false`, the first error thrown by a component's `onDisable`/`onDestroy` while a GameObject is destroyed is rethrown once the destruction is complete (all components, all children, scene registration, Transform) instead of only being logged; later errors are logged. It reaches the caller of `destroyImmediate`, `SceneManager.loadScene`/`unloadScene` (the load or unload finishes first), the frame loop for a timed `destroy(delay)` (every due object is destroyed first), and surfaces as an unhandled error from the microtask for a zero-delay `destroy()`. The default mode (`true`) is unchanged: log and continue.
+- **Debug hard stop now covers destruction.** With `ScriptableBehaviour.isolateCallbackErrors = false`, the first error thrown by a component's `onDisable`/`onDestroy` while a GameObject is destroyed is rethrown once the destruction is complete (all components, all children, scene registration, Transform) instead of only being logged; later errors are logged. It reaches the caller of `destroyImmediate`, `SceneManager.loadScene`/`unloadScene` (the load or unload finishes first), the frame loop for a timed `destroy(delay)` and for a zero-delay `destroy()` (every due object is destroyed first), and surfaces as an unhandled error from the microtask fallback for a zero-delay `destroy()` with no loop running. The default mode (`true`) is unchanged: log and continue.
 
 - **A load builds the whole tree before any script wakes (Unity's order). This changes the observable
   lifecycle order of every load.** A scene load, `Prefab.instantiate`, `EngineObject.Instantiate`, a
@@ -540,8 +556,9 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   during the pass is never caught up: it still starts next frame. No allocation on a frame
   without reparenting; the per-frame cost is within measurement noise.
 - **An error from a deferred `destroy()` is logged, and a throwing `onDisable` is no longer lost
-  when `onDestroy` throws too.** `destroy()` with no delay runs on a microtask, where nothing
-  catches: a throwing `onDestroy` surfaced as an uncaught error without saying which object
+  when `onDestroy` throws too.** `destroy()` with no delay reaches the end-of-frame sweep (with no
+  loop running it falls back to a microtask), where a throwing `onDestroy` used to surface as an
+  uncaught error without saying which object
   failed. It is now logged with the object's name, as a timed `destroy(delay)` already was. A
   component whose `onDisable` and `onDestroy` both threw while being destroyed reported only the
   second error and dropped the first without a trace; the `onDisable` error is now logged and the
