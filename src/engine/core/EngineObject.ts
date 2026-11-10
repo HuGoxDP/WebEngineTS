@@ -65,6 +65,15 @@ export class EngineObject {
      * has left. Driven from `Application._loop`, so the countdown obeys
      * `Time.timeScale` and stops with the loop.
      */
+    /**
+     * @internal
+     * Whether a destruction error must reach the caller instead of being logged
+     * — the debug hard stop, `ScriptableBehaviour.isolateCallbackErrors = false`.
+     * `ScriptableBehaviour` installs the real probe when its module loads;
+     * `EngineObject` cannot import it (it sits below it in the class chain).
+     */
+    public static _hardStopProbe: () => boolean = () => false;
+
     private static readonly _pendingDestroys: { obj: EngineObject; remaining: number }[] = [];
 
     /**
@@ -371,10 +380,13 @@ export class EngineObject {
                 if (!obj.exists()) return;
                 // Nobody is left to catch a throwing onDestroy here: it would
                 // surface as an uncaught error with no word of which object
-                // failed. Log it the way a timed destroy does.
+                // failed. Log it the way a timed destroy does — except in the
+                // debug hard stop, where the destruction has already finished
+                // and the error is left to surface as an unhandled error.
                 try {
                     obj._destroyImmediate();
                 } catch (err) {
+                    if (EngineObject._hardStopProbe()) throw err;
                     console.error(`[EngineObject] error while destroying "${obj.name}":`, err);
                 }
             });
@@ -412,6 +424,7 @@ export class EngineObject {
             }
         }
 
+        let first: { err: unknown } | undefined;
         for (let i = 0; i < due.length; i++) {
             const obj = due[i].obj;
             if (!obj.exists()) continue;
@@ -421,10 +434,14 @@ export class EngineObject {
             try {
                 obj._destroyImmediate();
             } catch (err) {
-                console.error(`[EngineObject] error while destroying "${obj.name}":`, err);
+                // Hard stop: every due object is still destroyed, then the
+                // first error is rethrown to the frame loop.
+                if (EngineObject._hardStopProbe() && !first) first = { err };
+                else console.error(`[EngineObject] error while destroying "${obj.name}":`, err);
             }
         }
         due.length = 0;
+        if (first) throw first.err;
     }
 
     /**

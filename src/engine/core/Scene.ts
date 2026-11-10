@@ -508,8 +508,15 @@ export class Scene {
     public destroy(): void {
         // Copy the array because destroyImmediate modifies it via _unregisterGameObject
         const roots = [...this._rootGameObjects];
+        let first: { err: unknown } | undefined;
         for (const go of roots) {
-            go.destroyImmediate();
+            try {
+                go.destroyImmediate();
+            } catch (err) {
+                // Reached only in the debug hard stop (the root is destroyed by
+                // now): finish the unload, then rethrow the first error.
+                first ??= { err };
+            }
         }
 
         this._rootGameObjects = [];
@@ -519,5 +526,6 @@ export class Scene {
         // handedness conversion across an unload.
         this._contentRoot.clear();
         this._isLoaded = false;
+        if (first) throw first.err;
     }
 }

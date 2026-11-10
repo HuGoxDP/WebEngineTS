@@ -185,8 +185,15 @@ export class SceneManager {
             if (go.exists()) SceneManager.moveGameObjectToScene(go, newScene);
         }
 
+        // The debug hard stop lets a destruction error out of `Scene.destroy`;
+        // the load still completes, then the first error is rethrown.
+        let first: { err: unknown } | undefined;
         for (const scene of previousScenes) {
-            scene.destroy();
+            try {
+                scene.destroy();
+            } catch (err) {
+                first ??= { err };
+            }
             SceneManager._removeFromLoaded(scene);
         }
 
@@ -194,6 +201,7 @@ export class SceneManager {
         SceneManager._fireActiveChanged(previousScene, newScene);
 
         console.log(`[SceneManager] Scene '${sceneName}' loaded.`);
+        if (first) throw first.err;
     }
 
     /**
@@ -219,7 +227,13 @@ export class SceneManager {
         const wasActive = SceneManager._activeScene === scene;
 
         SceneManager._fireEvent(SceneManager.onSceneUnloaded, scene);
-        scene.destroy();
+        // Hard stop: finish the unload, then rethrow the first destruction error.
+        let first: { err: unknown } | undefined;
+        try {
+            scene.destroy();
+        } catch (err) {
+            first = { err };
+        }
         SceneManager._removeFromLoaded(scene);
 
         // Something has to be active; the first remaining scene takes over.
@@ -228,6 +242,7 @@ export class SceneManager {
             SceneManager._activeScene = next;
             SceneManager._fireActiveChanged(scene, next);
         }
+        if (first) throw first.err;
         return true;
     }
 
