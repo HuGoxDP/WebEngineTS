@@ -16,6 +16,13 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] - 2026-11-11
+
+First release. Reads scene and prefab format versions 1 and 2 and refuses anything else;
+writes version 1 unless a file holds a prefab link.
+
 ### Added
 
 - **Materials, physic materials and prefabs can be files of their own.**
