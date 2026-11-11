@@ -596,6 +596,13 @@ export class Application {
         // entries would sit here and fire into whichever Application runs next.
         EngineObject._clearPendingDestroys();
 
+        // Time is static state too: a scenario that was paused (`timeScale = 0`)
+        // or slowed left that scale behind, and the next scenario in the same
+        // page — a host that reuses one realm — started with the old one. The
+        // reset restores the scale, the deltas and the frame count, and marks
+        // Time uninitialized so the next `_update` re-initializes cleanly.
+        Time._reset();
+
         // Queued texture releases belong to the loop that would have run them.
         TextureRelease._clear();
 
