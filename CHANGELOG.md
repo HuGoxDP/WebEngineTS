@@ -18,6 +18,21 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Added
 
+- **Materials, physic materials and prefabs can be files of their own.**
+  `SceneSerializer.serializeAsset` / `deserializeAsset` write and read an asset as a file
+  (`{format: "WebEngineTS.asset", type, fields}`), and `SceneSerializer.assetReferences` lists the
+  ids a scene, prefab or asset file needs loaded before its synchronous rebuild. The `Resources`
+  decoders cover `.mat.json` (StandardMaterial / UnlitMaterial, read as `Material`) and
+  `.physmat.json`; loading a prefab file loads the prefabs nested inside it, and waits for one
+  another load is still reading. An asset written into a file no longer exists only inside the
+  scene that used it, so two scenes can share a look and an edit reaches both.
+
+- **`AnimationCurve`, `Gradient` and `ParticleBurst` are serializable field types.** A
+  `ParticleSystem` used to save half a renderer — its numbers came back and its shape over
+  lifetime did not. All three are stored by value rather than by reference, because all three are
+  authored in place; keyframes keep their tangents and weights, not only time and value, so a
+  restored curve evaluates the same.
+
 - **Components inside a prefab have ids of their own** (decision Q2 / D-16, scoped like node ids).
   A component used to be addressed by (node, type, occurrence): removing the first of two
   same-type components silently moved every override, removal and `ComponentRef` aimed at the
@@ -292,6 +307,45 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   `getUrl` now releases every zero-reference cache entry for the path before handing out the URL;
   a texture the scenario actually loaded is untouched. Pinned by
   `tests/GetUrlReleasesUnused.test.ts`.
+
+- **Meshes, materials and textures inside a model have ids.** A model placed in a scene saved a
+  `MeshFilter` with no mesh and a material copy with no textures. Everything a glTF import makes
+  is bound to an id inside the model's file — `file#local: mesh:<mesh>.<primitive>`,
+  `material:<n>`, `texture:<n>`, from the glTF's own indices when the loader recorded them and
+  numbered by discovery otherwise, never colliding — so a scene that uses the model refers to
+  them and they are resolved on load. Written output for a scene using an imported model is
+  unchanged for every model the loader named.
+
+- **Six components a saved scene was dropping survive a round trip.** `AudioSource`,
+  `AudioListener`, `ParticleSystem`, `InstancedMeshRenderer`, `Animation` and `Animator` carried
+  no serialization metadata at all, so a save lost not their settings but the components
+  themselves — a GameObject came back silent, without its particles, without its animation.
+
+- **A scene's order is written, and read back.** `Transform` gets `getSiblingIndex`,
+  `setSiblingIndex`, `setAsFirstSibling` and `setAsLastSibling` (roots included), `GameObject` gets
+  `getAllComponents`, `getComponentIndex` and `setComponentIndex`. The saved file lists an
+  object's children and components in that order and loads them back in it, so an editor can
+  reorder and save without the change being lost.
+
+- **The scene's environment is saved.** Fog, ambient colour and the sky were global state a save
+  could not carry. `SerializedScene` gains `renderSettings`; the sky is stored as the id of its
+  panorama and rebuilt through the new synchronous `Cubemap.fromTexture`, or picked up later by
+  `resolvePendingAssets` when the texture is not loaded yet. Only the active scene applies its
+  settings, and a file without the block leaves the current ones alone.
+
+- **Cinemachine and post-processing are scene data.** Neither module had a `@Serializable`, so an
+  editor could not add them to an object or keep their settings, and a scene using either lost it
+  on the first save. The virtual camera, brain, orbital/fly/follow bodies and the aims are
+  registered and their settings are fields; `follow` and `lookAt` are component references, and
+  the effect volumes are too. `CinemachineOrbitalBody.orbitCenter` now starts as its own vector
+  instead of the frozen shared `Vector3.zero`.
+
+- **Unknown components and unknown nested values are kept.** A component whose type is not
+  registered used to be skipped on load, and so deleted on the next save. It is now a
+  `MissingComponent` holding the original type and fields, written back untouched, and it becomes
+  the real component once the type exists; `MissingValue` does the same for a nested value, and
+  references to either still resolve.
+
 - **Exported types the prefab format is written with carry component ids.** `SerializedComponent`
   gains an optional `id`, `PrefabOverride` an optional `componentId` and `PrefabRemovedComponent`
   an optional `componentId`; all three are optional and additive — a consumer reading or writing
