@@ -81,6 +81,12 @@ interface CacheEntry {
     vramBytes: number;
     /** Monotonic counter, bumped on every load and cache hit, for LRU order. */
     lastUsed: number;
+    /**
+     * The resolved source path (`assets/…`) every decoder type was cached
+     * under, so a path-keyed query — {@link Resources.getUrl} — can find every
+     * entry for one file without parsing cache keys.
+     */
+    path: string;
 }
 
 /** An asset that can estimate what it costs on the GPU. @internal */
@@ -444,6 +450,7 @@ export class Resources {
                 sizeEstimate: bytes.byteLength,
                 vramBytes: Resources._estimateVram(asset),
                 lastUsed: ++Resources._useClock,
+                path: fullPath,
             });
 
             // Give the decoded object a stable identity, so a serialized scene
@@ -979,13 +986,41 @@ export class Resources {
     /**
      * Returns a blob URL for a raw asset. Useful for Cubemap/Skybox loading.
      *
+     * Asking for a path by URL is asking for its **bytes** — the host is about
+     * to hand them to something that decodes on its own (`Cubemap.
+     * fromEquirectangular` is the case that mattered). Any decoded object the
+     * prefetch left for the same path at reference count zero is therefore
+     * dead weight: nothing can ever ask for it by type again, since this host
+     * has declared it wants the file, not the object. It is released before
+     * the URL is handed out, so a speculatively prefetched `Texture2D` does
+     * not survive beside the cubemap built from the same bytes.
+     *
+     * Only zero-reference entries are released. A texture the scenario
+     * actually loaded (reference count above zero) is its own and stays.
+     *
      * @param path — path relative to `assets/`.
      * @returns a blob URL string.
      */
     public static async getUrl(path: string): Promise<string> {
         Resources._ensureSource();
         const fullPath = path.startsWith("assets/") ? path : `assets/${path}`;
+
+        Resources._releaseUnreferencedForPath(fullPath);
+
         return Resources._source!.getBlobUrl(fullPath);
+    }
+
+    /**
+     * Destroys every zero-reference cache entry for one path, whatever decoder
+     * type cached it (the same file can be cached as a texture, a mesh, a JSON
+     * blob — a URL request means none of those objects is wanted).
+     */
+    private static _releaseUnreferencedForPath(fullPath: string): void {
+        for (const [key, entry] of Resources._cache) {
+            if (entry.path !== fullPath || entry.refCount > 0) continue;
+            Resources._cache.delete(key);
+            Resources._destroyAsset(entry.asset);
+        }
     }
 
     // ==================== DIAGNOSTICS ====================

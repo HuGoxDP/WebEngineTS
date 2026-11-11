@@ -282,6 +282,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Changed
 
+- **`Resources.getUrl` releases the decoded object nobody asked for (the engine half of G2).**
+  Asking for a path by URL asks for its bytes — the host is handing them to something that decodes
+  on its own, `Cubemap.fromEquirectangular` being the case that mattered. The streaming prefetch
+  had already decoded the same file through its decoder and left it cached at reference count
+  zero, so on the streamed path a 8192×4096 skybox stayed alive at 128 MB beside the cubemap
+  built from its own bytes, while the ZIP path — which prefetches nothing — never held it
+  (virtual-lab streaming e2e: 96.8 MB against 224.8 MB for the same 20 GPU textures).
+  `getUrl` now releases every zero-reference cache entry for the path before handing out the URL;
+  a texture the scenario actually loaded is untouched. Pinned by
+  `tests/GetUrlReleasesUnused.test.ts`.
 - **Exported types the prefab format is written with carry component ids.** `SerializedComponent`
   gains an optional `id`, `PrefabOverride` an optional `componentId` and `PrefabRemovedComponent`
   an optional `componentId`; all three are optional and additive — a consumer reading or writing
