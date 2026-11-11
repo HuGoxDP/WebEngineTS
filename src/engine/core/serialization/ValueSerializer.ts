@@ -52,6 +52,14 @@ export interface SerializeContext {
      */
     componentIndex(owner: GameObject, component: object): number;
     /**
+     * The component's id within its node's prefab, as this pass writes it, or
+     * null for a component of a node the pass gives no id — a plain scene's,
+     * the prefab root's own, a Transform's. Supplied by the SceneSerializer for
+     * the same reason {@link componentTypeName} is; written as a
+     * `ComponentRef`'s `cid` beside the readable type and index.
+     */
+    componentId?(component: object): string | null;
+    /**
      * Gives an asset that has no file behind it an id, and writes its values
      * into the scene's asset table on first sight.
      *
@@ -143,6 +151,13 @@ export interface DeserializeContext {
         path: Array<number | string>;
         typeName: string;
         index: number;
+        /**
+         * The component's id within its node's prefab, or null for a file
+         * written before component ids. Resolved first when present; a file
+         * whose component was removed after the reference was written reads
+         * as null, not as a neighbour.
+         */
+        cid: string | null;
         /** Slot to write into when the field is an array; null when it is not. */
         arrayIndex: number | null;
         /** Where the path is counted from. */
@@ -525,6 +540,7 @@ export class ValueSerializer {
                             path: (obj.path as Array<number | string>).slice(),
                             typeName: String(obj.component ?? ""),
                             index: Number(obj.index ?? 0),
+                            cid: typeof obj.cid === "string" ? obj.cid : null,
                             arrayIndex: ctx.currentArrayIndex,
                             ref: ValueSerializer._scopeOf(obj, ctx),
                         });
@@ -605,6 +621,9 @@ export class ValueSerializer {
         if (!where || typeName === null) return null;
         const index = ctx.componentIndex(owner, component);
         if (index < 0) return null;
+        // Only where the target node has an id: the cid is resolved within
+        // that node, and a plain scene's node has none to resolve within.
+        const cid = ctx.componentId ? ctx.componentId(component) : null;
 
         return {
             $type: "ComponentRef",
@@ -612,6 +631,7 @@ export class ValueSerializer {
             ...(where.scope > 0 ? { scope: where.scope } : {}),
             component: typeName,
             index,
+            ...(cid !== null ? { cid } : {}),
         };
     }
 

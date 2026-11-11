@@ -45,6 +45,14 @@ export interface PrefabOverride {
     /** Which component of that type on the GameObject. `0` unless duplicated. */
     componentIndex: number;
     /**
+     * Which component of {@link node} the field belongs to, in the prefab's id
+     * namespace — written only where nodes have ids, beside
+     * {@link componentIndex} as the readable fallback. A reader resolves it
+     * when it resolves on that node, and falls back to type + occurrence
+     * otherwise, so an older file with neither reads exactly as before.
+     */
+    componentId?: string;
+    /**
      * Field name, a transform path such as `transform.position`, or `prefab` for
      * a nested prefab instance's own link.
      */
@@ -98,6 +106,12 @@ export interface PrefabRemovedComponent {
     component: string;
     /** Which component of that type, in the prefab. */
     componentIndex: number;
+    /**
+     * Which component of {@link node} was removed, in the prefab's id
+     * namespace — written only where nodes have ids, beside
+     * {@link componentIndex} as the readable fallback.
+     */
+    componentId?: string;
 }
 
 /**
@@ -149,6 +163,12 @@ export interface PrefabSource {
     readonly name: string;
     /** The tree this prefab describes, with a variant resolved against its base. */
     _resolvedTree(): SerializedGameObject;
+    /**
+     * The minted id a legacy component id is written under, the same one every
+     * time — so a file written from a tree read before component ids holds
+     * stable ids rather than deriving `~c:` ones on every read.
+     */
+    _mintedComponentId?(legacy: string): string;
 }
 
 /**
@@ -316,6 +336,17 @@ export function mintNodeId(): string {
     _idCounter = (_idCounter + 1) % 0x100000;
     const random = Math.floor(Math.random() * 0x1000000).toString(36).padStart(5, "0");
     return `${random}${_idCounter.toString(36).padStart(3, "0")}`;
+}
+
+/**
+ * An index as a file written before one-per-object was enforced addresses a
+ * component: a second saved copy of a type that allows one is read as the
+ * first ({@link SceneSerializer._foldSingleCopies}), so an address to the
+ * second — an old override, removal or reference — lands there too. Written
+ * files never carry one, since a live object can no longer hold two.
+ */
+export function legacyComponentIndex(typeName: string, index: number): number {
+    return index >= 1 && (typeName === "Transform" || typeName === "RectTransform") ? 0 : index;
 }
 
 /**
@@ -499,7 +530,7 @@ export class PrefabDiff {
                 continue;
             }
 
-            const target = PrefabDiff._componentAt(node, override.component, override.componentIndex);
+            const target = PrefabDiff._componentAt(node, override.component, override.componentIndex, override.componentId);
             if (target) target.fields[override.field] = override.value;
         }
 
@@ -509,7 +540,7 @@ export class PrefabDiff {
         for (const r of removed) {
             const node = byId.get(r.node)?.node;
             if (!node) continue;
-            const at = PrefabDiff._componentPosition(node, r.component, r.componentIndex);
+            const at = PrefabDiff._componentPosition(node, r.component, r.componentIndex, r.componentId);
             if (at >= 0) node.components.splice(at, 1);
         }
 
@@ -737,6 +768,11 @@ export class PrefabDiff {
      *   them, so a file that never had ids gets the *same* ones every time it is
      *   loaded. A minted id would differ on every load, and an instance saved
      *   against the first would find nothing on the second.
+     *
+     * Components derive theirs the same way, and only where the node has one:
+     * a file read without component ids gets the same `~c:` ids every time it
+     * is loaded, which is what makes the readers resolve what the writers
+     * wrote, and a prefab made from a live tree mints them beside the node's.
      */
     public static ensureIds(snapshot: SerializedGameObject, legacy = false): SerializedGameObject {
         const upgrade = legacy && snapshot.id === undefined;
@@ -744,12 +780,57 @@ export class PrefabDiff {
             if (node.id === undefined) {
                 node.id = legacy ? `~${path.join(".")}` : mintNodeId();
             }
+            PrefabDiff._ensureComponentIds(node, legacy);
             if (path.length > 0 && node.prefab !== undefined) return;
             node.children.forEach((child, i) => walk(child, [...path, i]));
         };
         walk(snapshot, []);
         if (upgrade) PrefabDiff._rewritePositionalRefs(snapshot);
         return snapshot;
+    }
+
+    /**
+     * Gives every component of `node` that has none an id, now that `node` has
+     * one: a legacy `~c:<nodeId>:<type>:<occurrence>`, counted per type within
+     * the node, or a minted one. Ids already on a component are kept.
+     *
+     * A node without an id gives its components none — a plain scene's, and
+     * the root of the prefab being made, whose own id comes last.
+     */
+    public static _ensureComponentIds(node: SerializedGameObject, legacy: boolean): void {
+        if (node.id === undefined) return;
+        const seen = new Map<string, number>();
+        for (const json of node.components) {
+            if (json.id !== undefined) continue;
+            const occurrence = seen.get(json.type) ?? 0;
+            seen.set(json.type, occurrence + 1);
+            json.id = legacy ? `~c:${node.id}:${json.type}:${occurrence}` : mintNodeId();
+        }
+    }
+
+    /**
+     * Replaces every legacy component id in a serialized value with a minted
+     * one, through a memo so the same legacy id always mints the same new one.
+     *
+     * A file read before component ids derived the same `~c:` ids on every
+     * load, which is what made the readers resolve what the writers wrote;
+     * written out they are minted — once per legacy id, so the file stops
+     * deriving and a second write of the same tree writes the same ids.
+     * Applied to what is written, never to the tree it came from: the tree and
+     * the live components keep the ids the readers match by.
+     */
+    public static _mintLegacyIds(value: unknown, minted: (legacy: string) => string): void {
+        if (Array.isArray(value)) {
+            for (const item of value) PrefabDiff._mintLegacyIds(item, minted);
+            return;
+        }
+        if (value === null || typeof value !== "object") return;
+        const obj = value as Record<string, unknown>;
+        for (const key of ["id", "cid", "componentId"]) {
+            const at = obj[key];
+            if (typeof at === "string" && at.startsWith("~c:")) obj[key] = minted(at);
+        }
+        for (const item of Object.values(obj)) PrefabDiff._mintLegacyIds(item, minted);
     }
 
     // ── private ──────────────────────────────────────────────────────
@@ -1306,6 +1387,45 @@ export class PrefabDiff {
         return prefab.prefab?.changes !== undefined && instance.prefab?.changes === undefined;
     }
 
+    /**
+     * Which of `node`'s components an instance's component is the same one as:
+     * the one its `id` names when it has one — so removing the first of two
+     * same-type components no longer moves every override and removal onto the
+     * second — and otherwise the one at its type and occurrence, which is all a
+     * file from before component ids, and a plain scene, ever had.
+     */
+    private static _matchComponent(
+        node: SerializedGameObject,
+        comp: SerializedComponent,
+        index: number,
+        matched: ReadonlySet<SerializedComponent>,
+    ): SerializedComponent | null {
+        if (comp.id !== undefined) {
+            const byId = node.components.find(p => p.id === comp.id && !matched.has(p));
+            if (byId !== undefined) return byId;
+            // An id that names nothing here — a tree whose ids were minted in
+            // another namespace, or one from before component ids — reads by
+            // the address written beside it, which is all either side has.
+        }
+        let seen = 0;
+        for (const candidate of node.components) {
+            if (candidate.type !== comp.type || matched.has(candidate)) continue;
+            if (seen === index) return candidate;
+            seen++;
+        }
+        return null;
+    }
+
+    /** Which of its type `comp` is within `list`, counting from the start. */
+    private static _occurrenceOf(list: readonly SerializedComponent[], comp: SerializedComponent): number {
+        let seen = 0;
+        for (const candidate of list) {
+            if (candidate === comp) return seen;
+            if (candidate.type === comp.type) seen++;
+        }
+        return 0;
+    }
+
     private static _compareComponents(
         prefab: SerializedGameObject,
         instance: SerializedGameObject,
@@ -1313,14 +1433,12 @@ export class PrefabDiff {
         changes: PrefabChanges,
         node: string | undefined,
     ): void {
-        const seen = new Map<string, number>();
-        const kept = new Map<string, number>();
-
+        const matched = new Set<SerializedComponent>();
+        const occurrences = new Map<string, number>();
         instance.components.forEach((comp, position) => {
-            const index = seen.get(comp.type) ?? 0;
-            seen.set(comp.type, index + 1);
-
-            const original = PrefabDiff._componentAt(prefab, comp.type, index);
+            const index = occurrences.get(comp.type) ?? 0;
+            occurrences.set(comp.type, index + 1);
+            const original = PrefabDiff._matchComponent(prefab, comp, index, matched);
             if (!original) {
                 // A component the prefab does not have is a shape change — which
                 // can only be recorded against a node that has an id.
@@ -1331,13 +1449,14 @@ export class PrefabDiff {
                 }
                 return;
             }
-            kept.set(comp.type, index + 1);
+            matched.add(original);
 
             for (const field of Object.keys(comp.fields)) {
                 if (PrefabDiff._equal(original.fields[field], comp.fields[field])) continue;
                 changes.overrides.push(at({
                     component: comp.type,
-                    componentIndex: index,
+                    componentIndex: PrefabDiff._occurrenceOf(instance.components, comp),
+                    ...(comp.id !== undefined ? { componentId: comp.id } : {}),
                     field,
                     value: comp.fields[field],
                 }));
@@ -1345,15 +1464,13 @@ export class PrefabDiff {
         });
 
         if (node === undefined) return;
-        const had = new Map<string, number>();
         for (const comp of prefab.components) {
-            const index = had.get(comp.type) ?? 0;
-            had.set(comp.type, index + 1);
-            if (index >= (kept.get(comp.type) ?? 0)) {
-                (changes.removedComponents ??= []).push({
-                    node, component: comp.type, componentIndex: index,
-                });
-            }
+            if (matched.has(comp)) continue;
+            (changes.removedComponents ??= []).push({
+                node, component: comp.type,
+                componentIndex: PrefabDiff._occurrenceOf(prefab.components, comp),
+                ...(comp.id !== undefined ? { componentId: comp.id } : {}),
+            });
         }
     }
 
@@ -1404,11 +1521,19 @@ export class PrefabDiff {
         node: SerializedGameObject,
         type: string,
         index: number,
+        id?: string,
     ): { type: string; fields: Record<string, unknown> } | null {
+        // An id that resolves names its component whatever the list order; one
+        // that does not — a change written against a file where the component
+        // was since removed — reads by the address written beside it, which is
+        // all a file from before component ids ever had.
+        const byId = id === undefined ? undefined : node.components.find(c => c.id === id);
+        if (byId !== undefined) return byId;
         let seen = 0;
+        const at = legacyComponentIndex(type, index);
         for (const comp of node.components) {
             if (comp.type !== type) continue;
-            if (seen === index) return comp;
+            if (seen === at) return comp;
             seen++;
         }
         return null;
@@ -1423,11 +1548,14 @@ export class PrefabDiff {
     }
 
     /** Position in `node.components` of the `index`-th component of `type`, or -1. */
-    private static _componentPosition(node: SerializedGameObject, type: string, index: number): number {
+    private static _componentPosition(node: SerializedGameObject, type: string, index: number, id?: string): number {
+        const byId = id === undefined ? -1 : node.components.findIndex(c => c.id === id);
+        if (byId >= 0) return byId;
         let seen = 0;
+        const at = legacyComponentIndex(type, index);
         for (let i = 0; i < node.components.length; i++) {
             if (node.components[i].type !== type) continue;
-            if (seen === index) return i;
+            if (seen === at) return i;
             seen++;
         }
         return -1;
@@ -1450,6 +1578,24 @@ export class PrefabDiff {
         if (Array.isArray(a) && Array.isArray(b)) {
             if (a.length !== b.length) return false;
             return a.every((v, i) => PrefabDiff._equal(v, b[i]));
+        }
+
+        const isRef = (v: unknown): boolean =>
+            typeof v === "object" && v !== null && (v as Record<string, unknown>).$type === "ComponentRef";
+        if (isRef(a) && isRef(b)) {
+            // A ComponentRef's cid names the component its type and index
+            // already name, and a file saved before component ids carries
+            // none: a reference written with it and one written without
+            // address the same component, so the id never makes two
+            // otherwise-equal references a change.
+            const left = { ...(a as object) } as Record<string, unknown>;
+            const right = { ...(b as object) } as Record<string, unknown>;
+            delete left.cid;
+            delete right.cid;
+            const ka = Object.keys(left);
+            const kb = Object.keys(right);
+            if (ka.length !== kb.length) return false;
+            return ka.every(k => PrefabDiff._equal(left[k], right[k]));
         }
 
         const ka = Object.keys(a as object);

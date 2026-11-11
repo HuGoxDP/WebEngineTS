@@ -497,6 +497,8 @@ describe("changes inside a nested prefab instance", () => {
         expect(changes.overrides).toEqual([{
             node: `${nested.prefabNodeId}/${child(nested, 0).prefabNodeId}`,
             component: "EditingSpec.Tag",
+            // The nested prefab's component id: the interior is its namespace.
+            componentId: child(nested, 0).getComponent(Tag)!._prefabComponentId!,
             componentIndex: 0,
             field: "count",
             value: 5,

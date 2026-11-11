@@ -373,10 +373,19 @@ describe("a prefab instance saved as its prefab plus changes", () => {
     });
 
     test("saving a rebuilt instance in link mode writes back the same changes", () => {
+        // A5: components of nodes that have ids carry their own id from now
+        // on, so the first save of a file written before them adds them (the
+        // instance already addresses its nodes by id). The property that has
+        // to hold is idempotence from there: what the save wrote reads back
+        // by id, and the next save writes the same bytes.
         const json = linkScene(node("Player"), tankLink(CHANGES));
         SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(json)));
+        const first = saveLinked();
+        expect(JSON.stringify(first)).not.toBe(JSON.stringify(json));
 
-        expect(JSON.stringify(saveLinked().roots)).toBe(JSON.stringify(json.roots));
+        clear();
+        SceneSerializer.deserializeScene(JSON.parse(JSON.stringify(first)));
+        expect(JSON.stringify(saveLinked())).toBe(JSON.stringify(first));
     });
 
     test("an edit to the prefab reaches a linked instance on its next load; its own overrides stay", () => {

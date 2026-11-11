@@ -18,6 +18,25 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Added
 
+- **Components inside a prefab have ids of their own** (decision Q2 / D-16, scoped like node ids).
+  A component used to be addressed by (node, type, occurrence): removing the first of two
+  same-type components silently moved every override, removal and `ComponentRef` aimed at the
+  second onto the wrong one. A component inside a prefab tree, a link-mode instance interior or a
+  prefab file now carries `SerializedComponent.id`, minted like a node id in the same passes and
+  kept on the live component; `ComponentRef` JSON gains `cid` and `PrefabOverride` /
+  `PrefabRemovedComponent` gain `componentId`, always beside the readable `component` +
+  `componentIndex` / `index` a file from before them reads by. A reader resolves the id when it
+  resolves on that node, and one that names nothing — a component the file removed after the
+  reference was written — reads as null, never as the component that took its place. The scope is
+  deliberately the node-id scope: a plain scene gains nothing and saves byte for byte as it did,
+  and an id never makes a file version 2 by itself. A file read before ids derives the same
+  `~c:` ids on every load; written, they are minted once, so its file and every link to it agree.
+  The design doc the card cites was deleted by the owner; the reasoning lives in
+  `.claude-shared/code-foundations/A5/research.md`, and the format, with the writer's own output,
+  in `code-foundations/A5/format.md`. Pinned by `tests/ComponentIds.test.ts`,
+  `tests/ComponentIdsFormat.test.ts`, `tests/ComponentIdsLegacy.test.ts` and
+  `tests/PrefabComponentIds.test.ts`.
+
 - **One-per-object can be read from outside the engine.** `Component.allowsMultiple` (read on the
   class) says whether a type may be held more than once by a GameObject — `false` for
   `RectTransform` and `Transform`, `true` for everything else, inherited by subclasses — and
@@ -262,6 +281,12 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   audio cannot be observed headless on Windows and need a manual Safari run.
 
 ### Changed
+
+- **Exported types the prefab format is written with carry component ids.** `SerializedComponent`
+  gains an optional `id`, `PrefabOverride` an optional `componentId` and `PrefabRemovedComponent`
+  an optional `componentId`; all three are optional and additive — a consumer reading or writing
+  them by hand keeps working, and the readable `component` + `componentIndex` / `index` fields are
+  still written beside them in every file. Nothing that compiled before fails to.
 
 - **A zero-delay `Destroy` takes effect before the frame renders, as in Unity.** Unity's rule:
   "Actual object destruction is always delayed until after the current Update loop, but always happens

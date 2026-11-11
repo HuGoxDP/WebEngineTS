@@ -32,6 +32,17 @@ export abstract class Component extends EngineObject {
 
     /**
      * @internal
+     * Which component of its node this one is, when the node came from a
+     * prefab — the analogy of {@link GameObject._prefabNodeId} at the
+     * component level. Written by `Prefab` and `SceneSerializer`; read and
+     * written nowhere else.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _prefabComponentId: string | null = null;
+
+    /**
+     * @internal
      * Whether a GameObject may hold more than one of this type — Unity's
      * `[DisallowMultipleComponent]`, inherited by subclasses. For a type that
      * says no, {@link GameObject.addComponent} on an object that already holds
