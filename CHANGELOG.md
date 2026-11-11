@@ -16,6 +16,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ## [Unreleased]
 
+### Added
+
+- **`TypeRegistry.replace(typeName, ctor, meta)` swaps the class a name resolves to.** A script
+  reload registers a new constructor under the same `typeName`, and `register` refuses that on
+  purpose — a silent collision would load the wrong component. `replace` is the explicit swap:
+  the name resolves to the new class from then on, so a scene deserialized after it instantiates
+  the new class with the old file's field values, while the previous class's metadata is kept so
+  instances still alive under it keep serializing. `register`'s collision guard is unchanged and
+  its message now points at `replace`. Pinned by `tests/TypeRegistryReplace.test.ts`.
+
 ---
 
 ## [0.2.0] - 2026-11-11

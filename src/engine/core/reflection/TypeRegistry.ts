@@ -40,10 +40,51 @@ export class TypeRegistry {
             console.error(
                 `[TypeRegistry] Type name "${typeName}" is already registered to a different `
                 + `class. Give one of them an explicit @Serializable({ typeName }) — otherwise `
-                + `scenes referring to it will load the wrong component.`,
+                + `scenes referring to it will load the wrong component. If the swap is ` +
+                `intended (a script reload), call TypeRegistry.replace instead.`,
             );
             return;
         }
+
+        TypeRegistry._byName.set(typeName, ctor);
+        TypeRegistry._byCtor.set(ctor, meta);
+    }
+
+    /**
+     * Swaps the class registered under an existing name — the explicit,
+     * intended counterpart to the collision {@link register} refuses.
+     *
+     * A script reload registers a new constructor under the same `typeName`,
+     * and `register` refuses that on purpose: a silent collision would load the
+     * wrong component. `replace` is how a host says the swap is deliberate.
+     * From then on the name resolves to `ctor`, so a scene deserialized after
+     * the swap instantiates the new class; the metadata is passed explicitly
+     * because the refused `register` never stored it (a host reads it with
+     * `getClassMeta` from the class's own `@Serializable`).
+     *
+     * The previous class's metadata is kept: instances still alive under it
+     * keep serializing under the same name, so a file saved from a mixed scene
+     * still loads. Re-instantiating those live instances from their serialized
+     * fields is the host's step (the editor's script reload does it) — the
+     * engine's part is that the name now means the new class.
+     *
+     * @throws if nothing is registered under `typeName`, or if `meta` names
+     *         something else — both are caller errors, not collisions.
+     */
+    public static replace(typeName: string, ctor: AnyConstructor, meta: ClassMeta): void {
+        const existing = TypeRegistry._byName.get(typeName);
+        if (!existing) {
+            throw new Error(
+                `[TypeRegistry] Cannot replace "${typeName}": nothing is registered under that name.`
+            );
+        }
+        if (meta.typeName !== typeName) {
+            throw new Error(
+                `[TypeRegistry] Cannot replace "${typeName}" with metadata that names ` +
+                `"${meta.typeName}".`
+            );
+        }
+        if (existing === ctor) return;
 
         TypeRegistry._byName.set(typeName, ctor);
         TypeRegistry._byCtor.set(ctor, meta);
