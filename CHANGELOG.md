@@ -16,6 +16,10 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A paused or slowed scenario no longer leaks its `timeScale` into the next one in the same page.** `Time` is static state and `Time._reset()` had no caller, so a host that reuses one realm (dispose, open another viewer) started the next scenario frozen at `timeScale = 0` or running at half speed. `Application.dispose()` now resets Time beside the other module resets (`AudioManager._reset`, pending destroys, texture releases); a platform that runs every scenario in a fresh frame was never affected. Pinned by `tests/TimeResetOnDispose.test.ts`.
+
 ### Added
 
 - **`TypeRegistry.replace(typeName, ctor, meta)` swaps the class a name resolves to.** A script
