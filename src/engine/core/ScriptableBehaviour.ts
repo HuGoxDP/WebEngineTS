@@ -4,6 +4,8 @@ import { EngineObject } from "./EngineObject.ts";
 import { Behaviour } from "./Behaviour.ts";
 import { Coroutine, CoroutineRunner, YieldInstruction } from "./Coroutine.ts";
 import type { GameObject } from "./GameObject.ts";
+import { _isEditMode } from "./_PlayMode.ts";
+import { _executesInEditMode } from "./reflection/Decorators.ts";
 
 /**
  * Base class for all user scripts.
@@ -125,10 +127,30 @@ export class ScriptableBehaviour extends Behaviour {
     /** Consecutive failed callbacks, reset by the first one that succeeds. */
     private _consecutiveFailures: number = 0;
 
+    /**
+     * Whether this script runs its lifecycle in the editor's edit mode: its
+     * own class was decorated `@ExecuteAlways` / `@ExecuteInEditMode`, and a
+     * subclass never inherits the opt-in.
+     */
+    private readonly _runsInEditMode: boolean;
+
+    /**
+     * Whether the lifecycle steps this class owns may run *now*: in play mode
+     * always; in edit mode only for an opted-in script. The one gate every
+     * entry point consults, so a host that never enters edit mode sees no
+     * difference at all.
+     */
+    private _lifecycleAllowed(): boolean {
+        return !_isEditMode() || this._runsInEditMode;
+    }
+
     // ==================== CONSTRUCTOR ====================
 
     constructor(gameObject: GameObject) {
         super(gameObject);
+        // `new.target`, not the constructor: the opt-in belongs to the class
+        // actually being constructed, which is what the decorator marked.
+        this._runsInEditMode = _executesInEditMode(new.target);
     }
 
     // ==================== COROUTINE API ====================
@@ -206,6 +228,13 @@ export class ScriptableBehaviour extends Behaviour {
         // setActive, a parent's propagation, `enabled = true` — so none of them
         // can fire onEnable on a script that has never woken. `_systemAwake` is
         // idempotent, so the two never collide.
+        // In edit mode an undecorated script that has never woken stays
+        // asleep: no wake here, no onEnable below, and no coroutine teardown
+        // — there is nothing to tear down. One that woke in play mode keeps
+        // every normal transition whatever the mode is now, so a later
+        // destroy pairs with what it was given.
+        if (!this._awakeCalled && !this._lifecycleAllowed()) return;
+
         if (!this._awakeCalled && this.isActiveAndEnabled) this._systemAwake();
 
         super._onEnabledChanged();
@@ -331,7 +360,10 @@ export class ScriptableBehaviour extends Behaviour {
      * Invokes the user-facing {@link awake} callback.
      */
     public _systemAwake(): void {
-        if (this._awakeCalled) return;
+        // The gate, not the flag: in edit mode an undecorated script does not
+        // wake — and does not mark itself woken, because the switch to play
+        // mode still owes it its `awake`, exactly once.
+        if (this._awakeCalled || !this._lifecycleAllowed()) return;
         this._awakeCalled = true;
         this.awake();
     }
@@ -379,6 +411,9 @@ export class ScriptableBehaviour extends Behaviour {
         // going, which is the rule that makes a coroutine a useful place to put
         // a sequence: disabling the script pauses the script, not the sequence.
         if (!this.exists() || !this.gameObject.activeInHierarchy) return;
+        // Edit mode: an undecorated script runs nothing at all — no `start`,
+        // no `update`, no coroutine tick.
+        if (!this._lifecycleAllowed()) return;
 
         if (!ScriptableBehaviour.isolateCallbackErrors) {
             this._runUpdate();
@@ -400,6 +435,8 @@ export class ScriptableBehaviour extends Behaviour {
      */
     public _systemLateUpdate(): void {
         if (!this.exists() || !this.gameObject.activeInHierarchy) return;
+        // Edit mode: an undecorated script runs nothing at all.
+        if (!this._lifecycleAllowed()) return;
 
         if (!ScriptableBehaviour.isolateCallbackErrors) {
             this._runLateUpdate();
@@ -421,6 +458,8 @@ export class ScriptableBehaviour extends Behaviour {
      */
     public _systemFixedUpdate(): void {
         if (!this.exists() || !this.gameObject.activeInHierarchy) return;
+        // Physics does not step in the editor's edit mode, decorated or not.
+        if (_isEditMode()) return;
 
         if (!ScriptableBehaviour.isolateCallbackErrors) {
             this._runFixedUpdate();
