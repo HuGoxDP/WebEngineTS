@@ -34,6 +34,7 @@ class FakeBackend implements RenderBackend {
     public setClearColor(): void {}
     public clear(): void {}
     public renderScene(): void {}
+    public readPixels(): boolean { return false; }
     public warmup(): void {}
     public dispose(): void {}
 }
