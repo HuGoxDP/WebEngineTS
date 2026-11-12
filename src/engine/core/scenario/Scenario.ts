@@ -2,6 +2,7 @@
 
 import JSZip from "jszip";
 import { EngineObject } from "../EngineObject.ts";
+import { _isEditMode } from "../_PlayMode.ts";
 import { ScenarioAssets } from "./ScenarioAssets.ts";
 import { SceneManager } from "../SceneManager.ts";
 import { AssetFiles } from "../serialization/AssetFiles.ts";
@@ -517,6 +518,16 @@ export class Scenario extends EngineObject {
      * 6. Builds the manifest's `entryScene`, if it names one.
      */
     public async run(): Promise<void> {
+        // Edit mode refuses a scenario outright, before anything is created: a
+        // scenario is a play-mode world, and the editor's own scene is on
+        // screen. The host must ask for play mode first (the leaf flag, so this
+        // module keeps its dependency direction).
+        if (_isEditMode()) {
+            throw new Error(
+                "[Scenario] Cannot run in edit mode. Call Application.enterPlayMode() first."
+            );
+        }
+
         if (!this.isLoaded || !this._manifest || !this._scripts) {
             throw new Error(
                 "[Scenario] Not loaded. Call loadFromUrl(), loadFromData() or " +

@@ -640,7 +640,7 @@ export class GameObject extends EngineObject {
         if (!component.exists()) return;
 
         // A user script added to an inactive object waits: Unity's rule is "if
-        // a GameObject is inactive during start up, Awake is not called until
+        // a GameObject is inactive during start startup, Awake is not called until
         // it is made active", so `awake` runs shortly before the first
         // `onEnable` rather than during an assemble-hidden-then-reveal build.
         if (component instanceof ScriptableBehaviour && this.activeInHierarchy) {
@@ -649,6 +649,38 @@ export class GameObject extends EngineObject {
 
         if (component instanceof Behaviour && this.activeInHierarchy && component.enabled) {
             component._onEnabledChanged();
+        }
+    }
+
+    /**
+     * @internal
+     * Wakes this object and everything live below it in the order a load would:
+     * this object's components in list order, then each live child in child
+     * order, depth first. An object that is gone or inactive in the hierarchy is
+     * skipped whole — it wakes on activation, as it always has.
+     *
+     * Called by `Application.enterPlayMode()` for every loaded scene, so a host
+     * that switches in place gets the same callback order as one that reloads.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _wakeForPlay(): void {
+        if (!this.exists() || !this.activeSelf) return;
+
+        // The list is copied: an `awake` may add or remove a component, and a
+        // destroyed one is skipped the same way a load skips it.
+        for (const component of [...this._components]) {
+            if (!this.exists()) return;      // this object's own `awake` destroyed it
+            if (!component.exists()) continue;
+            this._awakeComponent(component);
+        }
+
+        const transform = this.transform;
+        const children = transform._lendChildren();
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (!GameObject._isLiveChild(transform, child)) continue;
+            child.gameObject._wakeForPlay();
         }
     }
 

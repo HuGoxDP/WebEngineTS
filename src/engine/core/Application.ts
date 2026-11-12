@@ -208,8 +208,15 @@ export class Application {
         if (!_isEditMode()) return;
         _setEditMode(false);
         Time._reset();
-        // TODO: Phase 3 wake pass — every loaded scene's never-woken,
-        // alive and active scripts wake here, in load order.
+
+        // The wake pass: every script edit mode kept asleep wakes now, in the
+        // order a load of the same world would give it — one scene after
+        // another, each tree depth first. `_systemAwake` is idempotent, so an
+        // opted-in script that already woke in edit mode is not woken twice,
+        // and an inactive subtree stays asleep until it is activated.
+        for (let i = 0, count = SceneManager.sceneCount; i < count; i++) {
+            SceneManager.getSceneAt(i)?._wakeForPlay();
+        }
     }
 
     /** Target frame rate (informational - actual rate depends on browser). */

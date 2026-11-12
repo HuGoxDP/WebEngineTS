@@ -4,7 +4,7 @@ import { ScriptableBehaviour } from "../ScriptableBehaviour.ts";
 import { Vector3 } from "../math/Vector3.ts";
 import { Quaternion } from "../math/Quaternion.ts";
 import { CameraState, CinemachineBody, CinemachineAim } from "./CinemachineCore.ts";
-import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { Serializable, SerializedField, ExecuteAlways } from "../reflection/Decorators.ts";
 import { FieldType } from "../reflection/Types.ts";
 import type { GameObject } from "../GameObject.ts";
 import type { Transform } from "../Transform.ts";
@@ -43,7 +43,9 @@ import type { Transform } from "../Transform.ts";
  * fpsGo.addComponent(CinemachinePOVAim);
  * ```
  */
+// Unity parity: a virtual camera is framed in the editor too.
 @Serializable({ typeName: "CinemachineVirtualCamera", category: "Cinemachine" })
+@ExecuteAlways()
 export class CinemachineVirtualCamera extends ScriptableBehaviour {
 
     // ==================== STATIC REGISTRY ====================

@@ -4,12 +4,14 @@ import { ScriptableBehaviour } from "../ScriptableBehaviour.ts";
 import { Time } from "../Time.ts";
 import { CameraState, CinemachineBlendStyle } from "./CinemachineCore.ts";
 import { CinemachineVirtualCamera } from "./CinemachineVirtualCamera.ts";
-import { Serializable, SerializedField } from "../reflection/Decorators.ts";
+import { Serializable, SerializedField, ExecuteAlways } from "../reflection/Decorators.ts";
 import { FieldType } from "../reflection/Types.ts";
 import type { Camera } from "../components/Camera.ts";
 import type { GameObject } from "../GameObject.ts";
 
+// Unity parity: the brain drives the live camera in the editor too.
 @Serializable({ typeName: "CinemachineBrain", category: "Cinemachine" })
+@ExecuteAlways()
 export class CinemachineBrain extends ScriptableBehaviour {
 
     @SerializedField({ type: FieldType.Enum, enumValues: CinemachineBlendStyle as unknown as Record<string, number> })
