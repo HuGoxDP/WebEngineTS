@@ -40,6 +40,7 @@ import { Color } from "./math/Color.ts";
 import { GraphicsPowerPreference } from "./rendering/RenderBackend.ts";
 import { WebGLRenderBackend } from "./rendering/WebGLRenderBackend.ts";
 import type { RenderBackend, RenderBackendOptions } from "./rendering/RenderBackend.ts";
+import { _isEditMode, _setEditMode } from "./_PlayMode.ts";
 
 export { GraphicsPowerPreference } from "./rendering/RenderBackend.ts";
 
@@ -164,15 +165,155 @@ export class Application {
     /**
      * Whether the engine is currently running.
      *
-     * @remarks Equivalent to Unity's `Application.isPlaying`.
+     * @remarks Equivalent to Unity's `Application.isPlaying`: true in play
+     * mode, false in the editor's edit mode ({@link Application.enterEditMode}).
+     * A script branches on it to behave like Unity's `Application.isPlaying`;
+     * the *loop running* flag an `Application` instance owns is its own
+     * {@link Application.isPlaying}.
      */
     public static get isPlaying(): boolean {
-        return Application._instance?.isPlaying ?? false;
+        return !_isEditMode();
+    }
+
+    /**
+     * Enters the editor's edit mode: user scripts do not wake, `fixedUpdate`
+     * never runs, and no script the gate kept asleep runs any callback. Only a
+     * class decorated `@ExecuteAlways` / `@ExecuteInEditMode` runs its
+     * lifecycle; a script that already woke in play keeps its normal
+     * transitions, so a later destroy still pairs every `onEnable` with its
+     * `onDisable` (C2 research D4).
+     *
+     * Calling it while already in edit mode does nothing — in particular, the
+     * clock is not reset.
+     *
+     * @remarks Equivalent to Unity's entering edit mode. The editor calls it
+     * on load and on Stop; the scenario player never does (a scenario runs in
+     * play mode by definition).
+     *
+     * It flips the flag and resets the clock — nothing else. A host that flips
+     * the mode while a player is still running must stop its own loop first:
+     * entering edit mode does not stop a running loop, a running scenario or a
+     * physics step, and the engine has no other way to reach them.
+     */
+    public static enterEditMode(): void {
+        if (_isEditMode()) return;
+        _setEditMode(true);
+        Time._reset();
+    }
+
+    /**
+     * Enters play mode: the world wakes, in the load order a fresh pass would
+     * produce, and every per-frame callback resumes.
+     *
+     * Calling it while already in play mode does nothing — in particular, the
+     * clock is not reset.
+     *
+     * @remarks Equivalent to Unity's entering play mode. The editor calls it
+     * on Play; a scenario player never has to, because play mode is the
+     * default.
+     */
+    public static enterPlayMode(): void {
+        if (!_isEditMode()) return;
+        _setEditMode(false);
+        Time._reset();
+
+        // The wake pass: every script edit mode kept asleep wakes now, in the
+        // order a load of the same world would give it — one scene after
+        // another, each tree depth first. `_systemAwake` is idempotent, so an
+        // opted-in script that already woke in edit mode is not woken twice,
+        // and an inactive subtree stays asleep until it is activated.
+        for (let i = 0, count = SceneManager.sceneCount; i < count; i++) {
+            SceneManager.getSceneAt(i)?._wakeForPlay();
+        }
+
+        // An `awake` that switched the mode back is not an error — the host's
+        // own code decided so — but it stopped the pass half way, and a host
+        // that believes it is playing must be told. What woke stays woken and
+        // paired; what did not wakes on the next switch, or on activation.
+        if (_isEditMode()) {
+            console.warn(
+                "[Application] enterPlayMode: a callback re-entered edit mode during the wake " +
+                "pass, so the pass stopped early. The engine is in edit mode with a partly " +
+                "woken world.",
+            );
+        }
     }
 
     /** Target frame rate (informational - actual rate depends on browser). */
     public static get targetFrameRate(): number {
         return 60; // TODO: make configurable
+    }
+
+    /**
+     * Runs one frame of the editor's edit mode: the clock advances, the
+     * opted-in scripts update, and the edit-safe drivers relayout and refresh
+     * the LODs — nothing else.
+     *
+     * A host calls it after a change (an inspector edit, a gizmo drag, a
+     * hierarchy change, a script reload), which is Unity's "on change" model:
+     * the editor decides *when* a frame happens, and continuous ticking — a
+     * preview of a playing animation, say — is its choice. No `Application`
+     * instance is needed, so the editor can drive this while nothing is
+     * rendering.
+     *
+     * @param deltaTime - the frame's delta, in seconds, clamped to
+     *   `[0, EngineSettings.Time.MAX_DELTA_TIME]`; a non-finite value is `0`.
+     *
+     * @remarks
+     * What runs: `Time._update`, then the active scene's `Update` and
+     * `LateUpdate` walks (the gate inside each script decides who runs), then
+     * the pending destroys — counted with `Time.deltaTime`, so a scaled-down
+     * game counts them down at its own rate — the layout passes
+     * (`LayoutGroup`, `ContentSizeFitter`, `AspectRatioFitter`,
+     * `Canvas._updateTransforms`), `LODGroup` and `LineRenderer`. A callback
+     * that enters play mode stops the frame right there, with a warning: the
+     * rest belongs to the play loop.
+     *
+     * What does **not** run, because Unity's edit mode does not run it either:
+     * rendering (the editor renders), input, physics and `fixedUpdate`,
+     * animation and the `Animator`, particles, audio, tweens, the event system
+     * and the `Selectable`/`ScrollRect` widgets, texture streaming.
+     *
+     * @throws if the engine is in play mode — a play-mode frame is the
+     *   `Application` loop's.
+     */
+    public static updateEditMode(deltaTime: number): void {
+        if (!_isEditMode()) {
+            throw new Error("[Application] updateEditMode() is only valid in edit mode.");
+        }
+
+        const dt = Number.isFinite(deltaTime)
+            ? Math.min(Math.max(deltaTime, 0), EngineSettings.Time.MAX_DELTA_TIME)
+            : 0;
+        Time._update(dt);
+
+        // The scene is captured once, exactly as the play-mode loop does: a
+        // callback that loads a scene must not have this frame's late update
+        // land in the new one, which never got this frame's update.
+        const scene = SceneManager.activeScene;
+        scene._update();
+        scene._lateUpdate();
+
+        // A callback that entered play mode took the world out from under this
+        // frame: the rest of the drivers belong to the play loop, and running
+        // them here would run them in play mode with a clock that callback already
+        // reset. The wake pass that `enterPlayMode` ran has already woken what
+        // the switch owed a wake.
+        if (!_isEditMode()) {
+            console.warn(
+                "[Application] updateEditMode: a callback entered play mode during this frame. " +
+                "The rest of the edit frame was skipped — drive the play loop instead.",
+            );
+            return;
+        }
+
+        EngineObject._updatePendingDestroys(Time.deltaTime);
+        LayoutGroup._updateAll();
+        ContentSizeFitter._updateAll();
+        AspectRatioFitter._updateAll();
+        Canvas._updateTransforms();
+        LODGroup._updateAll();
+        LineRenderer._updateAll();
     }
 
     /**

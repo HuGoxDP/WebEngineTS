@@ -148,6 +148,64 @@ export function _resetExecutionOrders(): void {
     _passes = [0];
 }
 
+// ==================== EDIT-MODE EXECUTION ====================
+
+/**
+ * @internal Classes whose lifecycle also runs in the editor's edit mode.
+ * Own class only: a subclass does not inherit the opt-in, and a decorated base
+ * does not opt its subclass in — the same rule Unity applies to its
+ * attributes.
+ */
+const _editModeRunners: WeakSet<AnyConstructor> = new WeakSet();
+
+/** The shared body of `@ExecuteAlways` and `@ExecuteInEditMode`. */
+function _runsInEditMode(): <T extends AnyConstructor>(target: T) => T {
+    return function <T extends AnyConstructor>(target: T): T {
+        _editModeRunners.add(target);
+        return target;
+    };
+}
+
+/**
+ * Marks a script to run its lifecycle in the editor's edit mode as well as in
+ * play mode — Unity's `[ExecuteInEditMode]` and `[ExecuteAlways]` alike.
+ *
+ * @remarks
+ * The two Unity attributes differ only in whether `update` runs while the
+ * editor is *idle*; the editor renders on change (C2's edit frame), so both
+ * behave alike here, and the choice costs the author nothing.
+ *
+ * `awake`, `onEnable`, `start`, `update` and `lateUpdate` run in edit mode;
+ * `fixedUpdate` never does, because physics does not step in Unity's edit
+ * mode either. A host that never enters edit mode sees no difference.
+ *
+ * ```ts
+ * @Serializable({ typeName: "MyScript" })
+ * @ExecuteAlways()
+ * class MyScript extends ScriptableBehaviour { ... }
+ * ```
+ */
+export function ExecuteAlways(): <T extends AnyConstructor>(target: T) => T {
+    return _runsInEditMode();
+}
+
+/**
+ * Marks a script to run its lifecycle in the editor's edit mode as well as in
+ * play mode — an alias of {@link ExecuteAlways}, named as Unity names its.
+ */
+export function ExecuteInEditMode(): <T extends AnyConstructor>(target: T) => T {
+    return _runsInEditMode();
+}
+
+/**
+ * @internal
+ * Whether an instance of `ctor` runs its lifecycle in edit mode: the class
+ * itself was decorated, and a subclass never inherits the opt-in.
+ */
+export function _executesInEditMode(ctor: AnyConstructor | undefined): boolean {
+    return ctor !== undefined && _editModeRunners.has(ctor);
+}
+
 // ==================== FIELD DECORATORS ====================
 
 /**

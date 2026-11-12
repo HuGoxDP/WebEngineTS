@@ -18,6 +18,48 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ---
 
+### Added
+
+- **Edit mode: a host can build a world in the editor without scripts running.** `Application.enterEditMode()`
+  switches the engine into edit mode and `Application.enterPlayMode()` back out of it — both idempotent, both
+  resetting the clock on a real switch. In edit mode an undecorated script runs **no** lifecycle step: not when
+  it is added, not when a scene or prefab holding it is loaded, not when it is activated, not per frame.
+  `awake`, `onEnable`, `start`, `update`, `lateUpdate` and `fixedUpdate` all wait for play mode; a script that
+  woke in play keeps its normal transitions, so a later destroy still pairs every `onEnable` with its
+  `onDisable`.
+
+- **`@ExecuteAlways()` / `@ExecuteInEditMode()` opt a class into running in edit mode** — Unity's two
+  attributes, which differ only in whether `update` runs while the editor is idle, so they behave alike here and
+  the choice costs an author nothing. `awake`, `onEnable`, `start`, `update` and `lateUpdate` run in edit mode;
+  `fixedUpdate` never does, because physics does not step in Unity's edit mode either. The opt-in belongs to
+  the class itself and is never inherited, exactly as Unity's attributes are not. `CinemachineBrain` and
+  `CinemachineVirtualCamera` are marked, so a virtual camera frames the live camera in the editor too.
+
+- **`Application.updateEditMode(deltaTime)` runs one edit-mode frame.** The clock advances, the opted-in
+  scripts update, the layout passes relayout and the LOD groups and line renderers refresh — nothing else, on
+  Unity's "on change" model where the editor decides when a frame happens. Rendering, input, physics,
+  animation, particles, audio, tweens and the event system are left to the host. The delta is clamped to
+  `[0, EngineSettings.Time.MAX_DELTA_TIME]`, a non-finite value being `0`, and calling it in play mode throws.
+
+- **Entering play mode wakes the live world in load order.** The wake pass runs one scene after another, each
+  tree depth first, each object's components in list order — the order a fresh load of the same JSON produces
+  — so a host that switches in place gets the same callback sequence as one that reloads. `Scenario.run()`
+  refuses to start in edit mode ("Call `Application.enterPlayMode()` first"), because a scenario is a
+  play-mode world.
+
+### Changed
+
+- **Static `Application.isPlaying` now means what Unity's means: `!isEditMode`.** It answers "is this a play-mode
+  world", not "is an `Application` loop running" — the latter is the instance flag of the same name, which the
+  loop still uses. Both are documented and cross-reference each other. No consumer in the engine, its tests or
+  the editor reads the static one.
+
+### Fixed
+
+- **Switching modes from inside a callback cannot leave a silent half-woken world.** A script's `awake` may call `enterEditMode()` during the wake pass, and an opted-in script's `update` may call `enterPlayMode()` during an edit frame; both now stop where they are and say so with a warning rather than continuing to drive a world that is no longer in the mode the host asked for. A timed destroy during an edit frame also counts down with `Time.deltaTime`, so a `timeScale` below 1 slows it as it does in play. Pinned by `tests/EditModeCompat.test.ts`.
+
+---
+
 ## [0.3.0] - 2026-11-12
 
 A small release on top of 0.2.0: one addition the editor's script reload needs, and one fix for

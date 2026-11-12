@@ -398,6 +398,22 @@ export class Scene {
 
     /**
      * @internal
+     * Wakes every script in this scene that has not woken yet, in the order a
+     * fresh load would: each root in root order, its tree depth first.
+     *
+     * Called by `Application.enterPlayMode()`, so a host that switches in place
+     * gets the very callback order a reload of the same JSON produces.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _wakeForPlay(): void {
+        for (const root of this.getRootGameObjects()) {
+            root._wakeForPlay();
+        }
+    }
+
+    /**
+     * @internal
      * Runs FixedUpdate on all active root GameObjects (and their children recursively).
      * Called by Application at a fixed timestep.
      */
