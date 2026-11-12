@@ -459,6 +459,54 @@ export class RenderTexture extends Texture {
 
     // ==================== LIFECYCLE ====================
 
+    /**
+     * @internal
+     * The active target a readback should read from, or null.
+     *
+     * @remarks
+     * Unity's `RenderTexture.active` is a plain static; this is the read that
+     * guards it, so a call with no active target — or an active one that has been
+     * destroyed, or one whose storage format has no readable form — answers null
+     * or false rather than reading freed memory. Phase 5's `Texture2D.readPixels`
+     * is the only caller.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _activeForReadback(): RenderTexture | null {
+        const active = RenderTexture.active;
+        if (active === null) return null;
+        if (!active.exists()) return null;
+        return active;
+    }
+
+    /**
+     * @internal
+     * Copies `width * height * 4` bytes out of this target into `out`, top row first.
+     *
+     * @returns true when the pixels were read. False — with the buffer untouched —
+     *          when there is no running {@link Application} to read through, or the
+     *          backend cannot read this target.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public _readBack(x: number, y: number, width: number, height: number, out: Uint8Array): boolean {
+        if (RenderTexture._readHook === null) return false;
+        return RenderTexture._readHook(this, x, y, width, height, out);
+    }
+
+    /**
+     * @internal
+     * Reads a render target's pixels through the running Application.
+     *
+     * @remarks
+     * A callback rather than an import: `Application` installs it at construction
+     * and clears it on `dispose()`, the same pattern `Camera._renderHook` uses —
+     * the graphics modules must not import `Application`, which imports them.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _readHook: ((target: RenderTexture, x: number, y: number, width: number, height: number, out: Uint8Array) => boolean) | null = null;
+
     protected override onDestroy(): void {
         this._created = false;
         this._threeRenderTarget.dispose();

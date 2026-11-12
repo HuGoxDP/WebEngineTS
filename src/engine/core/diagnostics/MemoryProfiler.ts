@@ -6,6 +6,7 @@ import type * as THREE from "three";
 import { Texture } from "../graphics/Texture.ts";
 import { textureFormatName } from "../graphics/_TextureMemory.ts";
 import { Cubemap } from "../graphics/Cubemap.ts";
+import { RenderTexture } from "../graphics/RenderTexture.ts";
 import { Mesh } from "../graphics/Mesh.ts";
 import { PostProcessing } from "../postprocessing/PostProcessing.ts";
 import { profilerHooks } from "./ProfilerHooks.ts";
@@ -127,6 +128,21 @@ export interface MemoryReport {
         estimatedUICanvasBytes: number;
         /** Number of live UI canvases behind {@link estimatedUICanvasBytes}. */
         uiCanvasCount: number;
+        /**
+         * How many live engine {@link RenderTexture}s exist and are created.
+         *
+         * @remarks
+         * A target is a texture a camera renders into — a monitor, a camera
+         * preview, a picture-in-picture view — and it is not one of the picture
+         * textures {@link liveTextures} counts. Counted here so a target's
+         * presence in a scene is visible without its bytes being attributed to
+         * the wrong bucket: its VRAM is part of
+         * {@link estimatedRenderTargetVramBytes}, where render targets belong.
+         *
+         * A target that is not created costs nothing yet — lazy allocation
+         * (`create()`) — so it is not counted.
+         */
+        renderTextures: number;
         /**
          * Memory held by tinted sprite copies (`UIImage.tintCacheBytes`), in
          * bytes. A tint is composited into a full-resolution offscreen buffer,
@@ -394,6 +410,11 @@ export class MemoryProfiler {
                 + ` + ~${f(r.renderer.estimatedUITintCacheBytes)} UI tints`
                 + ` = ~${f(vramTotal)}`
             );
+            // Named separately from the render-target bytes: a shadow map's cost
+            // is not the engine's, and a camera target's is.
+            if (r.renderer.renderTextures > 0) {
+                console.log(`Render textures: ${r.renderer.renderTextures}`);
+            }
         } else {
             console.log("Renderer: N/A (no active Application)");
         }
@@ -659,6 +680,7 @@ export class MemoryProfiler {
             textureFormats: textures.formats,
             estimatedGeometryVramBytes: MemoryProfiler._estimateGeometryVram(),
             estimatedRenderTargetVramBytes: MemoryProfiler._estimateRenderTargetVram(),
+            renderTextures: MemoryProfiler._surveyRenderTextures().count,
             estimatedUICanvasBytes: profilerHooks.uiCanvasBytes?.() ?? 0,
             uiCanvasCount: profilerHooks.uiCanvasCount?.() ?? 0,
             estimatedUITintCacheBytes: profilerHooks.uiTintCacheBytes?.() ?? 0,
@@ -697,7 +719,33 @@ export class MemoryProfiler {
             }
         }
 
+        // Engine render targets (C6): a camera's target is a render target, not
+        // a picture texture, so its bytes belong beside the shadow maps. Pure
+        // arithmetic, so it is added even when the GL-backed parts above cannot
+        // be read.
+        total += MemoryProfiler._surveyRenderTextures().bytes;
+
         return total;
+    }
+
+    /**
+     * Every live, created engine {@link RenderTexture}, counted and measured.
+     *
+     * @remarks
+     * One traversal for both figures, for the same reason
+     * {@link _surveyTextures} uses one: a count that disagreed with the bytes
+     * beside it would be worse than neither. Not created targets are skipped —
+     * they have allocated nothing.
+     */
+    private static _surveyRenderTextures(): { count: number; bytes: number } {
+        let count = 0;
+        let bytes = 0;
+        for (const target of EngineObject.FindObjectsOfType(RenderTexture)) {
+            if (!target.isCreated()) continue;
+            count++;
+            bytes += target._estimateVramBytes();
+        }
+        return { count, bytes };
     }
 
     /**
@@ -740,6 +788,10 @@ export class MemoryProfiler {
         };
 
         for (const t of EngineObject.FindObjectsOfType(Texture)) {
+            // A render target is not a picture texture: its bytes are counted in
+            // estimatedRenderTargetVramBytes, and counting it here as well would
+            // double it in the total and attribute a camera preview to the art.
+            if (t instanceof RenderTexture) continue;
             record(t._internalThreeTexture, t._estimateVramBytes());
         }
         // Cubemap has a private constructor, so it does not satisfy the

@@ -3,6 +3,8 @@
 import * as THREE from "three";
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { Texture } from "./Texture.ts";
+import type { Rect } from "../math/Rect.ts";
+import { RenderTexture, RenderTextureFormat } from "./RenderTexture.ts";
 import { estimateThreeTextureVramBytes } from "./_TextureMemory.ts";
 import { TextureRelease } from "./TextureRelease.ts";
 import { Color } from "../math/Color.ts";
@@ -373,13 +375,118 @@ export class Texture2D extends Texture {
     }
 
     /**
+     * Copies pixels out of {@link RenderTexture.active} into this texture.
+     *
+     * @param source — the rectangle of the active target to read, in its pixels,
+     *                 top-left origin, Y-down (the engine's convention; the GPU's
+     *                 row order is flipped on the way out). Clipped to the target.
+     * @param destX — the left edge in this texture where the rectangle lands.
+     * @param destY — the top edge in this texture. Clipped, together with the
+     *                rectangle, to this texture's bounds.
+     * @param recalculateMipMaps — Unity's parameter, kept for shape; this engine
+     *                             regenerates mipmaps in {@link apply}.
+     *
+     * @remarks
+     * Equivalent to Unity's `Texture2D.ReadPixels`, and the only way a target's
+     * pixels reach the CPU: the Canvas UI cannot draw a GPU texture (it is 2D
+     * canvas drawing), so a preview, a thumbnail or an editor image reads the
+     * pixels and then calls {@link apply} to put them on the GPU.
+     *
+     * A synchronous GPU → CPU copy, so it is for previews and occasional reads,
+     * not per frame. ARGB32 only: a half-float target has no readable byte form
+     * here, and reading it as bytes would hand back garbage (decision D9) — the
+     * call warns once and leaves this texture unchanged.
+     *
+     * ```ts
+     * RenderTexture.active = camera.targetTexture;
+     * const preview = new Texture2D(256, 256);
+     * preview.readPixels(new Rect(0, 0, 256, 256), 0, 0);
+     * preview.apply();
+     * RenderTexture.active = null;
+     * ```
+     */
+    public readPixels(source: Rect, destX: number, destY: number, recalculateMipMaps: boolean = true): void {
+        const active = RenderTexture._activeForReadback();
+        if (active === null) {
+            console.warn("[Texture2D] readPixels: RenderTexture.active is null; make one target active first.");
+            return;
+        }
+        if (active.format === RenderTextureFormat.ARGBHalf) {
+            console.warn("[Texture2D] readPixels: a half-float target cannot be read as bytes; nothing was copied.");
+            return;
+        }
+        if (!this._isReadable) {
+            console.warn("[Texture2D] readPixels: this texture is not readable (apply(_, true) freed its pixels).");
+            return;
+        }
+
+        // Both rectangles clipped, so a source or destination that overhangs
+        // writes the overlap rather than reading out of bounds.
+        const srcX = Math.max(0, Math.min(source.x, active.width));
+        const srcY = Math.max(0, Math.min(source.y, active.height));
+        const srcW = Math.min(source.width, active.width - srcX);
+        const srcH = Math.min(source.height, active.height - srcY);
+        const left = Math.max(0, destX);
+        const top = Math.max(0, destY);
+        const width = Math.min(srcW, this._width - left);
+        const height = Math.min(srcH, this._height - top);
+        if (width <= 0 || height <= 0) return;
+
+        const bytes = new Uint8Array(width * height * 4);
+        if (!active._readBack(left, top, width, height, bytes)) {
+            console.warn("[Texture2D] readPixels: the backend could not read this target; nothing was copied.");
+            return;
+        }
+
+        // The GPU's first row is the bottom; the engine's first is the top, and
+        // the backend already flipped to top-down — so the target's rows land in
+        // this texture the way round a reader expects.
+        this._ensurePixelData();
+        for (let row = 0; row < height; row++) {
+            for (let column = 0; column < width; column++) {
+                const from = (row * width + column) * 4;
+                const to = (top + row) * this._width + (left + column);
+                const color = this._pixels![to];
+                color.r = bytes[from + 0] / 255;
+                color.g = bytes[from + 1] / 255;
+                color.b = bytes[from + 2] / 255;
+                color.a = bytes[from + 3] / 255;
+            }
+        }
+        // Kept in step with the CPU copy, so `getPixel` and `apply` agree before
+        // the caller's `apply()`.
+        this._writeCanvasPixels();
+        void recalculateMipMaps;
+    }
+
+    /**
+     * Writes the CPU pixel array into the backing canvas, without touching the
+     * GPU-side upload flags (that is {@link apply}'s job).
+     */
+    private _writeCanvasPixels(): void {
+        const image = this._internalThreeTexture.image as HTMLCanvasElement;
+        if (!image || typeof (image as HTMLCanvasElement).getContext !== "function") return;
+        const ctx = image.getContext("2d");
+        if (!ctx) return;
+        const imageData = ctx.createImageData(this._width, this._height);
+        for (let i = 0; i < this._pixels!.length; i++) {
+            const color = this._pixels![i];
+            imageData.data[i * 4 + 0] = Math.floor(color.r * 255);
+            imageData.data[i * 4 + 1] = Math.floor(color.g * 255);
+            imageData.data[i * 4 + 2] = Math.floor(color.b * 255);
+            imageData.data[i * 4 + 3] = Math.floor(color.a * 255);
+        }
+        ctx.putImageData(imageData, 0, 0);
+    }
+
+    /**
      * Sets the color of a pixel.
      *
      * Call {@link apply} after all changes to push data to the GPU.
      *
-     * @param x â€” x coordinate.
-     * @param y â€” y coordinate.
-     * @param color â€” the color to set.
+     * @param x — x coordinate.
+     * @param y — y coordinate.
+     * @param color — the color to set.
      */
     public setPixel(x: number, y: number, color: Color): void {
         if (!this._isReadable) {

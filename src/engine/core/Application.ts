@@ -7,6 +7,7 @@ import { EngineObject } from "./EngineObject.ts";
 import { TextureRelease } from "./graphics/TextureRelease.ts";
 import { EngineSettings } from "./EngineSettings.ts";
 import { Camera } from "./components/Camera.ts";
+import { RenderTexture } from "./graphics/RenderTexture.ts";
 import { Input } from "./Input.ts";
 import { Scenario } from "./scenario";
 import type { IScenarioLoadProgress } from "./scenario";
@@ -424,6 +425,11 @@ export class Application {
         // because `Camera` cannot import `Application` (which imports `Camera`).
         Camera._renderHook = camera => this._renderOne(camera);
 
+        // C6: the pixel-readback seam, installed beside the camera hook because
+        // the graphics modules cannot import `Application` (which imports them).
+        RenderTexture._readHook = (target, x, y, width, height, out) =>
+            this._backend.readPixels(target, x, y, width, height, out);
+
         // Register as singleton
         Application._instance = this;
 
@@ -757,6 +763,7 @@ export class Application {
         // C6: the on-demand render hook is gone with the GPU. A later
         // `Camera.render()` warns once instead of drawing into a dead context.
         Camera._renderHook = null;
+        RenderTexture._readHook = null;
 
         // Clear singleton
         if (Application._instance === this) {
