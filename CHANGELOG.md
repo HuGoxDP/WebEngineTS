@@ -20,6 +20,27 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Added
 
+- **A camera can render into a texture (Unity's `RenderTexture`).** `new RenderTexture(width, height, depth = 24, format = RenderTextureFormat.Default)`,
+  `Camera.targetTexture`, `Camera.render()` and `Texture2D.readPixels()`. A target is a camera's destination instead
+  of the canvas — a mirror, a security monitor, a camera preview, a picture-in-picture view — and showing what it
+  drew is `material.mainTexture = target` on a quad in front of another camera. The GPU image is **lazy** (`create()`
+  marks it wanted; a render into it allocates it, as in Unity) and its descriptor — width, height, depth, format,
+  `antiAliasing` — is **immutable once created**: setting one then is refused with one `console.error`, and a resize
+  is `release()`, set, `create()` (the contents do not survive it). Two formats ship: `ARGB32` (8-bit sRGB) and
+  `ARGBHalf` (half-float linear, with a fallback and a warning on a device that cannot render to float);
+  `Default`/`DefaultHDR` resolve to them and never survive as themselves. A target is **not an asset** and is not
+  serialised with a scene. `RenderTexture.active` is the readback slot: `active = rt; tex.readPixels(new Rect(0, 0, w, h), 0, 0);
+  tex.apply(); active = null;` copies its pixels into a canvas-backed `Texture2D`, rows top-down, which is the only
+  way a target reaches the Canvas UI (a synchronous GPU -> CPU copy, for previews and thumbnails rather than per
+  frame). `Camera.render()` draws a camera now, even a disabled one, in play and in edit mode. `MemoryReport` gains
+  `renderer.renderTextures` (live created targets), and a target's bytes land in
+  `estimatedRenderTargetVramBytes` rather than inflating the texture figures — art on the GPU keeps the number it
+  had. **No measured number changes for content without a target**: the frame order with no target anywhere is the
+  previous one, and a scene with no target renders byte-for-byte identically to `06aeaf5` (screenshot SHA256 pairs
+  in `code-foundations/C6/notes.md`)."
+
+### Added
+
 - **Edit mode: a host can build a world in the editor without scripts running.** `Application.enterEditMode()`
   switches the engine into edit mode and `Application.enterPlayMode()` back out of it — both idempotent, both
   resetting the clock on a real switch. In edit mode an undecorated script runs **no** lifecycle step: not when
@@ -48,6 +69,15 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   play-mode world.
 
 ### Changed
+
+- **`RenderBackend.renderScene(scene, camera, target?)` takes a render target, and the interface gains `readPixels(target, x, y, w, h, out)`.**
+  A custom backend must implement `readPixels` (answer `false` when it cannot); `target` is optional and the screen
+  path is unchanged. The typed material slots that a target can be sampled through — `UnlitMaterial.mainTexture`,
+  `StandardMaterial.albedoTexture`, `emissionTexture` — now accept `Texture2D | RenderTexture | null`; the data
+  slots (normal, metallic, occlusion, height) stay `Texture2D`, so the type system keeps a target out of them.
+  **Not in this release, and each a follow-up row:** multi-camera screen stacking, `cullingMask`, per-camera LOD
+  selection, per-camera post-processing, a `RenderTexture` asset with a serialised `Camera.targetTexture`, live
+  targets in the Canvas UI, and async/HDR readback.
 
 - **Static `Application.isPlaying` now means what Unity's means: `!isEditMode`.** It answers "is this a play-mode
   world", not "is an `Application` loop running" — the latter is the instance flag of the same name, which the

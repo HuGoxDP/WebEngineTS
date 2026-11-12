@@ -7,6 +7,7 @@ import { EngineObject } from "./EngineObject.ts";
 import { TextureRelease } from "./graphics/TextureRelease.ts";
 import { EngineSettings } from "./EngineSettings.ts";
 import { Camera } from "./components/Camera.ts";
+import { RenderTexture } from "./graphics/RenderTexture.ts";
 import { Input } from "./Input.ts";
 import { Scenario } from "./scenario";
 import type { IScenarioLoadProgress } from "./scenario";
@@ -420,6 +421,15 @@ export class Application {
         this._resize();
         window.addEventListener("resize", this._resizeHandler);
 
+        // C6: the on-demand render hook. A callback rather than an import,
+        // because `Camera` cannot import `Application` (which imports `Camera`).
+        Camera._renderHook = camera => this._renderOne(camera);
+
+        // C6: the pixel-readback seam, installed beside the camera hook because
+        // the graphics modules cannot import `Application` (which imports them).
+        RenderTexture._readHook = (target, x, y, width, height, out) =>
+            this._backend.readPixels(target, x, y, width, height, out);
+
         // Register as singleton
         Application._instance = this;
 
@@ -750,6 +760,11 @@ export class Application {
         // Release the graphics context
         this._backend.dispose();
 
+        // C6: the on-demand render hook is gone with the GPU. A later
+        // `Camera.render()` warns once instead of drawing into a dead context.
+        Camera._renderHook = null;
+        RenderTexture._readHook = null;
+
         // Clear singleton
         if (Application._instance === this) {
             Application._instance = null;
@@ -1041,10 +1056,19 @@ export class Application {
 
     /**
      * @internal
-     * Renders the active scene using the main camera.
+     * Renders the active scene: every camera that renders into a target, then
+     * the screen camera.
      *
-     * Uses {@link Camera.main} to find the camera - no Three.js scene
-     * traversal needed.
+     * @remarks
+     * Frame order (C6, decision D5): (1) each camera from
+     * {@link Camera.allCameras} — active, enabled, ascending `depth` — that has a
+     * live `targetTexture`, into that target; (2) the screen camera, which is
+     * {@link Camera.main} when nothing renders into a target and the first
+     * untargeted camera when something does; (3) the canvas UI, as before.
+     *
+     * With no target anywhere this is exactly the previous sequence — the same
+     * camera, the same single `renderScene(scene, camera)` — so no existing
+     * content sees a different frame.
      */
     private _render(): void {
         const scene = SceneManager.activeScene;
@@ -1055,13 +1079,19 @@ export class Application {
         // Ensure all world matrices are up-to-date
         scene._internalThreeScene.updateMatrixWorld(true);
 
-        // Find the main camera via the engine Camera registry
-        const mainCamera = Camera.main;
+        // 1. Targets first, ascending depth: a target may be sampled by what the
+        // screen camera draws next, so it has to hold this frame's image by then.
+        for (const cam of Camera.allCameras) {
+            if (cam.targetTexture !== null) this._renderOne(cam);
+        }
 
-        if (mainCamera !== null) {
-            this._backend.renderScene(scene, mainCamera);
+        // 2. The screen camera: Camera.main's rule over cameras without a target.
+        const screenCamera = Camera._screenCamera();
+
+        if (screenCamera !== null) {
+            this._backend.renderScene(scene, screenCamera);
         } else {
-            // No camera - render dark blue so the user knows the engine is alive
+            // No camera for the surface - render dark blue so the user knows the engine is alive
             if (this._firstRender) {
                 console.warn(
                     "[Application] No camera found. Add a Camera component to a GameObject."
@@ -1074,6 +1104,35 @@ export class Application {
         if (this._firstRender) {
             this._firstRender = false;
         }
+    }
+
+    /**
+     * @internal
+     * Draws one camera into its target, or on the surface when it has none.
+     *
+     * @remarks
+     * The single target/screen dispatch, used by the loop's target pass and by
+     * {@link Camera.render} — so an on-demand render and the loop's render of the
+     * same camera do exactly the same thing. `render()` flushes transforms itself
+     * before calling in (decision D12).
+     */
+    public _renderOne(camera: Camera): void {
+        const target = camera.targetTexture;
+        if (target === null) {
+            this._backend.renderScene(SceneManager.activeScene, camera, null);
+            return;
+        }
+        // A target whose size changed since the last render (resized while
+        // released, or swapped) drives the aspect again, so the projection agrees
+        // with the image produced.
+        const size = { width: target.width, height: target.height };
+        if (camera._targetPixelSize === null
+            || camera._targetPixelSize.width !== size.width
+            || camera._targetPixelSize.height !== size.height) {
+            camera._targetPixelSize = size;
+            camera._updateAspectFromViewport();
+        }
+        this._backend.renderScene(SceneManager.activeScene, camera, target);
     }
 
     // ==================== SHADER WARMUP ====================
@@ -1115,6 +1174,10 @@ export class Application {
         const aspect = width / height;
         for (const cam of Camera.allCameras) {
             cam._setPixelSize(width, height);
+            // A camera rendering into a target measures its surface in the
+            // target's pixels (C6, D5), so a window resize must not overwrite the
+            // aspect it derived from them.
+            if (cam.targetTexture !== null) continue;
             // Aspect follows the camera's pixel rect (surface × viewport), so a
             // non-full viewport does not stretch the image.
             const pw = cam.pixelWidth;

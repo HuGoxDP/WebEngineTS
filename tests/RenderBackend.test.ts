@@ -8,6 +8,7 @@ import type {
     RenderBackend, RenderBackendOptions, RenderBackendStats,
 } from "../src/engine/core/rendering/RenderBackend";
 import type { Scene } from "../src/engine/core/Scene";
+import type { RenderTexture } from "../src/engine/core/graphics/RenderTexture";
 
 /**
  * A backend that draws nothing and records what it was asked to do.
@@ -25,7 +26,8 @@ class FakeBackend implements RenderBackend {
 
     public readonly options: RenderBackendOptions;
     public sizes: Array<[number, number]> = [];
-    public frames: Array<{ scene: Scene; camera: Camera }> = [];
+    public frames: Array<{ scene: Scene; camera: Camera; target: RenderTexture | null }> = [];
+    public readbacks: Array<{ target: RenderTexture; width: number; height: number }> = [];
     public clearColors: Color[] = [];
     public clears: number = 0;
     public warmups: number = 0;
@@ -46,8 +48,14 @@ class FakeBackend implements RenderBackend {
 
     public clear(): void { this.clears++; }
 
-    public renderScene(scene: Scene, camera: Camera): void {
-        this.frames.push({ scene, camera });
+    public renderScene(scene: Scene, camera: Camera, target: RenderTexture | null = null): void {
+        this.frames.push({ scene, camera, target });
+    }
+
+    public readPixels(target: RenderTexture, x: number, y: number, width: number, height: number, out: Uint8Array): boolean {
+        this.readbacks.push({ target, width, height });
+        out.fill(0, x * 4, x * 4 + width * 4);
+        return true;
     }
 
     public warmup(): void { this.warmups++; }
@@ -155,6 +163,10 @@ describe("RenderBackend — the seam", () => {
         expect(backend.frames.length).toBe(1);
         expect(backend.frames[0].camera).toBe(camera);
         expect(backend.frames[0].scene).toBe(SceneManager.activeScene);
+        // The screen path names no target: a backend that hands a target back
+        // from the loop would be drawing the catalog into a texture nobody asked
+        // for, so this is pinned as null rather than left undefined.
+        expect(backend.frames[0].target).toBe(null);
         camera.gameObject.destroy();
     });
 

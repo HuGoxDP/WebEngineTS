@@ -5,6 +5,7 @@ import { Material } from "./Material.ts";
 import { Shader } from "./Shader.ts";
 import { Color } from "../math/Color.ts";
 import { Texture2D } from "./Texture2D.ts";
+import type { RenderTexture } from "./RenderTexture.ts";
 import { Serializable, SerializedField } from "../reflection/Decorators.ts";
 import { FieldType } from "../reflection/Types.ts";
 
@@ -80,13 +81,36 @@ export class StandardMaterial extends Material {
     /**
      * Albedo texture.
      * @remarks Equivalent to Unity's `_MainTex` property.
+     *
+     * Accepts a {@link RenderTexture} as well as a {@link Texture2D}: a target a
+     * camera rendered into can be the albedo of a surface — a live monitor, a
+     * mirror, a security feed. A target's colour texture is the texture the base
+     * class binds, so no separate slot exists for it.
+     *
+     * The colour-space call below is a no-op on a target: its storage format is
+     * fixed where it is allocated (ARGB32 is sRGB by design, ARGBHalf linear), so
+     * re-tagging it here would make an ARGB32 target sample as raw values and
+     * show a dark monitor instead of the picture.
+     *
+     * Two consequences of sampling a target, both recorded by the C6 research
+     * (D7, D8):
+     *
+     * - **A target is not tone-mapped.** Three skips the output transform when a
+     *   camera renders into a target, so what a target holds is exactly what the
+     *   renderer wrote — not what a monitor would show. A surface showing it is
+     *   tone-mapped once by the screen pass, which is the correct result.
+     * - **A feedback loop is a WebGL error.** When a camera renders into the very
+     *   texture a visible material samples, the draw is dropped and three logs a
+     *   console warning about a feedback loop between framebuffer and texture.
+     *   The engine does not guard against it (a follow-up row); nothing here
+     *   throws, and the rest of the frame keeps drawing.
      */
     @SerializedField({ type: FieldType.Asset })
-    public get albedoTexture(): Texture2D | null {
-        return this.getTexture("_MainTex") as Texture2D | null;
+    public get albedoTexture(): Texture2D | RenderTexture | null {
+        return this.getTexture("_MainTex") as Texture2D | RenderTexture | null;
     }
 
-    public set albedoTexture(value: Texture2D | null) {
+    public set albedoTexture(value: Texture2D | RenderTexture | null) {
         value?._setLinearData(false);
         this.setTexture("_MainTex", value);
     }
@@ -296,13 +320,31 @@ export class StandardMaterial extends Material {
     /**
      * Emission texture.
      * @remarks Equivalent to Unity's `_EmissionMap` property.
+     *
+     * Accepts a {@link RenderTexture} as well as a {@link Texture2D}: a target is
+     * colour data, exactly what the emission slot wants — an animated sign whose
+     * text a camera renders, a screen showing another camera's view. The data
+     * slots ({@link normalTexture}, {@link metallicTexture},
+     * {@link occlusionTexture}, {@link heightTexture}) stay `Texture2D`: a
+     * `RenderTexture` does not fit them, and the engine's type system says so.
+     *
+     * The colour-space call below is a no-op on a target: its storage format is
+     * fixed where it is allocated (ARGB32 is sRGB by design, ARGBHalf linear), so
+     * re-tagging it here would make an ARGB32 target sample as raw values.
+     *
+     * The tone-mapping and feedback-loop consequences of sampling a target are
+     * the same as for {@link albedoTexture} (C6 research D7, D8): a target holds
+     * what the renderer wrote rather than what a monitor would show, and a camera
+     * rendering into the texture a visible material samples is a WebGL error that
+     * drops the draw — documented, not guarded (a follow-up row), and never a
+     * throw.
      */
     @SerializedField({ type: FieldType.Asset })
-    public get emissionTexture(): Texture2D | null {
-        return this.getTexture("_EmissionMap") as Texture2D | null;
+    public get emissionTexture(): Texture2D | RenderTexture | null {
+        return this.getTexture("_EmissionMap") as Texture2D | RenderTexture | null;
     }
 
-    public set emissionTexture(value: Texture2D | null) {
+    public set emissionTexture(value: Texture2D | RenderTexture | null) {
         value?._setLinearData(false);
         this.setTexture("_EmissionMap", value);
     }

@@ -1,6 +1,7 @@
 import type { Color } from "../math/Color";
 import type { Scene } from "../Scene";
 import type { Camera } from "../components/Camera";
+import type { RenderTexture } from "../graphics/RenderTexture";
 
 /**
  * GPU power-preference hint applied when the graphics context is created.
@@ -133,8 +134,38 @@ export interface RenderBackend {
      *
      * @param scene - the scene to draw.
      * @param camera - the camera to draw it from.
+     * @param target - a {@link RenderTexture} to draw into instead of the
+     *                 surface, or null (the default) for the surface.
+     *
+     * @remarks
+     * The engine-typed render-target seam (C6, decision D1): the frame-level
+     * interface gains one argument rather than a second, draw-level interface,
+     * because a draw-level seam would be a second renderer written in engine
+     * types. A target is a whole-image destination: the camera's viewport `rect`
+     * is applied in the target's pixels, the clear follows the camera's
+     * `clearFlags`, and no post-processing runs for it (it is a screen pipeline
+     * bound to one camera).
+     *
+     * A target that is not created is created by the render that uses it, as in
+     * Unity. A target that has been destroyed draws nothing.
      */
-    renderScene(scene: Scene, camera: Camera): void;
+    renderScene(scene: Scene, camera: Camera, target?: RenderTexture | null): void;
+
+    /**
+     * Copies pixels out of a render target, top row first.
+     *
+     * @param target - the {@link RenderTexture} to read from.
+     * @param x - left edge, in the target's pixels.
+     * @param y - bottom edge, in the target's pixels (GL convention).
+     * @param width - how many pixels across to read.
+     * @param height - how many rows to read.
+     * @param out - the destination; `width * height * 4` bytes, filled
+     *              row by row in top-down order.
+     * @returns true when the pixels were read, false when this backend cannot
+     *          read them — a non-WebGL backend, or a target format that has no
+     *          readable form here (a half-float target).
+     */
+    readPixels(target: RenderTexture, x: number, y: number, width: number, height: number, out: Uint8Array): boolean;
 
     /**
      * Pre-compiles the shaders a scene needs.

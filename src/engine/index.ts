@@ -173,6 +173,7 @@ export type { YieldInstruction } from "./core/Coroutine";
 export { Mesh, type MeshCombineInstance, type MeshPrimitive } from "./core/graphics/Mesh";
 export { Texture, FilterMode, TextureWrapMode } from "./core/graphics/Texture";
 export { Texture2D, TextureFormat } from "./core/graphics/Texture2D";
+export { RenderTexture, RenderTextureFormat } from "./core/graphics/RenderTexture";
 export { Cubemap } from "./core/graphics/Cubemap";
 export { Sprite, SpriteBorder } from "./core/graphics/Sprite";
 export { Shader, ShaderPropertyType } from "./core/graphics/Shader";
@@ -440,6 +441,7 @@ import { JsonAsset, TextAsset, BinaryAsset } from "./core/assets/AssetTypes";
 import { Mesh } from "./core/graphics/Mesh";
 import { Texture, FilterMode, TextureWrapMode } from "./core/graphics/Texture";
 import { Texture2D, TextureFormat } from "./core/graphics/Texture2D";
+import { RenderTexture, RenderTextureFormat } from "./core/graphics/RenderTexture";
 import { Cubemap } from "./core/graphics/Cubemap";
 import { Shader, ShaderPropertyType } from "./core/graphics/Shader";
 import { Material } from "./core/graphics/Material";
@@ -610,6 +612,7 @@ const WebEngineTS = {
     // Graphics
     Mesh, Texture, FilterMode, TextureWrapMode,
     Texture2D, TextureFormat, Cubemap,
+    RenderTexture, RenderTextureFormat,
     Shader, ShaderPropertyType,
     Material, StandardMaterial, MaterialRenderMode, UnlitMaterial,
 
