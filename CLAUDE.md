@@ -87,8 +87,8 @@ is refused if the tarball lacks `dist/player/*` or `dist/player-host.*`, so no c
 One-directional; the engine still imports from no consumer.
 
 **`release:local` is for local development; anything deployed pins a tagged release.**
-Pushing a `vX.Y.Z` tag publishes a GitHub Release (`.github/workflows/release.yml`; steps in
-README "Releasing"), and a deployed consumer should depend on its tarball URL
+A `vX.Y.Z` tag is published as a GitHub Release — by hand since GitHub Actions were switched off
+(2026-11-12), running `.github/workflows/release.yml`'s steps locally (README "Releasing"), and a deployed consumer should depend on its tarball URL
 (`https://github.com/HuGoxDP/WebEngineTS/releases/download/vX.Y.Z/WebEngineTS-X.Y.Z.tgz`):
 it installs without a token, and it names a version anyone can look up. A copied
 `WebEngineTS-0.1.0.tgz` names nothing — its content changes on every local pack.
