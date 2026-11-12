@@ -5,6 +5,7 @@ import { Material } from "./Material.ts";
 import { Shader } from "./Shader.ts";
 import { Color } from "../math/Color.ts";
 import { Texture2D } from "./Texture2D.ts";
+import type { RenderTexture } from "./RenderTexture.ts";
 import { Serializable, SerializedField } from "../reflection/Decorators.ts";
 import { FieldType } from "../reflection/Types.ts";
 
@@ -68,12 +69,32 @@ export class UnlitMaterial extends Material {
      * Displayed at full brightness, tinted by {@link color}.
      *
      * @remarks Equivalent to Unity's `_MainTex` on Unlit shaders.
+     *
+     * Accepts a {@link RenderTexture} as well as a {@link Texture2D}: a quad with
+     * this material shows what a camera rendered into that target — a monitor, a
+     * mirror, a camera preview. A target's colour texture is the texture the
+     * base class binds, so no separate slot exists for it.
+     *
+     * Two consequences of sampling a target, both recorded by the C6 research
+     * (D7, D8):
+     *
+     * - **A target is not tone-mapped.** Three skips the output transform when a
+     *   camera renders into a target, so what a target holds is exactly what the
+     *   renderer wrote — not what a monitor would show. Drawing it through this
+     *   material applies the screen pass's tone mapping once, which is the
+     *   correct result; a target read back to the CPU (`Texture2D.readPixels`)
+     *   stays un-tone-mapped.
+     * - **A feedback loop is a WebGL error.** When a camera renders into the very
+     *   texture a visible material samples, the draw is dropped and three logs a
+     *   console warning about a feedback loop between framebuffer and texture.
+     *   The engine does not guard against it (a follow-up row); nothing here
+     *   throws, and the rest of the frame keeps drawing.
      */
-    public override get mainTexture(): Texture2D | null {
-        return this.getTexture("_MainTex") as Texture2D | null;
+    public override get mainTexture(): Texture2D | RenderTexture | null {
+        return this.getTexture("_MainTex") as Texture2D | RenderTexture | null;
     }
 
-    public override set mainTexture(value: Texture2D | null) {
+    public override set mainTexture(value: Texture2D | RenderTexture | null) {
         this.setTexture("_MainTex", value);
     }
 
