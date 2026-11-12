@@ -32,7 +32,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const E2E = resolve(HERE, "../../testv/virtual-lab/e2e");
+const E2E = process.env.SHOOT_PLAYWRIGHT_DIR ?? resolve(HERE, "../../testv/virtual-lab/e2e");
 const require = createRequire(resolve(E2E, "package.json"));
 const { chromium } = require("playwright");
 
