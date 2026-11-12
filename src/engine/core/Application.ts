@@ -177,8 +177,11 @@ export class Application {
 
     /**
      * Enters the editor's edit mode: user scripts do not wake, `fixedUpdate`
-     * never runs, and nothing that is already awake is touched. Only a class
-     * decorated `@ExecuteAlways` / `@ExecuteInEditMode` runs its lifecycle.
+     * never runs, and no script the gate kept asleep runs any callback. Only a
+     * class decorated `@ExecuteAlways` / `@ExecuteInEditMode` runs its
+     * lifecycle; a script that already woke in play keeps its normal
+     * transitions, so a later destroy still pairs every `onEnable` with its
+     * `onDisable` (C2 research D4).
      *
      * Calling it while already in edit mode does nothing — in particular, the
      * clock is not reset.
@@ -186,6 +189,11 @@ export class Application {
      * @remarks Equivalent to Unity's entering edit mode. The editor calls it
      * on load and on Stop; the scenario player never does (a scenario runs in
      * play mode by definition).
+     *
+     * It flips the flag and resets the clock — nothing else. A host that flips
+     * the mode while a player is still running must stop its own loop first:
+     * entering edit mode does not stop a running loop, a running scenario or a
+     * physics step, and the engine has no other way to reach them.
      */
     public static enterEditMode(): void {
         if (_isEditMode()) return;
@@ -217,6 +225,18 @@ export class Application {
         for (let i = 0, count = SceneManager.sceneCount; i < count; i++) {
             SceneManager.getSceneAt(i)?._wakeForPlay();
         }
+
+        // An `awake` that switched the mode back is not an error — the host's
+        // own code decided so — but it stopped the pass half way, and a host
+        // that believes it is playing must be told. What woke stays woken and
+        // paired; what did not wakes on the next switch, or on activation.
+        if (_isEditMode()) {
+            console.warn(
+                "[Application] enterPlayMode: a callback re-entered edit mode during the wake " +
+                "pass, so the pass stopped early. The engine is in edit mode with a partly " +
+                "woken world.",
+            );
+        }
     }
 
     /** Target frame rate (informational - actual rate depends on browser). */
@@ -242,9 +262,12 @@ export class Application {
      * @remarks
      * What runs: `Time._update`, then the active scene's `Update` and
      * `LateUpdate` walks (the gate inside each script decides who runs), then
-     * the pending destroys, the layout passes (`LayoutGroup`,
-     * `ContentSizeFitter`, `AspectRatioFitter`, `Canvas._updateTransforms`),
-     * `LODGroup` and `LineRenderer`.
+     * the pending destroys — counted with `Time.deltaTime`, so a scaled-down
+     * game counts them down at its own rate — the layout passes
+     * (`LayoutGroup`, `ContentSizeFitter`, `AspectRatioFitter`,
+     * `Canvas._updateTransforms`), `LODGroup` and `LineRenderer`. A callback
+     * that enters play mode stops the frame right there, with a warning: the
+     * rest belongs to the play loop.
      *
      * What does **not** run, because Unity's edit mode does not run it either:
      * rendering (the editor renders), input, physics and `fixedUpdate`,
@@ -264,10 +287,27 @@ export class Application {
             : 0;
         Time._update(dt);
 
-        SceneManager.activeScene._update();
-        SceneManager.activeScene._lateUpdate();
+        // The scene is captured once, exactly as the play-mode loop does: a
+        // callback that loads a scene must not have this frame's late update
+        // land in the new one, which never got this frame's update.
+        const scene = SceneManager.activeScene;
+        scene._update();
+        scene._lateUpdate();
 
-        EngineObject._updatePendingDestroys(dt);
+        // A callback that entered play mode took the world out from under this
+        // frame: the rest of the drivers belong to the play loop, and running
+        // them here would run them in play mode with a clock that callback already
+        // reset. The wake pass that `enterPlayMode` ran has already woken what
+        // the switch owed a wake.
+        if (!_isEditMode()) {
+            console.warn(
+                "[Application] updateEditMode: a callback entered play mode during this frame. " +
+                "The rest of the edit frame was skipped — drive the play loop instead.",
+            );
+            return;
+        }
+
+        EngineObject._updatePendingDestroys(Time.deltaTime);
         LayoutGroup._updateAll();
         ContentSizeFitter._updateAll();
         AspectRatioFitter._updateAll();
