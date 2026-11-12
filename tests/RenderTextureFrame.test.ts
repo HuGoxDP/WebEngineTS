@@ -159,11 +159,11 @@ describe("what the browser check found", () => {
         // find the reason in a test rather than in a screenshot.
         const { Mesh } = await import("../src/engine/core/graphics/Mesh");
         const quad = Mesh.createQuad(2, 2);
-        expect(quad._vertices).toHaveLength(4);
-        expect([quad._normals[0].x, quad._normals[0].y, quad._normals[0].z]).toEqual([0, 0, 1]);
+        expect(quad.vertices).toHaveLength(4);
+        expect([quad.normals[0].x, quad.normals[0].y, quad.normals[0].z]).toEqual([0, 0, 1]);
         // A cube, on the other hand, has every face: it is what a screen is made of.
         const box = Mesh.createCube(1);
-        expect(box._vertices.length).toBeGreaterThan(4);
+        expect(box.vertices.length).toBeGreaterThan(4);
     });
 
     test("a destroyed target stops both cameras that held it, once per camera", () => {
@@ -198,7 +198,7 @@ describe("what the browser check found", () => {
         const target = new RenderTexture(32, 32);
         target.create();
         const cam = new GameObject("Preview");
-        cam.enabled = false;                       // the loop skips it
+        cam.setActive(false);                       // the loop skips it
         const component = cam.addComponent(Camera);
         component.targetTexture = target;
 
