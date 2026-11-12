@@ -225,6 +225,58 @@ export class Application {
     }
 
     /**
+     * Runs one frame of the editor's edit mode: the clock advances, the
+     * opted-in scripts update, and the edit-safe drivers relayout and refresh
+     * the LODs — nothing else.
+     *
+     * A host calls it after a change (an inspector edit, a gizmo drag, a
+     * hierarchy change, a script reload), which is Unity's "on change" model:
+     * the editor decides *when* a frame happens, and continuous ticking — a
+     * preview of a playing animation, say — is its choice. No `Application`
+     * instance is needed, so the editor can drive this while nothing is
+     * rendering.
+     *
+     * @param deltaTime - the frame's delta, in seconds, clamped to
+     *   `[0, EngineSettings.Time.MAX_DELTA_TIME]`; a non-finite value is `0`.
+     *
+     * @remarks
+     * What runs: `Time._update`, then the active scene's `Update` and
+     * `LateUpdate` walks (the gate inside each script decides who runs), then
+     * the pending destroys, the layout passes (`LayoutGroup`,
+     * `ContentSizeFitter`, `AspectRatioFitter`, `Canvas._updateTransforms`),
+     * `LODGroup` and `LineRenderer`.
+     *
+     * What does **not** run, because Unity's edit mode does not run it either:
+     * rendering (the editor renders), input, physics and `fixedUpdate`,
+     * animation and the `Animator`, particles, audio, tweens, the event system
+     * and the `Selectable`/`ScrollRect` widgets, texture streaming.
+     *
+     * @throws if the engine is in play mode — a play-mode frame is the
+     *   `Application` loop's.
+     */
+    public static updateEditMode(deltaTime: number): void {
+        if (!_isEditMode()) {
+            throw new Error("[Application] updateEditMode() is only valid in edit mode.");
+        }
+
+        const dt = Number.isFinite(deltaTime)
+            ? Math.min(Math.max(deltaTime, 0), EngineSettings.Time.MAX_DELTA_TIME)
+            : 0;
+        Time._update(dt);
+
+        SceneManager.activeScene._update();
+        SceneManager.activeScene._lateUpdate();
+
+        EngineObject._updatePendingDestroys(dt);
+        LayoutGroup._updateAll();
+        ContentSizeFitter._updateAll();
+        AspectRatioFitter._updateAll();
+        Canvas._updateTransforms();
+        LODGroup._updateAll();
+        LineRenderer._updateAll();
+    }
+
+    /**
      * Main-thread (CPU) time in milliseconds spent processing the last frame —
      * updates, rendering, UI, and input. This is the *busy* portion of the
      * frame and excludes the idle wait until the next display refresh, so it
