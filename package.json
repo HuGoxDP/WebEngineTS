@@ -1,6 +1,6 @@
 {
   "name": "WebEngineTS",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Unity-like game engine for the web, built on TypeScript + Three.js",
   "type": "module",
   "main": "./dist/WebEngineTS.cjs.js",

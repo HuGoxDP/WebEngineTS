@@ -180,6 +180,16 @@ The release notes are that version's section of `CHANGELOG.md`.
    git push origin vX.Y.Z
    ```
 
+**GitHub Actions are switched off for this repository (2026-11-12)**, so pushing the tag no
+longer builds anything by itself: the release is cut by hand, running exactly the steps of
+`.github/workflows/release.yml` locally on the tagged commit — the changelog check
+(`node scripts/changelog-section.mjs --require-empty-unreleased vX.Y.Z > notes.md`), `npm install`,
+`npm run typecheck`, `npm test`, `npm run build` (with `WEBENGINE_BUILD_VERSION` unset),
+`npm run size`, `npx vitest run tests/StandaloneBundle.test.ts`, `npm pack` — and then creating
+the GitHub Release (title `WebEngineTS vX.Y.Z`, body `notes.md` plus the workflow's three-version
+footer) with the six assets of the table above, through the web UI or the REST API. A release
+and its assets cost nothing on a public repository; the workflow file stays as the reference.
+
 The workflow refuses a tag that is not `v` + the `package.json` version, a version with no
 `CHANGELOG.md` section, and a commit whose `[Unreleased]` still has entries — those changes
 would ship in the build without appearing in its notes. All three are checked before anything

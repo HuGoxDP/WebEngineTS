@@ -16,6 +16,8 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ## [Unreleased]
 
+---
+
 ### Added
 
 - **Edit mode: a host can build a world in the editor without scripts running.** `Application.enterEditMode()`
@@ -45,14 +47,6 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   refuses to start in edit mode ("Call `Application.enterPlayMode()` first"), because a scenario is a
   play-mode world.
 
-- **`TypeRegistry.replace(typeName, ctor, meta)` swaps the class a name resolves to.** A script
-  reload registers a new constructor under the same `typeName`, and `register` refuses that on
-  purpose — a silent collision would load the wrong component. `replace` is the explicit swap:
-  the name resolves to the new class from then on, so a scene deserialized after it instantiates
-  the new class with the old file's field values, while the previous class's metadata is kept so
-  instances still alive under it keep serializing. `register`'s collision guard is unchanged and
-  its message now points at `replace`. Pinned by `tests/TypeRegistryReplace.test.ts`.
-
 ### Changed
 
 - **Static `Application.isPlaying` now means what Unity's means: `!isEditMode`.** It answers "is this a play-mode
@@ -62,9 +56,39 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 ### Fixed
 
-- **A paused or slowed scenario no longer leaks its `timeScale` into the next one in the same page.** `Time` is static state and `Time._reset()` had no caller, so a host that reuses one realm (dispose, open another viewer) started the next scenario frozen at `timeScale = 0` or running at half speed. `Application.dispose()` now resets Time beside the other module resets (`AudioManager._reset`, pending destroys, texture releases); a platform that runs every scenario in a fresh frame was never affected. Pinned by `tests/TimeResetOnDispose.test.ts`.
-
 - **Switching modes from inside a callback cannot leave a silent half-woken world.** A script's `awake` may call `enterEditMode()` during the wake pass, and an opted-in script's `update` may call `enterPlayMode()` during an edit frame; both now stop where they are and say so with a warning rather than continuing to drive a world that is no longer in the mode the host asked for. A timed destroy during an edit frame also counts down with `Time.deltaTime`, so a `timeScale` below 1 slows it as it does in play. Pinned by `tests/EditModeCompat.test.ts`.
+
+---
+
+## [0.3.0] - 2026-11-12
+
+A small release on top of 0.2.0: one addition the editor's script reload needs, and one fix for
+hosts that run several scenarios in one page. File formats are unchanged — reads scene and prefab
+versions 1 and 2, writes version 1 unless a file holds a prefab link — and nothing here changes
+rendered output, so benchmark results taken on 0.2.0 stay comparable.
+
+### Added
+
+- **`TypeRegistry.replace(typeName, ctor, meta)` swaps the class a name resolves to.** A script
+  reload registers a new constructor under the same `typeName`, and `register` refuses that on
+  purpose — a silent collision would load the wrong component. `replace` is the explicit swap:
+  the name resolves to the new class from then on, so a scene deserialized after it instantiates
+  the new class with the old file's field values, while the previous class's metadata is kept so
+  instances still alive under it keep serializing. Re-creating those live instances from their
+  fields is the host's step. `replace` throws when nothing is registered under the name or when
+  `meta.typeName` names something else — both are caller errors, not collisions. `register`'s
+  collision guard is unchanged and its message now points at `replace`. Pinned by
+  `tests/TypeRegistryReplace.test.ts`.
+
+### Fixed
+
+- **A paused or slowed scenario no longer leaks its `timeScale` into the next one in the same
+  page.** `Time` is static state and `Time._reset()` had no caller, so a host that reuses one
+  realm (dispose, then open another scenario) started the next one frozen at `timeScale = 0` or
+  running slowed. `Application.dispose()` now resets `Time` — scale, clocks, deltas, frame count, and
+  `fixedDeltaTime`/`maximumDeltaTime` back to the engine defaults — beside the other module resets (audio, pending destroys, texture releases). A host that runs
+  every scenario in a fresh frame, as the virtual-lab player does, was never affected. Closes
+  gap G5. Pinned by `tests/TimeResetOnDispose.test.ts`.
 
 ---
 
