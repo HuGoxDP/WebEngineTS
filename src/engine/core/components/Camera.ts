@@ -11,6 +11,7 @@ import { Matrix4x4 } from "../math/Matrix4x4.ts";
 import { Vector3 } from "../math/Vector3.ts";
 import { Vector2 } from "../math/Vector2.ts";
 import { Ray } from "../math/Ray.ts";
+import type { RenderTexture } from "../graphics/RenderTexture.ts";
 import type { GameObject } from "../GameObject.ts";
 
 // ==================== CACHED THREE.JS TEMPORARIES ====================
@@ -118,6 +119,48 @@ export class Camera extends Behaviour {
             .sort((a, b) => a._depth - b._depth);
     }
 
+    /**
+     * The camera that draws the surface, by {@link main}'s rule over cameras
+     * that render into no target.
+     *
+     * @remarks
+     * The screen half of the frame order (C6, decision D5). With no render target
+     * anywhere this is exactly {@link Camera.main}, which is why a scene that uses
+     * no targets renders exactly as it did before C6: the same camera, the same
+     * frame, the same pixels.
+     *
+     * A main camera *with* a target renders into that target, so the surface then
+     * falls to the next camera that has none — a tagged `MainCamera` first, else
+     * the first active one.
+     *
+     * @internal — engine-only; the loop reads it once per frame.
+     */
+    public static _screenCamera(): Camera | null {
+        for (const cam of Camera._activeCameras) {
+            if (cam.isActiveAndEnabled && cam._targetTexture === null && cam.gameObject.tag === "MainCamera") {
+                return cam;
+            }
+        }
+        for (const cam of Camera._activeCameras) {
+            if (cam.isActiveAndEnabled && cam._targetTexture === null) {
+                return cam;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @internal
+     * Draws one camera now, into its target or on the surface.
+     *
+     * @remarks
+     * Installed by {@link Application} at construction and cleared on `dispose()`:
+     * a callback rather than an import, because `Camera` cannot import
+     * `Application` (which imports `Camera`). The same pattern `Texture._onDestroyed`
+     * uses.
+     */
+    public static _renderHook: ((camera: Camera) => void) | null = null;
+
     // ==================== INTERNAL THREE.JS STATE ====================
 
     /**
@@ -166,6 +209,15 @@ export class Camera extends Behaviour {
 
     /** Culling mask — determines which layers this camera renders. */
     private _cullingMask: number = 0xFFFFFFFF;
+
+    /** The render target this camera draws into, or null for the surface. */
+    private _targetTexture: RenderTexture | null = null;
+
+    /** The target's size when the aspect was last computed, so a resize is noticed. */
+    public _targetPixelSize: { width: number; height: number } | null = null;
+
+    /** Whether "your target was destroyed" has already been said for the held texture. */
+    private _targetGoneWarning: boolean = false;
 
     // ==================== CONSTRUCTOR ====================
 
@@ -461,6 +513,78 @@ export class Camera extends Behaviour {
 
     public set depth(value: number) {
         this._depth = value;
+    }
+
+    /**
+     * The render target this camera draws into, or `null` for the surface.
+     *
+     * @remarks
+     * Equivalent to Unity's `Camera.targetTexture`.
+     *
+     * Set it and the camera renders into that texture instead of the canvas, once
+     * per frame, before the screen camera — a monitor, a security feed or a
+     * picture-in-picture view. Show what it drew by putting the target in a
+     * material's main-texture slot ({@link UnlitMaterial.mainTexture}).
+     *
+     * A target whose size differs from the surface drives this camera's
+     * `pixelWidth`, `pixelHeight` and `aspect`, so a projection and a
+     * `worldToScreenPoint` conversion agree with the image actually produced —
+     * Unity does the same.
+     *
+     * A released target is re-created by the next render (decision D3). A
+     * **destroyed** target is dropped: the getter answers `null` and warns once,
+     * and the camera renders nothing that frame rather than writing into freed
+     * GPU memory.
+     *
+     * Not a `@SerializedField` and not an asset: a target is a runtime object a
+     * script or the editor creates, so a scene that carries a camera carries no
+     * reference to one (decision D11).
+     */
+    public get targetTexture(): RenderTexture | null {
+        if (this._targetTexture !== null && !this._targetTexture.exists()) {
+            if (!this._targetGoneWarning) {
+                this._targetGoneWarning = true;
+                console.warn(`[Camera] the render target of "${this.name}" was destroyed; `
+                    + "the camera renders nothing until a target is set again.");
+            }
+            return null;
+        }
+        return this._targetTexture;
+    }
+
+    public set targetTexture(value: RenderTexture | null) {
+        this._targetTexture = value;
+        this._targetGoneWarning = false;
+        this._targetPixelSize = null;      // recompute the aspect on the next render
+        this._updateAspectFromViewport();
+    }
+
+    /**
+     * Draws this camera now: into its target if it has one, otherwise on the
+     * surface — even when the camera is disabled.
+     *
+     * @remarks
+     * Equivalent to Unity's `Camera.Render()`, Unity's preview pattern: the
+     * editor's Scene view, a camera preview and a thumbnail all render on
+     * demand rather than waiting for the loop. It flushes dirty transforms and
+     * world matrices first, exactly as the loop does.
+     *
+     * Outside a running {@link Application} it warns once and does nothing —
+     * there is no GPU to draw through. A camera that never woke (its Three.js
+     * camera does not exist yet) warns once as well: in edit mode (C2) the
+     * camera is a built-in and wakes with the scene, so this is the "no
+     * Application, or not yet" answer rather than an error.
+     */
+    public render(): void {
+        if (Camera._renderHook === null) {
+            console.warn("[Camera] render() needs a running Application; nothing was drawn.");
+            return;
+        }
+        if (this._threeCamera === null) {
+            console.warn(`[Camera] render() on "${this.name}" before it woke; nothing was drawn.`);
+            return;
+        }
+        Camera._renderHook(this);
     }
 
     /**
@@ -818,6 +942,10 @@ export class Camera extends Behaviour {
      * window width as a fallback when none has been set (isolated tests).
      */
     private _surfaceWidth(): number {
+        // A target is this camera's surface: the pixels are the target's, so
+        // `pixelWidth` and the aspect agree with what is drawn (C6, D5).
+        const target = this.targetTexture;
+        if (target !== null) return target.width;
         if (this._pixelWidth > 0) return this._pixelWidth;
         return typeof window !== "undefined" ? window.innerWidth : 0;
     }
@@ -827,6 +955,8 @@ export class Camera extends Behaviour {
      * Render-surface height in pixels. See {@link _surfaceWidth}.
      */
     private _surfaceHeight(): number {
+        const target = this.targetTexture;
+        if (target !== null) return target.height;
         if (this._pixelHeight > 0) return this._pixelHeight;
         return typeof window !== "undefined" ? window.innerHeight : 0;
     }
@@ -837,7 +967,7 @@ export class Camera extends Behaviour {
      * non-full viewport does not stretch the image. Skipped until a surface size
      * is known (e.g. before the first resize, or in a test without a window).
      */
-    private _updateAspectFromViewport(): void {
+    public _updateAspectFromViewport(): void {
         const w = this.pixelWidth;
         const h = this.pixelHeight;
         if (w > 0 && h > 0) this.aspect = w / h;
