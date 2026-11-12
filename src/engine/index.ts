@@ -74,6 +74,8 @@ export {
     Tooltip,
     HideInInspector,
     ExecutionOrder,
+    ExecuteAlways,
+    ExecuteInEditMode,
     getClassMeta,
     getAllFields,
     getExecutionOrder,
@@ -397,6 +399,7 @@ import { FieldType } from "./core/reflection/Types";
 import { TypeRegistry } from "./core/reflection/TypeRegistry";
 import {
     Serializable, SerializedField, Range, Header, Tooltip, HideInInspector,
+    ExecuteAlways, ExecuteInEditMode,
     getClassMeta, getAllFields,
 } from "./core/reflection/Decorators";
 import { ValueSerializer } from "./core/serialization/ValueSerializer";
@@ -586,6 +589,7 @@ const WebEngineTS = {
     // Reflection / Serialization
     FieldType, TypeRegistry,
     Serializable, SerializedField, Range, Header, Tooltip, HideInInspector,
+    ExecuteAlways, ExecuteInEditMode,
     getClassMeta, getAllFields,
     ValueSerializer, SceneSerializer, UnsupportedFormatError, MissingComponent, MissingValue, Prefab, AssetFiles,
 

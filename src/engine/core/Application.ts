@@ -40,6 +40,7 @@ import { Color } from "./math/Color.ts";
 import { GraphicsPowerPreference } from "./rendering/RenderBackend.ts";
 import { WebGLRenderBackend } from "./rendering/WebGLRenderBackend.ts";
 import type { RenderBackend, RenderBackendOptions } from "./rendering/RenderBackend.ts";
+import { _isEditMode, _setEditMode } from "./_PlayMode.ts";
 
 export { GraphicsPowerPreference } from "./rendering/RenderBackend.ts";
 
@@ -164,10 +165,51 @@ export class Application {
     /**
      * Whether the engine is currently running.
      *
-     * @remarks Equivalent to Unity's `Application.isPlaying`.
+     * @remarks Equivalent to Unity's `Application.isPlaying`: true in play
+     * mode, false in the editor's edit mode ({@link Application.enterEditMode}).
+     * A script branches on it to behave like Unity's `Application.isPlaying`;
+     * the *loop running* flag an `Application` instance owns is its own
+     * {@link Application.isPlaying}.
      */
     public static get isPlaying(): boolean {
-        return Application._instance?.isPlaying ?? false;
+        return !_isEditMode();
+    }
+
+    /**
+     * Enters the editor's edit mode: user scripts do not wake, `fixedUpdate`
+     * never runs, and nothing that is already awake is touched. Only a class
+     * decorated `@ExecuteAlways` / `@ExecuteInEditMode` runs its lifecycle.
+     *
+     * Calling it while already in edit mode does nothing — in particular, the
+     * clock is not reset.
+     *
+     * @remarks Equivalent to Unity's entering edit mode. The editor calls it
+     * on load and on Stop; the scenario player never does (a scenario runs in
+     * play mode by definition).
+     */
+    public static enterEditMode(): void {
+        if (_isEditMode()) return;
+        _setEditMode(true);
+        Time._reset();
+    }
+
+    /**
+     * Enters play mode: the world wakes, in the load order a fresh pass would
+     * produce, and every per-frame callback resumes.
+     *
+     * Calling it while already in play mode does nothing — in particular, the
+     * clock is not reset.
+     *
+     * @remarks Equivalent to Unity's entering play mode. The editor calls it
+     * on Play; a scenario player never has to, because play mode is the
+     * default.
+     */
+    public static enterPlayMode(): void {
+        if (!_isEditMode()) return;
+        _setEditMode(false);
+        Time._reset();
+        // TODO: Phase 3 wake pass — every loaded scene's never-woken,
+        // alive and active scripts wake here, in load order.
     }
 
     /** Target frame rate (informational - actual rate depends on browser). */
