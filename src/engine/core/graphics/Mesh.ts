@@ -197,6 +197,42 @@ export class Mesh extends EngineObject {
     /** Set when the geometry needs rebuilding. */
     private _needsUpdate: boolean = false;
 
+    /**
+     * Listeners notified on every data write, so renderers drawing this mesh
+     * re-sync without polling. Created lazily: a mesh nobody renders pays
+     * nothing.
+     * @internal
+     */
+    private _observers: Set<() => void> | null = null;
+
+    /**
+     * Marks the geometry dirty and notifies observers (renderers drawing this
+     * mesh). Every data write goes through here, never `_needsUpdate` directly.
+     * @internal
+     */
+    private _markDirty(): void {
+        this._needsUpdate = true;
+        if (this._observers === null) return;
+        for (const notify of [...this._observers]) notify();
+    }
+
+    /**
+     * Subscribes to data writes on this mesh. Duplicate registration is a no-op.
+     * @internal
+     */
+    public _addObserver(notify: () => void): void {
+        if (this._observers === null) this._observers = new Set();
+        this._observers.add(notify);
+    }
+
+    /**
+     * Unsubscribes a previously registered observer.
+     * @internal
+     */
+    public _removeObserver(notify: () => void): void {
+        this._observers?.delete(notify);
+    }
+
     constructor(name: string = "Mesh") {
         super(name);
         this._threeGeometry = new THREE.BufferGeometry();
@@ -212,7 +248,7 @@ export class Mesh extends EngineObject {
     /** Replaces the vertex positions. */
     set vertices(value: Vector3[]) {
         this._vertices = value;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /** The normals. */
@@ -223,7 +259,7 @@ export class Mesh extends EngineObject {
     /** Replaces the normals. */
     set normals(value: Vector3[]) {
         this._normals = value;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /** The tangents. */
@@ -234,7 +270,7 @@ export class Mesh extends EngineObject {
     /** Replaces the tangents. */
     set tangents(value: Vector4[]) {
         this._tangents = value;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /** The primary UVs. */
@@ -245,7 +281,7 @@ export class Mesh extends EngineObject {
     /** Replaces the primary UVs. */
     set uv(value: Vector2[]) {
         this._uv = value;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /** The second UV set. */
@@ -256,7 +292,7 @@ export class Mesh extends EngineObject {
     /** Replaces the second UV set. */
     set uv2(value: Vector2[]) {
         this._uv2 = value;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /** The third UV set. */
@@ -267,7 +303,7 @@ export class Mesh extends EngineObject {
     /** Replaces the third UV set. */
     set uv3(value: Vector2[]) {
         this._uv3 = value;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /** The fourth UV set. */
@@ -278,7 +314,7 @@ export class Mesh extends EngineObject {
     /** Replaces the fourth UV set. */
     set uv4(value: Vector2[]) {
         this._uv4 = value;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /** The vertex colours. */
@@ -289,7 +325,7 @@ export class Mesh extends EngineObject {
     /** Replaces the vertex colours. */
     set colors(value: Color[]) {
         this._colors = value;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /** The triangle indices. */
@@ -300,7 +336,7 @@ export class Mesh extends EngineObject {
     /** Replaces the triangle indices. */
     set triangles(value: number[]) {
         this._triangles = value;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /** The bounding box. */
@@ -330,7 +366,7 @@ export class Mesh extends EngineObject {
 
     set indexFormat(value: IndexFormat) {
         this._indexFormat = value;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /** How many submeshes the mesh has. */
@@ -383,7 +419,7 @@ export class Mesh extends EngineObject {
         }
 
         this._subMeshes[index] = submesh;
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     // ==================== COMPUTED DATA ====================
@@ -429,7 +465,7 @@ export class Mesh extends EngineObject {
             this._normals[i].normalize();
         }
 
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /**
@@ -519,7 +555,7 @@ export class Mesh extends EngineObject {
             this._tangents[i] = new Vector4(tangent.x, tangent.y, tangent.z, w);
         }
 
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     /**
@@ -567,7 +603,7 @@ export class Mesh extends EngineObject {
         this._triangles = [];
         this._subMeshes = [];
         this._bounds = new Bounds();
-        this._needsUpdate = true;
+        this._markDirty();
     }
 
     // ==================== INTERNAL SYNC ====================

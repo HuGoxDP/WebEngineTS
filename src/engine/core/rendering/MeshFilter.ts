@@ -36,18 +36,19 @@ export class MeshFilter extends Component {
     }
 
     public set sharedMesh(value: Mesh | null) {
+        this._destroyInstance();
         this._sharedMesh = value;
-        
-        // Drop the instance, so the next read of `mesh` clones the new shared one.
-        if (this._meshInstance) {
-            this._meshInstance = null;
-        }
+        this._notifyRenderer();
     }
 
     /**
      * A mesh this filter owns and may edit.
      * The first read clones {@link sharedMesh}.
      * Changes to it affect no other object.
+     *
+     * **Setting** stores the reference itself, like Unity's `MeshFilter.mesh`:
+     * the mesh becomes the shared mesh, drawn as-is; instancing happens on the
+     * first *read*. Replacing a mesh destroys the instance this filter owned.
      */
     public get mesh(): Mesh | null {
         // An instance already exists.
@@ -58,6 +59,8 @@ export class MeshFilter extends Component {
         // No instance yet, but a shared mesh to clone from.
         if (this._sharedMesh) {
             this._meshInstance = this._sharedMesh.clone() as Mesh;
+            // The renderer must now draw the instance instead of the shared mesh.
+            this._notifyRenderer();
             return this._meshInstance;
         }
 
@@ -66,15 +69,11 @@ export class MeshFilter extends Component {
     }
 
     public set mesh(value: Mesh | null) {
-        if (value === null) {
-            this._meshInstance = null;
-            this._sharedMesh = null;
-            return;
-        }
-
-        // Assigning through `mesh` stores an owned copy.
-        this._meshInstance = value.clone() as Mesh;
-        this._sharedMesh = null; // The shared mesh is no longer in play.
+        this._destroyInstance();
+        // Unity's setter stores the reference itself; instancing happens on the
+        // first *read* through the getter, not here.
+        this._sharedMesh = value;
+        this._notifyRenderer();
     }
 
     // === Methods ===
@@ -86,17 +85,48 @@ export class MeshFilter extends Component {
         return this._sharedMesh !== null || this._meshInstance !== null;
     }
 
+    /**
+     * The mesh a renderer should draw: the instance once one exists, otherwise
+     * the shared mesh.
+     * @internal
+     */
+    public _effectiveMesh(): Mesh | null {
+        return this._meshInstance ?? this._sharedMesh;
+    }
+
+    /**
+     * @internal
+     * Finds the renderer to notify when the held mesh changes. Installed by
+     * the MeshRenderer module at load (the hook convention for would-be
+     * circular imports); null while that module has not been evaluated.
+     */
+    public static _findRenderer: ((filter: MeshFilter) => { updateMesh(): void } | null) | null = null;
+
+    /**
+     * @internal
+     * Pushes a geometry re-sync to the sibling renderer, if one exists.
+     */
+    private _notifyRenderer(): void {
+        MeshFilter._findRenderer?.(this)?.updateMesh();
+    }
+
+    /**
+     * @internal
+     * Destroys the instance this filter owns. The shared mesh may have other
+     * users and is never destroyed here.
+     */
+    private _destroyInstance(): void {
+        if (this._meshInstance === null) return;
+        this._meshInstance.destroy();
+        this._meshInstance = null;
+    }
+
     // === Lifecycle ===
 
     protected override onDestroy(): void {
         // Only the instance is ours to dispose; the shared mesh may have other users.
-        if (this._meshInstance) {
-            this._meshInstance.destroy();
-            this._meshInstance = null;
-        }
-        
+        this._destroyInstance();
         this._sharedMesh = null;
-        
         super.onDestroy();
     }
 }

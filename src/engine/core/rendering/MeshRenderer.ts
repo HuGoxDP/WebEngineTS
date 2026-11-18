@@ -3,6 +3,7 @@
 import * as THREE from "three";
 import { Renderer } from "./Renderer.ts";
 import { MeshFilter } from "./MeshFilter.ts";
+import type { Mesh } from "../graphics/Mesh.ts";
 import { Serializable } from "../reflection/Decorators.ts";
 import type { GameObject } from "../GameObject.ts";
 
@@ -53,6 +54,13 @@ export class MeshRenderer extends Renderer {
      */
     private _meshFilter: MeshFilter | null = null;
 
+    /**
+     * The engine mesh whose geometry is currently assigned to `_threeMesh`.
+     * Tracked so the data-write observer can be moved when the mesh changes.
+     * @internal
+     */
+    private _observedMesh: Mesh | null = null;
+
     // ==================== CONSTRUCTOR ====================
 
     constructor(gameObject: GameObject) {
@@ -84,10 +92,22 @@ export class MeshRenderer extends Renderer {
 
     /**
      * @internal
+     * Re-syncs geometry on activation: a mesh assigned while the object was
+     * inactive must draw once it becomes active again.
+     */
+    protected override onEnable(): void {
+        super.onEnable();
+        this.updateMesh();
+    }
+
+    /**
+     * @internal
      * Cleanup: disposes Three.js geometry reference (NOT the asset itself),
      * then delegates to Renderer base for material cleanup and scene detach.
      */
     protected override onDestroy(): void {
+        this._observedMesh?._removeObserver(this._onMeshEdited);
+        this._observedMesh = null;
         this._meshFilter = null;
         this._threeMesh = null;
 
@@ -141,15 +161,15 @@ export class MeshRenderer extends Renderer {
 
     /**
      * Re-reads geometry from the sibling MeshFilter and updates the
-     * Three.js mesh. Call this after changing the MeshFilter's mesh
-     * at runtime.
+     * Three.js mesh.
      *
      * Also re-syncs materials (in case sub-mesh count changed).
      *
      * @remarks
-     * In Unity, MeshRenderer automatically picks up MeshFilter changes.
-     * In this engine, call `updateMesh()` explicitly after changing geometry.
-     * A future event system may automate this.
+     * Like Unity's MeshRenderer, this runs automatically: assigning a mesh
+     * through either MeshFilter property, or editing one through the filter,
+     * pushes the update. Call it manually only after mutating a mesh asset
+     * outside any filter (e.g. a mesh held by several renderers).
      */
     public updateMesh(): void {
         if (this._threeMesh === null) return;
@@ -181,24 +201,38 @@ export class MeshRenderer extends Renderer {
     private _syncGeometry(): void {
         if (this._threeMesh === null) return;
 
-        if (this._meshFilter === null || !this._meshFilter.hasMesh()) {
-            // No geometry — clear
+        const mesh = this._meshFilter?._effectiveMesh() ?? null;
+        if (mesh === null) {
+            this._observedMesh?._removeObserver(this._onMeshEdited);
+            this._observedMesh = null;
+            this._threeMesh.geometry = MeshRenderer._emptyGeometry;
+            this._localBounds.reset();
             return;
         }
 
-        const mesh = this._meshFilter.sharedMesh;
-        if (mesh === null) return;
+        // Follow the instance once the filter owns one, else the shared mesh.
+        if (mesh !== this._observedMesh) {
+            this._observedMesh?._removeObserver(this._onMeshEdited);
+            mesh._addObserver(this._onMeshEdited);
+            this._observedMesh = mesh;
+        }
 
-        // Get the Three.js BufferGeometry from our engine Mesh (lazy-built)
-        const geometry = mesh._internalGeometry;
-        if (geometry === null) return;
-
-        // Assign geometry (Three.js Mesh does NOT own the geometry — Mesh asset does)
-        this._threeMesh.geometry = geometry;
+        // Assign geometry (Three.js Mesh does NOT own the geometry — Mesh asset does).
+        // Read through _internalGeometry so a pending edit is synced first.
+        this._threeMesh.geometry = mesh._internalGeometry;
 
         // Update local bounds from the mesh
         this._localBounds.copy(mesh.bounds);
     }
+
+    /**
+     * @internal
+     * Fired by the drawn mesh on every data write; re-syncs so edits through
+     * `filter.mesh` reach the screen without any per-frame polling.
+     */
+    private _onMeshEdited = (): void => {
+        this._syncGeometry();
+    };
 
     /**
      * @internal
@@ -225,4 +259,16 @@ export class MeshRenderer extends Renderer {
     private static _defaultMaterial: THREE.Material = new THREE.MeshStandardMaterial({
         color: 0xffffff,
     });
+
+    /**
+     * Shared empty geometry drawn when the filter holds no mesh.
+     * One static instance — clearing a mesh allocates nothing.
+     * @internal
+     */
+    private static _emptyGeometry: THREE.BufferGeometry = new THREE.BufferGeometry();
 }
+
+// Install the notification hook MeshFilter uses to reach its sibling renderer.
+// This module imports MeshFilter, so it is guaranteed evaluated after it; the
+// reverse import would be circular. (Same convention as Texture._onDestroyed.)
+MeshFilter._findRenderer = (filter) => filter.gameObject.getComponent(MeshRenderer);
