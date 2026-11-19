@@ -5,6 +5,7 @@ import { MeshRenderer } from "../src/engine/core/rendering/MeshRenderer";
 import { Mesh } from "../src/engine/core/graphics/Mesh";
 import { StandardMaterial } from "../src/engine/core/graphics/StandardMaterial";
 import { Vector3 } from "../src/engine/core/math/Vector3";
+import { Bounds } from "../src/engine/core/math/Bounds";
 
 /**
  * Unity's MeshFilter/MeshRenderer contract: the renderer draws whatever mesh
@@ -385,5 +386,78 @@ describe("MeshFilter.mesh and late assignment (M0.2h)", () => {
         expect(inst.exists()).toBe(true);
         expect(posCount(rendererB)).toBe(CUBE_V);
         expect(posCount(rendererA)).toBe(CUBE_V);
+    });
+});
+
+/**
+ * M0.2hr2: two stale-renderer holes left by M0.2h.
+ *
+ * (1) Destroying the MeshFilter must undraw by itself, and a replacement
+ *     filter must be found even though the renderer cached the old one
+ *     (`updateMesh` re-finds only when the cache is null, not destroyed).
+ * (2) `recalculateBounds()` and `mesh.bounds =` change the extents without a
+ *     data write, so they must notify the renderer too — otherwise
+ *     `renderer.localBounds` keeps the extents of the last data write.
+ *
+ * The propagation assertions come BEFORE any manual forceUpdate: a manual
+ * update re-reads the filter and re-copies bounds, masking the missing
+ * notification. The trailing forceUpdate guards keep the manual path pinned.
+ */
+describe("M0.2hr2: stale renderer holes", () => {
+    test("destroyed MeshFilter stops drawing", () => {
+        const { filter, renderer } = drawn(cube());
+        expect(posCount(renderer)).toBe(CUBE_V);
+
+        filter.destroyImmediate();
+
+        // Removal must undraw on its own — no manual kick.
+        expect(posCount(renderer)).toBe(0);
+
+        renderer.forceUpdate();
+        expect(posCount(renderer)).toBe(0);
+    });
+
+    test("renderer picks up replacement MeshFilter after destroy", () => {
+        const { go, filter, renderer } = drawn(cube());
+        filter.destroyImmediate();
+
+        const sphere = Mesh.createSphere();
+        meshes.push(sphere);
+        const replacement = go.addComponent(MeshFilter);
+        replacement.sharedMesh = sphere;
+
+        renderer.forceUpdate();
+
+        expect(geoOf(renderer)).toBe(sphere._internalGeometry);
+        expect(posCount(renderer)).toBe(sphere.vertexCount);
+    });
+
+    test("recalculateBounds propagates to renderer after in-place position edit", () => {
+        const m = cube();
+        const { renderer } = drawn(m);
+
+        // Live getter, edited in place: no setter, no data-write notification.
+        for (const v of m.vertices) v.x *= 10;
+        m.recalculateBounds();
+        expect(m.bounds.max.x).toBe(5);
+
+        // The recomputed extents must reach the renderer without a manual kick.
+        expect(renderer.localBounds.max.x).toBe(5);
+
+        renderer.forceUpdate();
+        expect(renderer.localBounds.max.x).toBe(5);
+    });
+
+    test("bounds setter notifies renderer", () => {
+        const m = cube();
+        const { renderer } = drawn(m);
+
+        const assigned = new Bounds(new Vector3(1, 2, 3), new Vector3(4, 6, 8));
+        m.bounds = assigned;
+
+        expect(renderer.localBounds.equals(assigned)).toBe(true);
+
+        renderer.forceUpdate();
+        expect(renderer.localBounds.equals(assigned)).toBe(true);
     });
 });

@@ -146,6 +146,8 @@ export class MeshFilter extends Component {
         // Only the instance is ours to dispose; the shared mesh may have other users.
         this._destroyInstance();
         this._sharedMesh = null;
+        // Undraw now: the renderer still sees this filter, but it holds no mesh.
+        this._notifyRenderer();
         super.onDestroy();
     }
 }
