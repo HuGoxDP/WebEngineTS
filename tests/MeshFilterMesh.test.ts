@@ -303,4 +303,87 @@ describe("MeshFilter.mesh and late assignment (M0.2h)", () => {
         expect(geoOf(renderer)).toBe(b._internalGeometry);
         expect(posCount(renderer)).toBe(CUBE_V);
     });
+
+    // === Self-assignment: assigning the held instance back must not destroy it (M0.2hr1) ===
+
+    test("mesh = filter.mesh (self-assign) keeps the owned instance alive and drawn", async () => {
+        const { filter, renderer } = drawn(cube());
+        const inst = filter.mesh!;
+
+        filter.mesh = inst;
+
+        // Destroy clears vertices synchronously; a self-assign must not destroy.
+        expect(posCount(renderer)).toBe(CUBE_V);
+        await Promise.resolve(); // zero-delay destroys drain in a microtask
+        expect(inst.exists()).toBe(true);
+        expect(filter.mesh).toBe(inst);
+    });
+
+    test("sharedMesh = filter.mesh (self-assign) keeps the mesh alive and drawn", async () => {
+        const { filter, renderer } = drawn(cube());
+        const inst = filter.mesh!;
+
+        filter.sharedMesh = inst;
+
+        expect(posCount(renderer)).toBe(CUBE_V);
+        await Promise.resolve();
+        expect(inst.exists()).toBe(true);
+        expect(filter.sharedMesh).toBe(inst);
+        expect(geoOf(renderer)).toBe(inst._internalGeometry);
+    });
+
+    test("the Unity edit idiom survives: read, edit, assign back through mesh", async () => {
+        const { filter, renderer } = drawn(cube());
+        const inst = filter.mesh!;
+
+        const verts = inst.vertices;
+        verts[0] = new Vector3(5, 0, 0);
+        inst.vertices = verts;
+
+        filter.mesh = inst;
+
+        expect(posCount(renderer)).toBe(CUBE_V);
+        expect(geoOf(renderer).getAttribute("position").getX(0)).toBe(5);
+        await Promise.resolve();
+        expect(inst.exists()).toBe(true);
+    });
+
+    test("a second filter holding the instance as sharedMesh survives the owner's mesh self-assign", async () => {
+        const { filter: filterA, renderer: rendererA } = drawn(cube());
+        const inst = filterA.mesh!;
+
+        const goB = track(new GameObject("SecondUser"));
+        const filterB = goB.addComponent(MeshFilter);
+        const rendererB = goB.addComponent(MeshRenderer);
+        rendererB.sharedMaterial = new StandardMaterial();
+        filterB.sharedMesh = inst;
+        expect(posCount(rendererB)).toBe(CUBE_V);
+
+        filterA.mesh = inst;
+        await Promise.resolve();
+
+        expect(inst.exists()).toBe(true);
+        expect(posCount(rendererB)).toBe(CUBE_V);
+        expect(posCount(rendererA)).toBe(CUBE_V);
+    });
+
+    test("a second filter holding the instance as sharedMesh survives the owner's sharedMesh self-assign", async () => {
+        const { filter: filterA, renderer: rendererA } = drawn(cube());
+        const inst = filterA.mesh!;
+
+        const goB = track(new GameObject("SecondUserShared"));
+        const filterB = goB.addComponent(MeshFilter);
+        const rendererB = goB.addComponent(MeshRenderer);
+        rendererB.sharedMaterial = new StandardMaterial();
+        filterB.sharedMesh = inst;
+        expect(posCount(rendererB)).toBe(CUBE_V);
+
+        // After this form filterA holds inst as its shared mesh, so rendererA draws inst too.
+        filterA.sharedMesh = inst;
+        await Promise.resolve();
+
+        expect(inst.exists()).toBe(true);
+        expect(posCount(rendererB)).toBe(CUBE_V);
+        expect(posCount(rendererA)).toBe(CUBE_V);
+    });
 });
