@@ -29,6 +29,10 @@ export class MeshFilter extends Component {
      * The shared mesh.
      * Do not modify it in place: every object using it sees the change.
      * Use {@link mesh} to edit, which clones first.
+     *
+     * **Setting** to this filter's own instance (`filter.sharedMesh = filter.mesh`)
+     * keeps the mesh alive — the filter stops owning it instead of destroying it.
+     * A swap to a different mesh or to `null` still destroys the owned instance.
      */
     @SerializedField({ type: FieldType.Mesh })
     public get sharedMesh(): Mesh | null {
@@ -36,8 +40,15 @@ export class MeshFilter extends Component {
     }
 
     public set sharedMesh(value: Mesh | null) {
-        this._destroyInstance();
-        this._sharedMesh = value;
+        if (value !== null && value === this._meshInstance) {
+            // Self-assign: the filter stops owning the instance instead of
+            // destroying it — Unity never auto-destroys an assigned mesh.
+            this._sharedMesh = value;
+            this._meshInstance = null;
+        } else {
+            this._destroyInstance();
+            this._sharedMesh = value;
+        }
         this._notifyRenderer();
     }
 
@@ -48,7 +59,10 @@ export class MeshFilter extends Component {
      *
      * **Setting** stores the reference itself, like Unity's `MeshFilter.mesh`:
      * the mesh becomes the shared mesh, drawn as-is; instancing happens on the
-     * first *read*. Replacing a mesh destroys the instance this filter owned.
+     * first *read*. Assigning the instance back (`filter.mesh = filter.mesh`,
+     * the Unity edit idiom) keeps it — no re-clone, nothing destroyed. Replacing
+     * it with a different mesh or with `null` destroys the instance this filter
+     * owned.
      */
     public get mesh(): Mesh | null {
         // An instance already exists.
@@ -69,10 +83,15 @@ export class MeshFilter extends Component {
     }
 
     public set mesh(value: Mesh | null) {
-        this._destroyInstance();
-        // Unity's setter stores the reference itself; instancing happens on the
-        // first *read* through the getter, not here.
-        this._sharedMesh = value;
+        if (value !== null && value === this._meshInstance) {
+            // Self-assign (the Unity edit idiom): keep the instance; the getter
+            // already returns it, no re-clone, nothing to destroy.
+        } else {
+            this._destroyInstance();
+            // Unity's setter stores the reference itself; instancing happens on the
+            // first *read* through the getter, not here.
+            this._sharedMesh = value;
+        }
         this._notifyRenderer();
     }
 
