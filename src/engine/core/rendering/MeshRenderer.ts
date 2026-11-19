@@ -168,14 +168,16 @@ export class MeshRenderer extends Renderer {
      * @remarks
      * Like Unity's MeshRenderer, this runs automatically: assigning a mesh
      * through either MeshFilter property, or editing one through the filter,
-     * pushes the update. Call it manually only after mutating a mesh asset
-     * outside any filter (e.g. a mesh held by several renderers).
+     * pushes the update. Destroying the filter undraws immediately, and the
+     * next update re-finds a replacement filter on the same GameObject.
+     * Call it manually only after mutating a mesh asset outside any filter
+     * (e.g. a mesh held by several renderers).
      */
     public updateMesh(): void {
         if (this._threeMesh === null) return;
 
-        // Re-find MeshFilter if we lost the reference
-        if (this._meshFilter === null) {
+        // Re-find MeshFilter if we lost the reference or it was destroyed
+        if (this._meshFilter === null || !this._meshFilter.exists()) {
             this._meshFilter = this.gameObject.getComponent(MeshFilter);
         }
 

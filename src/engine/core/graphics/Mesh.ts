@@ -212,6 +212,15 @@ export class Mesh extends EngineObject {
      */
     private _markDirty(): void {
         this._needsUpdate = true;
+        this._notifyObservers();
+    }
+
+    /**
+     * Notifies observers without marking the geometry dirty, for changes that
+     * only affect bounds (no vertex/index data write, so no rebuild needed).
+     * @internal
+     */
+    private _notifyObservers(): void {
         if (this._observers === null) return;
         for (const notify of [...this._observers]) notify();
     }
@@ -347,6 +356,7 @@ export class Mesh extends EngineObject {
     /** Replaces the bounding box. */
     set bounds(value: Bounds) {
         this._bounds = value;
+        this._notifyObservers();
     }
 
     /** How many vertices the mesh has. */
@@ -564,6 +574,7 @@ export class Mesh extends EngineObject {
     public recalculateBounds(): void {
         if (this._vertices.length === 0) {
             this._bounds = new Bounds(new Vector3(0, 0, 0), new Vector3(0, 0, 0));
+            this._notifyObservers();
             return;
         }
 
@@ -584,6 +595,7 @@ export class Mesh extends EngineObject {
         const max = new Vector3(maxX, maxY, maxZ);
 
         this._bounds.setMinMax(min, max);
+        this._notifyObservers();
     }
 
     // ==================== CLEAR ====================
