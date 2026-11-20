@@ -15,7 +15,7 @@ export class MeshFilter extends Component {
     /** The shared mesh — a reference, never copied. */
     private _sharedMesh: Mesh | null = null;
 
-    /** This filter's own copy, made on the first write through {@link mesh}. */
+    /** This filter's own copy, made on the first read of {@link mesh}. */
     private _meshInstance: Mesh | null = null;
 
     constructor(gameObject: GameObject) {
