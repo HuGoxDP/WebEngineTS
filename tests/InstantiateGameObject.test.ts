@@ -2,6 +2,11 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { EngineObject } from "../src/engine/core/EngineObject";
 import { GameObject } from "../src/engine/core/GameObject";
 import { MeshFilter } from "../src/engine/core/rendering/MeshFilter";
+import { MeshRenderer } from "../src/engine/core/rendering/MeshRenderer";
+import { InstancedMeshRenderer } from "../src/engine/core/rendering/InstancedMeshRenderer";
+import { Mesh } from "../src/engine/core/graphics/Mesh";
+import { StandardMaterial } from "../src/engine/core/graphics/StandardMaterial";
+import { AssetDatabase } from "../src/engine/core/assets/AssetDatabase";
 import { ScriptableBehaviour } from "../src/engine/core/ScriptableBehaviour";
 import { Serializable, SerializedField } from "../src/engine/core/reflection/Decorators";
 import { Vector3 } from "../src/engine/core/math/Vector3";
@@ -160,5 +165,143 @@ describe("Instantiating a GameObject", () => {
         expect(original.getComponent(MeshFilter)).not.toBeNull();
         expect(original.transform.childCount).toBe(1);
         expect(original.getComponent(Marker)!.label).toBe("hello");
+    });
+});
+
+/**
+ * M0.2hr4, D-3: Instantiate passes meshes by identity.
+ *
+ * Unity's `Instantiate` shares the original's mesh; this engine rebuilt a
+ * primitive per copy through the scene serializer, which also threw away every
+ * edit made through `filter.mesh`. The live table fixes both: a `LiveMesh`
+ * reference carries the object itself, and the table never leaves this call.
+ */
+const meshes: Mesh[] = [];
+
+function trackMesh<T extends Mesh>(m: T): T {
+    meshes.push(m);
+    return m;
+}
+
+/** A drawn cube — filter, then renderer with a material, the order that works. */
+function drawnCube(name = "Original"): { go: GameObject; filter: MeshFilter; renderer: MeshRenderer; mesh: Mesh } {
+    const go = track(new GameObject(name));
+    const mesh = trackMesh(Mesh.createCube(1));
+    const filter = go.addComponent(MeshFilter);
+    filter.sharedMesh = mesh;
+    const renderer = go.addComponent(MeshRenderer);
+    renderer.sharedMaterial = new StandardMaterial();
+    return { go, filter, renderer, mesh };
+}
+
+const geoOf = (r: MeshRenderer): any => (r as any)._threeMesh.geometry;
+const posCount = (r: MeshRenderer): number => geoOf(r).getAttribute("position")?.count ?? 0;
+const posX = (r: MeshRenderer, i: number): number => geoOf(r).getAttribute("position").getX(i);
+
+/** Writes vertex `i`'s x through the setter, so observers see the edit. */
+function setVertexX(m: Mesh, i: number, x: number): void {
+    const vs = m.vertices.map(v => v.clone());
+    vs[i].x = x;
+    m.vertices = vs;
+}
+
+describe("M0.2hr4: Instantiate shares meshes by identity", () => {
+    afterEach(() => {
+        for (const m of meshes) if (m.exists()) m.destroyImmediate();
+        meshes.length = 0;
+        AssetDatabase.clear();
+    });
+
+    test("an edited instance is the copy's mesh, and the copy draws the edit", () => {
+        // Fails on c4a0119: the edited primitive still carried its recipe, so
+        // the copy was rebuilt as a fresh cube — a different object at x = -0.5.
+        const { go, filter, renderer } = drawnCube();
+        const m = filter.mesh!;
+        setVertexX(m, 0, 5);
+        expect(posX(renderer, 0)).toBeCloseTo(5);
+
+        const copy = track(EngineObject.Instantiate(go) as GameObject);
+        const copyFilter = copy.getComponent(MeshFilter)!;
+        const copyRenderer = copy.getComponent(MeshRenderer)!;
+
+        expect(copyFilter.sharedMesh).toBe(m);
+        expect(posX(copyRenderer, 0)).toBeCloseTo(5);
+    });
+
+    test("the copy keeps drawing after the original is destroyed, and can then make its own", () => {
+        const { go, filter } = drawnCube();
+        const m = filter.mesh!;
+        setVertexX(m, 0, 5);
+
+        const copy = track(EngineObject.Instantiate(go) as GameObject);
+        const copyFilter = copy.getComponent(MeshFilter)!;
+        const copyRenderer = copy.getComponent(MeshRenderer)!;
+
+        go.destroyImmediate();
+
+        // The copy holds a use of the mesh, so the original's death leaves it.
+        expect(m.exists()).toBe(true);
+        expect(posCount(copyRenderer)).toBe(24);
+
+        // The copy's own read makes its own object; the shared instance is not
+        // touched by it — same geometry, same edit. (D-2 then frees that
+        // instance once nothing uses it, deferred like every destroy, so the
+        // copy is left holding only its own.)
+        const own = copyFilter.mesh!;
+        expect(own).not.toBe(m);
+        expect(m.vertices[0].x).toBeCloseTo(5);
+        expect(own.vertices[0].x).toBeCloseTo(5);
+    });
+
+    test("an unedited primitive and an asset mesh are shared too", () => {
+        const plain = track(new GameObject("Plain"));
+        const factory = trackMesh(Mesh.createCube(2));
+        plain.addComponent(MeshFilter).sharedMesh = factory;
+
+        const plainCopy = track(EngineObject.Instantiate(plain) as GameObject);
+        expect(plainCopy.getComponent(MeshFilter)!.sharedMesh).toBe(factory);
+
+        const asset = trackMesh(Mesh.createCube(3));
+        AssetDatabase.setManifest([{ guid: "mesh-shared", path: "models/shared.glb" }]);
+        AssetDatabase._bind("models/shared.glb", asset);
+
+        const loaded = track(new GameObject("Loaded"));
+        loaded.addComponent(MeshFilter).sharedMesh = asset;
+
+        const loadedCopy = track(EngineObject.Instantiate(loaded) as GameObject);
+        expect(loadedCopy.getComponent(MeshFilter)!.sharedMesh).toBe(asset);
+        AssetDatabase.clear();
+    });
+
+    test("one mesh in two filters of a tree is one mesh in the copy", () => {
+        const root = track(new GameObject("Root"));
+        const filter = root.addComponent(MeshFilter);
+        filter.sharedMesh = trackMesh(Mesh.createCube(1));
+        const m = filter.mesh!;
+
+        const child = track(new GameObject("Child"));
+        child.transform.setParent(root.transform, false);
+        child.addComponent(MeshFilter).sharedMesh = m;
+
+        const copy = track(EngineObject.Instantiate(root) as GameObject);
+        const copyChild = copy.transform.getChild(0).gameObject;
+
+        const a = copy.getComponent(MeshFilter)!.sharedMesh;
+        const b = copyChild.getComponent(MeshFilter)!.sharedMesh;
+        expect(a).toBe(m);
+        expect(b).toBe(m);
+        expect(a).toBe(b);
+    });
+
+    test("InstancedMeshRenderer.mesh survives Instantiate by identity", () => {
+        const go = track(new GameObject("Instanced"));
+        const m = trackMesh(Mesh.createCube(1));
+        const renderer = go.addComponent(InstancedMeshRenderer);
+        renderer.mesh = m;
+        renderer.count = 2;
+
+        const copy = track(EngineObject.Instantiate(go) as GameObject);
+
+        expect(copy.getComponent(InstancedMeshRenderer)!.mesh).toBe(m);
     });
 });
