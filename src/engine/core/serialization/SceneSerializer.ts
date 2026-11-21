@@ -10,6 +10,7 @@ import { AssetDatabase } from "../assets/AssetDatabase";
 import { RenderSettings, FogMode } from "../RenderSettings";
 import { Cubemap } from "../graphics/Cubemap";
 import { Texture2D } from "../graphics/Texture2D";
+import type { Mesh } from "../graphics/Mesh";
 import { Color } from "../math/Color";
 import { MissingComponent, MissingValue } from "./MissingComponent";
 import {
@@ -445,6 +446,34 @@ export class SceneSerializer {
 
     /**
      * @internal
+     * Copies a GameObject and everything below it, sharing the original's
+     * meshes rather than rebuilding them.
+     *
+     * @remarks
+     * `EngineObject.Instantiate` on a GameObject reaches this. It is the same
+     * serialize → deserialize round trip as a prefab made and instantiated on
+     * the spot, with one difference: a **live mesh table** threads through both
+     * halves, so every `FieldType.Mesh` value — an edited instance, an
+     * unedited primitive, an asset — comes back as the very same object.
+     * Unity's `Instantiate` shares meshes; rebuilding a primitive per copy
+     * both diverged from it and threw away every edit made through
+     * `filter.mesh`.
+     *
+     * The table is local to this call. Nothing that can reach a file or a
+     * prefab is given one, so a `LiveMesh` is never written out.
+     *
+     * **NEVER use in user-facing code.**
+     */
+    public static _cloneGameObject(go: GameObject): GameObject {
+        const live: Mesh[] = [];
+        const ctx = SceneSerializer._buildSerializeCtx([go], false, null, { liveMeshes: live });
+        const json = SceneSerializer._serializeGO(go, ctx, false);
+        if (ctx.assetTable.length > 0) json.assets = ctx.assetTable;
+        return SceneSerializer._deserializeTree(json, go.scene, [], null, undefined, live);
+    }
+
+    /**
+     * @internal
      * The tree a prefab is made from: `go` written out in full whatever it is,
      * with any instance *inside* it kept as a link to its own prefab.
      *
@@ -620,7 +649,7 @@ export class SceneSerializer {
 
     private static _deserializeTree(
         json: SerializedGameObject, scene: Scene | undefined, chain: string[],
-        parent: GameObject | null = null, index?: number,
+        parent: GameObject | null = null, index?: number, liveMeshes?: Mesh[],
     ): GameObject {
         let prevActive: Scene | null = null;
         if (scene && scene !== SceneManager.activeScene) {
@@ -628,7 +657,7 @@ export class SceneSerializer {
             SceneManager.setActiveScene(scene);
         }
         try {
-            const ctx = SceneSerializer._newContext(chain);
+            const ctx = SceneSerializer._newContext(chain, liveMeshes);
             SceneSerializer._materializeAssets(json.assets, ctx);
             // Rooted under `parent` when one is given, so the whole tree is built
             // in place — never a scene root, not even for a moment — and its wake
@@ -845,7 +874,7 @@ export class SceneSerializer {
         throw new UnsupportedFormatError(what, stated, readable);
     }
 
-    private static _newContext(chain: readonly string[] = []): LoadCtx {
+    private static _newContext(chain: readonly string[] = [], liveMeshes?: Mesh[]): LoadCtx {
         const ctx: LoadCtx = {
             scopeStack: [],
             chain: [...chain],
@@ -857,6 +886,7 @@ export class SceneSerializer {
             currentComponent: null,
             currentField: null,
             currentArrayIndex: null,
+            liveMeshes,
             buildNested: (type, fields) => SceneSerializer._buildNested(type, fields, ctx),
         };
         return ctx;
@@ -877,12 +907,15 @@ export class SceneSerializer {
      * @param options.ownAssets - keep an asset table of its own instead of
      *   sharing `outer`'s, so that a linked instance can pass on only what its
      *   changes need.
+     * @param options.liveMeshes - the identity table meshes are written into
+     *   instead of ids or recipes; Instantiate only, see
+     *   {@link SerializeContext.liveMeshes}.
      */
     private static _buildSerializeCtx(
         roots: ReadonlyArray<GameObject>,
         link: boolean,
         outer: SceneCtx | null,
-        options: { mintLive?: boolean; prefabRoot?: GameObject; ownAssets?: boolean } = {},
+        options: { mintLive?: boolean; prefabRoot?: GameObject; ownAssets?: boolean; liveMeshes?: Mesh[] } = {},
     ): SceneCtx {
         const mintLive = options.mintLive ?? true;
         const prefabRoot = options.prefabRoot ?? null;
@@ -911,6 +944,7 @@ export class SceneSerializer {
             link,
             outer,
             inlined,
+            liveMeshes: options.liveMeshes,
             writtenAssets: outer ? outer.writtenAssets : new Map<string, object>(),
             minted: outer ? outer.minted : new Map<GameObject, string>(),
             mintedComponents: outer ? outer.mintedComponents : new Map<Component, string>(),

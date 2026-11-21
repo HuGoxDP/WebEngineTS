@@ -105,15 +105,24 @@ export class Mesh extends EngineObject {
     private _primitive: MeshPrimitive | null = null;
 
     /**
-     * How this mesh was built, or null if it was not built by a factory.
+     * Set once geometry is written after a factory built this mesh: the recipe
+     * no longer describes what is drawn. Bounds-only changes do not set it.
+     */
+    private _recipeStale = false;
+
+    /**
+     * How this mesh was built, or null if it was not built by a factory —
+     * or if its geometry was written after the factory built it, so the
+     * recipe no longer describes the mesh.
      *
      * @remarks
      * A primitive can be stored as its recipe — six numbers instead of a vertex
      * buffer — which is what lets a scene reference one without embedding
-     * geometry. {@link Mesh.fromPrimitive} rebuilds it.
+     * geometry. {@link Mesh.fromPrimitive} rebuilds it. An edited primitive
+     * reports null here: saving the old recipe would silently revert the edit.
      */
     public get primitive(): MeshPrimitive | null {
-        return this._primitive === null
+        return this._primitive === null || this._recipeStale
             ? null
             : { kind: this._primitive.kind, args: [...this._primitive.args] };
     }
@@ -206,12 +215,53 @@ export class Mesh extends EngineObject {
     private _observers: Set<() => void> | null = null;
 
     /**
+     * How many MeshFilters currently hold this mesh. Retained on store,
+     * released on swap or destroy.
+     * @internal
+     */
+    public _filterUses = 0;
+
+    /**
+     * Set only on a mesh a MeshFilter's `mesh` getter made. Such a mesh is
+     * destroyed automatically once its last filter lets go; meshes the user
+     * assigned (assets, factory meshes) are never destroyed by a filter.
+     * Cleared when the user takes the mesh over (`sharedMesh = mesh`).
+     * @internal
+     */
+    public _autoDestroy = false;
+
+    /**
+     * Registers one more MeshFilter holding this mesh.
+     * @internal
+     */
+    public _retainByFilter(): void {
+        this._filterUses++;
+    }
+
+    /**
+     * One MeshFilter let go of this mesh. The count never drops below 0; a
+     * release at 0 logs one error and stays 0.
+     * @internal
+     * @returns true when the count reached 0 and {@link _autoDestroy} is set —
+     *   the caller must then destroy the mesh.
+     */
+    public _releaseByFilter(): boolean {
+        if (this._filterUses === 0) {
+            console.error(`[Mesh] Release of "${this.name}" with no filter use — count stays 0`);
+            return false;
+        }
+        this._filterUses--;
+        return this._filterUses === 0 && this._autoDestroy;
+    }
+
+    /**
      * Marks the geometry dirty and notifies observers (renderers drawing this
      * mesh). Every data write goes through here, never `_needsUpdate` directly.
      * @internal
      */
     private _markDirty(): void {
         this._needsUpdate = true;
+        if (this._primitive !== null) this._recipeStale = true;
         this._notifyObservers();
     }
 
@@ -1343,9 +1393,11 @@ export class Mesh extends EngineObject {
 
         // A clone of a cube is still a cube: the recipe travels with the
         // geometry, so a cloned primitive can still be stored as one.
+        // A stale recipe travels too: the copy holds the same edited geometry.
         cloned._primitive = this._primitive === null
             ? null
             : { kind: this._primitive.kind, args: [...this._primitive.args] };
+        cloned._recipeStale = this._recipeStale;
         cloned._indexFormat = this._indexFormat;
 
         // Submeshes.

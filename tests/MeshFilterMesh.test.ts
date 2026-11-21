@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { GameObject } from "../src/engine/core/GameObject";
 import { MeshFilter } from "../src/engine/core/rendering/MeshFilter";
 import { MeshRenderer } from "../src/engine/core/rendering/MeshRenderer";
@@ -386,6 +386,85 @@ describe("MeshFilter.mesh and late assignment (M0.2h)", () => {
         expect(inst.exists()).toBe(true);
         expect(posCount(rendererB)).toBe(CUBE_V);
         expect(posCount(rendererA)).toBe(CUBE_V);
+    });
+});
+
+/**
+ * M0.2hr4 (DW-2.1 … DW-2.4): `sharedMesh` is an alias of the instance once the
+ * `mesh` getter ran (D-1), and a getter-made instance lives exactly as long as
+ * some MeshFilter uses it (D-2). Unity: "Once `mesh` property is queried, link
+ * to the original shared mesh is lost and MeshFilter.sharedMesh property
+ * becomes an alias to `mesh`."
+ */
+describe("M0.2hr4: sharedMesh alias and use-count lifetime", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    test("the first mesh read aliases sharedMesh and leaves the original alone", () => {
+        const m = cube();
+        const { filter } = drawn(m);
+
+        const inst = filter.mesh!;
+
+        expect(filter.sharedMesh).toBe(inst);
+        expect(inst).not.toBe(m);
+        expect(m.exists()).toBe(true);
+        expect(m.vertices).toHaveLength(CUBE_V);
+    });
+
+    test("a second mesh read returns the same object; clone ran exactly once", () => {
+        const cloneSpy = vi.spyOn(Mesh.prototype, "clone");
+        const { filter } = drawn(cube());
+
+        const first = filter.mesh;
+        const second = filter.mesh;
+
+        expect(second).toBe(first);
+        expect(cloneSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test("an instance shared by two filters outlives its maker and dies with the last user", async () => {
+        const { go: goA, filter: filterA } = drawn(cube());
+        const inst = filterA.mesh!;
+
+        const goB = track(new GameObject("SecondUser"));
+        const filterB = goB.addComponent(MeshFilter);
+        const rendererB = goB.addComponent(MeshRenderer);
+        rendererB.sharedMaterial = new StandardMaterial();
+        filterB.sharedMesh = inst;
+        expect(posCount(rendererB)).toBe(CUBE_V);
+
+        goA.destroyImmediate();
+        await Promise.resolve();
+
+        expect(inst.exists()).toBe(true);
+        expect(posCount(rendererB)).toBe(CUBE_V);
+
+        goB.destroyImmediate();
+        await Promise.resolve();
+
+        expect(inst.exists()).toBe(false);
+    });
+
+    test("disown: the next mesh read clones again and the disowned mesh is never auto-destroyed", async () => {
+        const cloneSpy = vi.spyOn(Mesh.prototype, "clone");
+        const { go, filter } = drawn(cube());
+        const inst = filter.mesh!;
+
+        filter.sharedMesh = inst; // disown — the user takes it over
+        const second = filter.mesh!;
+
+        expect(second).not.toBe(inst);
+        expect(cloneSpy).toHaveBeenCalledTimes(2);
+
+        filter.sharedMesh = cube(); // swap away from the disowned mesh
+        await Promise.resolve();
+        expect(inst.exists()).toBe(true);
+
+        go.destroyImmediate();
+        await Promise.resolve();
+        expect(inst.exists()).toBe(true);
     });
 });
 

@@ -79,6 +79,28 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   selection, per-camera post-processing, a `RenderTexture` asset with a serialised `Camera.targetTexture`, live
   targets in the Canvas UI, and async/HDR readback.
 
+- **`MeshFilter.sharedMesh` is an alias of the instance after `mesh` is read (Unity parity, M0.2hr4).** Reading
+  `filter.mesh` still makes the filter's own copy, but that copy now *becomes* the filter's shared mesh instead of
+  living beside it — so batching (`StaticBatchingUtility.combine`), saving and `Instantiate`, which all read
+  `sharedMesh`, see the edit rather than the untouched original. Assigning `filter.sharedMesh = someMesh` disowns
+  the instance (the M0.2hr1 contract is unchanged); the next `mesh` read clones again.
+
+- **`Instantiate` shares meshes by identity, including primitives (M0.2hr4).** A copy's MeshFilter holds the *same*
+  `Mesh` object as the original — an edited instance keeps its edit, an untouched primitive stays one shared mesh
+  instead of being rebuilt from its recipe per copy. The identity table lives only inside the `Instantiate` call;
+  it is never written to scene or prefab files.
+
+- **An edited primitive saves empty with a warning instead of as its unedited recipe (M0.2hr4).** A mesh built by
+  a `create*` factory and then edited has no recipe any more (`mesh.primitive` reads `null`); saving it used to
+  store the factory's original recipe, silently losing the edit. It now saves empty and warns once per mesh:
+  keep the edit in code (rebuild it on `Awake`) or ship the mesh as an asset. Untouched primitives still save by
+  recipe, bound assets still save by reference.
+
+- **A shared mesh instance is freed only when its last MeshFilter lets go (M0.2hr4).** The instance made by the
+  `mesh` getter is use-counted across the filters that hold it; destroying or swapping one filter no longer frees
+  a mesh another filter still draws. When the last use is released the instance is destroyed (deferred, like
+  every destroy); a mesh assigned through `sharedMesh` is never auto-freed.
+
 - **Static `Application.isPlaying` now means what Unity's means: `!isEditMode`.** It answers "is this a play-mode
   world", not "is an `Application` loop running" — the latter is the instance flag of the same name, which the
   loop still uses. Both are documented and cross-reference each other. No consumer in the engine, its tests or
@@ -89,6 +111,14 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 - **A MeshRenderer draws whatever mesh its MeshFilter holds, whenever it arrives.** Assigning `filter.mesh = m` now stores the reference and draws it (Unity's setter semantics — the clone happens on the first *read*, not on assignment); a mesh assigned after the renderer was added, or while the GameObject was inactive, draws as soon as it is there — the Kepler swept-area sectors, built exactly that way, are visible again. Edits through `filter.mesh` reach the screen without any manual `updateMesh()` call, setting either mesh property to `null` undraws, and replacing a mesh destroys the instance the filter owned instead of leaking it. Shared meshes are never destroyed by a swap, and assigning the filter's own instance back — `filter.mesh = filter.mesh` or `filter.sharedMesh = filter.mesh` — keeps it alive instead of destroying the mesh being stored (M0.2hr1). Pinned by `tests/MeshFilterMesh.test.ts`.
 
 - **Destroying a MeshFilter undraws immediately, a replacement filter is found, and bounds changes reach the renderer (M0.2hr2).** Destroying or removing the filter used to leave the renderer drawing the last geometry until the renderer died; it now undraws at once (`MeshFilter.onDestroy` notifies the renderer after nulling its meshes) and the next sync re-finds a replacement filter on the same GameObject (`updateMesh()` re-finds when the cached filter is destroyed, not only `null`). `mesh.bounds = ...` and `mesh.recalculateBounds()` (both exits, including the empty-mesh one) now notify observers through a notify-only path — no `_needsUpdate`, so no geometry rebuild — and the renderer copies the new bounds into `localBounds`/`bounds`. Known limitation (Unity parity): the `bounds` getter returns a live reference; in-place mutation of it notifies nothing — call `recalculateBounds()` or re-assign `mesh.bounds`. Pinned by `tests/MeshFilterMesh.test.ts`.
+
+- **Edits through the `mesh` getter survive batching, `Instantiate` and prefab snapshots (M0.2hr4).** The getter's
+  instance used to be invisible to everything that reads `sharedMesh`: `StaticBatchingUtility.combine` baked the
+  unedited original (an edit at x=5 combined as x=0.5), `Instantiate` rebuilt a fresh mesh from the original's
+  recipe, and a prefab snapshot stored the unedited recipe. All three now carry the edited instance — batching
+  bakes the edited vertices, the copy draws the same edited mesh object, and the snapshot keeps the edit for the
+  lifetime of the objects. Pinned by `tests/StaticBatching.test.ts`, `tests/InstantiateGameObject.test.ts`,
+  `tests/Serialization.test.ts` and `tests/MeshRecipeStale.test.ts`.
 
 - **Switching modes from inside a callback cannot leave a silent half-woken world.** A script's `awake` may call `enterEditMode()` during the wake pass, and an opted-in script's `update` may call `enterPlayMode()` during an edit frame; both now stop where they are and say so with a warning rather than continuing to drive a world that is no longer in the mode the host asked for. A timed destroy during an edit frame also counts down with `Time.deltaTime`, so a `timeScale` below 1 slows it as it does in play. Pinned by `tests/EditModeCompat.test.ts`.
 

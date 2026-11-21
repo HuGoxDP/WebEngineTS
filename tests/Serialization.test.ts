@@ -2072,6 +2072,98 @@ describe("Built-in components — MeshFilter", () => {
         expect((filter as any)._meshInstance).toBeNull();
         expect(filter.sharedMesh).not.toBeNull();
     });
+
+    // === M0.2hr4: the honest codec (D-4) and the no-leak checks (D-3) ===
+
+    test("DW-3.6: saving a filter that holds an instance clones nothing and keeps it owned", () => {
+        const go = new GameObject("Box");
+        const filter = go.addComponent(MeshFilter);
+        filter.sharedMesh = Mesh.createCube(1);
+        const inst = filter.mesh!;
+
+        const cloneSpy = vi.spyOn(Mesh.prototype, "clone");
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        SceneSerializer.serializeGameObject(go);
+
+        expect(cloneSpy).not.toHaveBeenCalled();
+        expect((filter as any)._meshInstance).toBe(inst);
+        cloneSpy.mockRestore();
+        warn.mockRestore();
+    });
+
+    test("DW-3.5: an edited primitive saves empty both times, warned once, by name", () => {
+        const go = new GameObject("Edited");
+        const filter = go.addComponent(MeshFilter);
+        filter.sharedMesh = Mesh.createCube(1);
+        const m = filter.mesh!;
+        m.vertices = m.vertices.map(v => new Vector3(v.x * 10, v.y, v.z));
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const first = SceneSerializer.serializeGameObject(go);
+        const second = SceneSerializer.serializeGameObject(go);
+
+        expect(first.components[0].fields.sharedMesh).toBeNull();
+        expect(second.components[0].fields.sharedMesh).toBeNull();
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain(m.name);
+        warn.mockRestore();
+
+        // An unedited clone still stores as its recipe (:2056's save-side twin).
+        const fresh = new GameObject("Fresh");
+        fresh.addComponent(MeshFilter).sharedMesh = Mesh.createCube(1).clone();
+        const saved = SceneSerializer.serializeGameObject(fresh);
+        expect((saved.components[0].fields.sharedMesh as any).$type).toBe("PrimitiveMesh");
+    });
+
+    test("DW-3.4: a LiveMesh never reaches a save or a prefab, and reads as null outside Instantiate", () => {
+        const go = new GameObject("Edited");
+        const filter = go.addComponent(MeshFilter);
+        filter.sharedMesh = Mesh.createCube(1);
+        const m = filter.mesh!;
+        m.vertices = m.vertices.map(v => new Vector3(v.x * 10, v.y, v.z));
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        expect(JSON.stringify(SceneSerializer.serializeGameObject(go))).not.toContain("LiveMesh");
+        expect(JSON.stringify(Prefab.fromGameObject(go).toJSON())).not.toContain("LiveMesh");
+        warn.mockRestore();
+
+        // Hand-written JSON smuggling a LiveMesh into a plain load: dropped,
+        // with one warning for the whole process however many references read.
+        const smuggled = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const back = SceneSerializer.deserializeGameObject({
+            name: "Smuggled",
+            active: true,
+            transform: {
+                position: { x: 0, y: 0, z: 0 },
+                rotation: { x: 0, y: 0, z: 0, w: 1 },
+                scale: { x: 1, y: 1, z: 1 },
+            },
+            components: [{
+                type: "MeshFilter",
+                fields: { sharedMesh: { $type: "LiveMesh", index: 0 } },
+            }],
+            children: [],
+        });
+        SceneSerializer.deserializeGameObject({
+            name: "Smuggled2",
+            active: true,
+            transform: {
+                position: { x: 0, y: 0, z: 0 },
+                rotation: { x: 0, y: 0, z: 0, w: 1 },
+                scale: { x: 1, y: 1, z: 1 },
+            },
+            components: [{
+                type: "MeshFilter",
+                fields: { sharedMesh: { $type: "LiveMesh", index: 0 } },
+            }],
+            children: [],
+        });
+
+        expect(back.getComponent(MeshFilter)!.sharedMesh).toBeNull();
+        expect(smuggled).toHaveBeenCalledTimes(1);
+        expect(String(smuggled.mock.calls[0][0])).toContain("a LiveMesh reference outside Instantiate — ignored");
+        smuggled.mockRestore();
+    });
 });
 
 describe("Built-in components — MeshRenderer and inline materials", () => {

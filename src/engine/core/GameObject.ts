@@ -1309,7 +1309,8 @@ export class GameObject extends EngineObject {
         // Straight through the serializer rather than through a prefab: a copy
         // of a prefab instance is another instance of the same prefab, and a
         // prefab made on the way would make it an instance of *that* instead.
-        return SceneSerializer.deserializeGameObject(SceneSerializer.serializeGameObject(this), this.scene);
+        // Meshes ride along by identity (the live table), as Unity's does.
+        return SceneSerializer._cloneGameObject(this);
     }
 
     /**

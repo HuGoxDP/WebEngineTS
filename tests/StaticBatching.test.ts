@@ -130,3 +130,26 @@ describe("StaticBatchingUtility — batching twice does not double the geometry"
         expect(batched.vertexCount).toBe(perCube * 3);
     });
 });
+
+/**
+ * M0.2hr4, DW-2.5: batching reads `sharedMesh`, which after D-1 is the alias
+ * of the instance the `mesh` getter made — so an edit made through the getter
+ * is baked into the batch. On c4a0119 the batch was built from the original
+ * (max x = 0.5) and this test failed.
+ */
+describe("M0.2hr4: an edit through the mesh getter survives batching", () => {
+    test("combine bakes the edited vertices, not the original's", () => {
+        const material = new StandardMaterial();
+        const plain = makeCube(material, 0);
+        const edited = makeCube(material, 0);
+
+        const filter = edited.go.getComponent(MeshFilter)!;
+        const m = filter.mesh!;
+        m.vertices = m.vertices.map(v => new Vector3(v.x * 10, v.y, v.z));
+
+        const [batch] = StaticBatchingUtility.combine([plain.go, edited.go]);
+        const bounds = batch.getComponent(MeshFilter)!.sharedMesh!.bounds;
+
+        expect(bounds.max.x).toBeCloseTo(5, 3);
+    });
+});
