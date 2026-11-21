@@ -239,18 +239,30 @@ describe("M0.2hr4: Instantiate shares meshes by identity", () => {
 
         go.destroyImmediate();
 
-        // The copy holds a use of the mesh, so the original's death leaves it.
+        // The copy holds a use of the mesh, so the original's death leaves it
+        // (D-2: a getter-made instance dies with its last user, not its maker).
         expect(m.exists()).toBe(true);
         expect(posCount(copyRenderer)).toBe(24);
 
-        // The copy's own read makes its own object; the shared instance is not
-        // touched by it — same geometry, same edit. (D-2 then frees that
-        // instance once nothing uses it, deferred like every destroy, so the
-        // copy is left holding only its own.)
+        // The copy's own read makes its own object, carrying the edit.
         const own = copyFilter.mesh!;
         expect(own).not.toBe(m);
-        expect(m.vertices[0].x).toBeCloseTo(5);
         expect(own.vertices[0].x).toBeCloseTo(5);
+    });
+
+    test("the shared instance is freed once its last user lets go", async () => {
+        const { go, filter } = drawnCube();
+        const m = filter.mesh!;
+
+        const copy = track(EngineObject.Instantiate(go) as GameObject);
+        const copyFilter = copy.getComponent(MeshFilter)!;
+
+        go.destroyImmediate();
+        copyFilter.mesh; // the copy takes its own; the shared instance drops to 0
+
+        await Promise.resolve();
+
+        expect(m.exists()).toBe(false);
     });
 
     test("an unedited primitive and an asset mesh are shared too", () => {
