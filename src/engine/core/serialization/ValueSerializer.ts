@@ -14,6 +14,12 @@ import { Gradient, GradientColorKey, GradientAlphaKey } from "../particles/Gradi
 import { ParticleBurst } from "../particles/ParticleSystem";
 import type { GameObject } from "../GameObject";
 
+/** Meshes already warned about as unstorable — one warning per mesh object. */
+const unstorableWarned = new WeakSet<Mesh>();
+
+/** Whether a LiveMesh was read outside Instantiate — warned once per process. */
+let liveMeshWarned = false;
+
 /**
  * Optional context shared across an entire serialize/deserialize pass.
  * Lets compound types (currently just `GameObject` references) round-trip
@@ -87,6 +93,19 @@ export interface SerializeContext {
      * The entry points attach this to the snapshot they return.
      */
     assetTable: Array<{ guid: string; type: string; fields: Record<string, unknown> }>;
+    /**
+     * Live meshes passed by identity instead of by value — Instantiate only.
+     *
+     * @remarks
+     * Each `FieldType.Mesh` value is written as `{ $type: "LiveMesh", index }`
+     * into this table, and reads back as the very same object, so the copy
+     * shares the original's mesh: an edited instance, a primitive or an asset
+     * alike. Absent on every path that can reach a file or a prefab, which is
+     * what keeps a `LiveMesh` out of both.
+     *
+     * @internal
+     */
+    liveMeshes?: Mesh[];
 }
 
 /** Marker emitted in deserialize for a `GameObjectRef` field. */
@@ -200,6 +219,13 @@ export interface DeserializeContext {
      * element resolved last.
      */
     currentArrayIndex: number | null;
+    /**
+     * The live meshes this pass passes by identity — the table its serialize
+     * half built. See {@link SerializeContext.liveMeshes}; Instantiate only.
+     *
+     * @internal
+     */
+    liveMeshes?: Mesh[];
 }
 
 /**
@@ -325,12 +351,35 @@ export class ValueSerializer {
         // never written into a scene: a procedural mesh with neither is dropped,
         // which is visible immediately rather than bloating every save.
         if (type === FieldType.Mesh) {
+            // Instantiate passes the mesh itself, whatever it is — before any
+            // id or recipe, so an edited instance survives the copy.
+            if (ctx?.liveMeshes) {
+                const live = ctx.liveMeshes;
+                let index = live.indexOf(value as Mesh);
+                if (index === -1) {
+                    index = live.length;
+                    live.push(value as Mesh);
+                }
+                return { $type: "LiveMesh", index };
+            }
+
             const guid = AssetDatabase.guidOf(value as object);
             if (guid !== null) return { $type: "AssetRef", guid };
 
             const primitive = (value as Mesh).primitive;
             if (primitive) {
                 return { $type: "PrimitiveMesh", kind: primitive.kind, args: [...primitive.args] };
+            }
+
+            // Nothing storable. A mesh with geometry — edited after a factory
+            // built it, or built in code — is saved empty, and says so once.
+            const mesh = value as Mesh;
+            if (mesh.vertexCount > 0 && !unstorableWarned.has(mesh)) {
+                unstorableWarned.add(mesh);
+                console.warn(
+                    `Mesh "${mesh.name}" was edited after it was built, so the scene cannot store it — ` +
+                    `it is saved empty. Keep the edit in code (rebuild it on Awake) or ship the mesh as an asset.`,
+                );
             }
             return null;
         }
@@ -510,6 +559,19 @@ export class ValueSerializer {
                         kind: obj.kind as never,
                         args: Array.isArray(obj.args) ? (obj.args as number[]) : [],
                     });
+                }
+                case "LiveMesh": {
+                    // Instantiate's identity table. Outside it a LiveMesh has
+                    // no meaning — a file can never hold one, and one that
+                    // reaches a reader anyway is dropped with a single warning.
+                    if (ctx?.liveMeshes) {
+                        return ctx.liveMeshes[+(obj.index ?? -1)] ?? null;
+                    }
+                    if (!liveMeshWarned) {
+                        liveMeshWarned = true;
+                        console.warn("a LiveMesh reference outside Instantiate — ignored");
+                    }
+                    return null;
                 }
                 case "AssetRef": case FieldType.Asset: {
                     const guid = typeof obj.guid === "string" ? obj.guid : null;

@@ -40,7 +40,10 @@ export enum FieldType {
     /**
      * A {@link Mesh}. Stored as a reference when it was loaded from a file, or
      * as the recipe that built it when it came from a `create*` factory. A mesh
-     * that is neither cannot be stored — see `MeshFilter.mesh`.
+     * edited after its factory built it has no recipe any more, and a mesh
+     * that is neither cannot be stored — see `MeshFilter.mesh`. Instantiate
+     * passes meshes by identity: inside a copy the same object is kept, never
+     * a recipe or a reference.
      */
     Mesh        = "Mesh",
     /**
