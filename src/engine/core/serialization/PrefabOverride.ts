@@ -1,4 +1,6 @@
 import type { SerializedGameObject, SerializedComponent } from "./SceneSerializer";
+import { Behaviour } from "../Behaviour";
+import { TypeRegistry } from "../reflection/TypeRegistry";
 
 /**
  * One value on a prefab instance that differs from the prefab it came from.
@@ -565,7 +567,7 @@ export class PrefabDiff {
             const at = Math.min(Math.max(a.index, 0), node.components.length);
             const there = node.components[at];
             if (there !== undefined && there.type === a.component.type
-                && PrefabDiff._equal(there.fields, a.component.fields)) continue;
+                && PrefabDiff._equal(PrefabDiff._withDefaultEnabled(there), PrefabDiff._withDefaultEnabled(a.component))) continue;
             node.components.splice(at, 0, JSON.parse(JSON.stringify(a.component)) as SerializedComponent);
         }
 
@@ -1451,8 +1453,9 @@ export class PrefabDiff {
             }
             matched.add(original);
 
+            const prefabFields = PrefabDiff._withDefaultEnabled(original);
             for (const field of Object.keys(comp.fields)) {
-                if (PrefabDiff._equal(original.fields[field], comp.fields[field])) continue;
+                if (PrefabDiff._equal(prefabFields[field], comp.fields[field])) continue;
                 changes.overrides.push(at({
                     component: comp.type,
                     componentIndex: PrefabDiff._occurrenceOf(instance.components, comp),
@@ -1559,6 +1562,37 @@ export class PrefabDiff {
             seen++;
         }
         return -1;
+    }
+
+    /**
+     * A component's fields, with a missing `enabled` read as its default.
+     *
+     * @remarks
+     * `Behaviour.enabled` is serialized from SER1 on, always written. A tree
+     * saved before that carries no `enabled` key, and an instance built from it
+     * now writes `enabled: true`; comparing the two raw would report a spurious
+     * override on every untouched instance of an old prefab. So a missing
+     * `enabled` counts as `true` — the value the load gives it — but only for a
+     * type that resolves to a {@link Behaviour} subclass. An unknown type is
+     * left exactly as it is: its fields are not ours to interpret, and a
+     * `MissingComponent` round-trips its own bytes untouched.
+     *
+     * The field comparison normalizes the prefab side only; the instance side
+     * it iterates always carries the key from SER1 on, and an older instance
+     * never surfaces it. The added-component match compares whole field sets,
+     * so it normalizes both operands: a change saved before SER1 against a
+     * prefab that already absorbed it must still deduplicate, or the load
+     * would insert the component twice.
+     *
+     * The returned object is a copy when a default is supplied, never the
+     * snapshot's own: the diff must not write into the tree it reads, and what
+     * an apply inserts stays the change's own bytes.
+     */
+    private static _withDefaultEnabled(comp: SerializedComponent): Record<string, unknown> {
+        if ("enabled" in comp.fields) return comp.fields;
+        const ctor = TypeRegistry.get(comp.type);
+        if (ctor === null || !(ctor.prototype instanceof Behaviour)) return comp.fields;
+        return { enabled: true, ...comp.fields };
     }
 
     /**

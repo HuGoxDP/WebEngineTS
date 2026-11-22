@@ -159,7 +159,7 @@ describe("Cinemachine components", () => {
 
         const fields = SceneSerializer.serializeGameObject(go).components[0].fields;
 
-        expect(Object.keys(fields).sort()).toEqual(["damping", "offset"]);
+        expect(Object.keys(fields).sort()).toEqual(["damping", "enabled", "offset"]);
     });
 });
 

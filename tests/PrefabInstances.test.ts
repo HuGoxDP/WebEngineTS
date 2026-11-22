@@ -77,7 +77,7 @@ function expandedScene(): SerializedScene {
             node("Player", { transform: pose(5, 0, 0) }),
             node("Tank", {
                 transform: pose(1, 2, 3),
-                components: [{ type: "PrefabSpec.Aim", fields: { target: { $type: "GameObjectRef", path: [1, 1, 0] } } }],
+                components: [{ type: "PrefabSpec.Aim", fields: { enabled: true, target: { $type: "GameObjectRef", path: [1, 1, 0] } } }],
                 children: [
                     node("Hull", { id: "k2v0f002" }),
                     node("Turret", {
@@ -218,7 +218,7 @@ describe("a prefab instance saved in full", () => {
                 node("Bench", {
                     transform: pose(2, 0, -1),
                     components: [
-                        { type: "PrefabSpec.Tag", fields: { label: "bench" } },
+                        { type: "PrefabSpec.Tag", fields: { enabled: true, label: "bench" } },
                         {
                             type: "MeshRenderer",
                             fields: (() => {
@@ -234,7 +234,7 @@ describe("a prefab instance saved in full", () => {
                         transform: pose(0, 1.5, 0),
                         components: [{
                             type: "PrefabSpec.Aim",
-                            fields: { target: { $type: "GameObjectRef", path: [1] } },
+                            fields: { enabled: true, target: { $type: "GameObjectRef", path: [1] } },
                         }],
                     })],
                 }),
