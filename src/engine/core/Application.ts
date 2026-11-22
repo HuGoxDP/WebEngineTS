@@ -754,6 +754,17 @@ export class Application {
         // Time uninitialized so the next `_update` re-initializes cleanly.
         Time._reset();
 
+        // Physics is static state as well: the collider registrations, the
+        // active collision pairs and the cannon world itself (gravity, default
+        // friction/bounciness, registered bodies and materials). Nothing was
+        // resetting them, so a scenario that changed gravity or left colliders
+        // behind leaked all of it into the next scenario in the same realm.
+        // The reset drops the world; the next `Physics` access recreates it
+        // with the defaults. It runs after the scenario unload (components
+        // unregister from physics in `onDisable`) and after the loop stopped,
+        // and nothing below reads physics state.
+        Physics._reset();
+
         // Queued texture releases belong to the loop that would have run them.
         TextureRelease._clear();
 

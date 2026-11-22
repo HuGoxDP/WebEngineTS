@@ -163,6 +163,7 @@ rendered output, so benchmark results taken on 0.2.0 stay comparable.
   `fixedDeltaTime`/`maximumDeltaTime` back to the engine defaults — beside the other module resets (audio, pending destroys, texture releases). A host that runs
   every scenario in a fresh frame, as the virtual-lab player does, was never affected. Closes
   gap G5. Pinned by `tests/TimeResetOnDispose.test.ts`.
+- **Physics state no longer outlives a scenario in a reused realm (G5a).** `Physics._reset()` had no production caller, so a host that reuses one page realm started the next scenario on the old world: a changed `Physics.gravity`, `defaultFriction`/`defaultBounciness`, colliders left registered and stale collision pairs all carried over. `Application.dispose()` now calls `Physics._reset()` after the scenario unload and the loop stop, dropping the collider registrations, the collision pairs and the physics world — the next access recreates it with the defaults. A host that runs every scenario in a fresh frame, as the virtual-lab player does, was never affected. Pinned by `tests/PhysicsResetOnDispose.test.ts`.
 
 ---
 
