@@ -122,6 +122,16 @@ the benchmark suite reads this file to decide whether it has to re-measure.
 
 - **Switching modes from inside a callback cannot leave a silent half-woken world.** A script's `awake` may call `enterEditMode()` during the wake pass, and an opted-in script's `update` may call `enterPlayMode()` during an edit frame; both now stop where they are and say so with a warning rather than continuing to drive a world that is no longer in the mode the host asked for. A timed destroy during an edit frame also counts down with `Time.deltaTime`, so a `timeScale` below 1 slows it as it does in play. Pinned by `tests/EditModeCompat.test.ts`.
 
+- **A disabled component stays disabled through save/load, `Instantiate` and prefabs (SER1).** Every
+  `Behaviour` — scripts, renderers, colliders, lights, Cinemachine bodies — now saves its `enabled` state with
+  the scene and restores it before `awake` runs, so a switched-off component no longer comes back on after a
+  reload or a copy, and a prefab whose component is disabled gives disabled instances. Switching one on
+  records an ordinary `enabled` override that survives a link-mode save and load. A script loaded disabled
+  gets `awake` once and `onEnable` never, as in Unity; switching it on later enables it normally. Old files
+  without the key load enabled and produce no new prefab overrides. The inspector field list is unchanged —
+  the field is hidden from it. Pinned by `tests/BehaviourEnabledSerialization.test.ts` and
+  `tests/PrefabEnabledOverride.test.ts`.
+
 ---
 
 ## [0.3.0] - 2026-11-12
