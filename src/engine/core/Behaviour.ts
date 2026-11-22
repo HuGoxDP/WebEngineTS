@@ -2,6 +2,8 @@
 
 import { Component } from "./Component.ts";
 import type { GameObject } from "./GameObject.ts";
+import { SerializedField, HideInInspector } from "./reflection/Decorators.ts";
+import { FieldType } from "./reflection/Types.ts";
 
 /**
  * A {@link Component} that can be enabled or disabled.
@@ -55,10 +57,20 @@ export abstract class Behaviour extends Component {
      * When disabled, the engine will not call lifecycle methods
      * (Update, FixedUpdate, etc.) on this component.
      *
+     * Saved with the scene — `true` or `false`, always — and written back
+     * before `awake` runs, so a component that was switched off comes back
+     * switched off through a save/load, `Instantiate` and prefab use. A file
+     * written before the field existed carries no `enabled` key; it reads as
+     * the default, `true`, and the setter is never called.
+     *
      * @remarks
+     * Equivalent to Unity's serialized `Behaviour.m_Enabled`.
+     *
      * Setting `enabled` triggers {@link onEnable} or {@link onDisable}
      * if the effective state actually changes.
      */
+    @SerializedField({ type: FieldType.Boolean })
+    @HideInInspector()
     public get enabled(): boolean {
         return this._enabled;
     }

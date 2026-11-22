@@ -436,7 +436,7 @@ describe("SceneSerializer — format unchanged by prefab support", () => {
                 name: "Anchor",
                 active: true,
                 transform: pose(1, 2, 3),
-                components: [{ type: "FormatSpec.Mark", fields: { label: "home" } }],
+                components: [{ type: "FormatSpec.Mark", fields: { enabled: true, label: "home" } }],
                 children: [{
                     name: "Tip",
                     active: false,
@@ -452,6 +452,7 @@ describe("SceneSerializer — format unchanged by prefab support", () => {
                 components: [{
                     type: "FormatSpec.Route",
                     fields: {
+                        enabled: true,
                         target: { $type: "GameObjectRef", path: [0, 0] },
                         partner: { $type: "ComponentRef", path: [0], component: "FormatSpec.Mark", index: 0 },
                         leg: {
