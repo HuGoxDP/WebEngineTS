@@ -33,6 +33,7 @@ import { Selectable } from "./ui/Selectable.ts";
 import { ParticleSystem } from "./particles/ParticleSystem.ts";
 import { LODGroup } from "./components/LODGroup.ts";
 import { LineRenderer } from "./components/LineRenderer.ts";
+import { MeshRenderer } from "./rendering/MeshRenderer.ts";
 import { Gamepad } from "./input/Gamepad.ts";
 import { Touch } from "./input/Touch.ts";
 import { PluginManager } from "./plugins/PluginManager.ts";
@@ -1086,6 +1087,7 @@ export class Application {
 
         // Flush any dirty transforms before matrix recomputation
         Transform._syncAllDirty();
+        MeshRenderer._flushDirty();
 
         // Ensure all world matrices are up-to-date
         scene._internalThreeScene.updateMatrixWorld(true);
@@ -1164,6 +1166,7 @@ export class Application {
         if (!mainCamera) return;
 
         Transform._syncAllDirty();
+        MeshRenderer._flushDirty();
         scene._internalThreeScene.updateMatrixWorld(true);
         this._backend.warmup(scene, mainCamera);
     }

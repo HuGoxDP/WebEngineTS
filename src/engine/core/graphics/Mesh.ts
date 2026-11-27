@@ -212,7 +212,7 @@ export class Mesh extends EngineObject {
      * nothing.
      * @internal
      */
-    private _observers: Set<() => void> | null = null;
+    private _observers: Set<(dataWrite: boolean) => void> | null = null;
 
     /**
      * How many MeshFilters currently hold this mesh. Retained on store,
@@ -262,24 +262,25 @@ export class Mesh extends EngineObject {
     private _markDirty(): void {
         this._needsUpdate = true;
         if (this._primitive !== null) this._recipeStale = true;
-        this._notifyObservers();
+        this._notifyObservers(true);
     }
 
     /**
-     * Notifies observers without marking the geometry dirty, for changes that
-     * only affect bounds (no vertex/index data write, so no rebuild needed).
+     * Notifies observers. A data write lets renderers defer their rebuild;
+     * a bounds-only change keeps the immediate notification path.
      * @internal
      */
-    private _notifyObservers(): void {
+    private _notifyObservers(dataWrite: boolean): void {
         if (this._observers === null) return;
-        for (const notify of [...this._observers]) notify();
+        for (const notify of [...this._observers]) notify(dataWrite);
     }
 
     /**
-     * Subscribes to data writes on this mesh. Duplicate registration is a no-op.
+     * Subscribes to mesh changes. `dataWrite` is true for vertex/index data
+     * writes and false for bounds-only changes. Duplicate registration is a no-op.
      * @internal
      */
-    public _addObserver(notify: () => void): void {
+    public _addObserver(notify: (dataWrite: boolean) => void): void {
         if (this._observers === null) this._observers = new Set();
         this._observers.add(notify);
     }
@@ -288,7 +289,7 @@ export class Mesh extends EngineObject {
      * Unsubscribes a previously registered observer.
      * @internal
      */
-    public _removeObserver(notify: () => void): void {
+    public _removeObserver(notify: (dataWrite: boolean) => void): void {
         this._observers?.delete(notify);
     }
 
@@ -406,7 +407,7 @@ export class Mesh extends EngineObject {
     /** Replaces the bounding box. */
     set bounds(value: Bounds) {
         this._bounds = value;
-        this._notifyObservers();
+        this._notifyObservers(false);
     }
 
     /** How many vertices the mesh has. */
@@ -624,7 +625,7 @@ export class Mesh extends EngineObject {
     public recalculateBounds(): void {
         if (this._vertices.length === 0) {
             this._bounds = new Bounds(new Vector3(0, 0, 0), new Vector3(0, 0, 0));
-            this._notifyObservers();
+            this._notifyObservers(false);
             return;
         }
 
@@ -645,7 +646,7 @@ export class Mesh extends EngineObject {
         const max = new Vector3(maxX, maxY, maxZ);
 
         this._bounds.setMinMax(min, max);
-        this._notifyObservers();
+        this._notifyObservers(false);
     }
 
     // ==================== CLEAR ====================

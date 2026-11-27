@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { Renderer } from "./Renderer.ts";
 import { MeshFilter } from "./MeshFilter.ts";
 import type { Mesh } from "../graphics/Mesh.ts";
+import { Bounds } from "../math/Bounds.ts";
 import { Serializable } from "../reflection/Decorators.ts";
 import type { GameObject } from "../GameObject.ts";
 
@@ -45,7 +46,21 @@ export class MeshRenderer extends Renderer {
      *
      * @internal — never access outside the engine.
      */
-    private _threeMesh: THREE.Mesh | null = null;
+    private _threeMeshObject: THREE.Mesh | null = null;
+
+    /**
+     * The underlying Three.js mesh. Reading it pulls a pending data-write
+     * rebuild, so a geometry reader never sees stale data.
+     * @internal
+     */
+    private get _threeMesh(): THREE.Mesh | null {
+        this._flushIfDirty();
+        return this._threeMeshObject;
+    }
+
+    private set _threeMesh(value: THREE.Mesh | null) {
+        this._threeMeshObject = value;
+    }
 
     /**
      * Cached reference to the sibling MeshFilter.
@@ -106,6 +121,7 @@ export class MeshRenderer extends Renderer {
      * then delegates to Renderer base for material cleanup and scene detach.
      */
     protected override onDestroy(): void {
+        MeshRenderer._dirtyRenderers.delete(this);
         this._observedMesh?._removeObserver(this._onMeshEdited);
         this._observedMesh = null;
         this._meshFilter = null;
@@ -127,14 +143,14 @@ export class MeshRenderer extends Renderer {
      * Called automatically by Renderer when `sharedMaterial` or `material` changes.
      */
     protected override _syncMaterialToThree(): void {
-        if (this._threeMesh === null) return;
+        if (this._threeMeshObject === null) return;
 
         const mat = this._getActiveMaterial();
         if (mat !== null) {
-            this._threeMesh.material = mat._internalThreeMaterial;
+            this._threeMeshObject.material = mat._internalThreeMaterial;
         } else {
             // Fallback: white standard material (slightly friendlier than magenta for MVP)
-            this._threeMesh.material = MeshRenderer._defaultMaterial;
+            this._threeMeshObject.material = MeshRenderer._defaultMaterial;
         }
     }
 
@@ -145,19 +161,40 @@ export class MeshRenderer extends Renderer {
      * Called automatically by Renderer when `sharedMaterials` or `materials` changes.
      */
     protected override _syncMaterialsToThree(): void {
-        if (this._threeMesh === null) return;
+        if (this._threeMeshObject === null) return;
 
         const mats = this._getActiveMaterials();
         if (mats.length > 1) {
-            this._threeMesh.material = mats.map(m => m._internalThreeMaterial);
+            this._threeMeshObject.material = mats.map(m => m._internalThreeMaterial);
         } else if (mats.length === 1) {
-            this._threeMesh.material = mats[0]._internalThreeMaterial;
+            this._threeMeshObject.material = mats[0]._internalThreeMaterial;
         } else {
-            this._threeMesh.material = MeshRenderer._defaultMaterial;
+            this._threeMeshObject.material = MeshRenderer._defaultMaterial;
         }
     }
 
     // ==================== PUBLIC API ====================
+
+    /**
+     * The world-space bounds, rebuilt from pending mesh edits on read.
+     */
+    public override get bounds(): Bounds {
+        this._flushIfDirty();
+        return super.bounds;
+    }
+
+    /**
+     * The object-space bounds, rebuilt from pending mesh edits on read.
+     */
+    public override get localBounds(): Bounds {
+        this._flushIfDirty();
+        return super.localBounds;
+    }
+
+    public override set localBounds(value: Bounds) {
+        this._flushIfDirty();
+        super.localBounds = value;
+    }
 
     /**
      * Re-reads geometry from the sibling MeshFilter and updates the
@@ -174,7 +211,7 @@ export class MeshRenderer extends Renderer {
      * (e.g. a mesh held by several renderers).
      */
     public updateMesh(): void {
-        if (this._threeMesh === null) return;
+        if (this._threeMeshObject === null) return;
 
         // Re-find MeshFilter if we lost the reference or it was destroyed
         if (this._meshFilter === null || !this._meshFilter.exists()) {
@@ -201,13 +238,34 @@ export class MeshRenderer extends Renderer {
      * Reads the current mesh from MeshFilter and applies it to the Three.js mesh.
      */
     private _syncGeometry(): void {
-        if (this._threeMesh === null) return;
+        // A pending data write is rebuilt here, once, before anything reads geometry.
+        if (this._flushIfDirty()) return;
+        this._applyGeometry();
+    }
+
+    /**
+     * @internal
+     * Removes this renderer from the dirty set and rebuilds it if present.
+     * @returns true when a rebuild was performed.
+     */
+    private _flushIfDirty(): boolean {
+        if (!MeshRenderer._dirtyRenderers.delete(this)) return false;
+        this._applyGeometry();
+        return true;
+    }
+
+    /**
+     * @internal
+     * Reads the current mesh from MeshFilter and applies it to the Three.js mesh.
+     */
+    private _applyGeometry(): void {
+        if (this._threeMeshObject === null) return;
 
         const mesh = this._meshFilter?._effectiveMesh() ?? null;
         if (mesh === null) {
             this._observedMesh?._removeObserver(this._onMeshEdited);
             this._observedMesh = null;
-            this._threeMesh.geometry = MeshRenderer._emptyGeometry;
+            this._threeMeshObject.geometry = MeshRenderer._emptyGeometry;
             this._localBounds.reset();
             return;
         }
@@ -221,7 +279,7 @@ export class MeshRenderer extends Renderer {
 
         // Assign geometry (Three.js Mesh does NOT own the geometry — Mesh asset does).
         // Read through _internalGeometry so a pending edit is synced first.
-        this._threeMesh.geometry = mesh._internalGeometry;
+        this._threeMeshObject.geometry = mesh._internalGeometry;
 
         // Update local bounds from the mesh
         this._localBounds.copy(mesh.bounds);
@@ -229,11 +287,15 @@ export class MeshRenderer extends Renderer {
 
     /**
      * @internal
-     * Fired by the drawn mesh on every data write; re-syncs so edits through
-     * `filter.mesh` reach the screen without any per-frame polling.
+     * Data writes only mark this renderer dirty; bounds-only changes keep
+     * their immediate sync path (U-4).
      */
-    private _onMeshEdited = (): void => {
-        this._syncGeometry();
+    private _onMeshEdited = (dataWrite: boolean): void => {
+        if (dataWrite) {
+            MeshRenderer._markDirty(this);
+        } else {
+            this._syncGeometry();
+        }
     };
 
     /**
@@ -251,6 +313,34 @@ export class MeshRenderer extends Renderer {
     }
 
     // ==================== STATIC ====================
+
+    /**
+     * Renderers with pending mesh data writes. A set collapses repeated
+     * writes to the same renderer into one rebuild.
+     * @internal
+     */
+    private static _dirtyRenderers: Set<MeshRenderer> = new Set();
+
+    /**
+     * Marks a renderer for a later rebuild. A renderer with no Three.js mesh
+     * (not awake yet, or destroyed) is never queued.
+     * @internal
+     */
+    private static _markDirty(renderer: MeshRenderer): void {
+        if (renderer._threeMeshObject !== null) MeshRenderer._dirtyRenderers.add(renderer);
+    }
+
+    /**
+     * Rebuilds every renderer with pending mesh data writes exactly once.
+     * The set is copied first so a renderer re-dirtied during the flush is
+     * left for the next one; destroyed renderers are skipped by `_applyGeometry`.
+     * @internal
+     */
+    public static _flushDirty(): void {
+        for (const renderer of [...MeshRenderer._dirtyRenderers]) {
+            renderer._flushIfDirty();
+        }
+    }
 
     /**
      * Default material used when no material is assigned.
