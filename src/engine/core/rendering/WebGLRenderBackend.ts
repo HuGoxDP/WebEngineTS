@@ -331,11 +331,15 @@ export class WebGLRenderBackend implements RenderBackend {
         const bytes = width * height * 4;
         if (out.length < bytes) return false;
 
-        // `readRenderTargetPixels` reads the framebuffer as it stands, with the
-        // first row at the bottom (GL convention). Everything the engine hands a
-        // script is top-down, so the rows are flipped on the way out.
+        // `readRenderTargetPixels` takes a bottom-up GL row. The (x, y, width,
+        // height) handed here is an already-clipped, top-down source rectangle
+        // (contract of `RenderTexture._readBack`), so its GL origin row is the
+        // target's height minus the rectangle's bottom edge. A full-target read
+        // (y = 0, height = target.height) asks for row 0, exactly as before.
+        // Everything the engine hands a script is top-down, so the rows are
+        // flipped on the way out.
         this._renderer.readRenderTargetPixels(
-            target._internalThreeRenderTarget, x, y, width, height, out);
+            target._internalThreeRenderTarget, x, target.height - y - height, width, height, out);
         for (let row = 0; row < height >> 1; row++) {
             const top = row * width * 4;
             const bottom = (height - 1 - row) * width * 4;

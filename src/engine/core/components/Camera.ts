@@ -2,6 +2,8 @@
 
 import * as THREE from "three";
 import { Behaviour } from "../Behaviour.ts";
+import { Transform } from "../Transform.ts";
+import { SceneManager } from "../SceneManager.ts";
 import { profilerHooks } from "../diagnostics/ProfilerHooks.ts";
 import { Serializable, SerializedField } from "../reflection/Decorators.ts";
 import { FieldType } from "../reflection/Types.ts";
@@ -584,6 +586,10 @@ export class Camera extends Behaviour {
             console.warn(`[Camera] render() on "${this.name}" before it woke; nothing was drawn.`);
             return;
         }
+        // An on-demand render sees the same pre-render state as a frame: edits
+        // made since the last frame are still deferred when dirty batching is on.
+        Transform._syncAllDirty();
+        SceneManager.activeScene._internalThreeScene.updateMatrixWorld(true);
         Camera._renderHook(this);
     }
 
