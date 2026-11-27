@@ -514,8 +514,16 @@ export class Scenario extends EngineObject {
      * 2. Creates a dedicated Scene for this scenario.
      * 3. Pre-links all scripts (rewrites relative imports → Blob URLs).
      * 4. Loads the entry point module.
-     * 5. Calls `ScenarioBehaviour._systemInit(context)` (which invokes `awake()`).
-     * 6. Builds the manifest's `entryScene`, if it names one.
+     * 5. Imports every remaining script, in sorted path order.
+     * 6. Calls `ScenarioBehaviour._systemInit(context)` (which invokes `awake()`).
+     * 7. Builds the manifest's `entryScene`, if it names one.
+     *
+     * @remarks
+     * Unity parity: Unity compiles every script under `Assets/` into the
+     * player, so a component named by a scene always finds its class whether
+     * or not other code imports the script. Step 5 gives scenarios the same
+     * guarantee — every script of the scenario is available before the
+     * entry's `awake()`, not only the entry module's import graph.
      */
     public async run(): Promise<void> {
         // Edit mode refuses a scenario outright, before anything is created: a
@@ -573,12 +581,17 @@ export class Scenario extends EngineObject {
 
             this._entryPoint._systemSetResultSink(result => this._deliverResult(result));
 
+            // Every other script of the scenario, so its component classes
+            // are registered before awake — Unity parity.
+            await this._importRemainingScripts();
+
             // Awake — the scenario builds its world here (may be async)
             await this._entryPoint._systemInit(context);
 
-            // The manifest's own scene, after awake: the entry module (and
-            // whatever awake imported) has registered the component classes the
-            // scene names.
+            // The manifest's own scene, after awake: every script of the
+            // scenario has been imported (the entry first), so the component
+            // classes the scene names are registered whether or not anything
+            // imports their scripts.
             await this._loadEntryScene();
 
             console.log(`[Scenario] Running: ${this._manifest.name}`);
@@ -1067,6 +1080,32 @@ export class Scenario extends EngineObject {
         throw new Error(
           `[Scenario] Entry point must extend ScenarioBehaviour.`
         );
+    }
+
+    /**
+     * Imports every pre-linked script except the entry module, in sorted path
+     * order, so every script's component classes are registered before awake.
+     *
+     * The entry module was imported first, so its top-level code ran first;
+     * modules already in its import graph are cached by the module system and
+     * are not evaluated twice. A non-entry module that throws is logged once,
+     * by path, and skipped — before every script was imported such a file was
+     * never evaluated, so failing hard would break scenarios that run today.
+     * Its components stay `MissingComponent`; the scenario still runs.
+     */
+    private async _importRemainingScripts(): Promise<void> {
+        const entryPath = `scripts/${this._manifest!.entryPoint}`;
+        const paths = [...this._scriptBlobUrlMap.keys()].filter(p => p !== entryPath).sort();
+
+        for (const path of paths) {
+            const blobUrl = this._scriptBlobUrlMap.get(path)!;
+            try {
+                await import(/* @vite-ignore */ blobUrl);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                console.error(`[Scenario] Script "${path}" failed to load: ${message}`);
+            }
+        }
     }
 
     /**
