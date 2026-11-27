@@ -132,6 +132,8 @@ the benchmark suite reads this file to decide whether it has to re-measure.
   the field is hidden from it. Pinned by `tests/BehaviourEnabledSerialization.test.ts` and
   `tests/PrefabEnabledOverride.test.ts`.
 
+- **Reading a render target now respects the source rectangle, the GL row origin and on-demand renders (C6r9).** `Texture2D.readPixels(source, destX, destY)` had been asking the backend for the *destination* corner, so a sub-rectangle read the wrong pixels: the backend now receives the clipped source origin (a negative destination advances it by the clipped amount) and only the write position uses `destX`/`destY`. `WebGLRenderBackend.readPixels` asks three.js for the bottom-up GL row `target.height - y - height` while still returning rows top-first, so a sub-rectangle lands the same way round as a full-target read. `Camera.render()` flushes dirty transforms and world matrices before drawing, so an object moved since the last frame is seen at its new position. Frames captured without a target are unchanged. Pinned by `tests/RenderTextureReadSource.test.ts`, `tests/WebGLReadPixelsRows.test.ts` and `tests/CameraRenderFlush.test.ts`.
+
 ---
 
 ## [0.3.0] - 2026-11-12

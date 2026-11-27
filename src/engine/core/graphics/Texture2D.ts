@@ -381,8 +381,11 @@ export class Texture2D extends Texture {
      *                 top-left origin, Y-down (the engine's convention; the GPU's
      *                 row order is flipped on the way out). Clipped to the target.
      * @param destX — the left edge in this texture where the rectangle lands.
-     * @param destY — the top edge in this texture. Clipped, together with the
-     *                rectangle, to this texture's bounds.
+     * @param destY — the top edge in this texture. Both are clipped to this
+     *                texture; a negative edge clips into the source rectangle and
+     *                advances its x/y by the same amount, so source pixel
+     *                `(source.x + i, source.y + j)` always lands at
+     *                `(destX + i, destY + j)`.
      * @param recalculateMipMaps — Unity's parameter, kept for shape; this engine
      *                             regenerates mipmaps in {@link apply}.
      *
@@ -420,20 +423,25 @@ export class Texture2D extends Texture {
             return;
         }
 
-        // Both rectangles clipped, so a source or destination that overhangs
-        // writes the overlap rather than reading out of bounds.
-        const srcX = Math.max(0, Math.min(source.x, active.width));
-        const srcY = Math.max(0, Math.min(source.y, active.height));
-        const srcW = Math.min(source.width, active.width - srcX);
-        const srcH = Math.min(source.height, active.height - srcY);
+        // Clip the source to the target first, then the destination to this
+        // texture. A negative destination clips into the rectangle and skips the
+        // same number of source pixels, so the source origin handed to the
+        // backend is `source.x + skipX, source.y + skipY` — never the destination.
+        const srcLeft = Math.max(0, source.x);
+        const srcTop = Math.max(0, source.y);
+        const srcRight = Math.min(active.width, source.x + source.width);
+        const srcBottom = Math.min(active.height, source.y + source.height);
+
         const left = Math.max(0, destX);
         const top = Math.max(0, destY);
-        const width = Math.min(srcW, this._width - left);
-        const height = Math.min(srcH, this._height - top);
+        const skipX = left - destX;
+        const skipY = top - destY;
+        const width = Math.min(srcRight - srcLeft - skipX, this._width - left);
+        const height = Math.min(srcBottom - srcTop - skipY, this._height - top);
         if (width <= 0 || height <= 0) return;
 
         const bytes = new Uint8Array(width * height * 4);
-        if (!active._readBack(left, top, width, height, bytes)) {
+        if (!active._readBack(srcLeft + skipX, srcTop + skipY, width, height, bytes)) {
             console.warn("[Texture2D] readPixels: the backend could not read this target; nothing was copied.");
             return;
         }
